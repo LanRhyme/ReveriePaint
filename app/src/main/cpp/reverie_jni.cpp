@@ -246,6 +246,34 @@ Java_com_reverie_paint_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_lassoFill(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
+{
+    jint *px = env->GetIntArrayElements(xs, nullptr);
+    jint *py = env->GetIntArrayElements(ys, nullptr);
+    QVector<QPoint> pts;
+    for (int i = 0; i < count; ++i) {
+        pts.append(QPoint(px[i], py[i]));
+    }
+    env->ReleaseIntArrayElements(xs, px, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, py, JNI_ABORT);
+    core()->lassoFill(pts);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_lassoClear(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
+{
+    jint *px = env->GetIntArrayElements(xs, nullptr);
+    jint *py = env->GetIntArrayElements(ys, nullptr);
+    QVector<QPoint> pts;
+    for (int i = 0; i < count; ++i) {
+        pts.append(QPoint(px[i], py[i]));
+    }
+    env->ReleaseIntArrayElements(xs, px, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, py, JNI_ABORT);
+    core()->lassoClear(pts);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_drawText(JNIEnv *env, jobject, jint x, jint y, jstring text, jdouble fontSize)
 {
     const char *c = env->GetStringUTFChars(text, nullptr);

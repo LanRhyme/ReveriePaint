@@ -37,3 +37,6 @@
 1331	1417	1786471508298512190	/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a/libreverie_jni.so	b2c7ecc128f00d2
 1	2868	1786471645926408834	CMakeFiles/reverie_jni.dir/ReverieCore.cpp.o	fc4978790dd679d8
 2869	3062	1786471646128407188	/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a/libreverie_jni.so	b2c7ecc128f00d2
+3	1518	1786471716454829874	CMakeFiles/reverie_jni.dir/reverie_jni.cpp.o	9f57e1b0ff73e61
+3	5145	1786471720059800068	CMakeFiles/reverie_jni.dir/ReverieCore.cpp.o	fc4978790dd679d8
+5145	5235	1786471720177799092	/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a/libreverie_jni.so	b2c7ecc128f00d2

@@ -122,6 +122,7 @@ fun CanvasView(
                                         bmp.width,
                                         bmp.height,
                                     )
+                                var lassoPoints = mutableListOf<Offset>(img0)
                                 var mode =
                                     when (tool) {
                                         Tool.HAND -> {
@@ -145,6 +146,11 @@ fun CanvasView(
 
                                         Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                                             vm.touchStart(img0.x, img0.y)
+                                            GestureMode.STROKE
+                                        }
+
+                                        Tool.LASSO, Tool.MAGICWAND -> {
+                                            lassoPoints = mutableListOf(img0)
                                             GestureMode.STROKE
                                         }
 
@@ -199,6 +205,8 @@ fun CanvasView(
                                             if (isShapeTool) {
                                                 // Shape tools: track the drag end; draw on release
                                                 shapeEnd = img
+                                            } else if (tool == Tool.LASSO || tool == Tool.MAGICWAND) {
+                                                lassoPoints.add(img)
                                             } else {
                                                 vm.touchMove(img.x, img.y)
                                             }
@@ -239,6 +247,15 @@ fun CanvasView(
                                                     else -> 0
                                                 }
                                             vm.drawShape(kind, shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y)
+                                        } else if (tool == Tool.LASSO || tool == Tool.MAGICWAND) {
+                                            if (lassoPoints.size >= 3) {
+                                                val pts = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                                if (tool == Tool.LASSO) {
+                                                    vm.lassoFill(pts)
+                                                } else {
+                                                    vm.lassoClear(pts)
+                                                }
+                                            }
                                         } else {
                                             vm.touchEnd()
                                         }

@@ -213,6 +213,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun lassoFill(points: List<Pair<Int, Int>>) {
+        val xs = points.map { it.first }.toIntArray()
+        val ys = points.map { it.second }.toIntArray()
+        ReverieCoreBridge.lassoFill(xs, ys, points.size)
+        refreshDisplay()
+    }
+
+    fun lassoClear(points: List<Pair<Int, Int>>) {
+        val xs = points.map { it.first }.toIntArray()
+        val ys = points.map { it.second }.toIntArray()
+        ReverieCoreBridge.lassoClear(xs, ys, points.size)
+        refreshDisplay()
+    }
+
     fun drawText(
         x: Float,
         y: Float,

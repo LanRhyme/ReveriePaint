@@ -10,6 +10,7 @@
 #include "ReverieCore.h"
 
 #include <QDebug>
+#include <algorithm>
 #include <QPainter>
 #include <QFont>
 #include <QFontMetrics>
@@ -774,6 +775,123 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
                        region.width(), region.height());
     device->setDirty();
     markDirty();
+}
+
+namespace {
+// Scanline polygon fill: paint mask into a w*h mask buffer.
+void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool> &mask)
+{
+    mask.fill(false, size_t(w) * h);
+    if (pts.size() < 3) {
+        return;
+    }
+    int ymin = INT_MAX, ymax = -INT_MAX;
+    for (const QPoint &p : pts) {
+        ymin = qMin(ymin, p.y());
+        ymax = qMax(ymax, p.y());
+    }
+    ymin = qMax(0, ymin);
+    ymax = qMin(h - 1, ymax);
+    for (int y = ymin; y <= ymax; ++y) {
+        // Collect x intersections with polygon edges
+        QVector<int> xs;
+        for (int i = 0; i < pts.size(); ++i) {
+            const QPoint &a = pts[i];
+            const QPoint &b = pts[(i + 1) % pts.size()];
+            if ((a.y() <= y && b.y() > y) || (b.y() <= y && a.y() > y)) {
+                const qreal t = qreal(y - a.y()) / qreal(b.y() - a.y());
+                xs.append(int(a.x() + t * (b.x() - a.x())));
+            }
+        }
+        std::sort(xs.begin(), xs.end());
+        for (int i = 0; i + 1 < xs.size(); i += 2) {
+            const int x0 = qMax(0, xs[i]);
+            const int x1 = qMin(w - 1, xs[i + 1]);
+            for (int x = x0; x <= x1; ++x) {
+                mask[size_t(y) * w + x] = true;
+            }
+        }
+    }
+}
+} // namespace
+
+void ReverieCore::lassoFill(const QVector<QPoint> &points)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<bool> mask;
+    scanlineFillPolygon(points, iw, ih, mask);
+
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
+    bool touched = false;
+    for (int y = 0; y < ih; ++y) {
+        for (int x = 0; x < iw; ++x) {
+            if (mask[size_t(y) * iw + x]) {
+                layerImg.setPixel(x, y, fill);
+                touched = true;
+            }
+        }
+    }
+    if (touched) {
+        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
+        device->setDirty();
+        markDirty();
+    }
+}
+
+void ReverieCore::lassoClear(const QVector<QPoint> &points)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<bool> mask;
+    scanlineFillPolygon(points, iw, ih, mask);
+
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+    bool touched = false;
+    for (int y = 0; y < ih; ++y) {
+        for (int x = 0; x < iw; ++x) {
+            if (mask[size_t(y) * iw + x]) {
+                layerImg.setPixel(x, y, 0x00000000); // transparent
+                touched = true;
+            }
+        }
+    }
+    if (touched) {
+        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
+        device->setDirty();
+        markDirty();
+    }
 }
 
 bool ReverieCore::savePng(const QString &path)
