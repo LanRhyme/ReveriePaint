@@ -43,10 +43,14 @@ public:
     QString layerName(int index) const;
     void setLayerVisible(int index, bool visible);
     bool layerVisible(int index) const;
+    // Blend mode: Krita composite op id ("normal", "multiply", "screen",
+    // "overlay", "darken", "lighten", "difference", "add", "erase", ...)
+    void setLayerBlendMode(int index, const QString &opId);
+    QString layerBlendMode(int index) const;
     int currentLayerIndex() const { return m_currentLayer; }
 
     // Tool mode (drives how strokes composite)
-    enum ToolMode { ToolBrush, ToolEraser, ToolFill };
+    enum ToolMode { ToolBrush, ToolEraser, ToolFill, ToolSmudge };
     void setToolMode(int mode) { m_toolMode = ToolMode(mode); }
     int toolMode() const { return int(m_toolMode); }
 

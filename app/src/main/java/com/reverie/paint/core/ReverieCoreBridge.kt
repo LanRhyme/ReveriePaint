@@ -30,6 +30,10 @@ object ReverieCoreBridge {
 
     external fun layerName(index: Int): String
 
+    external fun setLayerBlendMode(index: Int, opId: String)
+
+    external fun layerBlendMode(index: Int): String
+
     external fun setLayerVisible(
         index: Int,
         visible: Boolean,

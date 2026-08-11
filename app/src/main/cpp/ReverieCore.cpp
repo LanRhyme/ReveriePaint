@@ -239,6 +239,25 @@ bool ReverieCore::layerVisible(int index) const
     return m_layers[index].visible;
 }
 
+void ReverieCore::setLayerBlendMode(int index, const QString &opId)
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (m_layers[index].layer) {
+        m_layers[index].layer->setCompositeOpId(opId);
+        markDirty();
+    }
+}
+
+QString ReverieCore::layerBlendMode(int index) const
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].layer) {
+        return QStringLiteral("normal");
+    }
+    return m_layers[index].layer->compositeOpId();
+}
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -338,7 +357,12 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    const qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
+    qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
+    // Smudge: a translucent smearing pass (MVP approximation of the real
+    // smudge brush which pushes color along the stroke path).
+    if (m_toolMode == ToolSmudge) {
+        opacity = qMin<qreal>(opacity, 0.12);
+    }
 
     // Krita-style: reuse one KisPainter for the whole stroke
     if (!m_strokePainter || m_strokeDevice != (void *)device.data()) {

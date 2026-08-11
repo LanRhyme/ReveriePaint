@@ -116,6 +116,42 @@ fun LayerPanel(
 
             Spacer(Modifier.height(8.dp))
 
+            // Blend mode (current layer)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("混合", color = Morandi.subText, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                Spacer(Modifier.weight(1f))
+                // Simple horizontal scrollable list of blend modes
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(30.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for ((opId, label) in vm.blendModes) {
+                        val selected = com.reverie.paint.core.ReverieCoreBridge.layerBlendMode(vm.currentLayerIndex) == opId
+                        Box(
+                            modifier =
+                                Modifier
+                                    .height(28.dp)
+                                    .clip(RoundedCornerShape(7.dp))
+                                    .background(if (selected) Morandi.accent else Morandi.panel)
+                                    .clickable { vm.setLayerBlendMode(vm.currentLayerIndex, opId) }
+                                    .padding(horizontal = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                label,
+                                color = if (selected) Color.White else Morandi.text,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
             // Actions
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PanelAction("＋ 新建图层", { vm.addLayer() }, Modifier.weight(1f))

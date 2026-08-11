@@ -95,6 +95,20 @@ Java_com_reverie_paint_ReverieCoreBridge_layerName(JNIEnv *env, jobject, jint in
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_setLayerBlendMode(JNIEnv *env, jobject, jint index, jstring opId)
+{
+    const char *c = env->GetStringUTFChars(opId, nullptr);
+    core()->setLayerBlendMode(index, QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(opId, c);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_layerBlendMode(JNIEnv *env, jobject, jint index)
+{
+    return env->NewStringUTF(core()->layerBlendMode(index).toUtf8().constData());
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_setLayerVisible(JNIEnv *, jobject, jint index, jboolean visible)
 {
     core()->setLayerVisible(index, visible == JNI_TRUE);

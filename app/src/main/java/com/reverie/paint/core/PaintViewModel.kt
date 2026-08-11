@@ -194,6 +194,7 @@ class PaintViewModel : ViewModel() {
             "brush" -> ReverieCoreBridge.setToolMode(0) // ToolBrush
             "eraser" -> ReverieCoreBridge.setToolMode(1) // ToolEraser
             "fill" -> ReverieCoreBridge.setToolMode(2) // ToolFill
+            "smudge" -> ReverieCoreBridge.setToolMode(3) // ToolSmudge
             else -> ReverieCoreBridge.setToolMode(0)
         }
     }
@@ -250,6 +251,25 @@ class PaintViewModel : ViewModel() {
 
     fun setCurrentLayer(i: Int) {
         ReverieCoreBridge.setCurrentLayer(i)
+        refreshDisplay()
+    }
+
+    val blendModes = listOf(
+        "normal" to "正常",
+        "multiply" to "正片叠底",
+        "screen" to "滤色",
+        "overlay" to "叠加",
+        "darken" to "变暗",
+        "lighten" to "变亮",
+        "difference" to "差值",
+        "add" to "线性减淡",
+        "erase" to "擦除",
+    )
+
+    fun layerBlendMode(i: Int) = ReverieCoreBridge.layerBlendMode(i)
+
+    fun setLayerBlendMode(i: Int, opId: String) {
+        ReverieCoreBridge.setLayerBlendMode(i, opId)
         refreshDisplay()
     }
 
