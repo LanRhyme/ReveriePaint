@@ -51,6 +51,7 @@ fun CanvasView(
     fitScale: Float,
     onFitScale: (Float) -> Unit,
     onTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit,
+    onTextRequested: (x: Float, y: Float) -> Unit = { _, _ -> },
     tool: Tool,
 ) {
     var viewW by remember { mutableStateOf(1) }
@@ -134,6 +135,11 @@ fun CanvasView(
 
                                         Tool.FILL -> {
                                             vm.floodFill(img0.x, img0.y)
+                                            GestureMode.NONE
+                                        }
+
+                                        Tool.TEXT -> {
+                                            onTextRequested(img0.x, img0.y)
                                             GestureMode.NONE
                                         }
 

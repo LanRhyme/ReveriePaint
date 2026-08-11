@@ -232,6 +232,14 @@ Java_com_reverie_paint_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_drawText(JNIEnv *env, jobject, jint x, jint y, jstring text, jdouble fontSize)
+{
+    const char *c = env->GetStringUTFChars(text, nullptr);
+    core()->drawText(x, y, QString::fromUtf8(c), fontSize);
+    env->ReleaseStringUTFChars(text, c);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2)
 {
     core()->drawShape(kind, x1, y1, x2, y2);

@@ -70,6 +70,7 @@ fun PaintingPage(vm: PaintViewModel) {
         }
     }
 
+    var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var settingsPanelOpen by remember { mutableStateOf(false) }
@@ -103,6 +104,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 panY = py
                 flashIndicator()
             },
+            onTextRequested = { x, y -> textDialogPos = x to y },
             tool = tool,
         )
 
@@ -202,6 +204,19 @@ fun PaintingPage(vm: PaintViewModel) {
                 modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
+
+        // Text tool input dialog
+        textDialogPos?.let { (tx, ty) ->
+            TextInputDialog(
+                onConfirm = { txt ->
+                    if (txt.isNotBlank()) {
+                        vm.drawText(tx, ty, txt, 48.0)
+                    }
+                    textDialogPos = null
+                },
+                onDismiss = { textDialogPos = null },
+            )
+        }
     }
 }
 
@@ -222,4 +237,43 @@ fun widgetToImage(
     val dx = p.x - panX - canvasW / 2f
     val dy = p.y - panY - canvasH / 2f
     return Offset(dx / scale + docW / 2f, dy / scale + docH / 2f)
+}
+
+/** Text input dialog for the text tool (MVP). */
+@Composable
+fun TextInputDialog(
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("输入文字", color = Morandi.text) },
+        text = {
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+                placeholder = { Text("在这里输入...", color = Morandi.subText) },
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Morandi.accent,
+                    unfocusedBorderColor = Morandi.border,
+                    focusedContainerColor = Morandi.panel,
+                    unfocusedContainerColor = Morandi.panel,
+                    cursorColor = Morandi.accent,
+                ),
+            )
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = { onConfirm(text) }) {
+                Text("确定", color = Morandi.accentHi)
+            }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text("取消", color = Morandi.subText)
+            }
+        },
+        containerColor = Morandi.panelHi,
+    )
 }

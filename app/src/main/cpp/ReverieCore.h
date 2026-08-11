@@ -56,6 +56,9 @@ public:
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
     void drawShape(int kind, int x1, int y1, int x2, int y2);
 
+    // Draw text at (x, y) with the current brush color/size
+    void drawText(int x, int y, const QString &text, qreal fontSize);
+
     // Brush
     void setBrushSize(qreal size) { m_brushSize = size; }
     qreal brushSize() const { return m_brushSize; }

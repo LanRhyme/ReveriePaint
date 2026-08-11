@@ -212,6 +212,16 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun drawText(
+        x: Float,
+        y: Float,
+        text: String,
+        fontSize: Double,
+    ) {
+        ReverieCoreBridge.drawText(x.toInt(), y.toInt(), text, fontSize)
+        refreshDisplay()
+    }
+
     fun drawShape(
         kind: Int,
         x1: Float,

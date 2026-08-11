@@ -11,6 +11,8 @@
 
 #include <QDebug>
 #include <QPainter>
+#include <QFont>
+#include <QFontMetrics>
 #include <QLineF>
 
 #include <kis_image.h>
@@ -652,6 +654,55 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     const qint32 rw = region.width();
     const qint32 rh = region.height();
     device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
+    device->setDirty();
+    markDirty();
+}
+
+void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || text.isEmpty()) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int w = image->width();
+    const int h = image->height();
+
+    QFont font;
+    font.setPointSizeF(fontSize);
+    QFontMetrics fm(font);
+    const QRect bounds = fm.boundingRect(text).adjusted(-8, -8, 8, 8);
+    const QRect region = bounds.translated(x, y).intersected(QRect(0, 0, w, h));
+    if (region.isEmpty()) {
+        return;
+    }
+
+    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
+    {
+        QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
+        device->readBytes(bytes.data(), region.x(), region.y(), region.width(), region.height());
+        memcpy(layerImg.bits(), bytes.constData(), size_t(region.width()) * region.height() * 4);
+    }
+
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+
+    QPainter painter(&layerImg);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.setFont(font);
+    painter.setPen(qColor);
+    painter.drawText(QPoint(x - region.x(), y - region.y()), text);
+    painter.end();
+
+    device->writeBytes(layerImg.constBits(), region.x(), region.y(),
+                       region.width(), region.height());
     device->setDirty();
     markDirty();
 }
