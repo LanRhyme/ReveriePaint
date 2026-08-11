@@ -132,6 +132,11 @@ fun CanvasView(
                                             GestureMode.NONE
                                         }
 
+                                        Tool.FILL -> {
+                                            vm.floodFill(img0.x, img0.y)
+                                            GestureMode.NONE
+                                        }
+
                                         Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                                             vm.touchStart(img0.x, img0.y)
                                             GestureMode.STROKE
@@ -147,6 +152,12 @@ fun CanvasView(
                                 var startPanX = panX
                                 var startPanY = panY
                                 var lastCentroid = Offset.Zero
+                                var shapeStart = img0
+                                var shapeEnd = img0
+                                var isShapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
+                                if (isShapeTool) {
+                                    vm.touchCancel()
+                                }
 
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -179,7 +190,12 @@ fun CanvasView(
                                                     bmp.width,
                                                     bmp.height,
                                                 )
-                                            vm.touchMove(img.x, img.y)
+                                            if (isShapeTool) {
+                                                // Shape tools: track the drag end; draw on release
+                                                shapeEnd = img
+                                            } else {
+                                                vm.touchMove(img.x, img.y)
+                                            }
                                             c.consume()
                                         }
 
@@ -209,7 +225,17 @@ fun CanvasView(
 
                                 when (mode) {
                                     GestureMode.STROKE -> {
-                                        vm.touchEnd()
+                                        if (isShapeTool) {
+                                            val kind =
+                                                when (tool) {
+                                                    Tool.RECT -> 1
+                                                    Tool.ELLIPSE -> 2
+                                                    else -> 0
+                                                }
+                                            vm.drawShape(kind, shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y)
+                                        } else {
+                                            vm.touchEnd()
+                                        }
                                     }
 
                                     else -> {}

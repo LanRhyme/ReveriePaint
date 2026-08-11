@@ -113,6 +113,18 @@ Java_com_reverie_paint_ReverieCoreBridge_currentLayerIndex(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_setToolMode(JNIEnv *, jobject, jint mode)
+{
+    core()->setToolMode(mode);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_floodFillAt(JNIEnv *, jobject, jint x, jint y)
+{
+    core()->floodFillAt(x, y);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_setBrushSize(JNIEnv *, jobject, jdouble size)
 {
     core()->setBrushSize(size);
@@ -175,6 +187,30 @@ Java_com_reverie_paint_ReverieCoreBridge_pickColorAt(JNIEnv *env, jobject, jint 
 {
     const QString c = core()->pickColorAt(x, y);
     return env->NewStringUTF(c.toUtf8().constData());
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_savePng(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->savePng(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_loadPng(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->loadPng(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2)
+{
+    core()->drawShape(kind, x1, y1, x2, y2);
 }
 
 JNIEXPORT jint JNICALL

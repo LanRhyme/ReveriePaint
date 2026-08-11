@@ -45,6 +45,17 @@ public:
     bool layerVisible(int index) const;
     int currentLayerIndex() const { return m_currentLayer; }
 
+    // Tool mode (drives how strokes composite)
+    enum ToolMode { ToolBrush, ToolEraser, ToolFill };
+    void setToolMode(int mode) { m_toolMode = ToolMode(mode); }
+    int toolMode() const { return int(m_toolMode); }
+
+    // Fill the current layer's region (or whole layer) with the brush color
+    void floodFillAt(int x, int y);
+
+    // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
+    void drawShape(int kind, int x1, int y1, int x2, int y2);
+
     // Brush
     void setBrushSize(qreal size) { m_brushSize = size; }
     qreal brushSize() const { return m_brushSize; }
@@ -66,6 +77,12 @@ public:
     // Sample the composited color at document-space coordinates;
     // returns "#rrggbb" or empty if outside the document.
     QString pickColorAt(int x, int y);
+
+    // Export the composited document to a PNG file. Returns true on success.
+    bool savePng(const QString &path);
+
+    // Load a PNG into a new document (single background layer).
+    bool loadPng(const QString &path);
     int docWidth() const;
     int docHeight() const;
 
@@ -102,6 +119,7 @@ private:
     qreal m_brushSize = 20.0;
     QColor m_brushColor = Qt::black;
     qreal m_brushOpacity = 1.0;
+    ToolMode m_toolMode = ToolBrush;
 
     // Stroke batching
     QVector<StrokeSample> m_strokeSamples;

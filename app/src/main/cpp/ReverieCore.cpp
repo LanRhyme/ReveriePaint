@@ -10,6 +10,7 @@
 #include "ReverieCore.h"
 
 #include <QDebug>
+#include <QPainter>
 #include <QLineF>
 
 #include <kis_image.h>
@@ -354,6 +355,11 @@ void ReverieCore::flushStrokeBatch()
     painter.setPaintColor(koColor);
     painter.setBackgroundColor(koColor);
     painter.setOpacityF(opacity);
+    // Eraser composites with the erase op (transparent); brush uses normal.
+    // KisPainter's API takes the composite op id string.
+    painter.setCompositeOpId(m_toolMode == ToolEraser
+        ? QStringLiteral("erase")
+        : QStringLiteral("src-over"));
 
     // Subdivide each segment at ~brush-spacing resolution so pressure
     // ramps smoothly (Krita's KisDistanceInformation behaviour)
@@ -418,6 +424,35 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     return true;
 }
 
+void ReverieCore::floodFillAt(int x, int y)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const KoColorSpace *cs = image->colorSpace();
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    KoColor koColor(qColor, cs);
+
+    // MVP: whole-layer fill with the brush color. A proper connected-region
+    // flood fill needs the fill tool engine (KisFillTool) which lives in
+    // kritaui; we keep the engine lean and fill the whole layer.
+    Q_UNUSED(x); Q_UNUSED(y);
+    device->fill(QRect(0, 0, image->width(), image->height()), koColor);
+    device->setDirty();
+    markDirty();
+}
+
 QString ReverieCore::pickColorAt(int x, int y)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -436,6 +471,114 @@ QString ReverieCore::pickColorAt(int x, int y)
             .arg(qRed(c), 2, 16, QLatin1Char('0'))
             .arg(qGreen(c), 2, 16, QLatin1Char('0'))
             .arg(qBlue(c), 2, 16, QLatin1Char('0'));
+}
+
+void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int w = image->width();
+    const int h = image->height();
+    // Bounds of the shape region
+    QRect region(QPoint(qMin(x1, x2), qMin(y1, y2)), QPoint(qMax(x1, x2), qMax(y1, y2)));
+    region = region.adjusted(-int(m_brushSize), -int(m_brushSize),
+                             int(m_brushSize), int(m_brushSize))
+                 .intersected(QRect(0, 0, w, h));
+    if (region.isEmpty()) {
+        return;
+    }
+
+    // Read the current layer content into a QImage, draw the shape with
+    // QPainter (supports line/rect/ellipse), then write it back.
+    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
+    {
+        const qint32 rw = region.width();
+        const qint32 rh = region.height();
+        QVector<quint8> bytes(size_t(rw) * rh * 4);
+        device->readBytes(bytes.data(), region.x(), region.y(), rw, rh);
+        // Copy bytes (Krita RGBA order) into QImage; QImage ARGB32 is
+        // byte-order RGBA on little-endian, so a straight memcpy works.
+        memcpy(layerImg.bits(), bytes.constData(), size_t(rw) * rh * 4);
+    }
+
+    const KoColorSpace *cs = image->colorSpace();
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    const qreal penWidth = qMax<qreal>(1.0, m_brushSize);
+
+    QPainter painter(&layerImg);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    QPen pen(qColor, penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+
+    const QPointF p1(x1 - region.x(), y1 - region.y());
+    const QPointF p2(x2 - region.x(), y2 - region.y());
+    const QRectF r(QRectF(p1, p2).normalized());
+    switch (kind) {
+    case 1: painter.drawRect(r); break;            // rectangle
+    case 2: painter.drawEllipse(r); break;         // ellipse
+    default: painter.drawLine(p1, p2); break;      // line
+    }
+    painter.end();
+
+    const qint32 rw = region.width();
+    const qint32 rh = region.height();
+    device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
+    device->setDirty();
+    markDirty();
+}
+
+bool ReverieCore::savePng(const QString &path)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    if (img.isNull()) {
+        return false;
+    }
+    return img.save(path, "PNG");
+}
+
+bool ReverieCore::loadPng(const QString &path)
+{
+    QImage img(path);
+    if (img.isNull()) {
+        return false;
+    }
+    if (!newDocument(img.width(), img.height())) {
+        return false;
+    }
+    // Blit the loaded pixels into the background layer
+    KisImageSP image = m_document;
+    if (!image || m_layers.isEmpty()) {
+        return false;
+    }
+    KisPaintDeviceSP dev = m_layers.first().layer->original();
+    const KoColorSpace *cs = image->colorSpace();
+    const QImage conv = img.convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < conv.height(); ++y) {
+        for (int x = 0; x < conv.width(); ++x) {
+            const QRgb px = conv.pixel(x, y);
+            KoColor kc(QColor(qRed(px), qGreen(px), qBlue(px), qAlpha(px)), cs);
+            dev->setPixel(x, y, kc);
+        }
+    }
+    dev->setDirty();
+    markDirty();
+    return true;
 }
 
 int ReverieCore::docWidth() const

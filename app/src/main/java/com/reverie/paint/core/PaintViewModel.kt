@@ -3,6 +3,7 @@ package com.reverie.paint.core
 import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 
@@ -23,8 +24,10 @@ class PaintViewModel : ViewModel() {
     var brushColor by mutableStateOf("#262a30")
     var brushOpacity by mutableStateOf(1.0)
 
-    // Display bitmap (updated via renderToBuffer)
-    var displayBitmap by mutableStateOf<Bitmap?>(null)
+    // Display bitmap (updated in place via renderToBuffer).
+    // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
+    // so referential equality would never notify Compose to repaint.
+    var displayBitmap by mutableStateOf<Bitmap?>(null, neverEqualPolicy())
         private set
 
     // Layer panel
@@ -44,6 +47,45 @@ class PaintViewModel : ViewModel() {
 
     val layerCount: Int get() = ReverieCoreBridge.layerCount()
     val currentLayerIndex: Int get() = ReverieCoreBridge.currentLayerIndex()
+
+    fun saveProject(name: String) {
+        val dir = projectDir()
+        dir.mkdirs()
+        val file = java.io.File(dir, "$name.png")
+        if (ReverieCoreBridge.savePng(file.absolutePath)) {
+            docName = name
+            refreshProjects()
+        }
+    }
+
+    fun loadProject(name: String) {
+        val file = java.io.File(projectDir(), "$name.png")
+        if (file.exists() && ReverieCoreBridge.loadPng(file.absolutePath)) {
+            docName = name
+            docWidth = ReverieCoreBridge.docWidth()
+            docHeight = ReverieCoreBridge.docHeight()
+            currentPage = Page.PAINTING
+            refreshDisplay()
+        }
+    }
+
+    fun refreshProjects() {
+        val dir = projectDir()
+        if (!dir.exists()) {
+            projects = emptyList()
+            return
+        }
+        projects = dir.listFiles { f -> f.extension == "png" }
+            ?.sortedByDescending { it.lastModified() }
+            ?.map { Project(it.nameWithoutExtension, 0, 0) }
+            ?: emptyList()
+    }
+
+    fun projectDir(): java.io.File =
+        java.io.File(appContext.filesDir, "projects")
+
+    /** Injected by MainActivity; the engine needs it for file paths. */
+    lateinit var appContext: android.content.Context
 
     fun goHome() {
         currentPage = Page.HOME
@@ -136,6 +178,36 @@ class PaintViewModel : ViewModel() {
 
     fun touchCancel() {
         ReverieCoreBridge.touchStrokeEnd()
+    }
+
+    /** Map a UI tool to the engine's tool mode and record the active tool. */
+    var activeTool by mutableStateOf("brush")
+        private set
+
+    fun applyTool(toolId: String) {
+        activeTool = toolId
+        when (toolId) {
+            "brush" -> ReverieCoreBridge.setToolMode(0) // ToolBrush
+            "eraser" -> ReverieCoreBridge.setToolMode(1) // ToolEraser
+            "fill" -> ReverieCoreBridge.setToolMode(2) // ToolFill
+            else -> ReverieCoreBridge.setToolMode(0)
+        }
+    }
+
+    fun drawShape(
+        kind: Int,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+    ) {
+        ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt())
+        refreshDisplay()
+    }
+
+    fun floodFill(x: Float, y: Float) {
+        ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt())
+        refreshDisplay()
     }
 
     fun addLayer() {

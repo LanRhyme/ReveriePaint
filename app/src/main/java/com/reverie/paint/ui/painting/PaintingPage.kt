@@ -101,7 +101,10 @@ fun PaintingPage(vm: PaintViewModel) {
         // ---- Left tool rail ----
         ToolRail(
             tool = tool,
-            onTool = { tool = it },
+            onTool = {
+                tool = it
+                vm.applyTool(it.id)
+            },
             brushSize = vm.brushSize,
             onBrushSize = { vm.updateBrushSize(it) },
             opacity = vm.brushOpacity,

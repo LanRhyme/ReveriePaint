@@ -17,7 +17,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            ReverieApp()
+            val vm: PaintViewModel = viewModel()
+            vm.appContext = applicationContext
+            vm.refreshProjects()
+            ReverieApp(vm)
         }
     }
 }
@@ -26,10 +29,7 @@ class MainActivity : ComponentActivity() {
 fun ReverieApp(vm: PaintViewModel = viewModel()) {
     when (vm.currentPage) {
         Page.HOME -> {
-            HomePage(
-                vm = vm,
-                onOpenProject = { p -> vm.openProject(p) },
-            )
+            HomePage(vm)
         }
 
         Page.CREATE -> {
