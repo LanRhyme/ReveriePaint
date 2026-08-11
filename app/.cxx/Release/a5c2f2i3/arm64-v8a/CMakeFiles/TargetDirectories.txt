@@ -1,0 +1,3 @@
+/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a/CMakeFiles/reverie_jni.dir
+/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a/CMakeFiles/edit_cache.dir
+/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a/CMakeFiles/rebuild_cache.dir

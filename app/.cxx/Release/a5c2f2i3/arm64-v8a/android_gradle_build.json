@@ -1,0 +1,61 @@
+{
+  "buildFiles": [
+    "/home/lanrhyme/Projects/ReveriePaint-native/app/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/home/lanrhyme/Android/Sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/home/lanrhyme/Android/Sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "reverie_jni::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "arm64-v8a",
+      "artifactName": "reverie_jni",
+      "output": "/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a/libreverie_jni.so",
+      "runtimeFiles": [
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritaimage.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritapigment.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritaglobal.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritacolor.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritacommand.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritastore.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritaresources.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritamultiarch.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritapsdutils.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritametadata.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritawidgetutils.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritawidgets.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritaresourcewidgets.so",
+        "/home/lanrhyme/Projects/krita-source/build-android/lib/libkritaflake.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Core_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Gui_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Widgets_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Network_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Concurrent_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Xml_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Sql_arm64-v8a.so",
+        "/home/lanrhyme/Qt6/6.6.3/android_arm64_v8a/lib/libQt6Core5Compat_arm64-v8a.so"
+      ]
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "/home/lanrhyme/Android/Sdk/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/clang.lld",
+      "cppCompilerExecutable": "/home/lanrhyme/Android/Sdk/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++.lld"
+    }
+  },
+  "cFileExtensions": [],
+  "cppFileExtensions": [
+    "cpp"
+  ]
+}

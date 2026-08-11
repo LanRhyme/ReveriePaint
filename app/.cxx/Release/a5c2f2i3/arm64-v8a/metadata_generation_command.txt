@@ -1,0 +1,19 @@
+                        -H/home/lanrhyme/Projects/ReveriePaint-native/app/src/main/cpp
+-DCMAKE_SYSTEM_NAME=Android
+-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+-DCMAKE_SYSTEM_VERSION=23
+-DANDROID_PLATFORM=android-23
+-DCMAKE_ANDROID_ARCH_ABI=arm64-v8a
+-DANDROID_NDK=/home/lanrhyme/Android/Sdk/ndk/25.2.9519653
+-DCMAKE_ANDROID_NDK=/home/lanrhyme/Android/Sdk/ndk/25.2.9519653
+-DCMAKE_TOOLCHAIN_FILE=/home/lanrhyme/Android/Sdk/ndk/25.2.9519653/build/cmake/android.toolchain.cmake
+-DCMAKE_MAKE_PROGRAM=/home/lanrhyme/Android/Sdk/cmake/3.22.1/bin/ninja
+-DCMAKE_CXX_FLAGS=-std=c++17
+-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a
+-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/home/lanrhyme/Projects/ReveriePaint-native/app/build/intermediates/cxx/Release/a5c2f2i3/obj/arm64-v8a
+-B/home/lanrhyme/Projects/ReveriePaint-native/app/.cxx/Release/a5c2f2i3/arm64-v8a
+-GNinja
+-DANDROID_ABI=arm64-v8a
+-DCMAKE_BUILD_TYPE=Release
+                        Build command args: []
+                        Version: 2
