@@ -34,6 +34,7 @@ import com.reverie.paint.ui.theme.Morandi
 fun SettingsPanel(
     vm: PaintViewModel,
     onClose: () -> Unit,
+    onResetView: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -67,7 +68,26 @@ fun SettingsPanel(
 
             Spacer(Modifier.height(14.dp))
 
-            // View reset
+            // Save project
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.accent)
+                        .clickable {
+                            vm.saveProject(vm.docName)
+                            onClose()
+                        },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("保存项目", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // Reset view
             Box(
                 modifier =
                     Modifier
@@ -76,8 +96,10 @@ fun SettingsPanel(
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panel)
                         .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                        .clickable { onClose() },
-                // TODO: reset view
+                        .clickable {
+                            onResetView()
+                            onClose()
+                        },
                 contentAlignment = Alignment.Center,
             ) {
                 Text("重置视图", color = Morandi.text, fontSize = 14.sp)

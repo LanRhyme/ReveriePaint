@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Tool
@@ -51,6 +54,22 @@ fun PaintingPage(vm: PaintViewModel) {
     var canvasH by remember { mutableStateOf(1) }
 
     // Popup panels
+    var showIndicator by remember { mutableStateOf(false) }
+    var indicatorTick by remember { mutableStateOf(0) }
+
+    fun flashIndicator() {
+        showIndicator = true
+        indicatorTick++
+    }
+
+    // Auto-hide the transform indicator 1.2s after the last flash
+    LaunchedEffect(indicatorTick) {
+        if (indicatorTick > 0) {
+            kotlinx.coroutines.delay(1200)
+            showIndicator = false
+        }
+    }
+
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var settingsPanelOpen by remember { mutableStateOf(false) }
@@ -82,6 +101,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 rotation = r
                 panX = px
                 panY = py
+                flashIndicator()
             },
             tool = tool,
         )
@@ -90,10 +110,22 @@ fun PaintingPage(vm: PaintViewModel) {
         TopBar(
             vm = vm,
             onBack = { vm.goHome() },
-            onRotateCw = { rotation = (rotation + 90) % 360 },
-            onRotateCcw = { rotation = (rotation - 90 + 360) % 360 },
-            onZoomIn = { zoom = (zoom * 1.2f).coerceAtMost(16f) },
-            onZoomOut = { zoom = (zoom / 1.2f).coerceAtLeast(0.1f) },
+            onRotateCw = {
+                rotation = (rotation + 90) % 360
+                flashIndicator()
+            },
+            onRotateCcw = {
+                rotation = (rotation - 90 + 360) % 360
+                flashIndicator()
+            },
+            onZoomIn = {
+                zoom = (zoom * 1.2f).coerceAtMost(16f)
+                flashIndicator()
+            },
+            onZoomOut = {
+                zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
+                flashIndicator()
+            },
             onLayers = { layerPanelOpen = true },
             onSettings = { settingsPanelOpen = true },
         )
@@ -114,6 +146,26 @@ fun PaintingPage(vm: PaintViewModel) {
             onOpenColor = { colorPanelOpen = true },
         )
 
+        // ---- Transform indicator (bottom-center, 画世界 Pro style) ----
+        if (showIndicator) {
+            val zoomPct = (zoom * fitScale * 100).toInt()
+            val rotDeg = ((rotation % 360 + 360) % 360).toInt()
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi.copy(alpha = 0.92f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    "缩放 ${zoomPct}%  旋转 ${rotDeg}°",
+                    color = Morandi.text,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
         // ---- Popup panels (topmost) ----
         if (brushPanelOpen) {
             BrushPanel(
@@ -133,6 +185,13 @@ fun PaintingPage(vm: PaintViewModel) {
             SettingsPanel(
                 vm = vm,
                 onClose = { settingsPanelOpen = false },
+                onResetView = {
+                    zoom = 1f
+                    rotation = 0f
+                    panX = 0f
+                    panY = 0f
+                    fitScale = 1f
+                },
                 modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
