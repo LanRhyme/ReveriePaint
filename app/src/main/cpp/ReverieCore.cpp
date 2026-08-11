@@ -587,13 +587,58 @@ void ReverieCore::floodFillAt(int x, int y)
     }
     KoColor koColor(qColor, cs);
 
-    // MVP: whole-layer fill with the brush color. A proper connected-region
-    // flood fill needs the fill tool engine (KisFillTool) which lives in
-    // kritaui; we keep the engine lean and fill the whole layer.
-    Q_UNUSED(x); Q_UNUSED(y);
-    device->fill(QRect(0, 0, image->width(), image->height()), koColor);
-    device->setDirty();
-    markDirty();
+    // Connected-region flood fill: read the current layer, BFS over pixels
+    // similar to the seed color (within a tolerance), replace them with the
+    // brush color. This mirrors the fill tool behaviour without needing
+    // KisFillTool (which lives in kritaui).
+    const int iw = image->width();
+    const int ih = image->height();
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+
+    const QRgb seed = layerImg.pixel(qBound(0, x, iw - 1), qBound(0, y, ih - 1));
+    const int r0 = qRed(seed), g0 = qGreen(seed), b0 = qBlue(seed);
+    const int tol = 24; // color tolerance
+
+    const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
+
+    // BFS
+    QVector<QPoint> stack;
+    QVector<bool> visited(size_t(iw) * ih, false);
+    stack.append(QPoint(x, y));
+    visited[size_t(y) * iw + x] = true;
+    int touched = 0;
+    while (!stack.isEmpty()) {
+        const QPoint p = stack.takeLast();
+        const int px = p.x(), py = p.y();
+        if (px < 0 || px >= iw || py < 0 || py >= ih) continue;
+        const QRgb c = layerImg.pixel(px, py);
+        if (qAbs(qRed(c) - r0) > tol || qAbs(qGreen(c) - g0) > tol || qAbs(qBlue(c) - b0) > tol) {
+            continue;
+        }
+        layerImg.setPixel(px, py, fill);
+        ++touched;
+        const QPoint neighbors[] = { QPoint(px + 1, py), QPoint(px - 1, py),
+                                     QPoint(px, py + 1), QPoint(px, py - 1) };
+        for (const QPoint &n : neighbors) {
+            if (n.x() < 0 || n.x() >= iw || n.y() < 0 || n.y() >= ih) continue;
+            const size_t idx = size_t(n.y()) * iw + n.x();
+            if (!visited[idx]) {
+                visited[idx] = true;
+                stack.append(n);
+            }
+        }
+    }
+
+    if (touched > 0) {
+        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
+        device->setDirty();
+        markDirty();
+    }
 }
 
 QString ReverieCore::pickColorAt(int x, int y)
