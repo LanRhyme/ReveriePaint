@@ -381,6 +381,12 @@ void ReverieCore::flushStrokeBatch()
                             prev.y() + (cur.y() - prev.y()) * t1);
             const qreal pMid = prevP + (curP - prevP) * (t0 + t1) / 2.0;
             const qreal width = qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, pMid, 1.0));
+            // Soft-edge dab: draw a small line between a and b with a soft
+            // brush tip via KisPainter's drawLine (hard) replaced by a
+            // soft dab using the painter's dab functionality is complex;
+            // MVP uses drawLine with a slightly larger width and relies on
+            // the antialiased edge. For a softer look we could render dabs
+            // via QRadialGradient into the device - deferred.
             painter.drawLine(a, b, width, true);
         }
         prev = cur;
@@ -513,13 +519,17 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     if (!image || !buffer) {
         return false;
     }
-    // Composite via the projection (handles layers + visibility)
-    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
-    if (img.isNull()) {
+    // Cache the composited full-res image; re-composite only when the
+    // projection extent (content bounds) or document size changed. This
+    // avoids re-scanning every layer on every frame during a stroke.
+    if (m_renderCache.isNull() || m_renderDirty) {
+        m_renderCache = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+        m_renderDirty = false;
+    }
+    if (m_renderCache.isNull()) {
         return false;
     }
-    // Scale into the buffer (buffer is the Android bitmap, ABGR/ARGB layout)
-    QImage target(img);
+    QImage target(m_renderCache);
     if (target.width() != w || target.height() != h) {
         target = target.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     }

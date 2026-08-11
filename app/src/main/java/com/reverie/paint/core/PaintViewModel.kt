@@ -162,10 +162,14 @@ class PaintViewModel : ViewModel() {
         x: Float,
         y: Float,
     ) {
+        // Send the sample to the C++ engine immediately (it flushes its own
+        // batch), but defer the full composite to touchEnd to keep strokes
+        // smooth. Rendering at 60fps during a stroke is too slow on Android.
         ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), 1.0)
-        // Throttle repaints: flush at most every ~16ms (60fps) while stroking.
+        // Throttle repaints: at most every ~33ms (30fps) while stroking so
+        // the user sees live feedback without blocking input.
         val now = System.nanoTime()
-        if (now - lastPaintNs > 16_000_000L) {
+        if (now - lastPaintNs > 33_000_000L) {
             lastPaintNs = now
             refreshDisplay()
         }

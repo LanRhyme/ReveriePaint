@@ -107,7 +107,10 @@ private:
     void appendStrokeSample(const QPointF &imgPos, qreal pressure);
     void flushStrokeBatch();
     void endStrokeBatch();
-    void markDirty() { if (m_dirtyCb) m_dirtyCb(m_dirtyCtx); }
+    void markDirty() {
+        m_renderDirty = true;
+        if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
+    }
 
     struct StrokeSample {
         QPointF imgPos;
@@ -144,6 +147,10 @@ private:
     // Document size
     int m_docWidth = 0;
     int m_docHeight = 0;
+
+    // Render cache: the last composited document, reused when nothing changed
+    QImage m_renderCache;
+    bool m_renderDirty = true;
 
     // Undo/redo snapshot stacks (serialized layer bytes per stroke)
     QVector<QByteArray> m_undoStack;
