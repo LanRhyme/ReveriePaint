@@ -67,6 +67,9 @@ public:
     void lassoFill(const QVector<QPoint> &points);
     void lassoClear(const QVector<QPoint> &points);
 
+    // Liquify: push pixels within the brush radius from (fx,fy) to (tx,ty)
+    void liquify(int fx, int fy, int tx, int ty);
+
     // Brush
     void setBrushSize(qreal size) { m_brushSize = size; }
     qreal brushSize() const { return m_brushSize; }

@@ -894,6 +894,58 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     }
 }
 
+void ReverieCore::liquify(int fx, int fy, int tx, int ty)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+    QImage result = layerImg.copy();
+
+    const qreal radius = qMax<qreal>(8.0, m_brushSize * 0.6);
+    const qreal radius2 = radius * radius;
+    const int dx = tx - fx;
+    const int dy = ty - fy;
+    const QPoint center(fx, fy);
+
+    const int x0 = qMax(0, int(fx - radius));
+    const int x1 = qMin(iw - 1, int(fx + radius));
+    const int y0 = qMax(0, int(fy - radius));
+    const int y1 = qMin(ih - 1, int(fy + radius));
+
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            const qreal r2 = qreal((x - fx) * (x - fx) + (y - fy) * (y - fy));
+            if (r2 > radius2) {
+                continue;
+            }
+            // Falloff: strongest at center, zero at edge
+            const qreal falloff = 1.0 - qSqrt(r2 / radius2);
+            const qreal strength = falloff * 0.9;
+            const int sx = qBound(0, x - int(dx * strength), iw - 1);
+            const int sy = qBound(0, y - int(dy * strength), ih - 1);
+            result.setPixel(x, y, layerImg.pixel(sx, sy));
+        }
+    }
+
+    device->writeBytes(result.constBits(), 0, 0, iw, ih);
+    device->setDirty();
+    markDirty();
+}
+
 bool ReverieCore::savePng(const QString &path)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();

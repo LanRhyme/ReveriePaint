@@ -213,6 +213,11 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun liquify(fx: Float, fy: Float, tx: Float, ty: Float) {
+        ReverieCoreBridge.liquify(fx.toInt(), fy.toInt(), tx.toInt(), ty.toInt())
+        refreshDisplay()
+    }
+
     fun lassoFill(points: List<Pair<Int, Int>>) {
         val xs = points.map { it.first }.toIntArray()
         val ys = points.map { it.second }.toIntArray()

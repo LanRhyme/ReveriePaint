@@ -123,6 +123,7 @@ fun CanvasView(
                                         bmp.height,
                                     )
                                 var lassoPoints = mutableListOf<Offset>(img0)
+                                var liquifyPrev = img0
                                 var mode =
                                     when (tool) {
                                         Tool.HAND -> {
@@ -151,6 +152,11 @@ fun CanvasView(
 
                                         Tool.LASSO, Tool.MAGICWAND -> {
                                             lassoPoints = mutableListOf(img0)
+                                            GestureMode.STROKE
+                                        }
+
+                                        Tool.LIQUIFY -> {
+                                            liquifyPrev = img0
                                             GestureMode.STROKE
                                         }
 
@@ -207,6 +213,9 @@ fun CanvasView(
                                                 shapeEnd = img
                                             } else if (tool == Tool.LASSO || tool == Tool.MAGICWAND) {
                                                 lassoPoints.add(img)
+                                            } else if (tool == Tool.LIQUIFY) {
+                                                vm.liquify(liquifyPrev.x, liquifyPrev.y, img.x, img.y)
+                                                liquifyPrev = img
                                             } else {
                                                 vm.touchMove(img.x, img.y)
                                             }

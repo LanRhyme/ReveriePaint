@@ -246,6 +246,12 @@ Java_com_reverie_paint_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx, jint fy, jint tx, jint ty)
+{
+    core()->liquify(fx, fy, tx, ty);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_lassoFill(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
 {
     jint *px = env->GetIntArrayElements(xs, nullptr);

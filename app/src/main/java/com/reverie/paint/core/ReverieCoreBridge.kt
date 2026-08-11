@@ -72,6 +72,7 @@ object ReverieCoreBridge {
     external fun redo()
     external fun canUndo(): Boolean
     external fun canRedo(): Boolean
+    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int)
     external fun lassoFill(xs: IntArray, ys: IntArray, count: Int)
     external fun lassoClear(xs: IntArray, ys: IntArray, count: Int)
     external fun drawText(x: Int, y: Int, text: String, fontSize: Double)
