@@ -60,8 +60,9 @@ android {
 
     packaging {
         jniLibs {
-            // Our Krita core libs are already-stripped .so; keep everything
-            useLegacyPackaging = false
+            // Compress the native libs so the APK stays small on disk;
+            // they're extracted (and decompressed) at install time.
+            useLegacyPackaging = true
         }
     }
 }

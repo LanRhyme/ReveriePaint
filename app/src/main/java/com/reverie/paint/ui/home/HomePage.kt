@@ -87,7 +87,10 @@ fun HomePage(vm: PaintViewModel) {
                     .height(56.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Morandi.panel)
-                    .clickable { /* open project placeholder */ },
+                    .clickable {
+                        // Open the most recent project, or go create a new one
+                        vm.projects.firstOrNull()?.let { vm.loadProject(it.name) } ?: vm.goCreate()
+                    },
             contentAlignment = Alignment.Center,
         ) {
             Text("打开项目", color = Morandi.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
