@@ -64,6 +64,10 @@ object ReverieCoreBridge {
     external fun renderToBuffer(bitmap: Bitmap): Boolean
 
     external fun pickColorAt(x: Int, y: Int): String?
+    external fun undo()
+    external fun redo()
+    external fun canUndo(): Boolean
+    external fun canRedo(): Boolean
     external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int)
     external fun savePng(path: String): Boolean
     external fun loadPng(path: String): Boolean

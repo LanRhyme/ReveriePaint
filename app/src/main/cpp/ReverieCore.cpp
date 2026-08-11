@@ -260,6 +260,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     if (!m_document) {
         return;
     }
+    snapshotForUndo();
     m_drawing = true;
     m_strokeBatchOpen = true;
     m_lastPressure = pressure;
@@ -359,7 +360,7 @@ void ReverieCore::flushStrokeBatch()
     // KisPainter's API takes the composite op id string.
     painter.setCompositeOpId(m_toolMode == ToolEraser
         ? QStringLiteral("erase")
-        : QStringLiteral("src-over"));
+        : QStringLiteral("normal"));
 
     // Subdivide each segment at ~brush-spacing resolution so pressure
     // ramps smoothly (Krita's KisDistanceInformation behaviour)
@@ -394,6 +395,112 @@ void ReverieCore::endStrokeBatch()
     delete m_strokePainter;
     m_strokePainter = nullptr;
     m_strokeDevice = nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Undo / redo
+// ---------------------------------------------------------------------------
+
+void ReverieCore::snapshotForUndo()
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || m_layers.isEmpty()) {
+        return;
+    }
+    const int w = image->width();
+    const int h = image->height();
+    QByteArray bytes;
+    for (const LayerEntry &entry : m_layers) {
+        if (!entry.layer) continue;
+        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
+        entry.layer->original()->readBytes(
+            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        bytes.append(layerBytes);
+    }
+    m_undoStack.append(bytes);
+    // Cap the stack: 32 snapshots * layers * ~8MB each (1080x1920). This is
+    // heavy but acceptable for an MVP; a real implementation would use
+    // Krita's KisTransaction + KisSurrogateUndoStore.
+    if (m_undoStack.size() > 32) {
+        m_undoStack.removeFirst();
+    }
+    m_redoStack.clear();
+}
+
+void ReverieCore::undo()
+{
+    if (m_undoStack.isEmpty()) {
+        return;
+    }
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || m_layers.isEmpty()) {
+        return;
+    }
+    const int w = image->width();
+    const int h = image->height();
+    const int layerCount = m_layers.size();
+
+    // Snapshot current state into redo
+    QByteArray cur;
+    for (const LayerEntry &entry : m_layers) {
+        if (!entry.layer) continue;
+        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
+        entry.layer->original()->readBytes(
+            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        cur.append(layerBytes);
+    }
+    m_redoStack.append(cur);
+
+    // Restore the undo snapshot (must match layer count)
+    const QByteArray snap = m_undoStack.takeLast();
+    const int expected = w * h * 4 * layerCount;
+    if (snap.size() == expected) {
+        const quint8 *p = reinterpret_cast<const quint8 *>(snap.constData());
+        for (int i = 0; i < layerCount; ++i) {
+            if (!m_layers[i].layer) continue;
+            m_layers[i].layer->original()->writeBytes(p, 0, 0, w, h);
+            m_layers[i].layer->original()->setDirty();
+            p += size_t(w) * h * 4;
+        }
+    }
+    markDirty();
+}
+
+void ReverieCore::redo()
+{
+    if (m_redoStack.isEmpty()) {
+        return;
+    }
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || m_layers.isEmpty()) {
+        return;
+    }
+    const int w = image->width();
+    const int h = image->height();
+    const int layerCount = m_layers.size();
+
+    QByteArray cur;
+    for (const LayerEntry &entry : m_layers) {
+        if (!entry.layer) continue;
+        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
+        entry.layer->original()->readBytes(
+            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        cur.append(layerBytes);
+    }
+    m_undoStack.append(cur);
+
+    const QByteArray snap = m_redoStack.takeLast();
+    const int expected = w * h * 4 * layerCount;
+    if (snap.size() == expected) {
+        const quint8 *p = reinterpret_cast<const quint8 *>(snap.constData());
+        for (int i = 0; i < layerCount; ++i) {
+            if (!m_layers[i].layer) continue;
+            m_layers[i].layer->original()->writeBytes(p, 0, 0, w, h);
+            m_layers[i].layer->original()->setDirty();
+            p += size_t(w) * h * 4;
+        }
+    }
+    markDirty();
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,8 @@ fun TopBar(
     onZoomOut: () -> Unit,
     onLayers: () -> Unit,
     onSettings: () -> Unit,
+    onUndo: () -> Unit = { vm.undo() },
+    onRedo: () -> Unit = { vm.redo() },
 ) {
     Row(
         modifier =
@@ -57,6 +59,8 @@ fun TopBar(
             fontSize = 13.sp,
             modifier = Modifier.weight(1f),
         )
+        IconBtn("↶", "撤销", onUndo)
+        IconBtn("↷", "重做", onRedo)
         IconBtn("↺", "逆时针旋转", onRotateCcw)
         IconBtn("↻", "顺时针旋转", onRotateCw)
         IconBtn("＋", "放大", onZoomIn)

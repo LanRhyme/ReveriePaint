@@ -208,6 +208,30 @@ Java_com_reverie_paint_ReverieCoreBridge_loadPng(JNIEnv *env, jobject, jstring p
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_undo(JNIEnv *, jobject)
+{
+    core()->undo();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_redo(JNIEnv *, jobject)
+{
+    core()->redo();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_canUndo(JNIEnv *, jobject)
+{
+    return core()->canUndo() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
+{
+    return core()->canRedo() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2)
 {
     core()->drawShape(kind, x1, y1, x2, y2);

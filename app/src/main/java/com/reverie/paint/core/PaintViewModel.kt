@@ -194,6 +194,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun undo() {
+        if (ReverieCoreBridge.canUndo()) {
+            ReverieCoreBridge.undo()
+            refreshDisplay()
+        }
+    }
+
+    fun redo() {
+        if (ReverieCoreBridge.canRedo()) {
+            ReverieCoreBridge.redo()
+            refreshDisplay()
+        }
+    }
+
     fun drawShape(
         kind: Int,
         x1: Float,

@@ -67,6 +67,15 @@ public:
 
     // Strokes (touch input; coordinates in document space)
     void touchStrokeStart(qreal x, qreal y, qreal pressure);
+
+    // Application-level undo/redo via per-stroke layer snapshots.
+    // Krita's command stack needs the full KisTransaction pipeline; for the
+    // MVP we snapshot the current layer before each stroke and restore on
+    // undo/redo. (KisSurrogateUndoStore still backs image-level commands.)
+    bool canUndo() const { return !m_undoStack.isEmpty(); }
+    bool canRedo() const { return !m_redoStack.isEmpty(); }
+    void undo();
+    void redo();
     void touchStrokeMove(qreal x, qreal y, qreal pressure);
     void touchStrokeEnd();
 
@@ -135,6 +144,11 @@ private:
     // Document size
     int m_docWidth = 0;
     int m_docHeight = 0;
+
+    // Undo/redo snapshot stacks (serialized layer bytes per stroke)
+    QVector<QByteArray> m_undoStack;
+    QVector<QByteArray> m_redoStack;
+    void snapshotForUndo();
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;
