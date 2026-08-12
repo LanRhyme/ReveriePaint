@@ -84,6 +84,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val drawerWidth = 120.dp
+private val rowHeight = 56.dp
 
 private fun Boolean?.orFalse() = this ?: false
 
@@ -285,35 +286,37 @@ private fun LayerListView(
             }
         }
 
+    val density = LocalDensity.current
+    val rowPx = with(density) { rowHeight.roundToPx() }
+    var columnTop by remember { mutableStateOf(0f) }
+
     fun updateDragPos(fingerY: Float) {
         dragFingerY = fingerY
-        // Single source of truth: the display insertion index (dragTargetIdx).
-        // The animation parts the rows there and the actual move uses the same
-        // index, so what you see is where it lands.
-        var target = -1
+        // Math-mapped target: rows are fixed-height, so the insert index is
+        // (fingerY - listTop) / rowHeight. No dependency on the re-shuffled
+        // rowBounds, so the parting animation and the drop land at the same spot.
+        var target = ((fingerY - columnTop) / rowPx).toInt().coerceIn(0, displayList.size - 1)
+        // Background protection: never below the background row (index 0)
+        val bgVisual = displayList.indexOfFirst { it.index == 0 }
+        if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
+        dragTargetIdx = target
+        // Group middle zone highlight (rowBounds only used for this hint)
         var over: Pair<Int, DropMode>? = null
         for (i in displayList.indices) {
             val idx = displayList[i].index
             if (idx == draggingFrom) continue
             val b = rowBounds[idx] ?: continue
-            val mid = (b.first + b.second) / 2f
-            if (target < 0 && fingerY < mid) target = i
             if (fingerY >= b.first && fingerY <= b.second) {
                 val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
-                val mid0 = b.first + (b.second - b.first) * 0.3f
-                val mid1 = b.first + (b.second - b.first) * 0.7f
-                if (isGroup && fingerY >= mid0 && fingerY <= mid1) {
-                    over = idx to DropMode.OnGroup
+                if (isGroup) {
+                    val mid0 = b.first + (b.second - b.first) * 0.3f
+                    val mid1 = b.first + (b.second - b.first) * 0.7f
+                    if (fingerY >= mid0 && fingerY <= mid1) {
+                        over = idx to DropMode.OnGroup
+                    }
                 }
             }
         }
-        if (target < 0) target = displayList.size - 1
-        // Background protection: the dragged row must never land below the
-        // background (the visually bottom row with index 0). Clamp the insert
-        // position to just above it.
-        val bgVisual = displayList.indexOfFirst { it.index == 0 }
-        if (bgVisual >= 0 && target > bgVisual - 1) target = (bgVisual - 1).coerceAtLeast(0)
-        dragTargetIdx = target
         dragOver = over
         android.util.Log.d("LayerPanel", "dragPos y=$fingerY target=$target over=${over?.first ?: -1} ${over?.second}")
     }
@@ -373,32 +376,39 @@ private fun LayerListView(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        var columnTop by remember { mutableStateOf(0f) }
-        LazyColumn(
+        var listTop by remember { mutableStateOf(0f) }
+        Box(
             modifier =
                 Modifier
+                    .fillMaxWidth()
                     .heightIn(max = 320.dp)
-                    .onGloballyPositioned { columnTop = it.boundsInRoot().top }
-                    // Panel-level drag handler: once a row's long press activated
-                    // dragging (draggingFrom >= 0), this consumes the following
-                    // moves for drop-position calculation. Consuming also stops
-                    // the lazy scroll from hijacking the drag.
-                    .pointerInput(draggingFrom) {
-                        if (draggingFrom < 0) return@pointerInput
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val pressed = event.changes.firstOrNull { it.pressed }
-                                if (pressed == null) {
-                                    endDrag()
-                                    break
-                                }
-                                pressed.consume()
-                                updateDragPos(columnTop + pressed.position.y)
-                            }
-                        }
-                    },
+                    .onGloballyPositioned { listTop = it.boundsInRoot().top },
         ) {
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { columnTop = it.boundsInRoot().top }
+                        // Panel-level drag handler: once a row's long press activated
+                        // dragging (draggingFrom >= 0), this consumes the following
+                        // moves for drop-position calculation. Consuming also stops
+                        // the lazy scroll from hijacking the drag.
+                        .pointerInput(draggingFrom) {
+                            if (draggingFrom < 0) return@pointerInput
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val pressed = event.changes.firstOrNull { it.pressed }
+                                    if (pressed == null) {
+                                        endDrag()
+                                        break
+                                    }
+                                    pressed.consume()
+                                    updateDragPos(columnTop + pressed.position.y)
+                                }
+                            }
+                        },
+            ) {
             items(displayList, key = { it.index }) { layer ->
                     LayerRow(
                         vm = vm,
@@ -425,8 +435,44 @@ private fun LayerListView(
                                 vm.setCurrentLayer(layer.index)
                             }
                         },
-                        modifier = Modifier.animateItem(),
-                    )
+                            modifier = Modifier.animateItem(),
+                        )
+            }
+        }
+
+            // Floating drag overlay: the dragged row rendered on top of the
+            // list, following the finger, so it is never occluded by other rows.
+            if (draggingFrom >= 0) {
+                val dragged = vm.layers.firstOrNull { it.index == draggingFrom }
+                if (dragged != null) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .offset { IntOffset(0, (dragFingerY - listTop - rowPx / 2f).roundToInt()) }
+                                .fillMaxWidth()
+                                .height(rowHeight)
+                                .graphicsLayer {
+                                    scaleX = 1.05f
+                                    scaleY = 1.05f
+                                    shadowElevation = with(density) { 16.dp.toPx() }
+                                },
+                    ) {
+                        LayerRowContent(
+                            vm = vm,
+                            layer = dragged,
+                            selected = dragged.index == selectedIndex,
+                            collapsed = dragged.index in collapsedGroups,
+                            index = dragged.index,
+                            onToggleCollapse = {},
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panelHi)
+                                    .padding(horizontal = 8.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -476,12 +522,10 @@ private fun LayerRow(
     val isBg = layer.isBackground
     val visible = layer.visible
     var reveal by remember { mutableStateOf(false) }
-    var totalDrag by remember { mutableFloatStateOf(0f) }
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val dragThresholdPx = with(density) { 8.dp.roundToPx() }
-    val rowHeight = 56.dp
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
@@ -495,26 +539,58 @@ private fun LayerRow(
     Box(
         modifier =
             modifier
-                .zIndex(if (isDragging) 10f else 0f)
                 .fillMaxWidth()
                 .height(rowHeight)
                 .onGloballyPositioned { c ->
                     rowTop = c.boundsInRoot().top
                     rowBottom = c.boundsInRoot().bottom
                     onBounds(rowTop, rowBottom)
-                },
+                }
+                // Swipe-left reveals the action drawer (full event loop,
+                // requireUnconsumed=false so it always sees the down even if
+                // combinedClickable consumed it; only consumes moves once a
+                // horizontal swipe is detected, which cancels the clickable)
+                .pointerInput(index) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startX = down.position.x
+                        val thr = dragThresholdPx.toFloat()
+                        var prevX = startX
+                        var swiping = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || change.changedToUpIgnoreConsumed()) break
+                            val dx = change.position.x - startX
+                            if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
+                                swiping = true
+                            }
+                            if (swiping) {
+                                change.consume()
+                                reveal = dx < 0
+                            }
+                        }
+                    }
+                }
+                .combinedClickable(
+                    onClick = { onClick() },
+                    onLongClick = {
+                        // 画世界 Pro style: vibrate then drag
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDragStart()
+                    },
+                ),
     ) {
-        // Action drawer: two actions (copy gray / delete red), composed only
-        // while revealed so it can never show through a closed row.
-        AnimatedVisibility(
-            visible = reveal,
-            enter = fadeIn(tween(180)),
-            exit = fadeOut(tween(120)),
+        // Action drawer: three actions (copy / solo / delete), always composed,
+        // fading via revealFraction (AnimatedVisibility in LazyColumn rows was
+        // unreliable for showing this drawer).
+        Box(
             modifier =
                 Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .width(drawerWidth)
+                    .graphicsLayer { alpha = revealFraction }
                     .clip(RoundedCornerShape(8.dp)),
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -533,7 +609,14 @@ private fun LayerRow(
             }
         }
 
-        Row(
+        // Row visuals (indent guides, collapse arrow, eye, thumbnail, name, status)
+        LayerRowContent(
+            vm = vm,
+            layer = layer,
+            selected = selected,
+            collapsed = collapsed,
+            index = index,
+            onToggleCollapse = onToggleCollapse,
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -551,184 +634,157 @@ private fun LayerRow(
                             label = "rowBg",
                         ).value,
                     )
+                    // slide left while the drawer is revealed
                     .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
-                    .graphicsLayer {
-                        if (isDragging) {
-                            // 画世界 Pro style: the dragged row floats up, follows
-                            // the finger, and casts a shadow while the other rows part
-                            translationY = dragFingerY - (rowTop + rowBottom) / 2f
-                            scaleX = 1.05f
-                            scaleY = 1.05f
-                            shadowElevation = with(density) { 12.dp.toPx() }
-                            alpha = 0.96f
-                        }
-                    }
-                    .pointerInput(index) {
-                        // Swipe-left reveals the action drawer. Full event loop
-                        // with requireUnconsumed=false so it always sees the down
-                        // even if combinedClickable consumed it; only consumes
-                        // moves once a horizontal swipe is detected (which then
-                        // cancels the clickable's tap/long-press).
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            android.util.Log.d("LayerPanel", "idx=$index gesture DOWN x=${down.position.x} y=${down.position.y}")
-                            val startX = down.position.x
-                            val thr = dragThresholdPx.toFloat()
-                            var total = 0f
-                            var prevX = startX
-                            var swiping = false
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null || change.changedToUpIgnoreConsumed()) break
-                                val dx = change.position.x - startX
-                                if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
-                                    swiping = true
-                                }
-                                if (swiping) {
-                                    change.consume()
-                                    if (dx < 0) {
-                                        if (!reveal) android.util.Log.d("LayerPanel", "idx=$index SWIPE reveal")
-                                        reveal = true
-                                    } else {
-                                        reveal = false
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .combinedClickable(
-                        onClick = { onClick() },
-                        onLongClick = {
-                            // 画世界 Pro style: vibrate then drag
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onDragStart()
-                        },
-                    )
+                    // while dragging: dim the in-list row (the floating copy in
+                    // the overlay is the visible one)
+                    .graphicsLayer { if (isDragging) alpha = 0.4f }
                     .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // Group indent: whole row content shifts right for nested layers,
-            // with VS Code style vertical guide lines (one per nesting level)
-            if (layer.depth > 0) {
-                Box(Modifier.width((layer.depth * 16).dp).fillMaxHeight()) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val step = 16.dp.toPx()
-                        val lw = 1.dp.toPx()
-                        for (d in 1..layer.depth) {
-                            val x = step * (d - 0.5f)
-                            drawLine(
-                                color = Morandi.border.copy(alpha = 0.7f),
-                                start = Offset(x, 0f),
-                                end = Offset(x, size.height),
-                                strokeWidth = lw,
-                            )
-                        }
+        )
+    }
+}
+
+/**
+ * Visual content of a layer row (indent guides, collapse arrow, eye, thumbnail,
+ * name with sub-info, status icons). No gestures - shared by the in-list row
+ * and the floating drag overlay.
+ */
+@Composable
+private fun LayerRowContent(
+    vm: PaintViewModel,
+    layer: PaintViewModel.LayerUiState,
+    selected: Boolean,
+    collapsed: Boolean,
+    index: Int,
+    onToggleCollapse: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isBg = layer.isBackground
+    val visible = layer.visible
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Group indent: whole row content shifts right for nested layers,
+        // with VS Code style vertical guide lines (one per nesting level)
+        if (layer.depth > 0) {
+            Box(Modifier.width((layer.depth * 16).dp).fillMaxHeight()) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val step = 16.dp.toPx()
+                    val lw = 1.dp.toPx()
+                    for (d in 1..layer.depth) {
+                        val x = step * (d - 0.5f)
+                        drawLine(
+                            color = Morandi.border.copy(alpha = 0.7f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = lw,
+                        )
                     }
                 }
-            } else {
-                Spacer(Modifier.width(0.dp))
             }
+        } else {
+            Spacer(Modifier.width(0.dp))
+        }
 
-            // Collapse arrow for groups (toggle, does not select)
-            if (layer.isGroup) {
-                Box(
-                    modifier =
-                        Modifier
-                            .size(22.dp)
-                            .noRippleClickable(onToggleCollapse),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_chevron),
-                        contentDescription = if (collapsed) "展开" else "折叠",
-                        tint = Morandi.subText,
-                        modifier = Modifier.size(14.dp).rotate(if (collapsed) 0f else 90f),
-                    )
-                }
-            }
-            // Visibility eye (left of the thumbnail)
+        // Collapse arrow for groups (toggle, does not select)
+        if (layer.isGroup) {
             Box(
                 modifier =
                     Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.7f))
-                        .noRippleClickable { vm.toggleLayerVisible(index) },
+                        .size(22.dp)
+                        .noRippleClickable(onToggleCollapse),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                    contentDescription = "可见性",
-                    tint = if (visible) Morandi.icon else Morandi.subText,
-                    modifier = Modifier.size(17.dp),
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = if (collapsed) "展开" else "折叠",
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(14.dp).rotate(if (collapsed) 0f else 90f),
                 )
             }
-            // Thumbnail (light checkerboard behind)
-            Box(
+        }
+        // Visibility eye (left of the thumbnail)
+        Box(
+            modifier =
                 Modifier
-                    .size(40.dp)
+                    .size(28.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, Morandi.border.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
-            ) {
-                LightCheckerboard(Modifier.fillMaxSize())
-                vm.layerThumbs[layer.index]?.let { thumb ->
-                    Image(
-                        bitmap = thumb.asImageBitmap(),
-                        contentDescription = "图层缩略图",
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
+                    .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.7f))
+                    .noRippleClickable { vm.toggleLayerVisible(index) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                contentDescription = "可见性",
+                tint = if (visible) Morandi.icon else Morandi.subText,
+                modifier = Modifier.size(17.dp),
+            )
+        }
+        // Thumbnail (light checkerboard behind)
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .border(1.dp, Morandi.border.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
+        ) {
+            LightCheckerboard(Modifier.fillMaxSize())
+            vm.layerThumbs[layer.index]?.let { thumb ->
+                Image(
+                    bitmap = thumb.asImageBitmap(),
+                    contentDescription = "图层缩略图",
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
-            Column(Modifier.weight(1f)) {
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = layer.name,
+                color = if (selected) Morandi.onAccent else Morandi.text,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val blendName =
+                vm.blendModes.firstOrNull { it.first == layer.blendMode }?.second
+                    ?: layer.blendMode
+            val modified = layer.opacity < 0.999f || layer.blendMode != "normal"
+            if (modified) {
                 Text(
-                    text = layer.name,
-                    color = if (selected) Morandi.onAccent else Morandi.text,
-                    fontSize = 12.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    text = "${(layer.opacity * 100).roundToInt()}% · $blendName",
+                    color = if (selected) Morandi.onAccent.copy(alpha = 0.7f) else Morandi.subText,
+                    fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val blendName =
-                    vm.blendModes.firstOrNull { it.first == layer.blendMode }?.second
-                        ?: layer.blendMode
-                val modified = layer.opacity < 0.999f || layer.blendMode != "normal"
-                if (modified) {
-                    Text(
-                        text = "${(layer.opacity * 100).roundToInt()}% · $blendName",
-                        color = if (selected) Morandi.onAccent.copy(alpha = 0.7f) else Morandi.subText,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
             }
-            // Right-side status icons
-            if (layer.clipped) {
-                Icon(
-                    painterResource(R.drawable.ic_clip),
-                    contentDescription = "剪贴蒙版",
-                    tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
-            if (layer.alphaLocked && !isBg) {
-                Icon(
-                    painterResource(R.drawable.ic_grid),
-                    contentDescription = "锁定透明度",
-                    tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
-            if (layer.locked || isBg) {
-                Icon(
-                    painterResource(R.drawable.ic_lock),
-                    contentDescription = "锁定",
-                    tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                    modifier = Modifier.size(13.dp),
-                )
-            }
+        }
+        // Right-side status icons
+        if (layer.clipped) {
+            Icon(
+                painterResource(R.drawable.ic_clip),
+                contentDescription = "剪贴蒙版",
+                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
+                modifier = Modifier.size(13.dp),
+            )
+        }
+        if (layer.alphaLocked && !isBg) {
+            Icon(
+                painterResource(R.drawable.ic_grid),
+                contentDescription = "锁定透明度",
+                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
+                modifier = Modifier.size(13.dp),
+            )
+        }
+        if (layer.locked || isBg) {
+            Icon(
+                painterResource(R.drawable.ic_lock),
+                contentDescription = "锁定",
+                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
+                modifier = Modifier.size(13.dp),
+            )
         }
     }
 }
