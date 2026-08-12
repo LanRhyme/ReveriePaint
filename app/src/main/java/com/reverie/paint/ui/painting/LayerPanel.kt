@@ -346,16 +346,32 @@ private fun LayerListView(
             if (groupDrop) {
                 vm.moveLayerToGroup(from, over.first)
             } else {
-                // Exact sibling semantics: the drop slot's visual index is
-                // `insert` in the top-first display list, so the layer lands
-                // just above the row that currently sits at insert+1. This is
-                // what the parting animation shows - no off-by-one.
-                val aboveIdx = displayList.getOrNull(insert + 1)?.index
-                if (aboveIdx != null && aboveIdx != from) {
-                    vm.moveLayerAbove(from, aboveIdx)
-                    // Keep the dragged layer selected
-                    selectedIndex = from
-                    vm.setCurrentLayer(from)
+                // Exact target semantics derived from Krita's moveNode:
+                // moveNode(node, parent, aboveThis) places node AT aboveThis's
+                // slot. m_layers is bottom-first (visual list is its reverse),
+                // so:
+                //   to = m_layers index where the layer lands (visual slot
+                //        insert = m_layers size-1-insert)
+                //   to > from (dragged up visually): aboveThis = m_layers[to+1]
+                //   to < from (dragged down visually): aboveThis = m_layers[to]
+                //   to+1 out of range: aboveThis = null -> top of the tree
+                val to = displayList.size - 1 - insert
+                if (to > 0 && to != from) {
+                    val aboveIdx =
+                        if (to > from) {
+                            if (to + 1 < displayList.size) to + 1 else -1
+                        } else {
+                            to
+                        }
+                    if (aboveIdx != from) {
+                        pendingOrder = displayList.map { it.index }
+                        vm.moveLayerAbove(from, aboveIdx)
+                        // The dragged layer now lives at m_layers index `to`;
+                        // select it (not the layer that was pushed into its
+                        // old slot)
+                        selectedIndex = to
+                        vm.setCurrentLayer(to)
+                    }
                 }
             }
         }

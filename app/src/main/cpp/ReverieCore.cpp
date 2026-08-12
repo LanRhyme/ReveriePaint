@@ -789,10 +789,10 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
     if (fromIndex <= 0 || fromIndex >= m_layers.size()) {
         return false;  // background (index 0) is never moved
     }
-    if (aboveIndex < 0 || aboveIndex >= m_layers.size()) {
+    if (aboveIndex < -1 || aboveIndex >= m_layers.size()) {
         return false;
     }
-    if (fromIndex == aboveIndex) {
+    if (aboveIndex >= 0 && fromIndex == aboveIndex) {
         return false;
     }
     const LayerEntry &src = m_layers[fromIndex];
@@ -800,12 +800,23 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
         return false;
     }
     KisNodeSP node(src.node);
-    const LayerEntry &above = m_layers[aboveIndex];
-    KisNodeSP aboveNode(above.node);
-    if (aboveNode == node) {
-        return false;
+    KisNodeSP parent;
+    KisNodeSP aboveNode;
+    if (aboveIndex >= 0) {
+        const LayerEntry &above = m_layers[aboveIndex];
+        aboveNode = KisNodeSP(above.node);
+        if (aboveNode == node) {
+            return false;
+        }
+        parent = aboveNode->parent() ? aboveNode->parent() : m_document->root();
+    } else {
+        // aboveIndex == -1: move to the very top of the root
+        parent = m_document->root();
+        aboveNode = parent->lastChild();
+        if (aboveNode == node) {
+            return true;  // already at the top
+        }
     }
-    KisNodeSP parent(aboveNode->parent() ? aboveNode->parent() : m_document->root());
     if (parent == node) {
         return false;  // cannot move a group into its own subtree
     }
