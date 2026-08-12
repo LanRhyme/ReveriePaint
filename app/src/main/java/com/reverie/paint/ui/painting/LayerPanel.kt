@@ -604,10 +604,17 @@ private fun LayerRow(
     val isBg = layer.isBackground
     val visible = layer.visible
     var reveal by remember { mutableStateOf(false) }
+    // finger-follow offset while swiping (0..-drawerPx), animation takes over
+    // on release
+    var dragOffset by remember { mutableStateOf(0f) }
+    var sliding by remember { mutableStateOf(false) }
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val dragThresholdPx = with(density) { 8.dp.roundToPx() }
+    // A swipe must travel this far to reveal the drawer (prevents accidental
+    // triggers from small horizontal wiggles)
+    val revealThresholdPx = with(density) { 20.dp.roundToPx() }
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
@@ -636,22 +643,37 @@ private fun LayerRow(
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
-                        val thr = dragThresholdPx.toFloat()
-                        var prevX = startX
+                        val startY = down.position.y
                         var swiping = false
+                        var lastDx = 0f
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
                             if (change == null || change.changedToUpIgnoreConsumed()) break
                             val dx = change.position.x - startX
-                            if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
-                                swiping = true
+                            val dy = change.position.y - startY
+                            if (!swiping) {
+                                // Only treat it as a swipe when the movement is
+                                // clearly horizontal (prevents vertical list
+                                // scrolling and small wiggles from revealing)
+                                if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 1.2f) {
+                                    swiping = true
+                                    sliding = true
+                                }
                             }
                             if (swiping) {
                                 change.consume()
-                                reveal = dx < 0
-                                android.util.Log.d("LayerPanel", "SWIPE reveal idx=$index dx=$dx")
+                                lastDx = dx
+                                // follow the finger, clamped to the drawer width
+                                dragOffset = dx.coerceIn(-drawerPx.toFloat(), 0f)
                             }
+                        }
+                        if (swiping) {
+                            sliding = false
+                            dragOffset = 0f
+                            // reveal only on a deliberate swipe past the
+                            // threshold; otherwise the row animates back
+                            reveal = lastDx < -revealThresholdPx
                         }
                     }
                 }
@@ -675,7 +697,9 @@ private fun LayerRow(
                         .fillMaxHeight()
                         .width(drawerWidth)
                         .zIndex(2f)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(8.dp))
+                        // fade the drawer in/out together with the row slide
+                        .graphicsLayer { alpha = revealFraction },
             ) {
                 Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
@@ -719,8 +743,15 @@ private fun LayerRow(
                             label = "rowBg",
                         ).value,
                     )
-                    // slide left while the drawer is revealed (animated)
-                    .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
+                    // follow the finger while swiping; animate to the
+                    // revealed/closed position on release
+                    .offset {
+                        IntOffset(
+                            if (sliding) dragOffset.roundToInt()
+                            else -(drawerPx * revealFraction).roundToInt(),
+                            0,
+                        )
+                    }
                     // while dragging: dim the in-list row (the floating copy in
                     // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
