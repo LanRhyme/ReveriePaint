@@ -298,7 +298,13 @@ private fun LayerListView(
 
     // Once the native layer list reflects the move, release the frozen order
     LaunchedEffect(vm.layers) {
-        if (pendingOrder != null) pendingOrder = null
+        if (pendingOrder != null) {
+            android.util.Log.d(
+                "LayerPanel",
+                "RELEASE pending=${pendingOrder} real=${displayRows.map { it.name }}",
+            )
+            pendingOrder = null
+        }
     }
 
     val density = LocalDensity.current
@@ -320,7 +326,13 @@ private fun LayerListView(
         // Only re-sort when the target slot actually changes: recomputing the
         // list for every in-row finger micro-move restarts the animateItem
         // animations over and over, which reads as jitter
-        if (target != dragTargetIdx) dragTargetIdx = target
+        if (target != dragTargetIdx) {
+            android.util.Log.d(
+                "LayerPanel",
+                "TARGET y=$fingerY rowPos=$rowPos target=$target size=${displayList.size}",
+            )
+            dragTargetIdx = target
+        }
         // Group middle zone highlight (rowBounds only used for this hint)
         var over: Pair<Int, DropMode>? = null
         for (i in displayList.indices) {
@@ -371,6 +383,10 @@ private fun LayerListView(
                 if (to > 0 && to != from) {
                     val aboveIdx = if (to > from) to else to - 1
                     if (aboveIdx != from) {
+                        android.util.Log.d(
+                            "LayerPanel",
+                            "ENDDRAG from=$from insert=$insert to=$to above=$aboveIdx",
+                        )
                         pendingOrder = displayList.map { it.name }
                         vm.moveLayerAbove(from, aboveIdx)
                         // The dragged layer now lives at m_layers index `to`;
