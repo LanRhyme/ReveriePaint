@@ -267,13 +267,18 @@ private fun LayerListView(
             buildList { collectBlock(0, n, -1, this) }
         }
 
-    // Display list: while dragging, the dragged row is temporarily moved to
-    // the finger's target position so the other rows part (animateItem animates
-    // the shuffle). On release the real move happens and this temporary order
-    // converges to the new layer order.
+    // Freeze the dragged order on release so the row does not first animate
+    // back to its original position: displayList stays at the drop order until
+    // the native move has landed (vm.layers updates -> LaunchedEffect releases).
+    var pendingOrder by remember { mutableStateOf<List<Int>?>(null) }
+
+    // Display list priority: frozen drop order > dragging order > real order
     val displayList =
-        remember(vm.layers, collapsedGroups, draggingFrom, dragTargetIdx) {
-            if (draggingFrom >= 0 && dragTargetIdx >= 0) {
+        remember(vm.layers, collapsedGroups, draggingFrom, dragTargetIdx, pendingOrder) {
+            if (pendingOrder != null) {
+                val byIndex = displayRows.associateBy { it.index }
+                pendingOrder!!.mapNotNull { byIndex[it] }
+            } else if (draggingFrom >= 0 && dragTargetIdx >= 0) {
                 val l = displayRows.toMutableList()
                 val fi = l.indexOfFirst { it.index == draggingFrom }
                 if (fi >= 0) {
@@ -285,6 +290,11 @@ private fun LayerListView(
                 displayRows
             }
         }
+
+    // Once the native layer list reflects the move, release the frozen order
+    LaunchedEffect(vm.layers) {
+        if (pendingOrder != null) pendingOrder = null
+    }
 
     val density = LocalDensity.current
     val rowPx = with(density) { rowHeight.roundToPx() }
@@ -330,11 +340,10 @@ private fun LayerListView(
         // reverse of the visual top-first display list, so the layer index is
         // displayList.size - 1 - insert.
         val to = if (from > 0 && insert >= 0) displayList.size - 1 - insert else -1
-        draggingFrom = -1
-        dragTargetIdx = -1
-        dragFingerY = 0f
-        dragOver = null
         if (from > 0 && to > 0) {
+            // Freeze the drop order so the row does not animate back to its
+            // original slot before the native move lands
+            pendingOrder = displayList.map { it.index }
             // Dropped into a group's middle zone -> move into the group
             val groupDrop =
                 over != null && over.second == DropMode.OnGroup &&
@@ -348,6 +357,10 @@ private fun LayerListView(
             selectedIndex = from
             vm.setCurrentLayer(from)
         }
+        draggingFrom = -1
+        dragTargetIdx = -1
+        dragFingerY = 0f
+        dragOver = null
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -581,19 +594,20 @@ private fun LayerRow(
                     },
                 ),
     ) {
-        // Action drawer: three actions (copy / solo / delete), always composed,
-        // fading via revealFraction (AnimatedVisibility in LazyColumn rows was
-        // unreliable for showing this drawer).
-        Box(
-            modifier =
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .width(drawerWidth)
-                    .graphicsLayer { alpha = revealFraction }
-                    .clip(RoundedCornerShape(8.dp)),
-        ) {
-            Row(modifier = Modifier.fillMaxSize()) {
+        // Action drawer: three actions (copy / solo / delete), composed only
+        // while revealed so a closed row neither renders nor hits the buttons;
+        // the row slides away (offset) and the drawer fades in.
+        if (reveal) {
+            Box(
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .width(drawerWidth)
+                        .graphicsLayer { alpha = revealFraction }
+                        .clip(RoundedCornerShape(8.dp)),
+            ) {
+                Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
                     vm.copyLayer(index)
                     reveal = false
@@ -606,6 +620,7 @@ private fun LayerRow(
                     if (!isBg) vm.removeLayer(index)
                     reveal = false
                 }
+            }
             }
         }
 
