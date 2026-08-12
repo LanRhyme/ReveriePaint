@@ -155,24 +155,24 @@ fun CanvasView(
                                     prevDistance = distance
                                     prevAngle = angle
                                 } else {
-                                    // Clamp per-event deltas: a freshly landed
-                                    // second finger makes prevDistance tiny and
-                                    // would otherwise explode the zoom; a fast
-                                    // rotation should never jump more than 15 deg
-                                    // per event
-                                    val k = (distance / prevDistance).coerceIn(0.5f, 2f)
-                                    val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
-                                    val dPanX = centroid.x - prevCentroid.x
-                                    val dPanY = centroid.y - prevCentroid.y
+                                    // Exact incremental transform: the document
+                                    // point under the previous centroid lands
+                                    // exactly under the current centroid. The
+                                    // clamps only guard against degenerate
+                                    // events (a freshly landed second finger
+                                    // makes prevDistance tiny) - they are wide
+                                    // enough not to bind during normal pinches.
+                                    val k = (distance / prevDistance).coerceIn(0.2f, 5f)
+                                    val dRot = normalizeAngle(angle - prevAngle).coerceIn(-25f, 25f)
 
-                                    // Keep the point under the fingers fixed while
-                                    // rotating by dRot and scaling by k around the
-                                    // current centroid, then translate by the
-                                    // centroid movement. center = C0 + pan.
+                                    // Rotate the vector from the old center to
+                                    // the PREVIOUS centroid by dRot, scale by k,
+                                    // then place the new center so that point
+                                    // lands under the current centroid.
                                     val centerX = viewW / 2f + localPanX
                                     val centerY = viewH / 2f + localPanY
-                                    val vx = centroid.x - centerX
-                                    val vy = centroid.y - centerY
+                                    val vx = prevCentroid.x - centerX
+                                    val vy = prevCentroid.y - centerY
                                     val radians = Math.toRadians(dRot.toDouble())
                                     val cosR = cos(radians).toFloat()
                                     val sinR = sin(radians).toFloat()
@@ -181,8 +181,8 @@ fun CanvasView(
 
                                     localZoom = (localZoom * k).coerceIn(0.05f, 32f)
                                     localRotation += dRot
-                                    localPanX = centroid.x - k * rx - viewW / 2f + dPanX
-                                    localPanY = centroid.y - k * ry - viewH / 2f + dPanY
+                                    localPanX = centroid.x - k * rx - viewW / 2f
+                                    localPanY = centroid.y - k * ry - viewH / 2f
 
                                     prevCentroid = centroid
                                     prevDistance = distance
@@ -246,8 +246,11 @@ fun CanvasView(
 
                                         else -> {
                                             if (!strokeStarted) {
-                                                vm.touchStart(imagePos.x, imagePos.y)
+                                                // Start at the finger-DOWN position (not the first
+                                                // move), so the stroke's beginning is not cut off
+                                                vm.touchStart(firstImage.x, firstImage.y)
                                                 strokeStarted = true
+                                                vm.touchMove(imagePos.x, imagePos.y)
                                             } else {
                                                 vm.touchMove(imagePos.x, imagePos.y)
                                             }

@@ -318,6 +318,14 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_strokeOpacity = m_brushOpacity;
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
+    // The stroke starts at the finger-down position: append it as the first
+    // sample so the down -> first-move segment is drawn. Otherwise the first
+    // flush sees one sample and paints a dot, and the stroke start is cut off
+    // (Android can move several px before the first move event arrives).
+    StrokeSample s;
+    s.imgPos = m_strokeStartImg;
+    s.pressure = pressure;
+    m_strokeSamples.append(s);
 }
 
 void ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
