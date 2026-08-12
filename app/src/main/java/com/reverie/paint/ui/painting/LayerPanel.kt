@@ -482,16 +482,13 @@ private fun LayerListView(
                         },
                             modifier =
                                 Modifier.animateItem(
-                                    // 画世界 Pro style: the parting rows snap
-                                    // instantly (following the finger), the
-                                    // animated feel comes from the floating
-                                    // overlay. Any timed placement animation
-                                    // here restarts on every slot change and
-                                    // reads as jitter/flicker; zero-duration
-                                    // means release has NO leftover animation
-                                    placementSpec = tween(0),
-                                    fadeInSpec = tween(0),
-                                    fadeOutSpec = tween(0),
+                                    // Smooth non-bouncy parting animation
+                                    // (the drag flicker was the thumbnail
+                                    // index cache going empty after moves,
+                                    // not this animation)
+                                    placementSpec = tween(220),
+                                    fadeInSpec = tween(120),
+                                    fadeOutSpec = tween(120),
                                 ),
                         )
             }
@@ -796,7 +793,7 @@ private fun LayerRowContent(
                 .border(1.dp, Morandi.border.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())
-            vm.layerThumbs[layer.index]?.let { thumb ->
+            vm.thumbFor(layer.index, layer.name)?.let { thumb ->
                 Image(
                     bitmap = thumb.asImageBitmap(),
                     contentDescription = "图层缩略图",

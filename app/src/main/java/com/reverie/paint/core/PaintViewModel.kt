@@ -466,9 +466,18 @@ class PaintViewModel : ViewModel() {
     }
 
     private val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
+    // Name-keyed mirror: layer indices change on every move/group op, so the
+    // index cache goes empty right after a drag and the rows flash blank until
+    // the 400ms-throttled refresh lands. Names are stable across moves, so a
+    // by-name lookup keeps thumbnails visible (this is the drag flicker fix)
+    private val layerThumbByName = mutableStateMapOf<String, Bitmap>()
 
     /** Layer thumbnails keyed by layer index (updated on the render thread). */
     val layerThumbs: Map<Int, Bitmap> = layerThumbStates
+
+    /** Thumbnail lookup that survives index shifts (fallback by layer name). */
+    fun thumbFor(layerIndex: Int, layerName: String): Bitmap? =
+        layerThumbStates[layerIndex] ?: layerThumbByName[layerName]
 
     private var lastThumbRefreshNs = 0L
 
@@ -484,7 +493,11 @@ class PaintViewModel : ViewModel() {
                 val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
                 if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
                     val idx = i
-                    mainHandler.post { layerThumbStates[idx] = bmp }
+                    val name = ReverieCoreBridge.layerName(idx)
+                    mainHandler.post {
+                        layerThumbStates[idx] = bmp
+                        layerThumbByName[name] = bmp
+                    }
                 }
             }
         }
