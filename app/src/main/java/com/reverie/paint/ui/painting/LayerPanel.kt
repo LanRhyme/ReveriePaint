@@ -16,8 +16,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +58,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
@@ -403,6 +407,7 @@ private fun LayerRow(
     val visible = layer.visible
     var reveal by remember { mutableStateOf(false) }
     val viewConfiguration = LocalViewConfiguration.current
+    val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val dragThresholdPx = with(density) { 8.dp.roundToPx() }
     val rowHeight = 56.dp
@@ -415,9 +420,11 @@ private fun LayerRow(
     // detail page for an already-selected row)
     val interactiveEndPx =
         with(density) {
-            var x = (layer.depth * 16).dp
-            if (layer.isGroup) x += 22.dp
+            var x = 8.dp // row padding
+            x += (layer.depth * 16).dp // indent guides
+            if (layer.isGroup) x += 22.dp // collapse arrow
             x += 28.dp // eye button
+            x += 4.dp // margin so the eye's tap zone is fully excluded
             x.roundToPx()
         }
 
@@ -491,70 +498,68 @@ private fun LayerRow(
                             }
                             val startX = down.position.x
                             val startY = down.position.y
-                            val downT = down.uptimeMillis
-                            val longSlop = viewConfiguration.touchSlop * 2f
-                            val longSlopSq = longSlop * longSlop
                             val thr = dragThresholdPx.toFloat()
-                            var dragActive = false
-                            var total = 0f
-                            var prevX = startX
-                            var maxMoveSq = 0f
-                            var tapOk = false
-                            var done = false
-                            var loggedMode = false
-                            // Full event loop: tap, swipe and long-press drag are
-                            // decided here without awaitLongPressOrCancellation
-                            // (which swallows the UP event and eats single taps)
-                            while (!done) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null) break
-                                val dx = change.position.x - startX
-                                val dy = change.position.y - startY
-                                val movedSq = dx * dx + dy * dy
-                                val elapsed = change.uptimeMillis - downT
-                                if (change.changedToUpIgnoreConsumed()) {
-                                    if (dragActive) {
-                                        android.util.Log.d("LayerPanel", "idx=$index drag END")
-                                        onDragEnd()
-                                    } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
-                                        android.util.Log.d("LayerPanel", "idx=$index longpress-noop")
-                                    } else if (maxMoveSq <= longSlopSq) {
-                                        android.util.Log.d("LayerPanel", "idx=$index TAP")
-                                        tapOk = true
+                            // Reliable long-press: awaitLongPressOrCancellation has
+                            // its own event-independent timeout, so a finger held
+                            // still (no move events) still fires the long press.
+                            val lp = awaitLongPressOrCancellation(down.id)
+                            if (lp != null) {
+                                // ---- long press fired: vibrate + drag ----
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                android.util.Log.d("LayerPanel", "idx=$index DRAG start (haptic)")
+                                onDragStart()
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || change.changedToUpIgnoreConsumed()) break
+                                    change.consume()
+                                    onDragPosition(rowTop + change.position.y)
+                                }
+                                android.util.Log.d("LayerPanel", "idx=$index drag END")
+                                onDragEnd()
+                            } else {
+                                // awaitLongPressOrCancellation returned null for either
+                                // a move (swipe) or an UP it consumed internally.
+                                // The UP is already gone, so we must not wait for it:
+                                // instead, consume the FOLLOWING events (moves) for the
+                                // swipe; a single tap leaves no events here and the
+                                // block simply suspends until the next gesture (harmless).
+                                var swiping = false
+                                var total = 0f
+                                var prevX = startX
+                                var settled = false
+                                while (!settled) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null) {
+                                        // UP was swallowed: nothing more for this
+                                        // gesture. Do not treat a future down here.
+                                        settled = true
+                                    } else if (change.changedToUpIgnoreConsumed()) {
+                                        if (!swiping || (total > -thr && total < thr)) {
+                                            android.util.Log.d("LayerPanel", "idx=$index TAP")
+                                            onClick()
+                                        }
+                                        settled = true
                                     } else {
-                                        android.util.Log.d("LayerPanel", "idx=$index up-notap maxMove=${kotlin.math.sqrt(maxMoveSq)}")
+                                        val dx = change.position.x - startX
+                                        val dy = change.position.y - startY
+                                        if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
+                                            swiping = true
+                                        }
+                                        if (swiping) {
+                                            change.consume()
+                                            total += change.position.x - prevX
+                                            prevX = change.position.x
+                                            if (total < -thr) {
+                                                reveal = true
+                                            } else if (total > thr) {
+                                                reveal = false
+                                            }
+                                        }
                                     }
-                                    done = true
-                                } else if (dragActive) {
-                                    change.consume()
-                                    onDragPosition(rowTop + change.position.y)
-                                } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
-                                    android.util.Log.d("LayerPanel", "idx=$index DRAG start")
-                                    dragActive = true
-                                    onDragStart()
-                                    change.consume()
-                                    onDragPosition(rowTop + change.position.y)
-                                } else if (movedSq > longSlopSq) {
-                                    // swipe (drawer) while not long-pressing
-                                    total += change.position.x - prevX
-                                    prevX = change.position.x
-                                    if (!loggedMode) {
-                                        android.util.Log.d("LayerPanel", "idx=$index SWIPE total=$total")
-                                        loggedMode = true
-                                    }
-                                    if (total < -thr) {
-                                        reveal = true
-                                    } else if (total > thr) {
-                                        reveal = false
-                                    }
-                                    change.consume()
-                                    if (movedSq > maxMoveSq) maxMoveSq = movedSq
-                                } else {
-                                    if (movedSq > maxMoveSq) maxMoveSq = movedSq
                                 }
                             }
-                            if (tapOk) onClick()
                         }
                     }
                     .padding(horizontal = 8.dp),
