@@ -14,10 +14,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -288,7 +289,13 @@ private fun LayerListView(
         dragOver = null
         if (from > 0 && target != null && target.first != from) {
             when (target.second) {
-                DropMode.Above -> vm.moveLayer(from, target.first)
+                DropMode.Above -> {
+                    // Dropping onto the locked background row means "just above
+                    // it", i.e. the lowest movable position (index 1). The C++
+                    // side rejects index 0 (background protection).
+                    val to = if (target.first <= 0) 1 else target.first
+                    vm.moveLayer(from, to)
+                }
                 DropMode.OnGroup -> vm.moveLayerToGroup(from, target.first)
             }
         }
@@ -321,7 +328,7 @@ private fun LayerListView(
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
         var columnTop by remember { mutableStateOf(0f) }
-        Column(
+        LazyColumn(
             modifier =
                 Modifier
                     .heightIn(max = 320.dp)
@@ -329,7 +336,7 @@ private fun LayerListView(
                     // Panel-level drag handler: once a row's long press activated
                     // dragging (draggingFrom >= 0), this consumes the following
                     // moves for drop-position calculation. Consuming also stops
-                    // the vertical scroll from hijacking the drag.
+                    // the lazy scroll from hijacking the drag.
                     .pointerInput(draggingFrom) {
                         if (draggingFrom < 0) return@pointerInput
                         awaitPointerEventScope {
@@ -344,12 +351,9 @@ private fun LayerListView(
                                 updateDragPos(columnTop + pressed.position.y)
                             }
                         }
-                    }
-                    .verticalScroll(rememberScrollState()),
+                    },
         ) {
-            for (i in displayRows.indices) {
-                val layer = displayRows[i]
-                key(layer.index) {
+            items(displayRows, key = { it.index }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,
@@ -374,17 +378,8 @@ private fun LayerListView(
                                 vm.setCurrentLayer(layer.index)
                             }
                         },
+                        modifier = Modifier.animateItem(),
                     )
-                }
-                if (i < displayRows.size - 1) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = 8.dp, end = 8.dp)
-                            .height(1.dp)
-                            .background(Morandi.border.copy(alpha = 0.5f)),
-                    )
-                }
             }
         }
     }
@@ -427,6 +422,7 @@ private fun LayerRow(
     dragLineAbove: Boolean,
     dragOnGroup: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val index = layer.index
     val isBg = layer.isBackground
@@ -450,7 +446,7 @@ private fun LayerRow(
 
     Box(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .height(rowHeight)
                 .onGloballyPositioned { c ->
@@ -504,19 +500,38 @@ private fun LayerRow(
                     )
                     .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
                     .pointerInput(index) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { totalDrag = 0f },
-                            onDragEnd = { /* keep reveal state */ },
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                totalDrag += dragAmount
-                                if (totalDrag < -dragThresholdPx.toFloat()) {
-                                    reveal = true
-                                } else if (totalDrag > dragThresholdPx.toFloat()) {
-                                    reveal = false
+                        // Swipe-left reveals the action drawer. Full event loop
+                        // with requireUnconsumed=false so it always sees the down
+                        // even if combinedClickable consumed it; only consumes
+                        // moves once a horizontal swipe is detected (which then
+                        // cancels the clickable's tap/long-press).
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val startX = down.position.x
+                            val thr = dragThresholdPx.toFloat()
+                            var total = 0f
+                            var prevX = startX
+                            var swiping = false
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null || change.changedToUpIgnoreConsumed()) break
+                                val dx = change.position.x - startX
+                                if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
+                                    swiping = true
                                 }
-                            },
-                        )
+                                if (swiping) {
+                                    change.consume()
+                                    total += change.position.x - prevX
+                                    prevX = change.position.x
+                                    if (total < -thr) {
+                                        reveal = true
+                                    } else if (total > thr) {
+                                        reveal = false
+                                    }
+                                }
+                            }
+                        }
                     }
                     .combinedClickable(
                         onClick = { onClick() },
