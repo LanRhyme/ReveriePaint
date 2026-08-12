@@ -74,7 +74,8 @@
 - [x] ReverieCore/JNI/Kotlin 全链路 (loadBrushPresetsFromDir/loadBrushPreset/
       setBrushSize/Opacity/Flow), APK 构建通过 (51MB)
 - [ ] 真机验证 (用户)
-- [ ] 笔刷参数面板: 流量/硬度/间距滑块 (kpp 预设参数编辑)
+- [x] 笔刷参数面板: 大小/不透明度/流量滑块 (setPaintOpSize/Opacity/Flow)
+- [ ] 硬度/间距滑块 (需编辑 brush_definition XML, 后续)
 - [ ] colorsmudge 注册 (1 个预设用 Water-Pattern, 需给
       kritacolorsmudgepaintop 加 register_static)
 

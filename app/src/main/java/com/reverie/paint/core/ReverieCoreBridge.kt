@@ -140,6 +140,8 @@ object ReverieCoreBridge {
 
     external fun currentBrushPreset(): Int
 
+    external fun setBrushFlow(flow: Double)
+
 
     external fun touchStrokeStart(
         x: Double,

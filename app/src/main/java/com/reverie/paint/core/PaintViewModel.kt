@@ -35,6 +35,7 @@ class PaintViewModel : ViewModel() {
     var brushOpacity by mutableStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var brushPresetIndex by mutableStateOf(-1)
+    var brushFlow by mutableStateOf(1.0)
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
@@ -359,6 +360,11 @@ class PaintViewModel : ViewModel() {
             }
             brushPresets = list
         }
+    }
+
+    fun updateBrushFlow(v: Double) {
+        brushFlow = v
+        ReverieCoreBridge.setBrushFlow(v)
     }
 
     fun selectBrushPreset(index: Int) {

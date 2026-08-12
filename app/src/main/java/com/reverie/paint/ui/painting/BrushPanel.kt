@@ -70,6 +70,18 @@ fun BrushPanel(
                 )
             }
 
+            // Brush parameter sliders (size / opacity / flow) - all applied
+            // to the active Krita preset's settings in C++
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                BrushParamSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
+                BrushParamSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
+                BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
+            }
+
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
                 modifier = Modifier
@@ -133,4 +145,45 @@ fun BrushPanel(
 private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
     androidx.compose.runtime.remember(bytes) { }
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+}
+
+
+@Composable
+private fun BrushParamSlider(
+    label: String,
+    value: Double,
+    min: Double,
+    max: Double,
+    onChange: (Double) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(36.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = Morandi.subText,
+            fontSize = 11.sp,
+            modifier = Modifier.width(56.dp),
+        )
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.weight(1f),
+        ) {
+            androidx.compose.material3.Slider(
+                value = value.toFloat(),
+                onValueChange = { onChange(it.toDouble()) },
+                valueRange = min.toFloat()..max.toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text(
+            text = if (max > 100) "${value.toInt()}" else "${(value * 100).toInt()}%",
+            color = Morandi.text,
+            fontSize = 11.sp,
+            modifier = Modifier.width(42.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+        )
+    }
 }

@@ -268,6 +268,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_currentBrushPreset(JNIEnv *, jobje
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFlow(JNIEnv *, jobject, jdouble flow)
+{
+    core()->setBrushFlow(flow);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {
     const char *c = env->GetStringUTFChars(color, nullptr);
