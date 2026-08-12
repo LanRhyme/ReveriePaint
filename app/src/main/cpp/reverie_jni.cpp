@@ -92,7 +92,10 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
     }
 
     // Register the JavaVM with Qt's Android layer.
-    void *qtCore = dlopen("libQt6Core_arm64-v8a.so", RTLD_NOW | RTLD_NOLOAD);
+    // dlopen without RTLD_NOLOAD: if the dependency chain hasn't loaded
+    // libQt6Core yet (unlikely, but possible with lazy binding), this loads
+    // it so the dlsym below can find initJNI.
+    void *qtCore = dlopen("libQt6Core_arm64-v8a.so", RTLD_NOW);
     if (qtCore) {
         QtInitJNIFn initJNI = reinterpret_cast<QtInitJNIFn>(
             dlsym(qtCore, "_ZN16QtAndroidPrivate7initJNIEP7_JavaVMP7_JNIEnv"));
