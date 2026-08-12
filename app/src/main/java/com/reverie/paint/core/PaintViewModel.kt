@@ -65,11 +65,18 @@ class PaintViewModel : ViewModel() {
     private var renderHandler: Handler? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // double buffer: the render thread writes the back buffer, then publishes
-    // it to Compose; the other buffer is reused for the next render.
-    private var bufferA: Bitmap? = null
-    private var bufferB: Bitmap? = null
-    private var usingA = true
+    // Rendering buffers. The engine's renderToBuffer does incremental
+    // updates assuming the SAME destination bitmap every frame (full copy on
+    // first use, then only the changed rows) - so a single render buffer is
+    // used on the render thread, and the pixels are copied to an alternating
+    // pair of publish bitmaps on the main thread for Compose to display.
+    // (Alternating destination buffers would leave stale garbage in the
+    // unchanged regions of every other frame.)
+    private var renderBmp: Bitmap? = null
+    private var publishA: Bitmap? = null
+    private var publishB: Bitmap? = null
+    private var publishFlip = false
+    private val renderLock = Any()
     private var renderScheduled = false
 
     init {
@@ -122,21 +129,29 @@ class PaintViewModel : ViewModel() {
         val w = coreW
         val h = coreH
         if (w <= 0 || h <= 0) return
-        val bmp = nextBackBuffer(w, h) ?: return
-        ReverieCoreBridge.renderToBuffer(bmp)
-        usingA = !usingA
-        mainHandler.post { displayBitmap = bmp }
-    }
-
-    private fun nextBackBuffer(
-        w: Int,
-        h: Int,
-    ): Bitmap? {
-        val cur = if (usingA) bufferB else bufferA
-        if (cur != null && cur.width == w && cur.height == h) return cur
-        val nb = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        if (usingA) bufferB = nb else bufferA = nb
-        return nb
+        val rb = renderBmp
+        if (rb == null || rb.width != w || rb.height != h) {
+            renderBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        }
+        val src = renderBmp ?: return
+        synchronized(renderLock) {
+            ReverieCoreBridge.renderToBuffer(src)
+        }
+        mainHandler.post {
+            val pub: Bitmap =
+                if (publishFlip) {
+                    publishA ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { publishA = it }
+                } else {
+                    publishB ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { publishB = it }
+                }
+            publishFlip = !publishFlip
+            synchronized(renderLock) {
+                // copyPixelsFrom is API 26+; Canvas works on all APIs without
+                // allocating a temp pixel array
+                android.graphics.Canvas(pub).drawBitmap(src, 0f, 0f, null)
+            }
+            displayBitmap = pub
+        }
     }
 
     val layerCount: Int get() = ReverieCoreBridge.layerCount()
