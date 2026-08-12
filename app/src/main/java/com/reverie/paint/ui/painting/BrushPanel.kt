@@ -2,8 +2,8 @@ package com.reverie.paint.ui.painting
 
 import com.reverie.paint.R
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +24,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.BrushPresets
+import com.reverie.paint.ui.components.RePanel
 import com.reverie.paint.ui.theme.Morandi
 
 /**
@@ -42,32 +42,9 @@ fun BrushPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Backdrop to close
-    Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable { onClose() },
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(340.dp)
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .background(Morandi.panelHi)
-                    .padding(16.dp),
-        ) {
-            // Header
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("笔刷", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                IconBtn(R.drawable.ic_x, "关闭", onClose)
-            }
-
-            Spacer(Modifier.height(10.dp))
+    RePanel(title = "笔刷", onClose = onClose, modifier = modifier) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Spacer(Modifier.height(4.dp))
 
             // Presets
             Column(
@@ -110,6 +87,7 @@ fun BrushPanel(
                 value = vm.brushOpacity.toFloat(),
                 onValue = { vm.updateBrushOpacity(it.toDouble()) },
             )
+            Spacer(Modifier.height(12.dp))
         }
     }
 }
@@ -133,7 +111,7 @@ private fun BrushPresetCard(
     ) {
         Text(
             name,
-            color = if (selected) Color.White else Morandi.text,
+            color = if (selected) Morandi.onAccent else Morandi.text,
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
         )

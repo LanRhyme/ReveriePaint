@@ -5,24 +5,60 @@ import com.reverie.paint.model.BrushPreset
 import com.reverie.paint.model.CanvasPreset
 
 /**
- * Morandi palette - low saturation, warm/cool tones.
- * Centralized so a theme system can be added later.
+ * All UI colors as a data class so a theme system (light / dark / accent /
+ * user-defined) can swap in different instances later. Every composable
+ * must read colors from [Theme.current] - never hardcode a color.
+ *
+ * Components reference tokens by semantic name (bg / panel / accent /
+ * onAccent / scrim ...) so a new theme only needs a different instance.
  */
-object Morandi {
-    val bg = Color(0xFF262A30) // deep blue-grey
-    val panel = Color(0xFF30353D)
-    val panelHi = Color(0xFF3A4049)
-    val accent = Color(0xFF7C8F9E) // misty blue
-    val accentHi = Color(0xFF92A5B5)
-    val text = Color(0xFFE2E0DA) // warm white
-    val subText = Color(0xFF93989F)
-    val canvasBg = Color(0xFF3D424A)
-    val border = Color(0xFF444A53)
-    val icon = Color(0xFFC9C6BD)
+data class AppColors(
+    val bg: Color, // app / page background
+    val panel: Color, // panels, rails, top bar
+    val panelHi: Color, // raised surfaces, sliders track
+    val accent: Color, // selection, primary actions
+    val accentHi: Color, // brighter accent (borders, pressed)
+    val onAccent: Color, // text/icon on accent (usually white)
+    val text: Color, // primary text
+    val subText: Color, // secondary text, labels
+    val canvasBg: Color, // workspace behind the document
+    val border: Color, // hairline separators
+    val icon: Color, // idle icons
+    val scrim: Color, // full-screen backdrop over the canvas
+    val gridLine: Color, // canvas grid
+    val canvasShadow: Color, // drop shadow under the document
+)
 
-    val gridLine = Color(0xFF484E57)
-    val canvasShadow = Color(0x66000000)
+/** Default Morandi palette - low saturation, warm/cool tones. */
+val MorandiColors =
+    AppColors(
+        bg = Color(0xFF262A30), // deep blue-grey
+        panel = Color(0xFF30353D),
+        panelHi = Color(0xFF3A4049),
+        accent = Color(0xFF7C8F9E), // misty blue
+        accentHi = Color(0xFF92A5B5),
+        onAccent = Color(0xFFFFFFFF),
+        text = Color(0xFFE2E0DA), // warm white
+        subText = Color(0xFF93989F),
+        canvasBg = Color(0xFF3D424A),
+        border = Color(0xFF444A53),
+        icon = Color(0xFFC9C6BD),
+        scrim = Color(0x66000000),
+        gridLine = Color(0xFF484E57),
+        canvasShadow = Color(0x66000000),
+    )
+
+/**
+ * Active theme. UI code reads [Theme.current]; a theme system can swap
+ * this (light/dark/accent presets or user-defined colors) at runtime.
+ */
+object Theme {
+    var current: AppColors = MorandiColors
 }
+
+/** Backwards-compatible alias so existing call sites can migrate gradually. */
+val Morandi: AppColors
+    get() = Theme.current
 
 val BrushPresets =
     listOf(

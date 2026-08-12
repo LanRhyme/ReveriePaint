@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.ColorSwatches
+import com.reverie.paint.ui.components.RePanel
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.atan2
@@ -65,26 +66,11 @@ fun ColorPanel(
     val current = AColor.HSVToColor(floatArrayOf(hue, sat, valB))
     val currentHex = "#%06X".format(current and 0xFFFFFF)
 
-    Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable { onClose() },
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(380.dp)
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .background(Morandi.panelHi)
-                    .padding(16.dp),
-        ) {
+    RePanel(title = "颜色", onClose = onClose, modifier = modifier) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Spacer(Modifier.height(4.dp))
+            // current color preview + hex
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("颜色", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(10.dp))
                 Box(
                     modifier =
                         Modifier
@@ -95,8 +81,6 @@ fun ColorPanel(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(currentHex, color = Morandi.subText, fontSize = 11.sp)
-                Spacer(Modifier.weight(1f))
-                IconBtn(R.drawable.ic_x, "关闭", onClose)
             }
 
             Spacer(Modifier.height(12.dp))
@@ -156,7 +140,7 @@ fun ColorPanel(
                 val selX = cx + cos((hue - 90f) * Math.PI / 180f).toFloat() * sat * radius
                 val selY = cy + sin((hue - 90f) * Math.PI / 180f).toFloat() * sat * radius
                 drawCircle(
-                    color = Color.White,
+                    color = Morandi.onAccent,
                     radius = 8f,
                     center = Offset(selX, selY),
                     style = Stroke(width = 3f),
@@ -221,7 +205,7 @@ fun ColorPanel(
                             },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("使用", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("使用", color = Morandi.onAccent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }

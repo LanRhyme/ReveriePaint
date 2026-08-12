@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.theme.Morandi
 
 /**
@@ -55,7 +56,7 @@ fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        IconBtn(R.drawable.ic_home, "返回主页", onBack)
+        ReIconButton(R.drawable.ic_home, "返回主页", onBack)
         Spacer(Modifier.width(4.dp))
         Text(
             vm.docName,
@@ -65,38 +66,15 @@ fun TopBar(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconBtn(R.drawable.ic_undo, "撤销", onUndo)
-        IconBtn(R.drawable.ic_redo, "重做", onRedo)
-        IconBtn(R.drawable.ic_rotate_ccw, "逆时针旋转", onRotateCcw)
-        IconBtn(R.drawable.ic_rotate_cw, "顺时针旋转", onRotateCw)
-        IconBtn(R.drawable.ic_zoom_in, "放大", onZoomIn)
-        IconBtn(R.drawable.ic_zoom_out, "缩小", onZoomOut)
-        IconBtn(R.drawable.ic_layers, "图层", onLayers)
-        IconBtn(R.drawable.ic_settings, "设置", onSettings)
+        ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
+        ReIconButton(R.drawable.ic_redo, "重做", onRedo)
+        ReIconButton(R.drawable.ic_rotate_ccw, "逆时针旋转", onRotateCcw)
+        ReIconButton(R.drawable.ic_rotate_cw, "顺时针旋转", onRotateCw)
+        ReIconButton(R.drawable.ic_zoom_in, "放大", onZoomIn)
+        ReIconButton(R.drawable.ic_zoom_out, "缩小", onZoomOut)
+        ReIconButton(R.drawable.ic_layers, "图层", onLayers)
+        ReIconButton(R.drawable.ic_settings, "设置", onSettings)
     }
 }
 
-/** Small square icon button (Tabler vector icon, 画世界 Pro style). */
-@Composable
-fun IconBtn(
-    @DrawableRes icon: Int,
-    desc: String,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-            modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .clickable { onTap() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = desc,
-            tint = Morandi.text,
-            modifier = Modifier.size(20.dp),
-        )
-    }
-}
+

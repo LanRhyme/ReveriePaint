@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.model.Tool
+import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 
@@ -68,20 +70,20 @@ fun ToolRail(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Tool.entries.forEach { t ->
-                ToolBtn(t, t == tool) { onTool(t) }
+                ReIconButton(toolIcon(t), t.label, { onTool(t) }, selected = t == tool)
             }
         }
 
         Spacer(Modifier.weight(1f))
-        RailIcon(Tool.BRUSH, "笔刷", onOpenBrush)
+        ReIconButton(toolIcon(Tool.BRUSH), "笔刷", onOpenBrush)
         Spacer(Modifier.height(6.dp))
-        RailSlider(
+        ReVerticalSlider(
             label = brushSize.toInt().toString(),
             fraction = ((brushSize - 1) / 99.0).toFloat().coerceIn(0f, 1f),
             onFraction = { onBrushSize(1.0 + it * 99.0) },
         )
         Spacer(Modifier.height(10.dp))
-        RailSlider(
+        ReVerticalSlider(
             label = (opacity * 100).toInt().toString(),
             fraction = opacity.toFloat(),
             onFraction = { onOpacity(it.toDouble()) },
@@ -99,48 +101,7 @@ fun ToolRail(
     }
 }
 
-@Composable
-private fun ToolBtn(
-    t: Tool,
-    selected: Boolean,
-    onSelect: () -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(if (selected) Morandi.accent else Color.Transparent)
-                .clickable(onClick = onSelect),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(toolIcon(t)),
-            contentDescription = t.label,
-            tint = if (selected) Color.White else Morandi.icon,
-            modifier = Modifier.size(24.dp),
-        )
-    }
-}
 
-@Composable
-private fun RailIcon(
-    tool: Tool,
-    desc: String,
-    onTap: () -> Unit,
-) {
-    Box(
-        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onTap),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painter = painterResource(toolIcon(tool)),
-            contentDescription = desc,
-            tint = Morandi.icon,
-            modifier = Modifier.size(24.dp),
-        )
-    }
-}
 
 /** Tabler icon-pack drawable for each tool (see app/src/main/res/drawable). */
 @DrawableRes
@@ -161,34 +122,3 @@ private fun toolIcon(tool: Tool): Int =
         Tool.LIQUIFY -> R.drawable.ic_liquify
     }
 
-@Composable
-private fun RailSlider(
-    label: String,
-    fraction: Float,
-    onFraction: (Float) -> Unit,
-) {
-    var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
-    // position.y from drag gestures is in pixels; trackHeight must be the
-    // on-screen pixel height of the track, not the dp value
-    var trackHeight by remember { mutableIntStateOf(1) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.height(120.dp)) {
-        Text(label, color = Morandi.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-        Box(
-            modifier =
-                Modifier
-                    .width(26.dp)
-                    .height(96.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(Morandi.panelHi)
-                    .onSizeChanged { trackHeight = it.height }
-                    .pointerInput(Unit) {
-                        detectDragGestures { change, _ ->
-                            val value = 1f - (change.position.y / trackHeight.toFloat()).coerceIn(0f, 1f)
-                            localFraction = value
-                            onFraction(value)
-                            change.consume()
-                        }
-                    },
-        )
-    }
-}

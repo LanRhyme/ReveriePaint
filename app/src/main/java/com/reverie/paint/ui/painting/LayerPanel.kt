@@ -49,7 +49,7 @@ fun LayerPanel(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
+                .background(Morandi.scrim)
                 .clickable { onClose() },
     ) {
         Column(
@@ -68,7 +68,11 @@ fun LayerPanel(
                 Spacer(Modifier.width(8.dp))
                 Text("${vm.layerCount} 层", color = Morandi.subText, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                IconBtn(R.drawable.ic_x, "关闭", onClose)
+                com.reverie.paint.ui.components.ReIconButton(
+                    com.reverie.paint.R.drawable.ic_x,
+                    "关闭",
+                    onClose,
+                )
             }
 
             Spacer(Modifier.height(8.dp))

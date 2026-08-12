@@ -26,7 +26,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.components.ReButton
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.components.RePanel
 
 /**
  * Settings panel (bottom sheet): canvas info, view reset, document name.
@@ -38,28 +40,9 @@ fun SettingsPanel(
     onResetView: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable { onClose() },
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(280.dp)
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                    .background(Morandi.panelHi)
-                    .padding(16.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("设置", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                IconBtn(R.drawable.ic_x, "关闭", onClose)
-            }
+    RePanel(title = "设置", onClose = onClose, modifier = modifier) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+            Spacer(Modifier.height(4.dp))
 
             Spacer(Modifier.height(14.dp))
 
@@ -70,41 +53,26 @@ fun SettingsPanel(
             Spacer(Modifier.height(14.dp))
 
             // Save project
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.accent)
-                        .clickable {
-                            vm.saveProject(vm.docName)
-                            onClose()
-                        },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("保存项目", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-
-            Spacer(Modifier.height(8.dp))
+            ReButton(
+                text = "保存项目",
+                onClick = {
+                    vm.saveProject(vm.docName)
+                    onClose()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
 
             // Reset view
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                        .clickable {
-                            onResetView()
-                            onClose()
-                        },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("重置视图", color = Morandi.text, fontSize = 14.sp)
-            }
+            ReButton(
+                text = "重置视图",
+                onClick = {
+                    onResetView()
+                    onClose()
+                },
+                primary = false,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
