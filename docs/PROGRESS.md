@@ -50,6 +50,9 @@
 - 画布显示: C++ 合成 → Android Bitmap 零拷贝 (lockPixels) → Compose Image
 - Bitmap 原地修改: mutableStateOf 用 neverEqualPolicy 强制触发重组
 - 渲染缓存: 内容变化才重合成, 触摸期间 30fps 节流
+- 区域化合成: 按 Krita projection 机制只重算脏区 (convertToQImage 区域),
+  笔画期间每帧只合成笔画包围盒而非全文档, 解决绘画卡顿
+- 双指变换: 以双指质心为锚点的增量式变换, 每帧缩放钳制 0.5-2x, 旋转 ±15°
 - 撤销: 笔画级多图层快照 (32 层上限), Krita 命令栈后期接入
 - 填充: 自研 BFS 种子填充 (KisFillTool 在 kritaui 中, 依赖太重)
 - 液化: 局部像素位移 + 径向衰减
