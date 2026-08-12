@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -12,6 +13,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -54,6 +57,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +89,7 @@ import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val drawerWidth = 120.dp
+private val drawerWidth = 96.dp
 private val rowHeight = 56.dp
 
 private fun Boolean?.orFalse() = this ?: false
@@ -604,10 +608,8 @@ private fun LayerRow(
     val isBg = layer.isBackground
     val visible = layer.visible
     var reveal by remember { mutableStateOf(false) }
-    // finger-follow offset while swiping (0..-drawerPx), animation takes over
-    // on release
-    var dragOffset by remember { mutableStateOf(0f) }
-    var sliding by remember { mutableStateOf(false) }
+    var swiping by remember { mutableStateOf(false) }
+    var fingerDx by remember { mutableStateOf(0f) }
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -619,11 +621,27 @@ private fun LayerRow(
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
 
-    val revealFraction by animateFloatAsState(
-        targetValue = if (reveal) 1f else 0f,
-        animationSpec = tween(220),
-        label = "reveal",
-    )
+    // Row slide offset in px. While swiping it snapTo()s the finger (instant
+    // follow, no lag); on release it animates to the revealed/closed position.
+    // A single Animatable for both phases means no value jump on release (the
+    // "bounces back then slides out" feel came from switching between the raw
+    // finger offset and a separately-animated fraction starting at 0).
+    val revealAnim = remember { Animatable(0f) }
+
+    LaunchedEffect(swiping) {
+        if (swiping) {
+            // follow the finger frame by frame (instant, no lag)
+            while (true) {
+                revealAnim.snapTo(fingerDx)
+                withFrameNanos {}
+            }
+        } else {
+            revealAnim.animateTo(
+                if (reveal) -drawerPx.toFloat() else 0f,
+                tween(220),
+            )
+        }
+    }
 
     Box(
         modifier =
@@ -658,22 +676,20 @@ private fun LayerRow(
                                 // scrolling and small wiggles from revealing)
                                 if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 1.2f) {
                                     swiping = true
-                                    sliding = true
                                 }
                             }
                             if (swiping) {
                                 change.consume()
                                 lastDx = dx
                                 // follow the finger, clamped to the drawer width
-                                dragOffset = dx.coerceIn(-drawerPx.toFloat(), 0f)
+                                fingerDx = dx.coerceIn(-drawerPx.toFloat(), 0f)
                             }
                         }
                         if (swiping) {
-                            sliding = false
-                            dragOffset = 0f
                             // reveal only on a deliberate swipe past the
                             // threshold; otherwise the row animates back
                             reveal = lastDx < -revealThresholdPx
+                            swiping = false
                         }
                     }
                 }
@@ -690,6 +706,16 @@ private fun LayerRow(
         // while revealed so a closed row neither renders nor hits the buttons;
         // the row slides away (offset) and the drawer fades in.
         if (reveal) {
+            // Refined drawer entrance: slides in from the right edge while
+            // fading, synchronized with the row sliding away
+            val drawerSlide = remember { Animatable(drawerPx.toFloat()) }
+            val drawerAlpha = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                coroutineScope {
+                    launch { drawerSlide.animateTo(0f, tween(220)) }
+                    launch { drawerAlpha.animateTo(1f, tween(180)) }
+                }
+            }
             Box(
                 modifier =
                     Modifier
@@ -698,8 +724,8 @@ private fun LayerRow(
                         .width(drawerWidth)
                         .zIndex(2f)
                         .clip(RoundedCornerShape(8.dp))
-                        // fade the drawer in/out together with the row slide
-                        .graphicsLayer { alpha = revealFraction },
+                        .offset { IntOffset(drawerSlide.value.roundToInt(), 0) }
+                        .graphicsLayer { alpha = drawerAlpha.value },
             ) {
                 Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
@@ -744,14 +770,9 @@ private fun LayerRow(
                         ).value,
                     )
                     // follow the finger while swiping; animate to the
-                    // revealed/closed position on release
-                    .offset {
-                        IntOffset(
-                            if (sliding) dragOffset.roundToInt()
-                            else -(drawerPx * revealFraction).roundToInt(),
-                            0,
-                        )
-                    }
+                    // revealed/closed position on release (revealAnim covers
+                    // both, so there is no value jump between the phases)
+                    .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
                     // while dragging: dim the in-list row (the floating copy in
                     // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
