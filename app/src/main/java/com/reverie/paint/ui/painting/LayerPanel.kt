@@ -60,6 +60,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.asImageBitmap
@@ -228,6 +230,8 @@ private fun LayerListView(
     var collapsedGroups by remember { mutableStateOf(setOf<Int>()) }
     var draggingFrom by remember { mutableStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
+    var dragFingerY by remember { mutableStateOf(0f) }
+    var dragTargetIdx by remember { mutableStateOf(-1) }
     val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
 
     // Display order, top-first, keeping group blocks intact.
@@ -262,10 +266,37 @@ private fun LayerListView(
             buildList { collectBlock(0, n, -1, this) }
         }
 
+    // Display list: while dragging, the dragged row is temporarily moved to
+    // the finger's target position so the other rows part (animateItem animates
+    // the shuffle). On release the real move happens and this temporary order
+    // converges to the new layer order.
+    val displayList =
+        remember(vm.layers, collapsedGroups, draggingFrom, dragTargetIdx) {
+            if (draggingFrom >= 0 && dragTargetIdx >= 0) {
+                val l = displayRows.toMutableList()
+                val fi = l.indexOfFirst { it.index == draggingFrom }
+                if (fi >= 0) {
+                    val item = l.removeAt(fi)
+                    l.add(dragTargetIdx.coerceIn(0, l.size), item)
+                }
+                l
+            } else {
+                displayRows
+            }
+        }
+
     fun updateDragPos(fingerY: Float) {
+        dragFingerY = fingerY
+        // Target display index: the row whose mid-point the finger crossed
+        // (the dragged row is inserted there so the other rows part).
+        var target = -1
         var over: Pair<Int, DropMode>? = null
-        for ((idx, b) in rowBounds) {
+        for (i in displayList.indices) {
+            val idx = displayList[i].index
             if (idx == draggingFrom) continue
+            val b = rowBounds[idx] ?: continue
+            val mid = (b.first + b.second) / 2f
+            if (target < 0 && fingerY < mid) target = i
             if (fingerY >= b.first && fingerY <= b.second) {
                 val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
                 val mid0 = b.first + (b.second - b.first) * 0.3f
@@ -278,14 +309,18 @@ private fun LayerListView(
                     }
             }
         }
-        android.util.Log.d("LayerPanel", "dragPos y=$fingerY over=${over?.first ?: -1} ${over?.second}")
+        if (target < 0) target = displayList.size - 1
+        dragTargetIdx = target
         dragOver = over
+        android.util.Log.d("LayerPanel", "dragPos y=$fingerY target=$target over=${over?.first ?: -1} ${over?.second}")
     }
 
     fun endDrag() {
         val from = draggingFrom
         val target = dragOver
         draggingFrom = -1
+        dragTargetIdx = -1
+        dragFingerY = 0f
         dragOver = null
         if (from > 0 && target != null && target.first != from) {
             when (target.second) {
@@ -353,7 +388,7 @@ private fun LayerListView(
                         }
                     },
         ) {
-            items(displayRows, key = { it.index }) { layer ->
+            items(displayList, key = { it.index }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,
@@ -370,6 +405,8 @@ private fun LayerListView(
                         onDragEnd = { endDrag() },
                         dragLineAbove = dragOver?.first == layer.index && dragOver?.second == DropMode.Above,
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
+                        isDragging = draggingFrom == layer.index,
+                        dragFingerY = dragFingerY,
                         onClick = {
                             if (layer.index == selectedIndex) {
                                 onOpenDetail(layer.index)
@@ -421,6 +458,8 @@ private fun LayerRow(
     onDragEnd: () -> Unit,
     dragLineAbove: Boolean,
     dragOnGroup: Boolean,
+    isDragging: Boolean,
+    dragFingerY: Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -473,6 +512,10 @@ private fun LayerRow(
                     vm.copyLayer(index)
                     reveal = false
                 }
+                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
+                    vm.soloLayer(index)
+                    reveal = false
+                }
                 DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
                     if (!isBg) vm.removeLayer(index)
                     reveal = false
@@ -499,6 +542,18 @@ private fun LayerRow(
                         ).value,
                     )
                     .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
+                    .graphicsLayer {
+                        if (isDragging) {
+                            // 画世界 Pro style: the dragged row floats up, follows
+                            // the finger, and casts a shadow while the other rows part
+                            translationY = dragFingerY - (rowTop + rowBottom) / 2f
+                            scaleX = 1.05f
+                            scaleY = 1.05f
+                            shadowElevation = with(density) { 12.dp.toPx() }
+                            alpha = 0.96f
+                        }
+                    }
+                    .zIndex(if (isDragging) 2f else 0f)
                     .pointerInput(index) {
                         // Swipe-left reveals the action drawer. Full event loop
                         // with requireUnconsumed=false so it always sees the down
@@ -507,6 +562,7 @@ private fun LayerRow(
                         // cancels the clickable's tap/long-press).
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            android.util.Log.d("LayerPanel", "idx=$index gesture DOWN x=${down.position.x} y=${down.position.y}")
                             val startX = down.position.x
                             val thr = dragThresholdPx.toFloat()
                             var total = 0f
@@ -522,11 +578,10 @@ private fun LayerRow(
                                 }
                                 if (swiping) {
                                     change.consume()
-                                    total += change.position.x - prevX
-                                    prevX = change.position.x
-                                    if (total < -thr) {
+                                    if (dx < 0) {
+                                        if (!reveal) android.util.Log.d("LayerPanel", "idx=$index SWIPE reveal")
                                         reveal = true
-                                    } else if (total > thr) {
+                                    } else {
                                         reveal = false
                                     }
                                 }
