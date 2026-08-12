@@ -32,19 +32,19 @@ data class AppColors(
 /** Default Morandi palette - low saturation, warm/cool tones. */
 val MorandiColors =
     AppColors(
-        bg = Color(0xFF262A30), // deep blue-grey
-        panel = Color(0xFF30353D),
-        panelHi = Color(0xFF3A4049),
-        accent = Color(0xFF7C8F9E), // misty blue
-        accentHi = Color(0xFF92A5B5),
+        bg = Color(0xFF18191A), // Darker greyish with slight tint
+        panel = Color(0xFF2B2C2F), // Slightly lighter for panels
+        panelHi = Color(0xFF35373A),
+        accent = Color(0xFF5E8BA8), // Morandi blue accent, slightly muted
+        accentHi = Color(0xFF769EBB),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFFE2E0DA), // warm white
-        subText = Color(0xFF93989F),
-        canvasBg = Color(0xFF3D424A),
-        border = Color(0xFF444A53),
-        icon = Color(0xFFC9C6BD),
-        scrim = Color(0x66000000),
-        gridLine = Color(0xFF484E57),
+        text = Color(0xFFE2E2E2),
+        subText = Color(0xFF989A9C),
+        canvasBg = Color(0xFF101112), // Even darker behind canvas
+        border = Color(0xFF3F4145),
+        icon = Color(0xFFB5B7B9),
+        scrim = Color(0x99000000),
+        gridLine = Color(0xFF3F4145),
         canvasShadow = Color(0x66000000),
     )
 

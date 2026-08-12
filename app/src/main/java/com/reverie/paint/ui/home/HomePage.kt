@@ -13,11 +13,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.Explore
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -26,149 +36,111 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
-import com.reverie.paint.ui.theme.CanvasPresets
-import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.Theme
 
 @Composable
 fun HomePage(vm: PaintViewModel) {
+    val colors = Theme.current
     Column(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Morandi.bg)
-                .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+                .background(colors.bg)
     ) {
-        Spacer(Modifier.height(48.dp))
-
-        // Logo tile
-        Box(
-            modifier =
-                Modifier
-                    .size(72.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Morandi.accent),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("R", color = Morandi.text, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(Modifier.height(16.dp))
-        Text("ReveriePaint", color = Morandi.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text("Creative drawing", color = Morandi.subText, fontSize = 14.sp)
-
-        Spacer(Modifier.height(36.dp))
-
-        // Primary action
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.accent)
-                    .clickable { vm.goCreate() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("新建画布", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panel)
-                    .clickable {
-                        // Open the most recent project, or go create a new one
-                        vm.projects.firstOrNull()?.let { vm.loadProject(it.name) } ?: vm.goCreate()
-                    },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("打开项目", color = Morandi.text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        // Recent projects
+        // Top bar
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("最近项目", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Icon(Icons.Default.Person, contentDescription = "Profile", tint = colors.text, modifier = Modifier.size(24.dp))
             Spacer(Modifier.weight(1f))
-            Text(
-                if (vm.projects.isEmpty()) "暂无" else "${vm.projects.size} 个",
-                color = Morandi.subText,
-                fontSize = 12.sp,
-            )
+            Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.icon, modifier = Modifier.padding(horizontal = 8.dp).size(24.dp))
+            Icon(Icons.Default.Cloud, contentDescription = "Cloud", tint = colors.icon, modifier = Modifier.padding(horizontal = 8.dp).size(24.dp))
+            Icon(Icons.Default.MoreVert, contentDescription = "More", tint = colors.icon, modifier = Modifier.padding(start = 8.dp).size(24.dp))
         }
 
-        Spacer(Modifier.height(12.dp))
-
+        // Project Grid
         if (vm.projects.isEmpty()) {
             Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Morandi.panel),
-                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("暂无项目", color = Morandi.subText, fontSize = 14.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text("新建一个画布开始创作", color = Morandi.subText, fontSize = 12.sp)
+                    Text("暂无画布", color = colors.subText, fontSize = 16.sp)
                 }
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
                 items(vm.projects) { p ->
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Morandi.panel)
-                                .clickable { vm.loadProject(p.name) }
-                                .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clickable { vm.loadProject(p.name) }
                     ) {
                         val thumb = remember(p.name) {
-                            android.graphics.BitmapFactory.decodeFile(
-                                java.io.File(vm.projectDir(), "${p.name}.png").absolutePath,
-                            )
+                            val file = java.io.File(vm.projectDir(), "${p.name}.png")
+                            if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.absolutePath) else null
                         }
-                        if (thumb != null) {
-                            Image(
-                                bitmap = thumb.asImageBitmap(),
-                                contentDescription = null,
-                                modifier =
-                                    Modifier
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Morandi.canvasBg),
-                            )
-                            Spacer(Modifier.width(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.canvasBg)
+                        ) {
+                            if (thumb != null) {
+                                Image(
+                                    bitmap = thumb.asImageBitmap(),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                // Video icon placeholder
+                                Box(modifier = Modifier.align(Alignment.BottomStart).padding(8.dp).size(24.dp).clip(CircleShape).background(Color.Black.copy(alpha=0.4f)), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                }
+                            }
                         }
-                        Text(p.name, color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            if (thumb != null) "${thumb.getWidth()}×${thumb.getHeight()}" else "${p.w}×${p.h}",
-                            color = Morandi.subText,
-                            fontSize = 12.sp,
-                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(p.name, color = colors.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        // Use a dummy date if we don't have one in Project model
+                        Text("2026-08-12", color = colors.subText, fontSize = 12.sp)
                     }
                 }
+            }
+        }
+
+        // Bottom Nav Bar
+        Row(
+            modifier = Modifier.fillMaxWidth().height(64.dp).background(colors.panel),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Rounded.Brush, contentDescription = "创作", tint = colors.accent, modifier = Modifier.size(24.dp))
+                Text("创作", color = colors.accent, fontSize = 10.sp)
+            }
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(colors.accent)
+                    .clickable { vm.goCreate() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "新建", tint = colors.onAccent, modifier = Modifier.size(28.dp))
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Rounded.Explore, contentDescription = "发现", tint = colors.subText, modifier = Modifier.size(24.dp))
+                Text("发现", color = colors.subText, fontSize = 10.sp)
             }
         }
     }

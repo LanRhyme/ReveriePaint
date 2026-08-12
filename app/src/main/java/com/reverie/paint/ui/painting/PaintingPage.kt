@@ -1,6 +1,13 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.Image
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -78,14 +85,16 @@ fun PaintingPage(vm: PaintViewModel) {
 
     // Currently selected tool
     var tool by remember { mutableStateOf(Tool.BRUSH) }
+    var moreToolsOpen by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(Morandi.bg)) {
-        // ---- Canvas workspace (content starts below the top bar and beside
-        // the rail). Keep the padding on a wrapper, not on CanvasView itself:
-        // padding on a fillMaxSize composable leaves its measured size equal
-        // to the full screen and shifts the transform center to the right.
+    Box(Modifier.fillMaxSize().background(Morandi.panel)) {
+        // ---- Canvas workspace
         Box(
-            modifier = Modifier.fillMaxSize().padding(top = 56.dp, start = 60.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 36.dp, start = 36.dp)
+                .clip(RoundedCornerShape(topStart = 8.dp))
+                .background(Morandi.bg)
         ) {
             CanvasView(
                 vm = vm,
@@ -116,6 +125,7 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Top bar ----
         TopBar(
+            modifier = Modifier.align(Alignment.TopCenter),
             vm = vm,
             onBack = { vm.goHome() },
             onRotateCw = {
@@ -140,11 +150,15 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Left tool rail ----
         ToolRail(
+            modifier = Modifier.align(Alignment.CenterStart).padding(top = 36.dp),
             tool = tool,
             onTool = {
                 tool = it
                 vm.applyTool(it.id)
+                moreToolsOpen = false
             },
+            moreToolsOpen = moreToolsOpen,
+            onToggleMoreTools = { moreToolsOpen = !moreToolsOpen },
             brushSize = vm.brushSize,
             onBrushSize = { vm.updateBrushSize(it) },
             opacity = vm.brushOpacity,
@@ -176,39 +190,48 @@ fun PaintingPage(vm: PaintViewModel) {
         }
 
         // ---- Popup panels (topmost) ----
-        if (brushPanelOpen) {
+        AnimatedVisibility(
+            visible = brushPanelOpen,
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            modifier = Modifier.fillMaxSize().zIndex(10f)
+        ) {
             BrushPanel(
                 vm = vm,
                 onClose = { brushPanelOpen = false },
-                modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
-        if (layerPanelOpen) {
+        AnimatedVisibility(
+            visible = layerPanelOpen,
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            modifier = Modifier.fillMaxSize().zIndex(10f)
+        ) {
             LayerPanel(
                 vm = vm,
                 onClose = { layerPanelOpen = false },
-                modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
-        if (settingsPanelOpen) {
+        AnimatedVisibility(
+            visible = settingsPanelOpen,
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            modifier = Modifier.fillMaxSize().zIndex(10f)
+        ) {
             SettingsPanel(
                 vm = vm,
                 onClose = { settingsPanelOpen = false },
-                onResetView = {
-                    zoom = 1f
-                    rotation = 0f
-                    panX = 0f
-                    panY = 0f
-                    fitScale = 1f
-                },
-                modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
-        if (colorPanelOpen) {
+        AnimatedVisibility(
+            visible = colorPanelOpen,
+            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 44.dp, bottom = 16.dp).zIndex(10f)
+        ) {
             ColorPanel(
                 vm = vm,
                 onClose = { colorPanelOpen = false },
-                modifier = Modifier.fillMaxSize().zIndex(10f),
             )
         }
 

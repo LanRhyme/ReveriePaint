@@ -2,6 +2,7 @@ package com.reverie.paint.ui.components
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -66,21 +73,25 @@ fun ReIconButton(
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    size: androidx.compose.ui.unit.Dp = 32.dp,
 ) {
     val colors = Theme.current
+    val bgColor by animateColorAsState(if (selected) colors.accent else Color.Transparent, tween(200))
+    val tintColor by animateColorAsState(if (selected) colors.onAccent else colors.icon, tween(200))
+
     Box(
         modifier =
             modifier
-                .size(Dimens.touch)
-                .clip(RoundedCornerShape(Dimens.radiusSm))
-                .background(if (selected) colors.accent else Color.Transparent)
+                .size(size)
+                .clip(RoundedCornerShape(8.dp))
+                .background(bgColor)
                 .clickable { onTap() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             painter = painterResource(icon),
             contentDescription = desc,
-            tint = if (selected) colors.onAccent else colors.icon,
+            tint = tintColor,
             modifier = Modifier.size(Dimens.icon),
         )
     }
@@ -120,12 +131,14 @@ fun ReVerticalSlider(
     fraction: Float,
     onFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    trackWidth: Int = 26,
-    trackHeight: Int = 96,
+    trackWidth: Int = 24,
+    trackHeight: Int = 100,
 ) {
     val colors = Theme.current
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
     var trackPx by remember { mutableIntStateOf(1) }
+    var isDragging by remember { androidx.compose.runtime.mutableStateOf(false) }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier.height((trackHeight + 20).dp),
@@ -136,18 +149,52 @@ fun ReVerticalSlider(
                 Modifier
                     .width(trackWidth.dp)
                     .height(trackHeight.dp)
-                    .clip(RoundedCornerShape((trackWidth / 2).dp))
-                    .background(colors.panelHi)
                     .onSizeChanged { trackPx = it.height }
                     .pointerInput(Unit) {
-                        detectDragGestures { change, _ ->
+                        detectDragGestures(
+                            onDragStart = { isDragging = true },
+                            onDragEnd = { isDragging = false },
+                            onDragCancel = { isDragging = false }
+                        ) { change, _ ->
                             val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
                             localFraction = value
                             onFraction(value)
                             change.consume()
                         }
                     },
-        )
+        ) {
+            // Value tooltip
+            if (isDragging) {
+                androidx.compose.ui.window.Popup(
+                    alignment = Alignment.CenterStart,
+                    offset = androidx.compose.ui.unit.IntOffset(100, 0)
+                ) {
+                    Box(modifier = Modifier
+                        .background(colors.panel, RoundedCornerShape(8.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Text("${(localFraction * 100).toInt()}", color = colors.text, fontSize = 12.sp)
+                    }
+                }
+            }
+            // Track
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape((trackWidth / 2).dp))
+                    .background(colors.panelHi)
+            )
+            // Thumb indicator
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = (localFraction * (trackHeight - trackWidth)).dp)
+                    .size(trackWidth.dp)
+                    .clip(CircleShape)
+                    .background(colors.text)
+                    .border(2.dp, colors.panelHi, CircleShape)
+            )
+        }
     }
 }
 
@@ -180,7 +227,9 @@ fun ReSlider(
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             drawRect(
                 color = colors.accent,
-                size = androidx.compose.ui.geometry.Size(size.width * value.coerceIn(0f, 1f), size.height),
+                size =
+                    androidx.compose.ui.geometry
+                        .Size(size.width * value.coerceIn(0f, 1f), size.height),
             )
         }
     }
@@ -260,6 +309,8 @@ fun RePanel(
     content: @Composable () -> Unit,
 ) {
     val colors = Theme.current
+    // Note: In a real app, you'd manage the visibility state outside to animate out before removing from composition.
+    // For this MVP, we animate in when composed.
     Box(
         modifier =
             modifier
@@ -267,44 +318,51 @@ fun RePanel(
                 .background(colors.scrim)
                 .clickable(onClick = onClose),
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(
-                        color = colors.panel,
-                        shape = RoundedCornerShape(topStart = Dimens.radius * 2, topEnd = Dimens.radius * 2),
-                    ).padding(bottom = 12.dp),
+        AnimatedVisibility(
+            visible = true,
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)),
+            exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
+            modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            // drag handle
-            Box(
-                Modifier
-                    .padding(top = 8.dp, bottom = 2.dp)
-                    .align(Alignment.CenterHorizontally)
-                    .width(36.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(colors.border),
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            color = colors.panel,
+                            shape = RoundedCornerShape(topStart = Dimens.radius * 2, topEnd = Dimens.radius * 2),
+                        ).padding(bottom = 12.dp)
+                        .clickable(enabled = false) {}, // consume clicks inside panel
             ) {
-                Text(
-                    title,
-                    color = colors.text,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
+                // drag handle
+                Box(
+                    Modifier
+                        .padding(top = 8.dp, bottom = 2.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(colors.border),
                 )
-                ReIconButton(
-                    icon = com.reverie.paint.R.drawable.ic_x,
-                    desc = "关闭",
-                    onTap = onClose,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        title,
+                        color = colors.text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    ReIconButton(
+                        icon = com.reverie.paint.R.drawable.ic_x,
+                        desc = "关闭",
+                        onTap = onClose,
+                    )
+                }
+                content()
             }
-            content()
         }
     }
 }
@@ -384,4 +442,38 @@ fun ReTextInput(
             ),
         modifier = modifier.fillMaxWidth(),
     )
+}
+
+// ---------- menu item (dropdown style panels) ----------
+@Composable
+fun ReMenuItem(
+    @DrawableRes icon: Int,
+    label: String,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconColor: Color = Theme.current.icon,
+    textColor: Color = Theme.current.text,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onTap() }
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = label,
+            tint = iconColor,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            color = textColor,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center
+        )
+    }
 }

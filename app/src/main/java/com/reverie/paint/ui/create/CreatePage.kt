@@ -18,6 +18,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBackIosNew
+import androidx.compose.material.icons.filled.CropPortrait
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -32,203 +41,168 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.CanvasPresets
 import com.reverie.paint.ui.theme.ColorSwatches
-import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 
 @Composable
 fun CreatePage(vm: PaintViewModel) {
+    val colors = Theme.current
     var w by remember { mutableStateOf("1080") }
     var h by remember { mutableStateOf("1920") }
-    var bg by remember { mutableStateOf("#F2F0EA") }
+    var showCustom by remember { mutableStateOf(false) }
 
     Column(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Morandi.bg)
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .background(colors.bg)
     ) {
         // Top bar
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TopBtn("←", onTap = { vm.goHome() })
+            Icon(Icons.Default.ArrowBackIosNew, contentDescription = "Back", tint = colors.text, modifier = Modifier.clickable { vm.goHome() }.padding(8.dp).size(20.dp))
             Spacer(Modifier.weight(1f))
-            Text("新建画布", color = Morandi.text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("新建画布", color = colors.text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Box(Modifier.width(38.dp))
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        // Presets
-        Text("画布尺寸", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-
-        val presets = CanvasPresets.chunked(2)
-        for (row in presets) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                for (preset in row) {
-                    PresetCard(
-                        name = preset.name,
-                        sizeText = "${preset.width}×${preset.height}",
-                        selected = w == preset.width.toString() && h == preset.height.toString(),
-                        onTap = {
-                            w = preset.width.toString()
-                            h = preset.height.toString()
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Science, contentDescription = "Lab", tint = colors.subText, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("实验室", color = colors.subText, fontSize = 12.sp)
             }
-            Spacer(Modifier.height(10.dp))
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(16.dp))
 
-        // Custom size
-        Text("自定义", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
+        // Actions
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            SizeField("宽", w, { w = it }, Modifier.weight(1f))
-            SizeField("高", h, { h = it }, Modifier.weight(1f))
+            ActionIcon(Icons.Default.Add, "自定义", onClick = { showCustom = true })
+            ActionIcon(Icons.Default.PlayArrow, "动画", onClick = {})
+            ActionIcon(Icons.Default.Image, "打开图片", onClick = {})
+            ActionIcon(Icons.Default.Star, "模板", onClick = {})
         }
-        Spacer(Modifier.height(8.dp))
-        Text("$w × $h px", color = Morandi.subText, fontSize = 12.sp)
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
 
-        // Background color
-        Text("背景颜色", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            for (c in ColorSwatches) {
+        if (showCustom) {
+            // Custom Size Form
+            Column(Modifier.padding(horizontal = 20.dp)) {
+                Text("自定义尺寸", color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SizeField("宽 (px)", w, { w = it }, Modifier.weight(1f))
+                    SizeField("高 (px)", h, { h = it }, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(24.dp))
                 Box(
-                    modifier =
-                        Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(parseColor(c))
-                            .border(2.dp, if (bg == c) Morandi.accentHi else Color.Transparent, RoundedCornerShape(10.dp))
-                            .clickable { bg = c },
-                )
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        // Start
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.accent)
-                    .clickable {
+                    modifier = Modifier.fillMaxWidth().height(50.dp).clip(RoundedCornerShape(12.dp)).background(colors.accent).clickable {
                         val ww = w.toIntOrNull()?.coerceIn(64, 8192) ?: 1080
                         val hh = h.toIntOrNull()?.coerceIn(64, 8192) ?: 1920
                         vm.startPainting(ww, hh)
                     },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("开始绘画", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("创建", color = colors.onAccent, fontSize = 16.sp)
+                }
+            }
+        } else {
+            // Tabs
+            Row(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("预设画布", color = colors.accent, fontSize = 14.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Box(Modifier.width(40.dp).height(2.dp).background(colors.accent))
+                }
+                Spacer(Modifier.width(20.dp))
+                Text("我的画布", color = colors.subText, fontSize = 14.sp)
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Presets List
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Mock realistic presets based on image
+                val realisticPresets = listOf(
+                    Triple("9:16", 1080 to 1920, 474),
+                    Triple("3:4", 1080 to 1440, 634),
+                    Triple("1:1", 1080 to 1080, 847),
+                    Triple("16:9", 1920 to 1080, 1513),
+                    Triple("4:3", 1440 to 1080, 1132),
+                    Triple("屏幕", 1080 to 2400, 378),
+                    Triple("A4", 2480 to 3508, 108),
+                    Triple("A5", 1748 to 2480, 223)
+                )
+
+                realisticPresets.forEach { (name, size, layers) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(8.dp)).background(colors.panel).clickable {
+                            vm.startPainting(size.first, size.second)
+                        }.padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CropPortrait, contentDescription = null, tint = colors.icon, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(16.dp))
+                        Text(name, color = colors.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text("sRGB", color = colors.subText, fontSize = 10.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("${size.first}×${size.second}px", color = colors.subText, fontSize = 12.sp, modifier = Modifier.width(90.dp), textAlign = TextAlign.End)
+                        Spacer(Modifier.width(16.dp))
+                        Text("${layers}图层", color = colors.subText, fontSize = 12.sp)
+                    }
+                }
+            }
         }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun PresetCard(
-    name: String,
-    sizeText: String,
-    selected: Boolean,
-    onTap: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(
-        modifier =
-            modifier
-                .height(86.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (selected) Morandi.panelHi else Morandi.panel)
-                .border(
-                    1.dp,
-                    if (selected) Morandi.accentHi else Morandi.border,
-                    RoundedCornerShape(12.dp),
-                ).clickable { onTap() }
-                .padding(12.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(name, color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(4.dp))
-        Text(sizeText, color = Morandi.subText, fontSize = 11.sp)
+private fun ActionIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val colors = Theme.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
+        Box(
+            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, colors.border, RoundedCornerShape(12.dp)).background(colors.panel),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = label, tint = colors.text, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(label, color = colors.text, fontSize = 12.sp)
     }
 }
 
 @Composable
-private fun SizeField(
-    label: String,
-    value: String,
-    onChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun SizeField(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val colors = Theme.current
     Column(modifier) {
-        Text(label, color = Morandi.subText, fontSize = 12.sp)
+        Text(label, color = colors.subText, fontSize = 12.sp)
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = value,
             onValueChange = { v -> if (v.length <= 5) onChange(v.filter { it.isDigit() }) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
-            textStyle =
-                androidx.compose.ui.text.TextStyle(
-                    color = Morandi.text,
-                    fontSize = 14.sp,
-                ),
-            colors =
-                OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Morandi.accent,
-                    unfocusedBorderColor = Morandi.border,
-                    focusedContainerColor = Morandi.panel,
-                    unfocusedContainerColor = Morandi.panel,
-                    cursorColor = Morandi.accent,
-                ),
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
+            textStyle = androidx.compose.ui.text.TextStyle(color = colors.text, fontSize = 14.sp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = colors.accent,
+                unfocusedBorderColor = colors.border,
+                focusedContainerColor = colors.panel,
+                unfocusedContainerColor = colors.panel,
+                cursorColor = colors.accent,
+            ),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
         )
-    }
-}
-
-@Composable
-private fun TopBtn(
-    text: String,
-    onTap: () -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panel)
-                .clickable { onTap() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text, color = Morandi.text, fontSize = 16.sp)
     }
 }
