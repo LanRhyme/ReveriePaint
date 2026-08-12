@@ -22,8 +22,8 @@
 #include <KoColorSpaceRegistry.h>
 #include <KoColorSpace.h>
 #include <kis_paint_device.h>
-#include <kis_async_merger.h>
 #include <kis_refresh_subtree_walker.h>
+#include <kis_async_merger.h>
 #include <kis_paint_layer.h>
 #include <kis_group_layer.h>
 #include <kis_layer.h>
@@ -106,7 +106,6 @@ void ReverieCore::fillBackground(const QString &colorName)
     KisPaintDeviceSP dev = m_layers.first().layer->original();
     dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
     dev->setDirty();
-    recompositeProjection();
     markDirty();
 }
 
@@ -135,6 +134,12 @@ void ReverieCore::setBrushColorName(const QString &colorName)
 // so convertToQImage would read transparent black afterwards. This is the
 // same refresh-walker + async-merger pair Krita uses internally to regenerate
 // a projection synchronously.
+// Structural changes (KisImage::addNode) do NOT schedule a native projection
+// recomposite: KisImage::nodeHasBeenAdded only bumps a sequence number, and
+// requestProjectionUpdate(root,...) does not rebuild the root projection for
+// a new child. A full walker+merger pass is required after addNode. Content
+// changes (device setDirty -> requestProjectionUpdate -> waitForDone) are
+// handled by the native scheduler and must NOT go through this path.
 void ReverieCore::recompositeProjection()
 {
     KisImageSP image = m_document;
@@ -202,6 +207,9 @@ void ReverieCore::addLayer(const QString &name)
     if (!image->addNode(newLayer, image->rootLayer())) {
         return;
     }
+    // Structural change: the native scheduler does not rebuild the root
+    // projection for a new child, so force a full walker+merger pass.
+    recompositeProjection();
 
     LayerEntry entry;
     entry.layer = newLayer.data();
@@ -209,7 +217,6 @@ void ReverieCore::addLayer(const QString &name)
     entry.name = name;
     m_layers.append(entry);
     m_currentLayer = m_layers.size() - 1;
-    recompositeProjection();
     markDirty();
 }
 
@@ -231,7 +238,6 @@ void ReverieCore::removeLayer(int index)
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.size() - 1;
     }
-    recompositeProjection();
     markDirty();
 }
 
@@ -260,8 +266,12 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         m_layers[index].visible = visible;
         if (m_layers[index].layer) {
             m_layers[index].layer->setVisible(visible);
+            // Visibility is a structural change: KisNode::setVisible only
+            // notifies the graph listener, it does not schedule a projection
+            // recomposite. setDirty() -> requestProjectionUpdate does.
+            m_layers[index].layer->setDirty(
+                QRect(0, 0, m_document->width(), m_document->height()));
         }
-    recompositeProjection();
         markDirty();
     }
 }
@@ -281,7 +291,10 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
     }
     if (m_layers[index].layer) {
         m_layers[index].layer->setCompositeOpId(opId);
-    recompositeProjection();
+        // Blend mode is a structural change: schedule a native projection
+        // recomposite of the whole layer region.
+        m_layers[index].layer->setDirty(
+            QRect(0, 0, m_document->width(), m_document->height()));
         markDirty();
     }
 }
@@ -757,7 +770,6 @@ void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curByt
         // transparent instead of showing the layers below. Force the
         // synchronous full rebuild (KisRefreshSubtreeWalker + KisAsyncMerger),
         // then re-composite only the changed region for display.
-        recompositeProjection();
         markRegionDirty(all);
     }
 }
@@ -854,6 +866,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     if (!image || !buffer) {
         return false;
     }
+    image->waitForDone();
     const int iw = image->width();
     const int ih = image->height();
     if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
@@ -1001,7 +1014,6 @@ void ReverieCore::floodFillAt(int x, int y)
     if (touched > 0) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
-    recompositeProjection();
         markDirty();
     }
 }
@@ -1089,7 +1101,6 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     const qint32 rh = region.height();
     device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
     device->setDirty();
-    recompositeProjection();
     markDirty();
 }
 
@@ -1139,7 +1150,6 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
     device->writeBytes(layerImg.constBits(), region.x(), region.y(),
                        region.width(), region.height());
     device->setDirty();
-    recompositeProjection();
     markDirty();
 }
 
@@ -1219,7 +1229,6 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     if (touched) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
-    recompositeProjection();
         markDirty();
     }
 }
@@ -1257,7 +1266,6 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     if (touched) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
-    recompositeProjection();
         markDirty();
     }
 }
@@ -1311,7 +1319,6 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
 
     device->writeBytes(result.constBits(), 0, 0, iw, ih);
     device->setDirty();
-    recompositeProjection();
     markDirty();
 }
 
@@ -1353,7 +1360,6 @@ bool ReverieCore::loadPng(const QString &path)
         }
     }
     dev->setDirty();
-    recompositeProjection();
     markDirty();
     return true;
 }

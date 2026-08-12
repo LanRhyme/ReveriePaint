@@ -80,6 +80,7 @@ public:
     QColor brushColor() const { return m_brushColor; }
 
     void commitStrokeToLayer();
+    void recompositeProjection();
 
     // Strokes (touch input; coordinates in document space)
     void touchStrokeStart(qreal x, qreal y, qreal pressure);
@@ -127,7 +128,6 @@ private:
     // mode): after those the root projection device is rebuilt empty and
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
-    void recompositeProjection();
     void appendStrokeSample(const QPointF &imgPos, qreal pressure);
     void flushStrokeBatch();
     void endStrokeBatch();
