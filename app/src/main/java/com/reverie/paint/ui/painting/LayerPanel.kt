@@ -319,20 +319,18 @@ private fun LayerListView(
         // insert after it). The parting animation and the drop use the same
         // index, so what the user sees is where it lands.
         val rowPos = (fingerY - columnTop) / rowPx
-        var target = rowPos.roundToInt().coerceIn(0, displayList.size - 1)
+        // 0.5 counts as THIS row (roundToInt's Math.round bumps 0.5 up, so a
+        // finger at the row center snapped the placeholder a full row lower -
+        // the "offset by a bit" feel when dragging). (x+0.4999).toInt() keeps
+        // the placeholder centered on the finger's row.
+        var target = (rowPos + 0.4999f).toInt().coerceIn(0, displayList.size - 1)
         // Background protection: never below the background row (index 0)
         val bgVisual = displayList.indexOfFirst { it.index == 0 }
         if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
         // Only re-sort when the target slot actually changes: recomputing the
         // list for every in-row finger micro-move restarts the animateItem
         // animations over and over, which reads as jitter
-        if (target != dragTargetIdx) {
-            android.util.Log.d(
-                "LayerPanel",
-                "TARGET y=$fingerY rowPos=$rowPos target=$target size=${displayList.size}",
-            )
-            dragTargetIdx = target
-        }
+        if (target != dragTargetIdx) dragTargetIdx = target
         // Group middle zone highlight (rowBounds only used for this hint)
         var over: Pair<Int, DropMode>? = null
         for (i in displayList.indices) {
