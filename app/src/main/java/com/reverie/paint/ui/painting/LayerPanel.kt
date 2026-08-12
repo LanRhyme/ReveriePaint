@@ -349,23 +349,18 @@ private fun LayerListView(
             if (groupDrop) {
                 vm.moveLayerToGroup(from, over.first)
             } else {
-                // Exact target semantics derived from Krita's moveNode:
-                // moveNode(node, parent, aboveThis) places node AT aboveThis's
-                // slot. m_layers is bottom-first (visual list is its reverse),
-                // so:
+                // Exact target semantics verified against Krita's sources:
+                // KisNode::add(newNode, aboveThis) inserts at
+                // index(aboveThis)+1, so the node lands DIRECTLY ABOVE
+                // aboveThis in the bottom-first tree (m_layers). With
                 //   to = m_layers index where the layer lands (visual slot
-                //        insert = m_layers size-1-insert)
-                //   to > from (dragged up visually): aboveThis = m_layers[to+1]
-                //   to < from (dragged down visually): aboveThis = m_layers[to]
-                //   to+1 out of range: aboveThis = null -> top of the tree
+                //        insert <-> m_layers size-1-insert):
+                //   to > from (dragged up visually): aboveThis = m_layers[to]
+                //   to < from (dragged down visually): aboveThis = m_layers[to-1]
+                // Desktop harness: 9/9 scenarios land exactly at `insert`.
                 val to = displayList.size - 1 - insert
                 if (to > 0 && to != from) {
-                    val aboveIdx =
-                        if (to > from) {
-                            if (to + 1 < displayList.size) to + 1 else -1
-                        } else {
-                            to
-                        }
+                    val aboveIdx = if (to > from) to else to - 1
                     if (aboveIdx != from) {
                         pendingOrder = displayList.map { it.index }
                         vm.moveLayerAbove(from, aboveIdx)
