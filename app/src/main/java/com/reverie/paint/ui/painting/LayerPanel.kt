@@ -317,7 +317,10 @@ private fun LayerListView(
         // Background protection: never below the background row (index 0)
         val bgVisual = displayList.indexOfFirst { it.index == 0 }
         if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
-        dragTargetIdx = target
+        // Only re-sort when the target slot actually changes: recomputing the
+        // list for every in-row finger micro-move restarts the animateItem
+        // animations over and over, which reads as jitter
+        if (target != dragTargetIdx) dragTargetIdx = target
         // Group middle zone highlight (rowBounds only used for this hint)
         var over: Pair<Int, DropMode>? = null
         for (i in displayList.indices) {
@@ -484,7 +487,7 @@ private fun LayerListView(
                                     placementSpec =
                                         spring(
                                             dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessMediumLow,
+                                            stiffness = Spring.StiffnessHigh,
                                         ),
                                     fadeInSpec = tween(150),
                                     fadeOutSpec = tween(150),
