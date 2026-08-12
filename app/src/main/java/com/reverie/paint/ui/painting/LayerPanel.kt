@@ -628,7 +628,7 @@ private fun LayerRow(
     // finger offset and a separately-animated fraction starting at 0).
     val revealAnim = remember { Animatable(0f) }
 
-    LaunchedEffect(swiping) {
+    LaunchedEffect(swiping, reveal) {
         if (swiping) {
             // follow the finger frame by frame (instant, no lag)
             while (true) {
@@ -705,29 +705,22 @@ private fun LayerRow(
         // Action drawer: three actions (copy / solo / delete), composed only
         // while revealed so a closed row neither renders nor hits the buttons;
         // the row slides away (offset) and the drawer fades in.
-        if (reveal) {
-            // Refined drawer entrance: slides in from the right edge while
-            // fading, synchronized with the row sliding away
-            val drawerSlide = remember { Animatable(drawerPx.toFloat()) }
-            val drawerAlpha = remember { Animatable(0f) }
-            LaunchedEffect(Unit) {
-                coroutineScope {
-                    launch { drawerSlide.animateTo(0f, tween(220)) }
-                    launch { drawerAlpha.animateTo(1f, tween(180)) }
-                }
-            }
-            Box(
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .width(drawerWidth)
-                        .zIndex(2f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .offset { IntOffset(drawerSlide.value.roundToInt(), 0) }
-                        .graphicsLayer { alpha = drawerAlpha.value },
-            ) {
-                Row(modifier = Modifier.fillMaxSize()) {
+        // Drawer with real enter AND exit animations: slides in from the
+        // right edge while fading on reveal, and slides back out while fading
+        // when closed (synchronized with the row slide via tween(220))
+        AnimatedVisibility(
+            visible = reveal,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(tween(160)),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(tween(160)),
+            modifier =
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .width(drawerWidth)
+                    .zIndex(2f)
+                    .clip(RoundedCornerShape(8.dp)),
+        ) {
+            Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
                     vm.copyLayer(index)
                     reveal = false
@@ -740,7 +733,6 @@ private fun LayerRow(
                     if (!isBg) vm.removeLayer(index)
                     reveal = false
                 }
-            }
             }
         }
 
