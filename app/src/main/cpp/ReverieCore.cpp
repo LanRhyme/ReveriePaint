@@ -44,10 +44,10 @@ bool ReverieCore::newDocument(int width, int height)
         return false;
     }
 
-    if (m_document) {
-        delete m_document;
-        m_document = nullptr;
-    }
+    // Release any previous document. m_document is a KisSharedPtr: calling
+    // delete on the raw pointer would corrupt its refcount (double-free on
+    // destruction), so let the shared pointer release it instead.
+    m_document.clear();
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
     if (!cs) {
