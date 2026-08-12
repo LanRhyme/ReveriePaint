@@ -287,8 +287,9 @@ private fun LayerListView(
 
     fun updateDragPos(fingerY: Float) {
         dragFingerY = fingerY
-        // Target display index: the row whose mid-point the finger crossed
-        // (the dragged row is inserted there so the other rows part).
+        // Single source of truth: the display insertion index (dragTargetIdx).
+        // The animation parts the rows there and the actual move uses the same
+        // index, so what you see is where it lands.
         var target = -1
         var over: Pair<Int, DropMode>? = null
         for (i in displayList.indices) {
@@ -301,15 +302,17 @@ private fun LayerListView(
                 val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
                 val mid0 = b.first + (b.second - b.first) * 0.3f
                 val mid1 = b.first + (b.second - b.first) * 0.7f
-                over =
-                    if (isGroup && fingerY >= mid0 && fingerY <= mid1) {
-                        idx to DropMode.OnGroup
-                    } else {
-                        idx to DropMode.Above
-                    }
+                if (isGroup && fingerY >= mid0 && fingerY <= mid1) {
+                    over = idx to DropMode.OnGroup
+                }
             }
         }
         if (target < 0) target = displayList.size - 1
+        // Background protection: the dragged row must never land below the
+        // background (the visually bottom row with index 0). Clamp the insert
+        // position to just above it.
+        val bgVisual = displayList.indexOfFirst { it.index == 0 }
+        if (bgVisual >= 0 && target > bgVisual - 1) target = (bgVisual - 1).coerceAtLeast(0)
         dragTargetIdx = target
         dragOver = over
         android.util.Log.d("LayerPanel", "dragPos y=$fingerY target=$target over=${over?.first ?: -1} ${over?.second}")
@@ -317,22 +320,30 @@ private fun LayerListView(
 
     fun endDrag() {
         val from = draggingFrom
-        val target = dragOver
+        val insert = dragTargetIdx
+        val over = dragOver
+        // Compute the real target BEFORE clearing drag state (displayList is
+        // the dragging order until draggingFrom is reset). m_layers is the
+        // reverse of the visual top-first display list, so the layer index is
+        // displayList.size - 1 - insert.
+        val to = if (from > 0 && insert >= 0) displayList.size - 1 - insert else -1
         draggingFrom = -1
         dragTargetIdx = -1
         dragFingerY = 0f
         dragOver = null
-        if (from > 0 && target != null && target.first != from) {
-            when (target.second) {
-                DropMode.Above -> {
-                    // Dropping onto the locked background row means "just above
-                    // it", i.e. the lowest movable position (index 1). The C++
-                    // side rejects index 0 (background protection).
-                    val to = if (target.first <= 0) 1 else target.first
-                    vm.moveLayer(from, to)
-                }
-                DropMode.OnGroup -> vm.moveLayerToGroup(from, target.first)
+        if (from > 0 && to > 0) {
+            // Dropped into a group's middle zone -> move into the group
+            val groupDrop =
+                over != null && over.second == DropMode.OnGroup &&
+                    displayList.getOrNull(insert)?.index == over.first
+            if (groupDrop) {
+                vm.moveLayerToGroup(from, over.first)
+            } else {
+                vm.moveLayer(from, to)
             }
+            // Keep the dragged layer selected
+            selectedIndex = from
+            vm.setCurrentLayer(from)
         }
     }
 
@@ -403,7 +414,6 @@ private fun LayerListView(
                         onDragStart = { draggingFrom = layer.index },
                         onDragPosition = { updateDragPos(it) },
                         onDragEnd = { endDrag() },
-                        dragLineAbove = dragOver?.first == layer.index && dragOver?.second == DropMode.Above,
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
                         isDragging = draggingFrom == layer.index,
                         dragFingerY = dragFingerY,
@@ -456,7 +466,6 @@ private fun LayerRow(
     onDragStart: () -> Unit,
     onDragPosition: (Float) -> Unit,
     onDragEnd: () -> Unit,
-    dragLineAbove: Boolean,
     dragOnGroup: Boolean,
     isDragging: Boolean,
     dragFingerY: Float,
@@ -486,6 +495,7 @@ private fun LayerRow(
     Box(
         modifier =
             modifier
+                .zIndex(if (isDragging) 10f else 0f)
                 .fillMaxWidth()
                 .height(rowHeight)
                 .onGloballyPositioned { c ->
@@ -553,7 +563,6 @@ private fun LayerRow(
                             alpha = 0.96f
                         }
                     }
-                    .zIndex(if (isDragging) 2f else 0f)
                     .pointerInput(index) {
                         // Swipe-left reveals the action drawer. Full event loop
                         // with requireUnconsumed=false so it always sees the down
@@ -720,17 +729,6 @@ private fun LayerRow(
                     modifier = Modifier.size(13.dp),
                 )
             }
-        }
-        // Drag insert indicator (above the target row)
-        if (dragLineAbove) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .height(2.dp)
-                    .background(Morandi.accent),
-            )
         }
     }
 }
