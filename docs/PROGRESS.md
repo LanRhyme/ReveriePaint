@@ -74,3 +74,18 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - AGP 9.3.1 + Gradle 9.5 (离线缓存)
 - NDK 25.2.9519653, compileSdk 36, minSdk 23
 - Qt for Android 6.6.3 (引擎运行时), Krita 6.1.0-prealpha arm64 交叉编译库
+
+## 完整图层系统 (2026-08-12)
+
+- 背景层: 新建画布 = 锁定背景 + 颜料图层1, 背景不可绘/删/改名
+- 隐藏背景显示透明底 (网格)
+- 图层组 (KisGroupLayer), 组内添加图层
+- 混合模式全集 25 种 (Krita KoCompositeOpRegistry)
+- 锁定图层 / 锁定透明度 (KisPainter channelFlags)
+- 不透明度 / 颜色标记
+- 复制 / 清除 / 重命名 / 翻转 / 向下合并 / 删除 (背景保护)
+- 独显 (FolioLayers 逻辑, 再点恢复)
+- 剪切蒙版 (自实现, alpha 遮罩)
+- 滤镜: 灰度 / 反色 / 模糊 / 锐化
+- 选区: 从图层 alpha 创建, 绘画受限 (KisSelection)
+- 图层面板: 左滑 复制/独显/删除, 点击二级面板, 更多操作菜单
