@@ -132,11 +132,15 @@ class PaintViewModel : ViewModel() {
             if (bmp != null && bmp.width == w && bmp.height == h) {
                 bmp
             } else {
-                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also {
-                    displayBitmap = it
-                }
+                Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             }
         ReverieCoreBridge.renderToBuffer(bitmap)
+        // displayBitmap uses neverEqualPolicy: recomposition is driven ONLY by
+        // assignment. Re-assign even when reusing the same Bitmap (renderToBuffer
+        // mutates it in place) so the canvas redraws with the new pixels - without
+        // this, strokes only appear after some other state change (zoom, tool
+        // switch) triggers a recomposition.
+        displayBitmap = bitmap
     }
 
     fun updateBrushSize(v: Double) {

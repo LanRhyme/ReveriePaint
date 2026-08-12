@@ -306,8 +306,13 @@ fun CanvasView(
             val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
             withTransform({
                 translate(center.x + 8f, center.y + 8f)
-                rotate(rotation)
-                scale(scale, scale)
+                // IMPORTANT: rotate/scale default their pivot to the draw-area
+                // center (size/2), NOT the local origin. The touch mapping
+                // (widgetToImage) assumes the local origin is the anchor, so
+                // the pivot must be forced to Offset.Zero - otherwise zoom /
+                // rotation anchor at a phantom point and strokes land offset.
+                rotate(rotation, pivot = Offset.Zero)
+                scale(scale, scale, pivot = Offset.Zero)
             }) {
                 drawRect(
                     Morandi.canvasShadow,
@@ -319,8 +324,8 @@ fun CanvasView(
             }
             withTransform({
                 translate(center.x, center.y)
-                rotate(rotation)
-                scale(scale, scale)
+                rotate(rotation, pivot = Offset.Zero)
+                scale(scale, scale, pivot = Offset.Zero)
             }) {
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
             }
