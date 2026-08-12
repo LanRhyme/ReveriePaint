@@ -95,6 +95,10 @@ fun CanvasView(
                             }
                         var strokeStarted = false
                         var transformStarted = false
+                        // Pressure: stylus reports real force (0..1+). Raw
+                        // values can be noisy on touch screens, so smooth
+                        // with an EMA inside each stroke.
+                        var smoothedPressure = 0.8f
                         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
                         var shapeEnd = Offset.Zero
                         val lassoPoints = mutableListOf<Offset>()
@@ -248,11 +252,17 @@ fun CanvasView(
                                             if (!strokeStarted) {
                                                 // Start at the finger-DOWN position (not the first
                                                 // move), so the stroke's beginning is not cut off
-                                                vm.touchStart(firstImage.x, firstImage.y)
+                                                val downP = down.pressure.coerceIn(0f, 1f)
+                                                smoothedPressure = if (downP > 0f) downP else 0.8f
+                                                vm.touchStart(firstImage.x, firstImage.y, smoothedPressure.toDouble())
                                                 strokeStarted = true
-                                                vm.touchMove(imagePos.x, imagePos.y)
+                                                vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
                                             } else {
-                                                vm.touchMove(imagePos.x, imagePos.y)
+                                                val rawP = point.pressure.coerceIn(0f, 1f)
+                                                if (rawP > 0f) {
+                                                    smoothedPressure = smoothedPressure * 0.6f + rawP * 0.4f
+                                                }
+                                                vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
                                             }
                                         }
                                     }
@@ -292,7 +302,8 @@ fun CanvasView(
                                 // still commits a single dab at the tap point
                                 mode == GestureMode.STROKE &&
                                     (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) -> {
-                                    vm.touchStart(firstImage.x, firstImage.y)
+                                    val downP = down.pressure.coerceIn(0f, 1f)
+                                    vm.touchStart(firstImage.x, firstImage.y, if (downP > 0f) downP.toDouble() else 0.8)
                                     vm.touchEnd()
                                 }
                             }

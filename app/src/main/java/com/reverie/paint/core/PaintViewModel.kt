@@ -256,15 +256,17 @@ class PaintViewModel : ViewModel() {
     fun touchStart(
         x: Float,
         y: Float,
+        pressure: Double = 1.0,
     ) {
-        runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), 1.0) }
+        runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), pressure) }
     }
 
     fun touchMove(
         x: Float,
         y: Float,
+        pressure: Double = 1.0,
     ) {
-        runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), 1.0) }
+        runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), pressure) }
     }
 
     fun touchEnd() {
