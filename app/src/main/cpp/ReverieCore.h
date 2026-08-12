@@ -79,6 +79,8 @@ public:
     qreal brushOpacity() const { return m_brushOpacity; }
     QColor brushColor() const { return m_brushColor; }
 
+    void commitStrokeToLayer();
+
     // Strokes (touch input; coordinates in document space)
     void touchStrokeStart(qreal x, qreal y, qreal pressure);
 
@@ -159,6 +161,12 @@ private:
     bool m_strokeHadMove = false;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;
+    // Temporary device holding the in-progress stroke at full strength.
+    // The stroke opacity is applied ONCE when the stroke is committed to
+    // the layer (Krita applies opacity per dab, so overlapping dabs would
+    // accumulate towards opaque; a single commit pass gives the exact
+    // opacity the user set, like Procreate / 画世界).
+    KisPaintDeviceSP m_strokeBuffer;
     bool m_strokeBatchOpen = false;
     QPointF m_strokeStartImg;
     qreal m_lastPressure = 1.0;

@@ -326,6 +326,13 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_lastPressure = pressure;
     m_strokeColor = m_brushColor;
     m_strokeOpacity = m_brushOpacity;
+    // The stroke is painted at full strength into a temporary buffer; the
+    // opacity is applied once at commit (see commitStrokeToLayer).
+    if (!m_strokeBuffer) {
+        m_strokeBuffer = new KisPaintDevice(m_document->colorSpace());
+    } else {
+        m_strokeBuffer->clear();
+    }
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
     m_strokeHadMove = false;
@@ -363,6 +370,9 @@ void ReverieCore::touchStrokeEnd()
             m_strokeSamples.append(s);
         }
         flushStrokeBatch();
+        if (m_toolMode != ToolEraser) {
+            commitStrokeToLayer();
+        }
         endStrokeBatch();
         m_strokeBatchOpen = false;
     }
@@ -383,6 +393,9 @@ void ReverieCore::touchStrokeCancel()
     // snapshot without touching the redo stack.
     m_strokeSamples.clear();
     endStrokeBatch();
+    if (m_strokeBuffer) {
+        m_strokeBuffer->clear();
+    }
     m_strokeBatchOpen = false;
     m_drawing = false;
 
@@ -474,23 +487,24 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
+    const bool erasing = (m_toolMode == ToolEraser);
+
+    // The eraser paints DIRECTLY onto the layer with the erase composite op:
+    // a temporary buffer would hold transparent pixels and erasing with a
+    // transparent source clears nothing (gemini's buffer did exactly that).
+    // Brush/smudge paint at full strength into the temporary buffer and the
+    // stroke opacity is applied once at commit.
+    KisPaintDeviceSP target = erasing ? currentPaintDevice() : m_strokeBuffer;
+    if (!target) {
         m_strokeSamples.clear();
         return;
     }
-    qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
-    // Smudge: a translucent smearing pass (MVP approximation of the real
-    // smudge brush which pushes color along the stroke path).
-    if (m_toolMode == ToolSmudge) {
-        opacity = qMin<qreal>(opacity, 0.12);
-    }
 
-    // Krita-style: reuse one KisPainter for the whole stroke
-    if (!m_strokePainter || m_strokeDevice != (void *)device.data()) {
+    // Krita-style: reuse one KisPainter for the whole stroke.
+    if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
-        m_strokeDevice = (void *)device.data();
-        m_strokePainter = new KisPainter(device);
+        m_strokeDevice = (void *)target.data();
+        m_strokePainter = new KisPainter(target);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
     }
@@ -503,12 +517,11 @@ void ReverieCore::flushStrokeBatch()
     KoColor koColor(qColor, cs);
     painter.setPaintColor(koColor);
     painter.setBackgroundColor(koColor);
-    painter.setOpacityF(opacity);
-    // Eraser composites with the erase op (transparent); brush uses normal.
-    // KisPainter's API takes the composite op id string.
-    painter.setCompositeOpId(m_toolMode == ToolEraser
-        ? QStringLiteral("erase")
-        : QStringLiteral("normal"));
+    // Eraser opacity is applied per dab (like Krita); brush/smudge apply
+    // it once at commit.
+    painter.setOpacityF(erasing ? qBound<qreal>(0.0, m_strokeOpacity, 1.0) : 1.0);
+    painter.setCompositeOpId(erasing ? QStringLiteral("erase")
+                                     : QStringLiteral("normal"));
 
     // Genuine tap only (no movement): paint a round dot. KisPainter::drawLine
     // with identical start/end returns immediately, so use paintEllipse
@@ -523,10 +536,6 @@ void ReverieCore::flushStrokeBatch()
         w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
         painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         m_strokeSamples.clear();
-        markRegionDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
-                              2 * int(w) + 2, 2 * int(w) + 2));
-        device->setDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
-                              2 * int(w) + 2, 2 * int(w) + 2));
         return;
     }
 
@@ -600,21 +609,56 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.append(t);
     }
 
-    // Only the stroke's bounding region needs re-compositing
-    if (!strokeDirty.isNull()) {
-        markRegionDirty(strokeDirty);
+    if (erasing) {
+        // Eraser painted straight onto the layer: propagate the dirty region
+        // so the projection recomposites it immediately.
+        if (!strokeDirty.isNull()) {
+            target->setDirty(strokeDirty);
+            markRegionDirty(strokeDirty);
+        }
     } else {
-        markDirty();
+        // Nothing is composited here: the stroke lives in the temporary
+        // buffer and is displayed by renderToBuffer while drawing. The
+        // layer device is marked dirty once, in commitStrokeToLayer, when
+        // the stroke is placed with its final opacity.
+        (void)strokeDirty;
     }
+}
 
-    // Krita's dirty propagation: mark the stroke region dirty on the layer
-    // device so its projection leaf recomposites it. IMPORTANT: KisPainter's
-    // drawLine does NOT accumulate dirty rects (takeDirtyRegion returns
-    // empty after lines, unlike paintEllipse), so use our own segment
-    // bounds instead - otherwise multi-layer projections never update.
-    if (!strokeDirty.isNull()) {
-        device->setDirty(strokeDirty);
+// Place the finished stroke from the temporary buffer onto the current
+// layer, applying the stroke opacity exactly once. Eraser uses the erase
+// composite op so the stroke genuinely clears layer pixels.
+void ReverieCore::commitStrokeToLayer()
+{
+    if (!m_strokeBuffer || !m_document) {
+        return;
     }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        m_strokeBuffer->clear();
+        return;
+    }
+    const QRect ext = m_strokeBuffer->exactBounds();
+    if (ext.isEmpty()) {
+        m_strokeBuffer->clear();
+        return;
+    }
+    qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
+    // Smudge: a translucent smearing pass (MVP approximation of the real
+    // smudge brush which pushes color along the stroke path).
+    if (m_toolMode == ToolSmudge) {
+        opacity = qMin<qreal>(opacity, 0.12);
+    }
+    KisPainter painter(device);
+    painter.setOpacityF(opacity);
+    painter.setCompositeOpId(QStringLiteral("normal"));
+    painter.bitBlt(ext.x(), ext.y(), m_strokeBuffer,
+                   ext.x(), ext.y(), ext.width(), ext.height());
+    // Krita's dirty propagation: mark the region dirty on the layer device
+    // so its projection leaf recomposites it.
+    device->setDirty(ext);
+    markRegionDirty(ext);
+    m_strokeBuffer->clear();
 }
 
 void ReverieCore::endStrokeBatch()
@@ -837,6 +881,30 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
             m_lastDirty = r;
         }
         m_dirtyRect = QRect();
+    }
+
+    // Live stroke preview: while drawing, composite the in-progress stroke
+    // buffer over the document projection (with the stroke opacity applied,
+    // so what the user sees is what gets committed). KisPaintDevice's own
+    // convertToQImage handles the color-space/byte-order conversion.
+    if (m_drawing && m_strokeBuffer) {
+        const QRect ext = m_strokeBuffer->exactBounds();
+        if (!ext.isEmpty()) {
+            const QRect cr = ext.intersected(QRect(0, 0, iw, ih));
+            if (!cr.isEmpty()) {
+                const QImage bufImg = m_strokeBuffer->convertToQImage(
+                    nullptr, cr.x(), cr.y(), cr.width(), cr.height());
+                if (!bufImg.isNull()) {
+                    const QImage conv = bufImg.convertToFormat(QImage::Format_RGBA8888);
+                    QPainter p(&m_displayImage);
+                    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+                    p.setOpacity(m_strokeOpacity);
+                    p.drawImage(cr.topLeft(), conv);
+                    p.end();
+                }
+                m_lastDirty = m_lastDirty.isNull() ? cr : m_lastDirty.united(cr);
+            }
+        }
     }
 
     // Copy into the Android bitmap buffer: full on the first render (or a
