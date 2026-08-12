@@ -358,7 +358,10 @@ private fun LayerListView(
             }
         }
         dragOver = over
-        android.util.Log.d("LayerPanel", "dragPos y=$fingerY target=$target over=${over?.first ?: -1} ${over?.second}")
+        android.util.Log.d(
+            "LayerPanel",
+            "dragPos y=$fingerY colTop=$columnTop rowPx=$rowPx rowPos=$rowPos target=$target size=${displayList.size}",
+        )
     }
 
     fun endDrag() {
@@ -401,7 +404,7 @@ private fun LayerListView(
                     if (aboveIdx != from) {
                         android.util.Log.d(
                             "LayerPanel",
-                            "ENDDRAG from=$from insert=$insert to=$to above=$aboveIdx",
+                            "ENDDRAG from=$from insert=$insert to=$to above=$aboveIdx size=${frozen.size}",
                         )
                         vm.moveLayerAbove(from, aboveIdx)
                         // The dragged layer now lives at m_layers index `to`;
