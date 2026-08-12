@@ -4,7 +4,6 @@ import com.reverie.paint.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,23 +31,17 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
-import com.reverie.paint.ui.theme.Morandi
-import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.theme.Morandi
 
 /**
  * Layer panel (dropdown at top-right, 画世界 Pro style)
@@ -63,26 +56,30 @@ fun LayerPanel(
     val layerRevision = vm.layerRevision
 
     Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Transparent)
-                .noRippleClickable(onClose),
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Transparent)
+            .noRippleClickable(onClose),
     ) {
         Column(
-            modifier =
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 64.dp, end = 8.dp)
-                    .width(280.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panelHi.copy(alpha = opacity))
-                    .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
-                    .noRippleClickable {}, // Consume clicks
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 44.dp, end = 8.dp)
+                .width(270.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Morandi.panelHi.copy(alpha = opacity))
+                .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                ),
         ) {
             // Top Actions Toolbar
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -96,77 +93,77 @@ fun LayerPanel(
             
             Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-            // Layer list - top layer first (画世界 style)
+            // Layer list - top layer first
             Column(
-                modifier =
-                    Modifier
-                        .height(320.dp)
-                        .verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .height(280.dp)
+                    .verticalScroll(rememberScrollState()),
             ) {
                 for (i in 0 until vm.layerCount) {
                     val idx = vm.layerCount - 1 - i
                     val selected = idx == vm.currentLayerIndex
                     Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                                .background(if (selected) Morandi.accentHi else Morandi.panelHi)
-                                .noRippleClickable { vm.setCurrentLayer(idx) }
-                                .padding(horizontal = 12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .background(if (selected) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .clickable { vm.setCurrentLayer(idx) }
+                            .padding(horizontal = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = if (vm.layerVisible(idx)) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = "Visibility",
-                            tint = if (selected) Color.White else Morandi.icon,
+                        // Visibility toggle icon
+                        Box(
                             modifier = Modifier
-                                .size(20.dp)
-                                .noRippleClickable { vm.toggleLayerVisible(idx) }
-                        )
+                                .size(28.dp)
+                                .noRippleClickable { vm.toggleLayerVisible(idx) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (vm.layerVisible(idx)) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = "Visibility",
+                                tint = if (vm.layerVisible(idx)) (if (selected) Morandi.accent else Morandi.icon) else Morandi.subText,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                         
                         // Thumbnail Placeholder
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color.White) // Mock thumbnail
+                                .background(Color.White)
                                 .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
                         )
                         
-                        Spacer(Modifier.width(12.dp))
-                        
                         Text(
-                            vm.layerName(idx),
-                            color = if (selected) Color.White else Morandi.text,
-                            fontSize = 14.sp,
+                            text = vm.layerName(idx),
+                            color = if (selected) Morandi.accent else Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                             modifier = Modifier.weight(1f)
                         )
-                        
-                        if (i == 0) { // Just to mock the UI state
-                            Icon(
-                                painter = painterResource(R.drawable.ic_settings),
-                                contentDescription = null,
-                                tint = if (selected) Color.White else Morandi.icon,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
                     }
                     if (i < vm.layerCount - 1) {
-                        Box(Modifier.fillMaxWidth().padding(start = 44.dp).height(1.dp).background(Morandi.border))
+                        Box(Modifier.fillMaxWidth().padding(start = 48.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
                     }
                 }
             }
             
             Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-            // Blend mode (current layer)
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("正常", color = Morandi.text, fontSize = 14.sp)
+            // Blend mode & Opacity (current layer)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("正常", color = Morandi.text, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                Text("不透明度", color = Morandi.subText, fontSize = 12.sp)
-                Spacer(Modifier.width(8.dp))
-                Text("100%", color = Morandi.text, fontSize = 12.sp)
+                Text("不透明度", color = Morandi.subText, fontSize = 11.sp)
+                Spacer(Modifier.width(6.dp))
+                Text("100%", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -181,6 +178,6 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, on
             .noRippleClickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = Morandi.text, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = Morandi.icon, modifier = Modifier.size(18.dp))
     }
 }
