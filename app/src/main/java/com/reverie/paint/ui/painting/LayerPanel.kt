@@ -391,9 +391,7 @@ private fun LayerListView(
             }
             pendingOrder = frozen.map { it.name }
             // Dropped into a group's middle zone -> move into the group
-            val groupDrop =
-                over != null && over.second == DropMode.OnGroup &&
-                    frozen.getOrNull(insert)?.index == over.first
+            val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 vm.moveLayerToGroup(from, over.first)
             } else {
@@ -855,7 +853,7 @@ private fun LayerRowContent(
                     for (d in 1..layer.depth) {
                         val x = step * (d - 0.5f)
                         drawLine(
-                            color = Morandi.border.copy(alpha = 0.7f),
+                            color = Morandi.subText.copy(alpha = 0.35f),
                             start = Offset(x, 0f),
                             end = Offset(x, size.height),
                             strokeWidth = lw,
