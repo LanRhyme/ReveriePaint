@@ -119,6 +119,13 @@ public:
 private:
     void syncLayersFromImage();
     KisPaintDeviceSP currentPaintDevice();
+    // Force a full synchronous recomposite of the root projection. Krita's
+    // projection updates are driven by dirty-region propagation, which does
+    // not cover node-structure changes (add/remove layer, visibility, blend
+    // mode): after those the root projection device is rebuilt empty and
+    // convertToQImage returns transparent black. Krita itself uses the
+    // refresh-walker + async-merger pair for exactly this case.
+    void recompositeProjection();
     void appendStrokeSample(const QPointF &imgPos, qreal pressure);
     void flushStrokeBatch();
     void endStrokeBatch();

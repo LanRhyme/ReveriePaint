@@ -22,6 +22,8 @@
 #include <KoColorSpaceRegistry.h>
 #include <KoColorSpace.h>
 #include <kis_paint_device.h>
+#include <kis_async_merger.h>
+#include <kis_refresh_subtree_walker.h>
 #include <kis_paint_layer.h>
 #include <kis_group_layer.h>
 #include <kis_layer.h>
@@ -97,6 +99,7 @@ void ReverieCore::fillBackground(const QString &colorName)
     KisPaintDeviceSP dev = m_layers.first().layer->original();
     dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
     dev->setDirty();
+    recompositeProjection();
     markDirty();
 }
 
@@ -116,6 +119,27 @@ void ReverieCore::setBrushColorName(const QString &colorName)
 // ---------------------------------------------------------------------------
 // Layer system
 // ---------------------------------------------------------------------------
+
+// Force a full synchronous recomposite of the root projection.
+//
+// Krita recomputes its projection only for dirty regions propagated through
+// the node graph. Node-structure changes (add/remove layer, visibility, blend
+// mode) rebuild the root projection device as empty without marking it dirty,
+// so convertToQImage would read transparent black afterwards. This is the
+// same refresh-walker + async-merger pair Krita uses internally to regenerate
+// a projection synchronously.
+void ReverieCore::recompositeProjection()
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const QRect full(0, 0, image->width(), image->height());
+    KisRefreshSubtreeWalker walker(full);
+    walker.collectRects(image->rootLayer(), full);
+    KisAsyncMerger merger;
+    merger.startMerge(walker);
+}
 
 void ReverieCore::syncLayersFromImage()
 {
@@ -178,6 +202,7 @@ void ReverieCore::addLayer(const QString &name)
     entry.name = name;
     m_layers.append(entry);
     m_currentLayer = m_layers.size() - 1;
+    recompositeProjection();
     markDirty();
 }
 
@@ -199,6 +224,7 @@ void ReverieCore::removeLayer(int index)
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.size() - 1;
     }
+    recompositeProjection();
     markDirty();
 }
 
@@ -228,6 +254,7 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         if (m_layers[index].layer) {
             m_layers[index].layer->setVisible(visible);
         }
+    recompositeProjection();
         markDirty();
     }
 }
@@ -247,6 +274,7 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
     }
     if (m_layers[index].layer) {
         m_layers[index].layer->setCompositeOpId(opId);
+    recompositeProjection();
         markDirty();
     }
 }
@@ -354,6 +382,7 @@ void ReverieCore::touchStrokeCancel()
             }
         }
     }
+    recompositeProjection();
     markDirty();
 }
 
@@ -424,16 +453,21 @@ void ReverieCore::flushStrokeBatch()
         ? QStringLiteral("erase")
         : QStringLiteral("normal"));
 
-    // Single tap: paint a round dot. A zero-length line with round caps
-    // renders a circle of diameter = brush width.
+    // Single tap: paint a round dot. KisPainter::drawLine with identical
+    // start/end returns immediately, so use paintEllipse (fills with the
+    // foreground color) sized to the brush diameter.
     if (m_strokeSamples.size() == 1) {
         const QPointF p = m_strokeSamples.first().imgPos;
         const qreal w = qMax<qreal>(1.0, m_brushSize
                                          * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0));
-        painter.drawLine(p, p, w, true);
+        painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         m_strokeSamples.clear();
         markRegionDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
                               2 * int(w) + 2, 2 * int(w) + 2));
+        const QVector<QRect> dirtyRects = painter.takeDirtyRegion();
+        for (const QRect &r : dirtyRects) {
+            device->setDirty(r);
+        }
         return;
     }
 
@@ -480,6 +514,15 @@ void ReverieCore::flushStrokeBatch()
         markRegionDirty(strokeDirty);
     } else {
         markDirty();
+    }
+
+    // Krita's dirty propagation: KisPainter accumulates dirty rects
+    // internally (takeDirtyRegion); the caller must apply them to the
+    // device so the layer's projection leaf recomposites the stroke area.
+    // Without this, multi-layer canvases never update.
+    const QVector<QRect> dirtyRects = painter.takeDirtyRegion();
+    for (const QRect &r : dirtyRects) {
+        device->setDirty(r);
     }
 }
 
@@ -556,6 +599,7 @@ void ReverieCore::undo()
             p += size_t(w) * h * 4;
         }
     }
+    recompositeProjection();
     markDirty();
 }
 
@@ -593,6 +637,7 @@ void ReverieCore::redo()
             p += size_t(w) * h * 4;
         }
     }
+    recompositeProjection();
     markDirty();
 }
 
@@ -713,6 +758,7 @@ void ReverieCore::floodFillAt(int x, int y)
     if (touched > 0) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
+    recompositeProjection();
         markDirty();
     }
 }
@@ -800,6 +846,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     const qint32 rh = region.height();
     device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
     device->setDirty();
+    recompositeProjection();
     markDirty();
 }
 
@@ -849,6 +896,7 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
     device->writeBytes(layerImg.constBits(), region.x(), region.y(),
                        region.width(), region.height());
     device->setDirty();
+    recompositeProjection();
     markDirty();
 }
 
@@ -928,6 +976,7 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     if (touched) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
+    recompositeProjection();
         markDirty();
     }
 }
@@ -965,6 +1014,7 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     if (touched) {
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
+    recompositeProjection();
         markDirty();
     }
 }
@@ -1018,6 +1068,7 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
 
     device->writeBytes(result.constBits(), 0, 0, iw, ih);
     device->setDirty();
+    recompositeProjection();
     markDirty();
 }
 
@@ -1059,6 +1110,7 @@ bool ReverieCore::loadPng(const QString &path)
         }
     }
     dev->setDirty();
+    recompositeProjection();
     markDirty();
     return true;
 }
