@@ -176,7 +176,7 @@ class PaintViewModel : ViewModel() {
         // Throttle repaints: at most every ~33ms (30fps) while stroking so
         // the user sees live feedback without blocking input.
         val now = System.nanoTime()
-        if (now - lastPaintNs > 33_000_000L) {
+        if (now - lastPaintNs > 16_000_000L) {
             lastPaintNs = now
             refreshDisplay()
         }

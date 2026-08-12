@@ -162,6 +162,11 @@ private:
     bool m_strokeBatchOpen = false;
     QPointF m_strokeStartImg;
     qreal m_lastPressure = 1.0;
+    // Rendering: the last composited dirty region, used to copy only the
+    // changed rows into the Android bitmap (m_bitmapInited gates the first
+    // full copy).
+    QRect m_lastDirty;
+    bool m_bitmapInited = false;
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;

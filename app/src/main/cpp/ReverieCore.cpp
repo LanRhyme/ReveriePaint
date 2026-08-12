@@ -50,6 +50,13 @@ bool ReverieCore::newDocument(int width, int height)
     // delete on the raw pointer would corrupt its refcount (double-free on
     // destruction), so let the shared pointer release it instead.
     m_document.clear();
+    // Reset the display pipeline: a new document (possibly same size as the
+    // previous one) must not inherit stale display pixels or skip the first
+    // full bitmap copy.
+    m_displayImage = QImage();
+    m_dirtyRect = QRect();
+    m_bitmapInited = false;
+    m_lastDirty = QRect();
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
     if (!cs) {
@@ -490,39 +497,35 @@ void ReverieCore::flushStrokeBatch()
         return;
     }
 
-    // Subdivide each segment at ~brush-spacing resolution so pressure
-    // ramps smoothly (Krita's KisDistanceInformation behaviour)
-    const qreal subSpacing = qMax<qreal>(2.0, m_brushSize * 0.5);
+    // Krita-style round dabs: place overlapping circles along the stroke
+    // path (dab spacing ~20% of the brush diameter), each with the
+    // pressure-interpolated width. Overlapping circles produce a smooth
+    // brush-like edge - much closer to Krita's real strokes than straight
+    // drawLine segments (which show sharp polyline corners, especially on
+    // fast strokes with sparse touch events).
+    const qreal dabSpacing = qMax<qreal>(1.5, m_brushSize * 0.2);
     QRect strokeDirty;
-    const auto addSegment = [&](const QPointF &a, const QPointF &b, qreal w) {
-        const QRect seg(QPoint(int(a.x()) - int(w) - 1, int(a.y()) - int(w) - 1),
-                        QPoint(int(b.x()) + int(w) + 1, int(b.y()) + int(w) + 1));
-        strokeDirty = strokeDirty.isNull() ? seg : strokeDirty.united(seg);
+    const auto addDab = [&](const QPointF &p, qreal w) {
+        painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
+        const QRect r(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
+                      2 * int(w) + 2, 2 * int(w) + 2);
+        strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
     };
     QPointF prev = m_strokeSamples.first().imgPos;
     qreal prevP = m_strokeSamples.first().pressure;
+    addDab(prev, qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, prevP, 1.0)));
     for (int i = 1; i < m_strokeSamples.size(); ++i) {
         const QPointF cur = m_strokeSamples[i].imgPos;
         const qreal curP = m_strokeSamples[i].pressure;
         const qreal segLen = QLineF(prev, cur).length();
-        const int n = qMax(1, int(qCeil(segLen / subSpacing)));
-        for (int j = 0; j < n; ++j) {
-            const qreal t0 = qreal(j) / n;
-            const qreal t1 = qreal(j + 1) / n;
-            const QPointF a(prev.x() + (cur.x() - prev.x()) * t0,
-                            prev.y() + (cur.y() - prev.y()) * t0);
-            const QPointF b(prev.x() + (cur.x() - prev.x()) * t1,
-                            prev.y() + (cur.y() - prev.y()) * t1);
-            const qreal pMid = prevP + (curP - prevP) * (t0 + t1) / 2.0;
+        const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
+        for (int j = 1; j <= n; ++j) {
+            const qreal t = qreal(j) / n;
+            const QPointF p(prev.x() + (cur.x() - prev.x()) * t,
+                            prev.y() + (cur.y() - prev.y()) * t);
+            const qreal pMid = prevP + (curP - prevP) * t;
             const qreal width = qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, pMid, 1.0));
-            // Soft-edge dab: draw a small line between a and b with a soft
-            // brush tip via KisPainter's drawLine (hard) replaced by a
-            // soft dab using the painter's dab functionality is complex;
-            // MVP uses drawLine with a slightly larger width and relies on
-            // the antialiased edge. For a softer look we could render dabs
-            // via QRadialGradient into the device - deferred.
-            painter.drawLine(a, b, width, true);
-            addSegment(a, b, width);
+            addDab(p, width);
         }
         prev = cur;
         prevP = curP;
@@ -646,6 +649,12 @@ void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curByt
         snapP += size_t(w) * h * 4;
     }
     if (!all.isNull()) {
+        // Content removal (undo erases pixels) is not handled reliably by
+        // Krita's dirty-region leaf updates - the emptied tiles stay
+        // transparent instead of showing the layers below. Force the
+        // synchronous full rebuild (KisRefreshSubtreeWalker + KisAsyncMerger),
+        // then re-composite only the changed region for display.
+        recompositeProjection();
         markRegionDirty(all);
     }
 }
@@ -748,11 +757,13 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
         // New document (or resized): full redraw
         m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);
         m_dirtyRect = QRect(0, 0, iw, ih);
+        m_bitmapInited = false;
     }
 
     // Re-composite only the dirty region. Krita's projection recomputes
     // exactly the tiles that changed, so a stroke costs a small convertToQImage
     // instead of a full-document pass every frame.
+    m_lastDirty = QRect();
     if (!m_dirtyRect.isEmpty()) {
         const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
         if (!r.isEmpty()) {
@@ -764,17 +775,31 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
                            conv.constScanLine(y), size_t(conv.width()) * 4);
                 }
             }
+            m_lastDirty = r;
         }
         m_dirtyRect = QRect();
     }
 
-    // Full copy into the Android bitmap buffer (a straight ~8MB memcpy;
-    // the compositing itself was already done regionally above)
+    // Copy into the Android bitmap buffer: full on the first render (or a
+    // resize), then only the rows of the region that actually changed. The
+    // compositing was already done regionally above, so this avoids a
+    // full ~8MB memcpy on every frame.
     if (w == iw && h == ih) {
-        memcpy(buffer, m_displayImage.constBits(), size_t(iw) * ih * 4);
+        if (!m_bitmapInited) {
+            memcpy(buffer, m_displayImage.constBits(), size_t(iw) * ih * 4);
+            m_bitmapInited = true;
+        } else if (!m_lastDirty.isEmpty()) {
+            const QRect r = m_lastDirty.intersected(QRect(0, 0, iw, ih));
+            for (int y = r.top(); y <= r.bottom(); ++y) {
+                memcpy(buffer + size_t(y) * w * 4 + size_t(r.left()) * 4,
+                       m_displayImage.constScanLine(y) + r.left() * 4,
+                       size_t(r.width()) * 4);
+            }
+        }
     } else {
         const QImage scaled = m_displayImage.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
         memcpy(buffer, scaled.constBits(), size_t(w) * h * 4);
+        m_bitmapInited = true;
     }
     return true;
 }
