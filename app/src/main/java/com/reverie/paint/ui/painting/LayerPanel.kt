@@ -270,14 +270,17 @@ private fun LayerListView(
     // Freeze the dragged order on release so the row does not first animate
     // back to its original position: displayList stays at the drop order until
     // the native move has landed (vm.layers updates -> LaunchedEffect releases).
-    var pendingOrder by remember { mutableStateOf<List<Int>?>(null) }
+    // Frozen drop order, keyed by layer NAME (indices change after the native
+    // move lands, so an index-keyed freeze remaps wrong and plays a phantom
+    // animateItem shuffle after release)
+    var pendingOrder by remember { mutableStateOf<List<String>?>(null) }
 
     // Display list priority: frozen drop order > dragging order > real order
     val displayList =
         remember(vm.layers, collapsedGroups, draggingFrom, dragTargetIdx, pendingOrder) {
             if (pendingOrder != null) {
-                val byIndex = displayRows.associateBy { it.index }
-                pendingOrder!!.mapNotNull { byIndex[it] }
+                val byName = displayRows.associateBy { it.name }
+                pendingOrder!!.mapNotNull { byName[it] }
             } else if (draggingFrom >= 0 && dragTargetIdx >= 0) {
                 val l = displayRows.toMutableList()
                 val fi = l.indexOfFirst { it.index == draggingFrom }
@@ -340,8 +343,9 @@ private fun LayerListView(
         val over = dragOver
         if (from > 0 && insert >= 0) {
             // Freeze the drop order so the row does not animate back to its
-            // original slot before the native move lands
-            pendingOrder = displayList.map { it.index }
+            // original slot before the native move lands (keyed by name -
+            // indices change once the native move lands)
+            pendingOrder = displayList.map { it.name }
             // Dropped into a group's middle zone -> move into the group
             val groupDrop =
                 over != null && over.second == DropMode.OnGroup &&
@@ -362,7 +366,7 @@ private fun LayerListView(
                 if (to > 0 && to != from) {
                     val aboveIdx = if (to > from) to else to - 1
                     if (aboveIdx != from) {
-                        pendingOrder = displayList.map { it.index }
+                        pendingOrder = displayList.map { it.name }
                         vm.moveLayerAbove(from, aboveIdx)
                         // The dragged layer now lives at m_layers index `to`;
                         // select it (not the layer that was pushed into its
