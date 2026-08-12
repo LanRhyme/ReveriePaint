@@ -482,15 +482,16 @@ private fun LayerListView(
                         },
                             modifier =
                                 Modifier.animateItem(
-                                    // No-bouncy placement: the default spring
-                                    // overshoots and looks like a jitter
-                                    placementSpec =
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                            stiffness = Spring.StiffnessHigh,
-                                        ),
-                                    fadeInSpec = tween(150),
-                                    fadeOutSpec = tween(150),
+                                    // 画世界 Pro style: the parting rows snap
+                                    // instantly (following the finger), the
+                                    // animated feel comes from the floating
+                                    // overlay. Any timed placement animation
+                                    // here restarts on every slot change and
+                                    // reads as jitter/flicker; zero-duration
+                                    // means release has NO leftover animation
+                                    placementSpec = tween(0),
+                                    fadeInSpec = tween(0),
+                                    fadeOutSpec = tween(0),
                                 ),
                         )
             }
