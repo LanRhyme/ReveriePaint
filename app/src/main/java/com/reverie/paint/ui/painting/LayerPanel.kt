@@ -244,6 +244,14 @@ private fun LayerListView(
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
     var dragFingerY by remember { mutableStateOf(0f) }
     var dragTargetIdx by remember { mutableStateOf(-1) }
+    // After release the floating overlay glides into the drop slot before
+    // fading out, so what the user sees (finger position) matches where the
+    // layer lands (slot center). settleTo = absolute y of the slot center;
+    // settleFrom = the overlay offset at release.
+    var settleTo by remember { mutableStateOf<Float?>(null) }
+    var settleFrom by remember { mutableStateOf<Float?>(null) }
+    var settling by remember { mutableStateOf(false) }
+    val settleAnim = remember { Animatable(0f) }
     val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
 
     // Display order, top-first, keeping group blocks intact.
@@ -412,6 +420,11 @@ private fun LayerListView(
                         // old slot)
                         selectedIndex = to
                         vm.setCurrentLayer(to)
+                        // glide the floating overlay into the drop slot so the
+                        // visual landing equals the real landing
+                        settleFrom = dragFingerY - columnTop - rowPx / 2f
+                        settleTo = columnTop + insert * rowPx + rowPx / 2f
+                        settling = true
                     }
                 }
             }
@@ -540,20 +553,32 @@ private fun LayerListView(
             }
         }
 
+            // After release the overlay glides into the drop slot (settleTo)
+            LaunchedEffect(settling, settleTo, settleFrom) {
+                if (settling && settleTo != null && settleFrom != null) {
+                    settleAnim.snapTo(settleFrom ?: 0f)
+                    val target = (settleTo ?: 0f) - listTop - rowPx / 2f
+                    settleAnim.animateTo(target, tween(160))
+                    settling = false
+                    settleTo = null
+                    settleFrom = null
+                }
+            }
             // Floating drag overlay: the dragged row rendered on top of the
             // list, following the finger, so it is never occluded by other rows.
-            if (draggingFrom >= 0) {
+            // After release it stays for 160ms, gliding into the drop slot
+            // (settleTo) so the visual landing matches the real landing.
+            if (draggingFrom >= 0 || settleTo != null) {
                 val dragged = vm.layers.firstOrNull { it.index == draggingFrom }
                 if (dragged != null) {
                     Box(
                         modifier =
                             Modifier
-                                // Follows the finger (画世界 Pro style). The
-                                // parting animation shows the drop slot; the
-                                // rounded target in updateDragPos matches it
-                                // exactly, so release lands at the slot.
                                 .offset {
-                                    IntOffset(0, (dragFingerY - listTop - rowPx / 2f).roundToInt())
+                                    val y =
+                                        if (settling && settleTo != null) settleAnim.value
+                                        else dragFingerY - listTop - rowPx / 2f
+                                    IntOffset(0, y.roundToInt())
                                 }
                                 .fillMaxWidth()
                                 .height(rowHeight)
