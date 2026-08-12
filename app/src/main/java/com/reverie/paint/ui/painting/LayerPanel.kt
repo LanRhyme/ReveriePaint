@@ -626,7 +626,6 @@ private fun LayerRow(
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
                         .width(drawerWidth)
-                        .graphicsLayer { alpha = revealFraction }
                         .clip(RoundedCornerShape(8.dp)),
             ) {
                 Row(modifier = Modifier.fillMaxSize()) {
