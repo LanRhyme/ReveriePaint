@@ -442,7 +442,11 @@ private fun LayerListView(
                             }
                         },
             ) {
-            items(displayList, key = { it.index }) { layer ->
+            // Key by a STABLE identity (depth+name): indices change after a
+            // native move lands, so an index-keyed list makes animateItem
+            // play a phantom swap animation even when the visible order is
+            // already correct
+            items(displayList, key = { "${it.depth}:${it.name}" }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,
