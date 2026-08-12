@@ -331,6 +331,7 @@ private fun LayerListView(
                                         }
                                 }
                             }
+                            android.util.Log.d("LayerPanel", "dragPos y=$fingerY over=${over?.first ?: -1} ${over?.second}")
                             dragOver = over
                         },
                         onDragEnd = { endDrag() },
@@ -403,11 +404,22 @@ private fun LayerRow(
     var reveal by remember { mutableStateOf(false) }
     val viewConfiguration = LocalViewConfiguration.current
     val density = LocalDensity.current
-    val dragThresholdPx = with(density) { 10.dp.roundToPx() }
+    val dragThresholdPx = with(density) { 8.dp.roundToPx() }
     val rowHeight = 56.dp
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
+
+    // Zone occupied by interactive children (collapse arrow + eye): taps there
+    // must go to those children, not to the row gesture (which would open the
+    // detail page for an already-selected row)
+    val interactiveEndPx =
+        with(density) {
+            var x = (layer.depth * 16).dp
+            if (layer.isGroup) x += 22.dp
+            x += 28.dp // eye button
+            x.roundToPx()
+        }
 
     val revealFraction by animateFloatAsState(
         targetValue = if (reveal) 1f else 0f,
@@ -472,10 +484,15 @@ private fun LayerRow(
                     .pointerInput(index) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
+                            if (down.position.x < interactiveEndPx) {
+                                // finger down on an interactive child (eye/arrow):
+                                // hand over to the child entirely
+                                return@awaitEachGesture
+                            }
                             val startX = down.position.x
                             val startY = down.position.y
                             val downT = down.uptimeMillis
-                            val longSlop = viewConfiguration.touchSlop * 1.5f
+                            val longSlop = viewConfiguration.touchSlop * 2f
                             val longSlopSq = longSlop * longSlop
                             val thr = dragThresholdPx.toFloat()
                             var dragActive = false
