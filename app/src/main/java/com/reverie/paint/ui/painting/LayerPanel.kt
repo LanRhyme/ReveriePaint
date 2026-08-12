@@ -234,6 +234,9 @@ private fun LayerListView(
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
     var selectedIndex by remember { mutableStateOf(vm.currentLayerIndex) }
+    // Only one row may have its swipe drawer open; swiping another row
+    // closes this one (revealedIndex is the open row's layer index)
+    var revealedIndex by remember { mutableStateOf<Int?>(null) }
     var collapsedGroups by remember { mutableStateOf(setOf<Int>()) }
     var draggingFrom by remember { mutableStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
@@ -484,12 +487,17 @@ private fun LayerListView(
                         selected = layer.index == selectedIndex,
                         collapsed = layer.index in collapsedGroups,
                         onToggleCollapse = {
+                            revealedIndex = null
                             collapsedGroups =
                                 if (layer.index in collapsedGroups) collapsedGroups - layer.index
                                 else collapsedGroups + layer.index
                         },
+                        revealed = layer.index == revealedIndex,
+                        onReveal = { revealedIndex = layer.index },
+                        onRevealClose = { revealedIndex = null },
                         onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
                         onDragStart = {
+                            revealedIndex = null
                             pendingOrder = null
                             draggingFrom = layer.index
                         },
@@ -499,6 +507,7 @@ private fun LayerListView(
                         isDragging = draggingFrom == layer.index,
                         dragFingerY = dragFingerY,
                         onClick = {
+                            revealedIndex = null
                             if (layer.index == selectedIndex) {
                                 onOpenDetail(layer.index)
                             } else {
@@ -594,6 +603,9 @@ private fun LayerRow(
     selected: Boolean,
     collapsed: Boolean,
     onToggleCollapse: () -> Unit,
+    revealed: Boolean,
+    onReveal: () -> Unit,
+    onRevealClose: () -> Unit,
     onBounds: (Float, Float) -> Unit,
     onDragStart: () -> Unit,
     onDragPosition: (Float) -> Unit,
@@ -607,7 +619,6 @@ private fun LayerRow(
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible
-    var reveal by remember { mutableStateOf(false) }
     var swiping by remember { mutableStateOf(false) }
     var fingerDx by remember { mutableStateOf(0f) }
     val viewConfiguration = LocalViewConfiguration.current
@@ -628,7 +639,7 @@ private fun LayerRow(
     // finger offset and a separately-animated fraction starting at 0).
     val revealAnim = remember { Animatable(0f) }
 
-    LaunchedEffect(swiping, reveal) {
+    LaunchedEffect(swiping, revealed) {
         if (swiping) {
             // follow the finger frame by frame (instant, no lag)
             while (true) {
@@ -637,7 +648,7 @@ private fun LayerRow(
             }
         } else {
             revealAnim.animateTo(
-                if (reveal) -drawerPx.toFloat() else 0f,
+                if (revealed) -drawerPx.toFloat() else 0f,
                 tween(220),
             )
         }
@@ -688,7 +699,8 @@ private fun LayerRow(
                         if (swiping) {
                             // reveal only on a deliberate swipe past the
                             // threshold; otherwise the row animates back
-                            reveal = lastDx < -revealThresholdPx
+                            if (lastDx < -revealThresholdPx) onReveal()
+                            else onRevealClose()
                             swiping = false
                         }
                     }
@@ -709,7 +721,7 @@ private fun LayerRow(
         // right edge while fading on reveal, and slides back out while fading
         // when closed (synchronized with the row slide via tween(220))
         AnimatedVisibility(
-            visible = reveal,
+            visible = revealed,
             enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(tween(160)),
             exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(tween(160)),
             modifier =
@@ -723,15 +735,15 @@ private fun LayerRow(
             Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
                     vm.copyLayer(index)
-                    reveal = false
+                    onRevealClose()
                 }
                 DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
                     vm.soloLayer(index)
-                    reveal = false
+                    onRevealClose()
                 }
                 DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
                     if (!isBg) vm.removeLayer(index)
-                    reveal = false
+                    onRevealClose()
                 }
             }
         }
