@@ -1108,6 +1108,7 @@ KisPaintDeviceSP ReverieCore::currentPaintDevice()
 // ---------------------------------------------------------------------------
 
 extern "C" void krita_register_default_paintops();
+extern "C" void krita_register_colorsmudge_paintop();
 
 void ReverieCore::registerPaintOps()
 {
@@ -1118,6 +1119,7 @@ void ReverieCore::registerPaintOps()
         // libkritaimage's view (instantiating the template in this module
         // produced vtable misalignment and crashes).
         krita_register_default_paintops();
+        krita_register_colorsmudge_paintop();
         done = true;
     }
 }

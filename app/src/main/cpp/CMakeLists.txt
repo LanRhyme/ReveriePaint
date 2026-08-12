@@ -140,6 +140,7 @@ set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritaui.so
     ${KRITA_BIN_DIR}/lib/libkritalibpaintop.so
     ${KRITA_BIN_DIR}/lib/libkritadefaultpaintops_static.a
+    ${KRITA_BIN_DIR}/lib/libkritacolorsmudgepaintop.so
 )
 
 add_library(reverie_jni SHARED
