@@ -485,11 +485,12 @@ private fun LayerListView(
                     Box(
                         modifier =
                             Modifier
-                                // Snapped to the drop slot (what the parting
-                                // animation shows) so the floating row is
-                                // exactly where it will land
+                                // Follows the finger (画世界 Pro style). The
+                                // parting animation shows the drop slot; the
+                                // rounded target in updateDragPos matches it
+                                // exactly, so release lands at the slot.
                                 .offset {
-                                    IntOffset(0, (columnTop + dragTargetIdx * rowPx - listTop).roundToInt())
+                                    IntOffset(0, (dragFingerY - listTop - rowPx / 2f).roundToInt())
                                 }
                                 .fillMaxWidth()
                                 .height(rowHeight)
