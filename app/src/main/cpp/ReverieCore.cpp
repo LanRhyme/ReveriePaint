@@ -57,6 +57,25 @@ bool ReverieCore::newDocument(int width, int height)
     m_dirtyRect = QRect();
     m_bitmapInited = false;
     m_lastDirty = QRect();
+    // Reset ALL per-document engine state. g_core is a process-lifetime
+    // singleton, so when the Activity is recreated on top of a live process
+    // (Android task restore) a new document must not inherit the previous
+    // document's stroke buffer / painter / undo snapshots - that left stale
+    // devices bound and made painting fail on the second open.
+    endStrokeBatch();               // delete m_strokePainter
+    m_strokeDevice = nullptr;
+    m_strokeBuffer = nullptr;       // rebuilt lazily on next stroke
+    m_strokeSamples.clear();
+    m_strokeHadMove = false;
+    m_strokeBatchOpen = false;
+    m_drawing = false;
+    m_snapshotPending = false;
+    m_strokeStartImg = QPointF();
+    m_lastPressure = 1.0;
+    m_strokeColor = QColor();
+    m_strokeOpacity = 1.0;
+    m_undoStack.clear();
+    m_redoStack.clear();
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
     if (!cs) {
@@ -765,11 +784,6 @@ void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curByt
         snapP += size_t(w) * h * 4;
     }
     if (!all.isNull()) {
-        // Content removal (undo erases pixels) is not handled reliably by
-        // Krita's dirty-region leaf updates - the emptied tiles stay
-        // transparent instead of showing the layers below. Force the
-        // synchronous full rebuild (KisRefreshSubtreeWalker + KisAsyncMerger),
-        // then re-composite only the changed region for display.
         markRegionDirty(all);
     }
 }
