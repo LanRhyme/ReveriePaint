@@ -6,3 +6,4 @@ app/build/
 local.properties
 .idea/
 *.hprof
+app/.cxx/

@@ -3,7 +3,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="幻境绘"
+        android:label="ReveriePaint"
         android:supportsRtl="true"
         android:theme="@style/Theme.ReveriePaint">
         <activity

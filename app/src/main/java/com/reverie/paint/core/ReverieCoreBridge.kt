@@ -8,6 +8,19 @@ import android.graphics.Bitmap
  */
 object ReverieCoreBridge {
     init {
+        // Qt6Core's JNI layer (used by QCoreApplication inside the engine)
+        // finds its Java classes via the app class loader. QtActivity does
+        // this automatically; in a pure Compose Activity we must register it
+        // ourselves BEFORE loading the native library, otherwise Qt's
+        // QJniObject::getMethodID dies with "NULL jclass".
+        try {
+            val qtNative = Class.forName("org.qtproject.qt.android.QtNative")
+            val cls = qtNative.getMethod("setClassLoader", ClassLoader::class.java)
+            cls.invoke(null, this.javaClass.classLoader)
+            android.util.Log.i("RP-BRIDGE", "QtNative.setClassLoader OK")
+        } catch (t: Throwable) {
+            android.util.Log.e("RP-BRIDGE", "setClassLoader failed", t)
+        }
         System.loadLibrary("reverie_jni")
     }
 

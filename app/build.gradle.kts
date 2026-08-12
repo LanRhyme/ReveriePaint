@@ -68,6 +68,7 @@ android {
 }
 
 dependencies {
+    implementation(files("libs/Qt6Android.jar"))
     implementation(platform("androidx.compose:compose-bom:2026.05.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")

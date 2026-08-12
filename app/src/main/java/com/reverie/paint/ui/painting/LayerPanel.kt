@@ -122,14 +122,17 @@ fun LayerPanel(
                 Spacer(Modifier.weight(1f))
                 // Simple horizontal scrollable list of blend modes
                 Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(30.dp)
-                        .verticalScroll(rememberScrollState()),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .height(30.dp)
+                            .verticalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     for ((opId, label) in vm.blendModes) {
-                        val selected = com.reverie.paint.core.ReverieCoreBridge.layerBlendMode(vm.currentLayerIndex) == opId
+                        val selected =
+                            com.reverie.paint.core.ReverieCoreBridge
+                                .layerBlendMode(vm.currentLayerIndex) == opId
                         Box(
                             modifier =
                                 Modifier

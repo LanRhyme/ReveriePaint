@@ -1,1 +1,0 @@
-/home/lanrhyme/Projects/ReveriePaint-native/app/src/main/cpp/CMakeLists.txt

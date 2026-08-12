@@ -58,9 +58,9 @@ fun HomePage(vm: PaintViewModel) {
         }
 
         Spacer(Modifier.height(16.dp))
-        Text("幻境绘", color = Morandi.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text("ReveriePaint", color = Morandi.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
-        Text("便携创作", color = Morandi.subText, fontSize = 14.sp)
+        Text("Creative drawing", color = Morandi.subText, fontSize = 14.sp)
 
         Spacer(Modifier.height(36.dp))
 

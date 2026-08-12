@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,7 +18,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -153,15 +153,16 @@ fun PaintingPage(vm: PaintViewModel) {
             val zoomPct = (zoom * fitScale * 100).toInt()
             val rotDeg = ((rotation % 360 + 360) % 360).toInt()
             Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panelHi.copy(alpha = 0.92f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panelHi.copy(alpha = 0.92f))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
             ) {
                 Text(
-                    "缩放 ${zoomPct}%  旋转 ${rotDeg}°",
+                    "缩放 $zoomPct%  旋转 $rotDeg°",
                     color = Morandi.text,
                     fontSize = 12.sp,
                 )
@@ -255,13 +256,14 @@ fun TextInputDialog(
                 onValueChange = { text = it },
                 singleLine = true,
                 placeholder = { Text("在这里输入...", color = Morandi.subText) },
-                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Morandi.accent,
-                    unfocusedBorderColor = Morandi.border,
-                    focusedContainerColor = Morandi.panel,
-                    unfocusedContainerColor = Morandi.panel,
-                    cursorColor = Morandi.accent,
-                ),
+                colors =
+                    androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Morandi.accent,
+                        unfocusedBorderColor = Morandi.border,
+                        focusedContainerColor = Morandi.panel,
+                        unfocusedContainerColor = Morandi.panel,
+                        cursorColor = Morandi.accent,
+                    ),
             )
         },
         confirmButton = {
