@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.composed
 import com.reverie.paint.ui.theme.Theme
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import kotlin.math.roundToInt
 
 fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
     clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
@@ -210,9 +211,10 @@ fun ReSlider(
     value: Float,
     onValue: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    height: Int = 36,
+    height: Int = 20,
 ) {
     val colors = Theme.current
+    var isDragging by remember { mutableStateOf(false) }
     Box(
         modifier =
             modifier
@@ -221,7 +223,11 @@ fun ReSlider(
                 .clip(RoundedCornerShape((height / 2).dp))
                 .background(colors.panelHi)
                 .pointerInput(Unit) {
-                    detectDragGestures { change, _ ->
+                    detectDragGestures(
+                        onDragStart = { isDragging = true },
+                        onDragEnd = { isDragging = false },
+                        onDragCancel = { isDragging = false },
+                    ) { change, _ ->
                         val w = size.width.toFloat()
                         if (w > 0f) {
                             onValue((change.position.x / w).coerceIn(0f, 1f))
@@ -231,12 +237,24 @@ fun ReSlider(
                 },
     ) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            drawRect(
+            drawRoundRect(
                 color = colors.accent,
-                size =
-                    androidx.compose.ui.geometry
-                        .Size(size.width * value.coerceIn(0f, 1f), size.height),
+                size = androidx.compose.ui.geometry.Size(size.width * value.coerceIn(0f, 1f), size.height),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
             )
+        }
+        if (isDragging) {
+            androidx.compose.ui.window.Popup(alignment = Alignment.CenterStart) {
+                Box(
+                    Modifier
+                        .padding(start = 0.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(colors.panel)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("${(value * 100).roundToInt()}%", color = colors.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

@@ -198,6 +198,8 @@ object ReverieCoreBridge {
 
     external fun loadPng(path: String): Boolean
 
+    external fun renderLayerThumb(index: Int, bitmap: Bitmap): Boolean
+
     external fun docWidth(): Int
 
     external fun docHeight(): Int
@@ -240,6 +242,16 @@ object ReverieCoreBridge {
     external fun flipLayerHorizontal(index: Int)
 
     external fun flipLayerVertical(index: Int)
+
+    external fun moveLayer(
+        from: Int,
+        to: Int,
+    ): Boolean
+
+    external fun moveLayerToGroup(
+        from: Int,
+        group: Int,
+    ): Boolean
 
     external fun mergeDown(index: Int): Boolean
 

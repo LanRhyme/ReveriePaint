@@ -497,7 +497,17 @@ Java_com_reverie_paint_core_ReverieCoreBridge_flipLayerVertical(JNIEnv *, jobjec
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayer(JNIEnv *, jobject, jint from, jint to)
+{
+    return core()->moveLayer(from, to);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject, jint from, jint group)
+{
+    return core()->moveLayerToGroup(from, group);
+}
+
+JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
 {
     return core()->mergeDown(index);
 }
@@ -536,6 +546,26 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_clearSelection(JNIEnv *, jobject)
 {
     core()->clearSelection();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderLayerThumb(JNIEnv *env, jobject, jint index, jobject bitmap)
+{
+    if (!bitmap) {
+        return JNI_FALSE;
+    }
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    const bool ok =
+        core()->renderLayerThumb(index, info.width, info.height, pixels, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jint JNICALL

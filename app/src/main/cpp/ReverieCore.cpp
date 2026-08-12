@@ -746,6 +746,81 @@ bool ReverieCore::mergeDown(int index)
     return true;
 }
 
+bool ReverieCore::moveLayer(int fromIndex, int toIndex)
+{
+    if (fromIndex <= 0 || fromIndex >= m_layers.size()) {
+        return false;  // background (index 0) is never moved
+    }
+    if (toIndex <= 0 || toIndex >= m_layers.size()) {
+        return false;
+    }
+    if (fromIndex == toIndex) {
+        return true;
+    }
+    const LayerEntry &src = m_layers[fromIndex];
+    if (src.locked || src.background) {
+        return false;
+    }
+    KisNodeSP node(src.node);
+    const LayerEntry &dst = m_layers[toIndex];
+    KisNodeSP parent(dst.node->parent() ? dst.node->parent() : m_document->root());
+    // never move a group into its own subtree
+    if (src.isGroup) {
+        KisNodeSP p(dst.node->parent());
+        while (p) {
+            if (p == node) {
+                return false;
+            }
+            p = p->parent();
+        }
+    }
+    const quint32 index = parent->index(dst.node);
+    if (!m_document->moveNode(node, parent, index)) {
+        return false;
+    }
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
+{
+    if (fromIndex <= 0 || fromIndex >= m_layers.size()) {
+        return false;
+    }
+    if (groupIndex <= 0 || groupIndex >= m_layers.size()) {
+        return false;
+    }
+    const LayerEntry &src = m_layers[fromIndex];
+    const LayerEntry &grp = m_layers[groupIndex];
+    if (src.locked || src.background || !grp.isGroup) {
+        return false;
+    }
+    if (fromIndex == groupIndex) {
+        return false;
+    }
+    KisNodeSP node(src.node);
+    KisNodeSP group(grp.node);
+    // never move a group into its own subtree
+    if (src.isGroup) {
+        KisNodeSP p(group->parent());
+        while (p) {
+            if (p == node) {
+                return false;
+            }
+            p = p->parent();
+        }
+    }
+    if (!m_document->moveNode(node, group, 0)) {
+        return false;
+    }
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
 void ReverieCore::soloLayer(int index)
 {
     if (index < 0 || index >= m_layers.size()) {
@@ -2011,6 +2086,40 @@ bool ReverieCore::loadPng(const QString &path)
     }
     dev->setDirty();
     markDirty();
+    return true;
+}
+
+bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride)
+{
+    if (!m_document || index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return false;
+    }
+    const QRect ext = dev->exactBounds();
+    if (ext.isEmpty()) {
+        return false;
+    }
+    QImage full = dev->convertToQImage(nullptr, ext.x(), ext.y(), ext.width(), ext.height());
+    if (full.isNull()) {
+        return false;
+    }
+    QImage out(w, h, QImage::Format_RGBA8888);
+    out.fill(Qt::transparent);
+    const QImage scaled =
+        full.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    if (!scaled.isNull()) {
+        QPainter p(&out);
+        p.drawImage(QPointF((w - scaled.width()) / 2.0, (h - scaled.height()) / 2.0), scaled);
+        p.end();
+    }
+    const int copyH = qMin(h, out.height());
+    for (int y = 0; y < copyH; ++y) {
+        memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+               out.constScanLine(y), size_t(w) * 4);
+    }
     return true;
 }
 

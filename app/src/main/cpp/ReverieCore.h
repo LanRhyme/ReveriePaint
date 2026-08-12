@@ -76,6 +76,8 @@ public:
     void flipLayerHorizontal(int index);
     void flipLayerVertical(int index);
     bool mergeDown(int index);   // composite onto the layer below, remove self
+    bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
+    bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
     // layer hides every other layer, tapping the soloed layer again restores
     void soloLayer(int index);
@@ -164,6 +166,11 @@ public:
 
     // Export the composited document to a PNG file. Returns true on success.
     bool savePng(const QString &path);
+
+    // Render a single layer's content into an RGBA buffer (w*h*4 bytes,
+    // row stride dstStride) as a thumbnail: transparent background, keep
+    // aspect ratio, centered. Returns true on success.
+    bool renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride);
 
     // Load a PNG into a new document (single background layer).
     bool loadPng(const QString &path);

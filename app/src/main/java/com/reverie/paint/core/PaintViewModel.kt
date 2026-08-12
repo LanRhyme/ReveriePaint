@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
@@ -67,6 +68,25 @@ class PaintViewModel : ViewModel() {
         val name: String,
         val w: Int,
         val h: Int,
+    )
+
+    /** Snapshot of one layer's native state, mirrored from C++ on every
+     * structure change. The UI reads this Compose state instead of calling
+     * JNI getters during composition, so updates are always visible. */
+    data class LayerUiState(
+        val index: Int,
+        val name: String,
+        val visible: Boolean,
+        val locked: Boolean,
+        val alphaLocked: Boolean,
+        val isGroup: Boolean,
+        val depth: Int,
+        val colorLabel: Int,
+        val clipped: Boolean,
+        val isBackground: Boolean,
+        val soloed: Boolean,
+        val opacity: Double,
+        val blendMode: String,
     )
 
     var projects by mutableStateOf(listOf<Project>())
@@ -172,8 +192,41 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    val layerCount: Int get() = ReverieCoreBridge.layerCount()
-    val currentLayerIndex: Int get() = ReverieCoreBridge.currentLayerIndex()
+    var layers by mutableStateOf(listOf<LayerUiState>())
+        private set
+
+    var currentLayerIndex by mutableStateOf(-1)
+        private set
+
+    val layerCount: Int get() = layers.size
+
+    /** Mirror all native layer state into [layers] / [currentLayerIndex].
+     * Must run on the main thread after any C++ layer mutation. */
+    private fun syncLayersFromNative() {
+        val n = ReverieCoreBridge.layerCount()
+        val list = ArrayList<LayerUiState>(n)
+        for (i in 0 until n) {
+            list.add(
+                LayerUiState(
+                    index = i,
+                    name = ReverieCoreBridge.layerName(i),
+                    visible = ReverieCoreBridge.layerVisible(i),
+                    locked = ReverieCoreBridge.layerLocked(i),
+                    alphaLocked = ReverieCoreBridge.layerAlphaLocked(i),
+                    isGroup = ReverieCoreBridge.layerIsGroup(i),
+                    depth = ReverieCoreBridge.layerDepth(i),
+                    colorLabel = ReverieCoreBridge.layerColorLabel(i),
+                    clipped = ReverieCoreBridge.layerClipped(i),
+                    isBackground = ReverieCoreBridge.layerBackground(i),
+                    soloed = ReverieCoreBridge.layerSoloed(i),
+                    opacity = ReverieCoreBridge.layerOpacity(i),
+                    blendMode = ReverieCoreBridge.layerBlendMode(i),
+                ),
+            )
+        }
+        layers = list
+        currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
+    }
 
     fun saveProject(name: String) {
         runCore(
@@ -202,6 +255,7 @@ class PaintViewModel : ViewModel() {
             if (file.exists() && ReverieCoreBridge.loadPng(file.absolutePath)) {
                 coreW = ReverieCoreBridge.docWidth()
                 coreH = ReverieCoreBridge.docHeight()
+                syncLayersFromNative()
             }
         }
     }
@@ -249,6 +303,7 @@ class PaintViewModel : ViewModel() {
             if (ReverieCoreBridge.newDocument(w, h)) {
                 coreW = w
                 coreH = h
+                syncLayersFromNative()
             }
         }
     }
@@ -265,6 +320,7 @@ class PaintViewModel : ViewModel() {
             if (ReverieCoreBridge.newDocument(p.w, p.h)) {
                 coreW = p.w
                 coreH = p.h
+                syncLayersFromNative()
             }
         }
     }
@@ -311,13 +367,18 @@ class PaintViewModel : ViewModel() {
     }
 
     fun touchEnd() {
-        runCore(after = { scheduleRender(immediate = true) }) {
+        runCore(after = {
+            scheduleRender(immediate = true)
+            refreshLayerThumbs()
+        }) {
             ReverieCoreBridge.touchStrokeEnd()
         }
     }
 
     fun touchCancel() {
-        runCore { ReverieCoreBridge.touchStrokeCancel() }
+        runCore(after = { refreshLayerThumbs() }) {
+            ReverieCoreBridge.touchStrokeCancel()
+        }
     }
 
     fun applyTool(toolId: String) {
@@ -336,7 +397,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun undo() {
-        runCore {
+        runCore(after = { refreshLayerThumbs(force = true) }) {
             if (ReverieCoreBridge.canUndo()) {
                 ReverieCoreBridge.undo()
             }
@@ -344,7 +405,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun redo() {
-        runCore {
+        runCore(after = { refreshLayerThumbs(force = true) }) {
             if (ReverieCoreBridge.canRedo()) {
                 ReverieCoreBridge.redo()
             }
@@ -404,8 +465,35 @@ class PaintViewModel : ViewModel() {
         runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt()) }
     }
 
+    private val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
+
+    /** Layer thumbnails keyed by layer index (updated on the render thread). */
+    val layerThumbs: Map<Int, Bitmap> = layerThumbStates
+
+    private var lastThumbRefreshNs = 0L
+
+    /** (Re)generate layer thumbnails on the render thread. Throttled. */
+    fun refreshLayerThumbs(force: Boolean = false) {
+        val now = System.nanoTime()
+        if (!force && now - lastThumbRefreshNs < 400_000_000L) return
+        lastThumbRefreshNs = now
+        val n = ReverieCoreBridge.layerCount()
+        if (n <= 0) return
+        runCore(after = {}) {
+            for (i in 0 until n) {
+                val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
+                if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
+                    val idx = i
+                    mainHandler.post { layerThumbStates[idx] = bmp }
+                }
+            }
+        }
+    }
+
     private fun notifyLayerChanged() {
+        syncLayersFromNative()
         layerRevision++
+        refreshLayerThumbs()
         scheduleRender(immediate = true)
     }
 
@@ -417,8 +505,12 @@ class PaintViewModel : ViewModel() {
     }
 
     fun removeLayer() {
+        removeLayer(currentLayerIndex)
+    }
+
+    fun removeLayer(index: Int) {
         runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.removeLayer(currentLayerIndex)
+            ReverieCoreBridge.removeLayer(index)
         }
     }
 
@@ -568,6 +660,18 @@ class PaintViewModel : ViewModel() {
     fun flipLayerVertical(i: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.flipLayerVertical(i)
+        }
+    }
+
+    fun moveLayer(from: Int, to: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayer(from, to)
+        }
+    }
+
+    fun moveLayerToGroup(from: Int, group: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerToGroup(from, group)
         }
     }
 
