@@ -248,6 +248,11 @@ object ReverieCoreBridge {
         to: Int,
     ): Boolean
 
+    external fun moveLayerAbove(
+        from: Int,
+        above: Int,
+    ): Boolean
+
     external fun moveLayerToGroup(
         from: Int,
         group: Int,

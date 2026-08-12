@@ -669,6 +669,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun moveLayerAbove(from: Int, above: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerAbove(from, above)
+        }
+    }
+
     fun moveLayerToGroup(from: Int, group: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.moveLayerToGroup(from, group)

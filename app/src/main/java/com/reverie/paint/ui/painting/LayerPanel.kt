@@ -335,12 +335,7 @@ private fun LayerListView(
         val from = draggingFrom
         val insert = dragTargetIdx
         val over = dragOver
-        // Compute the real target BEFORE clearing drag state (displayList is
-        // the dragging order until draggingFrom is reset). m_layers is the
-        // reverse of the visual top-first display list, so the layer index is
-        // displayList.size - 1 - insert.
-        val to = if (from > 0 && insert >= 0) displayList.size - 1 - insert else -1
-        if (from > 0 && to > 0) {
+        if (from > 0 && insert >= 0) {
             // Freeze the drop order so the row does not animate back to its
             // original slot before the native move lands
             pendingOrder = displayList.map { it.index }
@@ -351,11 +346,18 @@ private fun LayerListView(
             if (groupDrop) {
                 vm.moveLayerToGroup(from, over.first)
             } else {
-                vm.moveLayer(from, to)
+                // Exact sibling semantics: the drop slot's visual index is
+                // `insert` in the top-first display list, so the layer lands
+                // just above the row that currently sits at insert+1. This is
+                // what the parting animation shows - no off-by-one.
+                val aboveIdx = displayList.getOrNull(insert + 1)?.index
+                if (aboveIdx != null && aboveIdx != from) {
+                    vm.moveLayerAbove(from, aboveIdx)
+                    // Keep the dragged layer selected
+                    selectedIndex = from
+                    vm.setCurrentLayer(from)
+                }
             }
-            // Keep the dragged layer selected
-            selectedIndex = from
-            vm.setCurrentLayer(from)
         }
         draggingFrom = -1
         dragTargetIdx = -1
@@ -434,7 +436,10 @@ private fun LayerListView(
                                 else collapsedGroups + layer.index
                         },
                         onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
-                        onDragStart = { draggingFrom = layer.index },
+                        onDragStart = {
+                            pendingOrder = null
+                            draggingFrom = layer.index
+                        },
                         onDragPosition = { updateDragPos(it) },
                         onDragEnd = { endDrag() },
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
@@ -581,6 +586,7 @@ private fun LayerRow(
                             if (swiping) {
                                 change.consume()
                                 reveal = dx < 0
+                                android.util.Log.d("LayerPanel", "SWIPE reveal idx=$index dx=$dx")
                             }
                         }
                     }

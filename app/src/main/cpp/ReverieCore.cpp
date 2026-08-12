@@ -784,6 +784,50 @@ bool ReverieCore::moveLayer(int fromIndex, int toIndex)
     return true;
 }
 
+bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
+{
+    if (fromIndex <= 0 || fromIndex >= m_layers.size()) {
+        return false;  // background (index 0) is never moved
+    }
+    if (aboveIndex < 0 || aboveIndex >= m_layers.size()) {
+        return false;
+    }
+    if (fromIndex == aboveIndex) {
+        return false;
+    }
+    const LayerEntry &src = m_layers[fromIndex];
+    if (src.locked || src.background) {
+        return false;
+    }
+    KisNodeSP node(src.node);
+    const LayerEntry &above = m_layers[aboveIndex];
+    KisNodeSP aboveNode(above.node);
+    if (aboveNode == node) {
+        return false;
+    }
+    KisNodeSP parent(aboveNode->parent() ? aboveNode->parent() : m_document->root());
+    if (parent == node) {
+        return false;  // cannot move a group into its own subtree
+    }
+    // never move a group into its own subtree
+    if (src.isGroup) {
+        KisNodeSP p(parent);
+        while (p) {
+            if (p == node) {
+                return false;
+            }
+            p = p->parent();
+        }
+    }
+    if (!m_document->moveNode(node, parent, aboveNode)) {
+        return false;
+    }
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
 bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
 {
     if (fromIndex <= 0 || fromIndex >= m_layers.size()) {

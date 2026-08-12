@@ -77,6 +77,7 @@ public:
     void flipLayerVertical(int index);
     bool mergeDown(int index);   // composite onto the layer below, remove self
     bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
+    bool moveLayerAbove(int fromIndex, int aboveIndex);   // move layer above the given layer (exact sibling semantics)
     bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
     // layer hides every other layer, tapping the soloed layer again restores

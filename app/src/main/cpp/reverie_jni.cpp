@@ -502,7 +502,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayer(JNIEnv *, jobject, jint 
     return core()->moveLayer(from, to);
 }
 
-JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject, jint from, jint group)
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerAbove(
+    JNIEnv *env, jobject, jint fromIndex, jint aboveIndex)
+{
+    return g_core->moveLayerAbove(fromIndex, aboveIndex) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject, jint from, jint group)
 {
     return core()->moveLayerToGroup(from, group);
 }
