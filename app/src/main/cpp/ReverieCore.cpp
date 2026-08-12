@@ -429,6 +429,27 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
     flushStrokeBatch();
 }
 
+// Centripetal Catmull-Rom spline point: evaluates the curve through
+// P0,P1,P2,P3 at u in [0,1] (u=0 at P1, u=1 at P2). Centripetal
+// parameterisation prevents the overshoot "hooks" that uniform Catmull-Rom
+// produces on sharply curving strokes.
+static QPointF centripetalCatmullRom(const QPointF &p0, const QPointF &p1,
+                                     const QPointF &p2, const QPointF &p3,
+                                     qreal u)
+{
+    const qreal t0 = 0.0;
+    const qreal t1 = t0 + std::sqrt(QLineF(p0, p1).length());
+    const qreal t2 = t1 + std::sqrt(QLineF(p1, p2).length());
+    const qreal t3 = t2 + std::sqrt(QLineF(p2, p3).length());
+    const qreal t = t1 + (t2 - t1) * u;
+    const QPointF a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1;
+    const QPointF a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2;
+    const QPointF a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3;
+    const QPointF b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2;
+    const QPointF b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3;
+    return (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2;
+}
+
 void ReverieCore::flushStrokeBatch()
 {
     if (m_strokeSamples.isEmpty()) {
@@ -514,15 +535,26 @@ void ReverieCore::flushStrokeBatch()
     QPointF prev = m_strokeSamples.first().imgPos;
     qreal prevP = m_strokeSamples.first().pressure;
     addDab(prev, qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, prevP, 1.0)));
+    // Catmull-Rom spline interpolation between samples: straight segments
+    // between sparse touch samples make arcs look like polylines, so the
+    // dab path follows a smooth curve through the samples instead (with
+    // mirror-extended neighbours at the stroke ends).
     for (int i = 1; i < m_strokeSamples.size(); ++i) {
         const QPointF cur = m_strokeSamples[i].imgPos;
         const qreal curP = m_strokeSamples[i].pressure;
+        // End segments use P0=P1 / P3=P2 so the curve departs towards the
+        // neighbour sample instead of overshooting (mirror extension made
+        // stroke starts turn too sharply).
+        const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev;
+        const QPointF p1 = prev;
+        const QPointF p2 = cur;
+        const QPointF p3 = (i + 1 < m_strokeSamples.size()) ? m_strokeSamples[i + 1].imgPos
+                                                            : cur;
         const qreal segLen = QLineF(prev, cur).length();
         const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
         for (int j = 1; j <= n; ++j) {
             const qreal t = qreal(j) / n;
-            const QPointF p(prev.x() + (cur.x() - prev.x()) * t,
-                            prev.y() + (cur.y() - prev.y()) * t);
+            const QPointF p = centripetalCatmullRom(p0, p1, p2, p3, t);
             const qreal pMid = prevP + (curP - prevP) * t;
             const qreal width = qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, pMid, 1.0));
             addDab(p, width);
