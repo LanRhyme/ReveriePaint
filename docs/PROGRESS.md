@@ -32,14 +32,55 @@
 
 ## 待办 (MVP 之后)
 
-- [ ] 真机验证与问题修复
+- [x] 真机验证与问题修复 (用户验收)
+- [x] 图层面板基础功能 (单行左滑/拖拽重排/组/树形/自适应高度)
+- [ ] 笔刷面板: 完全使用 Krita 库 (KisPaintOpPreset + 真实笔刷引擎)
+- [ ] 工具面板: 所有 Krita 自带工具
 - [ ] 形状工具实时预览 (拖动时显示形状)
-- [ ] 笔刷软硬度 (Krita brush engine 集成)
 - [ ] 画布网格开关
 - [ ] 多文档支持
 - [ ] 导出到相册/分享
 - [ ] 全屏沉浸模式
 - [ ] 版本控制增强 (缩略图历史)
+
+## 工具与笔刷计划 (2026-08-13, 完全使用 Krita 库)
+
+用户指令: 工具面板 + 笔刷面板完全使用 Krita 的库, 添加所有 Krita 自带工具和内置笔刷
+
+### 技术侦察结论
+
+- KisPaintOpPreset 在 kritaimage (libs/image/brushengine), 已构建
+- 预设文件自包含 PNG (内嵌 XML preset + 笔刷资源), 共 16 个在 krita/data/paintoppresets
+- 预设加载需要 KisResourcesInterface (KisLocalStrokeResources, kritaresources 已构建)
+- 渲染管线: KisPainter::setPaintOpPreset -> paintLine/paintBezierCurve + KisPaintInformation (压感/倾角)
+- paintop 实现 (KisBrushOp 等) 在 plugins/paintops, 需交叉编译:
+  kritalibpaintop (依赖 kritaui, 已构建) + kritadefaultpaintops_static (核心笔刷)
+- 插件注册: KoPluginLoader 动态加载在 Android 不可靠, 改为静态链接后手动
+  KisPaintOpRegistry::instance()->add(factory) 注册
+
+### 阶段 1: 笔刷引擎 (Krita 真实笔刷)
+
+- [ ] 交叉编译 kritalibpaintop + kritadefaultpaintops_static
+      (+ colorsmudge/spray/roundmarker/sketch/hairy/particle/deform/filterop/gridbrush/tangentnormal)
+- [ ] 静态注册 paintop factories (绕过 Qt 插件机制)
+- [ ] APK assets 打包 16 个自带预设
+- [ ] 预设加载管线: KisPaintOpPreset::loadFromDevice + KisLocalStrokeResources
+- [ ] 替换 dab 循环: setPaintOpPreset + KisPaintInformation + paintLine
+- [ ] 桌面 harness 像素验证 (笔刷形状/软硬边/压感)
+- [ ] 笔刷面板 UI: 预设列表 (缩略图) + 参数 (大小/不透明度/流量/硬度/间距/纹理强度)
+
+### 阶段 2: 工具面板
+
+- [ ] 评估 KisTool 完整接入 (需 kritaui + QWidget 事件, 风险高)
+- [ ] 若不可行: 移植 Krita 工具逻辑到现有架构 (选区/形状/变换/文字等)
+- [ ] 工具列表: Krita 自带全部工具
+- [ ] 工具面板 UI
+
+### 阶段 3: 整合打磨
+
+- [ ] 工具-笔刷联动 (每工具默认笔刷)
+- [ ] 面板样式融入 ReComponents
+- [ ] 全量测试
 
 ## 架构决策
 
