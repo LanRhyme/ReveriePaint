@@ -12,11 +12,12 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -260,6 +261,26 @@ private fun LayerListView(
             buildList { collectBlock(0, n, -1, this) }
         }
 
+    fun updateDragPos(fingerY: Float) {
+        var over: Pair<Int, DropMode>? = null
+        for ((idx, b) in rowBounds) {
+            if (idx == draggingFrom) continue
+            if (fingerY >= b.first && fingerY <= b.second) {
+                val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
+                val mid0 = b.first + (b.second - b.first) * 0.3f
+                val mid1 = b.first + (b.second - b.first) * 0.7f
+                over =
+                    if (isGroup && fingerY >= mid0 && fingerY <= mid1) {
+                        idx to DropMode.OnGroup
+                    } else {
+                        idx to DropMode.Above
+                    }
+            }
+        }
+        android.util.Log.d("LayerPanel", "dragPos y=$fingerY over=${over?.first ?: -1} ${over?.second}")
+        dragOver = over
+    }
+
     fun endDrag() {
         val from = draggingFrom
         val target = dragOver
@@ -299,10 +320,31 @@ private fun LayerListView(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
+        var columnTop by remember { mutableStateOf(0f) }
         Column(
             modifier =
                 Modifier
                     .heightIn(max = 320.dp)
+                    .onGloballyPositioned { columnTop = it.boundsInRoot().top }
+                    // Panel-level drag handler: once a row's long press activated
+                    // dragging (draggingFrom >= 0), this consumes the following
+                    // moves for drop-position calculation. Consuming also stops
+                    // the vertical scroll from hijacking the drag.
+                    .pointerInput(draggingFrom) {
+                        if (draggingFrom < 0) return@pointerInput
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val pressed = event.changes.firstOrNull { it.pressed }
+                                if (pressed == null) {
+                                    endDrag()
+                                    break
+                                }
+                                pressed.consume()
+                                updateDragPos(columnTop + pressed.position.y)
+                            }
+                        }
+                    }
                     .verticalScroll(rememberScrollState()),
         ) {
             for (i in displayRows.indices) {
@@ -318,26 +360,9 @@ private fun LayerListView(
                                 if (layer.index in collapsedGroups) collapsedGroups - layer.index
                                 else collapsedGroups + layer.index
                         },
+                        onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
                         onDragStart = { draggingFrom = layer.index },
-                        onDragPosition = { fingerY ->
-                            var over: Pair<Int, DropMode>? = null
-                            for ((idx, b) in rowBounds) {
-                                if (idx == draggingFrom) continue
-                                if (fingerY >= b.first && fingerY <= b.second) {
-                                    val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
-                                    val mid0 = b.first + (b.second - b.first) * 0.3f
-                                    val mid1 = b.first + (b.second - b.first) * 0.7f
-                                    over =
-                                        if (isGroup && fingerY >= mid0 && fingerY <= mid1) {
-                                            idx to DropMode.OnGroup
-                                        } else {
-                                            idx to DropMode.Above
-                                        }
-                                }
-                            }
-                            android.util.Log.d("LayerPanel", "dragPos y=$fingerY over=${over?.first ?: -1} ${over?.second}")
-                            dragOver = over
-                        },
+                        onDragPosition = { updateDragPos(it) },
                         onDragEnd = { endDrag() },
                         dragLineAbove = dragOver?.first == layer.index && dragOver?.second == DropMode.Above,
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
@@ -395,6 +420,7 @@ private fun LayerRow(
     selected: Boolean,
     collapsed: Boolean,
     onToggleCollapse: () -> Unit,
+    onBounds: (Float, Float) -> Unit,
     onDragStart: () -> Unit,
     onDragPosition: (Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -406,6 +432,7 @@ private fun LayerRow(
     val isBg = layer.isBackground
     val visible = layer.visible
     var reveal by remember { mutableStateOf(false) }
+    var totalDrag by remember { mutableFloatStateOf(0f) }
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -414,19 +441,6 @@ private fun LayerRow(
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
-
-    // Zone occupied by interactive children (collapse arrow + eye): taps there
-    // must go to those children, not to the row gesture (which would open the
-    // detail page for an already-selected row)
-    val interactiveEndPx =
-        with(density) {
-            var x = 8.dp // row padding
-            x += (layer.depth * 16).dp // indent guides
-            if (layer.isGroup) x += 22.dp // collapse arrow
-            x += 28.dp // eye button
-            x += 4.dp // margin so the eye's tap zone is fully excluded
-            x.roundToPx()
-        }
 
     val revealFraction by animateFloatAsState(
         targetValue = if (reveal) 1f else 0f,
@@ -442,6 +456,7 @@ private fun LayerRow(
                 .onGloballyPositioned { c ->
                     rowTop = c.boundsInRoot().top
                     rowBottom = c.boundsInRoot().bottom
+                    onBounds(rowTop, rowBottom)
                 },
     ) {
         // Action drawer: two actions (copy gray / delete red), composed only
@@ -489,79 +504,28 @@ private fun LayerRow(
                     )
                     .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
                     .pointerInput(index) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            if (down.position.x < interactiveEndPx) {
-                                // finger down on an interactive child (eye/arrow):
-                                // hand over to the child entirely
-                                return@awaitEachGesture
-                            }
-                            val startX = down.position.x
-                            val startY = down.position.y
-                            val thr = dragThresholdPx.toFloat()
-                            // Reliable long-press: awaitLongPressOrCancellation has
-                            // its own event-independent timeout, so a finger held
-                            // still (no move events) still fires the long press.
-                            val lp = awaitLongPressOrCancellation(down.id)
-                            if (lp != null) {
-                                // ---- long press fired: vibrate + drag ----
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                android.util.Log.d("LayerPanel", "idx=$index DRAG start (haptic)")
-                                onDragStart()
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                    if (change == null || change.changedToUpIgnoreConsumed()) break
-                                    change.consume()
-                                    onDragPosition(rowTop + change.position.y)
+                        detectHorizontalDragGestures(
+                            onDragStart = { totalDrag = 0f },
+                            onDragEnd = { /* keep reveal state */ },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                totalDrag += dragAmount
+                                if (totalDrag < -dragThresholdPx.toFloat()) {
+                                    reveal = true
+                                } else if (totalDrag > dragThresholdPx.toFloat()) {
+                                    reveal = false
                                 }
-                                android.util.Log.d("LayerPanel", "idx=$index drag END")
-                                onDragEnd()
-                            } else {
-                                // awaitLongPressOrCancellation returned null for either
-                                // a move (swipe) or an UP it consumed internally.
-                                // The UP is already gone, so we must not wait for it:
-                                // instead, consume the FOLLOWING events (moves) for the
-                                // swipe; a single tap leaves no events here and the
-                                // block simply suspends until the next gesture (harmless).
-                                var swiping = false
-                                var total = 0f
-                                var prevX = startX
-                                var settled = false
-                                while (!settled) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                    if (change == null) {
-                                        // UP was swallowed: nothing more for this
-                                        // gesture. Do not treat a future down here.
-                                        settled = true
-                                    } else if (change.changedToUpIgnoreConsumed()) {
-                                        if (!swiping || (total > -thr && total < thr)) {
-                                            android.util.Log.d("LayerPanel", "idx=$index TAP")
-                                            onClick()
-                                        }
-                                        settled = true
-                                    } else {
-                                        val dx = change.position.x - startX
-                                        val dy = change.position.y - startY
-                                        if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
-                                            swiping = true
-                                        }
-                                        if (swiping) {
-                                            change.consume()
-                                            total += change.position.x - prevX
-                                            prevX = change.position.x
-                                            if (total < -thr) {
-                                                reveal = true
-                                            } else if (total > thr) {
-                                                reveal = false
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                            },
+                        )
                     }
+                    .combinedClickable(
+                        onClick = { onClick() },
+                        onLongClick = {
+                            // 画世界 Pro style: vibrate then drag
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDragStart()
+                        },
+                    )
                     .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
