@@ -51,6 +51,17 @@ class PaintViewModel : ViewModel() {
     // UI Settings
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
+    
+    var colorPickerMode by mutableStateOf("SQUARE")
+        private set
+        
+    fun updateColorPickerMode(mode: String) {
+        colorPickerMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("colorPickerMode", mode).apply()
+        }
+    }
 
     // Recent projects (name -> {w, h})
     data class Project(
