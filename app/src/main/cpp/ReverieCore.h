@@ -153,6 +153,10 @@ private:
 
     // Stroke batching
     QVector<StrokeSample> m_strokeSamples;
+    // True once the finger moved beyond the start point; a single-sample
+    // flush is only a dot when this is false (a genuine tap). Trailing
+    // samples of a real stroke must never render as dots.
+    bool m_strokeHadMove = false;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;
     bool m_strokeBatchOpen = false;

@@ -318,6 +318,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_strokeOpacity = m_brushOpacity;
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
+    m_strokeHadMove = false;
     // The stroke starts at the finger-down position: append it as the first
     // sample so the down -> first-move segment is drawn. Otherwise the first
     // flush sees one sample and paints a dot, and the stroke start is cut off
@@ -407,6 +408,7 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
             return;
         }
     }
+    m_strokeHadMove = true;
     StrokeSample s;
     s.imgPos = imgPos;
     s.pressure = pressure;
@@ -461,10 +463,11 @@ void ReverieCore::flushStrokeBatch()
         ? QStringLiteral("erase")
         : QStringLiteral("normal"));
 
-    // Single tap: paint a round dot. KisPainter::drawLine with identical
-    // start/end returns immediately, so use paintEllipse (fills with the
-    // foreground color) sized to the brush diameter.
-    if (m_strokeSamples.size() == 1) {
+    // Genuine tap only (no movement): paint a round dot. KisPainter::drawLine
+    // with identical start/end returns immediately, so use paintEllipse
+    // (fills with the foreground color) sized to the brush diameter. A
+    // trailing single sample of a real stroke is NOT a dot.
+    if (m_strokeSamples.size() == 1 && !m_strokeHadMove) {
         const QPointF p = m_strokeSamples.first().imgPos;
         const qreal w = qMax<qreal>(1.0, m_brushSize
                                          * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0));
@@ -472,10 +475,8 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         markRegionDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
                               2 * int(w) + 2, 2 * int(w) + 2));
-        const QVector<QRect> dirtyRects = painter.takeDirtyRegion();
-        for (const QRect &r : dirtyRects) {
-            device->setDirty(r);
-        }
+        device->setDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
+                              2 * int(w) + 2, 2 * int(w) + 2));
         return;
     }
 
@@ -516,7 +517,17 @@ void ReverieCore::flushStrokeBatch()
         prev = cur;
         prevP = curP;
     }
+    // Keep the last sample as the start of the next segment. The batch
+    // pattern is [trailing, new1, new2, ...]: each flush draws the new
+    // segments and the next flush continues the polyline. Clearing fully
+    // made every second flush a single-sample batch -> dotted strokes.
+    const StrokeSample trailing =
+        m_strokeSamples.isEmpty() ? StrokeSample() : m_strokeSamples.last();
     m_strokeSamples.clear();
+    if (!trailing.imgPos.isNull()) {
+        m_strokeSamples.append(trailing);
+    }
+
     // Only the stroke's bounding region needs re-compositing
     if (!strokeDirty.isNull()) {
         markRegionDirty(strokeDirty);
@@ -524,13 +535,13 @@ void ReverieCore::flushStrokeBatch()
         markDirty();
     }
 
-    // Krita's dirty propagation: KisPainter accumulates dirty rects
-    // internally (takeDirtyRegion); the caller must apply them to the
-    // device so the layer's projection leaf recomposites the stroke area.
-    // Without this, multi-layer canvases never update.
-    const QVector<QRect> dirtyRects = painter.takeDirtyRegion();
-    for (const QRect &r : dirtyRects) {
-        device->setDirty(r);
+    // Krita's dirty propagation: mark the stroke region dirty on the layer
+    // device so its projection leaf recomposites it. IMPORTANT: KisPainter's
+    // drawLine does NOT accumulate dirty rects (takeDirtyRegion returns
+    // empty after lines, unlike paintEllipse), so use our own segment
+    // bounds instead - otherwise multi-layer projections never update.
+    if (!strokeDirty.isNull()) {
+        device->setDirty(strokeDirty);
     }
 }
 
@@ -661,6 +672,11 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     }
     const int iw = image->width();
     const int ih = image->height();
+    // Flush any pending asynchronous projection updates (Krita schedules
+    // projection recomposites through its strokes queue). Without this,
+    // a convertToQImage issued right after painting can read stale tiles
+    // and the newest stroke is missing from the display.
+    image->waitForDone();
     if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
         // New document (or resized): full redraw
         m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);
