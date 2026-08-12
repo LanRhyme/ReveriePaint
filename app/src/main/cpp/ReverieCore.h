@@ -77,8 +77,6 @@ public:
     void setBrushColorName(const QString &colorName);
     void setBrushOpacity(qreal opacity) { m_brushOpacity = opacity; }
     qreal brushOpacity() const { return m_brushOpacity; }
-    void setBrushFlow(qreal flow) { m_brushFlow = flow; }
-    qreal brushFlow() const { return m_brushFlow; }
     QColor brushColor() const { return m_brushColor; }
 
     // Strokes (touch input; coordinates in document space)
@@ -151,7 +149,6 @@ private:
     qreal m_brushSize = 20.0;
     QColor m_brushColor = Qt::black;
     qreal m_brushOpacity = 1.0;
-    qreal m_brushFlow = 1.0;
     ToolMode m_toolMode = ToolBrush;
 
     // Stroke batching
@@ -172,9 +169,7 @@ private:
     bool m_bitmapInited = false;
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
-    qreal m_strokeFlow = 1.0;
     bool m_drawing = false;
-    KisPaintDeviceSP m_strokeBuffer; // Temporary layer for true stroke opacity
 
     // Document size
     int m_docWidth = 0;

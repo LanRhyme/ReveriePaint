@@ -32,7 +32,6 @@ class PaintViewModel : ViewModel() {
     var brushColor by mutableStateOf("#262a30")
     var brushSecondaryColor by mutableStateOf("#ffffff")
     var brushOpacity by mutableStateOf(1.0)
-    var brushFlow by mutableStateOf(1.0)
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
@@ -293,11 +292,6 @@ class PaintViewModel : ViewModel() {
     fun updateBrushOpacity(v: Double) {
         brushOpacity = v
         ReverieCoreBridge.setBrushOpacity(v)
-    }
-
-    fun updateBrushFlow(v: Double) {
-        brushFlow = v
-        ReverieCoreBridge.setBrushFlow(v)
     }
 
     fun touchStart(

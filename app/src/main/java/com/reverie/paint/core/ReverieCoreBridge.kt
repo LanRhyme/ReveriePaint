@@ -128,7 +128,6 @@ object ReverieCoreBridge {
 
     external fun setBrushOpacity(opacity: Double)
 
-    external fun setBrushFlow(flow: Double)
 
     external fun touchStrokeStart(
         x: Double,
