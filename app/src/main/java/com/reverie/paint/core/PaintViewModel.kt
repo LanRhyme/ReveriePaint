@@ -411,7 +411,8 @@ class PaintViewModel : ViewModel() {
 
     fun addLayer() {
         runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.addLayer("Layer ${layerCount + 1}")
+            // empty name -> C++ generates 颜料图层 N
+            ReverieCoreBridge.addLayer("")
         }
     }
 
@@ -435,8 +436,24 @@ class PaintViewModel : ViewModel() {
             "overlay" to "叠加",
             "darken" to "变暗",
             "lighten" to "变亮",
+            "dodge" to "颜色减淡",
+            "burn" to "颜色加深",
+            "linear_burn" to "线性加深",
+            "linear_dodge" to "线性减淡",
             "difference" to "差值",
-            "add" to "线性减淡",
+            "add" to "增加",
+            "subtract" to "减去",
+            "divide" to "划分",
+            "hard_light" to "强光",
+            "soft_light" to "柔光",
+            "vivid_light" to "亮光",
+            "pin_light" to "点光",
+            "linear light" to "线性光",
+            "exclusion" to "排除",
+            "hue" to "色相",
+            "saturation" to "饱和度",
+            "color" to "颜色",
+            "value" to "明度",
             "erase" to "擦除",
         )
 
@@ -469,6 +486,122 @@ class PaintViewModel : ViewModel() {
     }
 
     fun layerVisible(i: Int) = ReverieCoreBridge.layerVisible(i)
+
+    // ---- Full layer system ----
+    fun addGroupLayer() {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.addGroupLayer("")
+        }
+    }
+
+    fun copyLayer(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.copyLayer(i)
+        }
+    }
+
+    fun clearLayer(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.clearLayer(i)
+        }
+    }
+
+    fun renameLayer(i: Int, name: String) {
+        if (name.isBlank()) return
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerName(i, name.trim())
+        }
+    }
+
+    fun layerOpacity(i: Int) = ReverieCoreBridge.layerOpacity(i)
+
+    fun setLayerOpacity(i: Int, v: Double) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerOpacity(i, v)
+        }
+    }
+
+    fun layerLocked(i: Int) = ReverieCoreBridge.layerLocked(i)
+
+    fun setLayerLocked(i: Int, locked: Boolean) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerLocked(i, locked)
+        }
+    }
+
+    fun layerAlphaLocked(i: Int) = ReverieCoreBridge.layerAlphaLocked(i)
+
+    fun setLayerAlphaLocked(i: Int, locked: Boolean) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerAlphaLocked(i, locked)
+        }
+    }
+
+    fun layerColorLabel(i: Int) = ReverieCoreBridge.layerColorLabel(i)
+
+    fun setLayerColorLabel(i: Int, label: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerColorLabel(i, label)
+        }
+    }
+
+    fun layerIsGroup(i: Int) = ReverieCoreBridge.layerIsGroup(i)
+
+    fun layerDepth(i: Int) = ReverieCoreBridge.layerDepth(i)
+
+    fun layerBackground(i: Int) = ReverieCoreBridge.layerBackground(i)
+
+    fun layerClipped(i: Int) = ReverieCoreBridge.layerClipped(i)
+
+    fun setLayerClipped(i: Int, clipped: Boolean) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerClipped(i, clipped)
+        }
+    }
+
+    fun flipLayerHorizontal(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.flipLayerHorizontal(i)
+        }
+    }
+
+    fun flipLayerVertical(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.flipLayerVertical(i)
+        }
+    }
+
+    fun mergeDown(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.mergeDown(i)
+        }
+    }
+
+    fun soloLayer(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.soloLayer(i)
+        }
+    }
+
+    fun layerSoloed(i: Int) = ReverieCoreBridge.layerSoloed(i)
+
+    fun applyFilter(i: Int, filterId: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.applyFilter(i, filterId)
+        }
+    }
+
+    fun selectionFromLayer(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.selectionFromLayer(i)
+        }
+    }
+
+    fun clearSelection() {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.clearSelection()
+        }
+    }
 }
 
 enum class Page { HOME, CREATE, PAINTING }

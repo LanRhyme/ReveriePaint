@@ -201,4 +201,57 @@ object ReverieCoreBridge {
     external fun docWidth(): Int
 
     external fun docHeight(): Int
+
+    // ---- Full layer system ----
+    external fun addGroupLayer(name: String): Int
+
+    external fun copyLayer(index: Int): Int
+
+    external fun clearLayer(index: Int)
+
+    external fun setLayerName(index: Int, name: String)
+
+    external fun setLayerOpacity(index: Int, opacity: Double)
+
+    external fun layerOpacity(index: Int): Double
+
+    external fun setLayerLocked(index: Int, locked: Boolean)
+
+    external fun layerLocked(index: Int): Boolean
+
+    external fun setLayerAlphaLocked(index: Int, locked: Boolean)
+
+    external fun layerAlphaLocked(index: Int): Boolean
+
+    external fun setLayerColorLabel(index: Int, label: Int)
+
+    external fun layerColorLabel(index: Int): Int
+
+    external fun layerIsGroup(index: Int): Boolean
+
+    external fun layerDepth(index: Int): Int
+
+    external fun layerBackground(index: Int): Boolean
+
+    external fun layerClipped(index: Int): Boolean
+
+    external fun setLayerClipped(index: Int, clipped: Boolean)
+
+    external fun flipLayerHorizontal(index: Int)
+
+    external fun flipLayerVertical(index: Int)
+
+    external fun mergeDown(index: Int): Boolean
+
+    external fun soloLayer(index: Int)
+
+    external fun layerSoloed(index: Int): Boolean
+
+    external fun applyFilter(index: Int, filterId: Int)
+
+    external fun selectionFromLayer(index: Int): Boolean
+
+    external fun hasSelection(): Boolean
+
+    external fun clearSelection()
 }

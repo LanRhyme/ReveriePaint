@@ -376,7 +376,169 @@ Java_com_reverie_paint_core_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint 
     core()->drawShape(kind, x1, y1, x2, y2);
 }
 
-JNIEXPORT jint JNICALL
+// ---- Full layer system ----
+extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_addGroupLayer(JNIEnv *env, jobject, jstring name)
+{
+    const char *c = env->GetStringUTFChars(name, nullptr);
+    const jint r = core()->addGroupLayer(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(name, c);
+    return r;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_copyLayer(JNIEnv *, jobject, jint index)
+{
+    return core()->copyLayer(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_clearLayer(JNIEnv *, jobject, jint index)
+{
+    core()->clearLayer(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerName(JNIEnv *env, jobject, jint index, jstring name)
+{
+    const char *c = env->GetStringUTFChars(name, nullptr);
+    core()->setLayerName(index, QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(name, c);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerOpacity(JNIEnv *, jobject, jint index, jdouble opacity)
+{
+    core()->setLayerOpacity(index, opacity);
+}
+
+extern "C" JNIEXPORT jdouble JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerOpacity(JNIEnv *, jobject, jint index)
+{
+    return core()->layerOpacity(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerLocked(JNIEnv *, jobject, jint index, jboolean locked)
+{
+    core()->setLayerLocked(index, locked);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerLocked(JNIEnv *, jobject, jint index)
+{
+    return core()->layerLocked(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerAlphaLocked(JNIEnv *, jobject, jint index, jboolean locked)
+{
+    core()->setLayerAlphaLocked(index, locked);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerAlphaLocked(JNIEnv *, jobject, jint index)
+{
+    return core()->layerAlphaLocked(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerColorLabel(JNIEnv *, jobject, jint index, jint label)
+{
+    core()->setLayerColorLabel(index, label);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerColorLabel(JNIEnv *, jobject, jint index)
+{
+    return core()->layerColorLabel(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerIsGroup(JNIEnv *, jobject, jint index)
+{
+    return core()->layerIsGroup(index);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerDepth(JNIEnv *, jobject, jint index)
+{
+    return core()->layerDepth(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerBackground(JNIEnv *, jobject, jint index)
+{
+    return core()->layerBackground(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerClipped(JNIEnv *, jobject, jint index)
+{
+    return core()->layerClipped(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerClipped(JNIEnv *, jobject, jint index, jboolean clipped)
+{
+    core()->setLayerClipped(index, clipped);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_flipLayerHorizontal(JNIEnv *, jobject, jint index)
+{
+    core()->flipLayerHorizontal(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_flipLayerVertical(JNIEnv *, jobject, jint index)
+{
+    core()->flipLayerVertical(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
+{
+    return core()->mergeDown(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_soloLayer(JNIEnv *, jobject, jint index)
+{
+    core()->soloLayer(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloed(JNIEnv *, jobject, jint index)
+{
+    return core()->layerSoloed(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyFilter(JNIEnv *, jobject, jint index, jint filterId)
+{
+    core()->applyFilter(index, filterId);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectionFromLayer(JNIEnv *, jobject, jint index)
+{
+    return core()->selectionFromLayer(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_hasSelection(JNIEnv *, jobject)
+{
+    return core()->hasSelection();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_clearSelection(JNIEnv *, jobject)
+{
+    core()->clearSelection();
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_docWidth(JNIEnv *, jobject)
 {
     return core()->docWidth();

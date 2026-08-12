@@ -35,24 +35,81 @@ public:
     void fillBackground(const QString &colorName);
     void clearCanvas();
 
-    // Layers (Krita KisPaintLayer based)
-    void addLayer(const QString &name = QStringLiteral("图层"));
+    // ================= Layers (full Krita KisNode-based system) ==========
+    // Layer index 0 is the background layer: white, alpha-locked, locked,
+    // not paintable / deletable / renamable / movable. New paint layers are
+    // created above it. The layer list is a tree traversal order (bottom to
+    // top); group layers contain children reported with layerDepth() > 0.
+    int addLayer(const QString &name = QString());       // returns new index
+    int addGroupLayer(const QString &name = QString());  // returns new index
     void removeLayer(int index);
+    int copyLayer(int index);                            // returns new index
+    void clearLayer(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
     QString layerName(int index) const;
-    void setLayerVisible(int index, bool visible);
+    void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
-    // Blend mode: Krita composite op id ("normal", "multiply", "screen",
-    // "overlay", "darken", "lighten", "difference", "add", "erase", ...)
+    void setLayerVisible(int index, bool visible);
+    bool layerLocked(int index) const;
+    void setLayerLocked(int index, bool locked);
+    bool layerAlphaLocked(int index) const;
+    void setLayerAlphaLocked(int index, bool locked);
+    qreal layerOpacity(int index) const;
+    void setLayerOpacity(int index, qreal opacity);
+    // Blend mode: Krita composite op id (full KoCompositeOpRegistry set:
+    // normal, multiply, screen, overlay, darken, lighten, dodge, burn,
+    // linear_burn, linear_dodge, difference, add, subtract, divide,
+    // hard_light, soft_light, vivid_light, pin_light, linear light,
+    // exclusion, hue, saturation, color, value, ...)
     void setLayerBlendMode(int index, const QString &opId);
     QString layerBlendMode(int index) const;
+    int layerColorLabel(int index) const;
+    void setLayerColorLabel(int index, int label);
+    bool layerIsGroup(int index) const;
+    int layerDepth(int index) const;
+    bool layerBackground(int index) const;
+    // Clipping mask (self-implemented: Krita only has inherit-opacity):
+    // content painted on a clipped layer is masked by the next layer's alpha
+    bool layerClipped(int index) const;
+    void setLayerClipped(int index, bool clipped);
+    void flipLayerHorizontal(int index);
+    void flipLayerVertical(int index);
+    bool mergeDown(int index);   // composite onto the layer below, remove self
+    // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
+    // layer hides every other layer, tapping the soloed layer again restores
+    void soloLayer(int index);
+    bool layerSoloed(int index) const;
     int currentLayerIndex() const { return m_currentLayer; }
+    // Filters (self-implemented pixel ops; Krita's filter plugins are not
+    // built into the Android core). 0=grayscale 1=invert 2=blur 3=sharpen
+    void applyFilter(int index, int filterId);
+    // Selection: build a pixel selection from the layer's alpha channel and
+    // constrain painting to it (KisSelection, Krita mechanism)
+    bool selectionFromLayer(int index);
+    bool hasSelection() const;
+    void clearSelection();
 
     // Tool mode (drives how strokes composite)
     enum ToolMode { ToolBrush, ToolEraser, ToolFill, ToolSmudge };
     void setToolMode(int mode) { m_toolMode = ToolMode(mode); }
     int toolMode() const { return int(m_toolMode); }
+
+    // Public data structure: one entry per layer/group in tree traversal
+    // order (bottom -> top). Used by file-scope helpers in ReverieCore.cpp.
+    struct LayerEntry {
+        KisNode *node = nullptr;      // paint layer or group layer
+        bool visible = true;
+        QString name;
+        int depth = 0;                // group nesting depth (UI indent)
+        bool isGroup = false;
+        bool locked = false;          // full lock: no editing at all
+        bool alphaLocked = false;     // preserve alpha (transparency lock)
+        int colorLabel = 0;           // color label index 0-9
+        bool clipped = false;         // clipping mask onto the layer below
+        bool background = false;      // background layer (index 0)
+        QVector<bool> soloPrev;       // visibility before solo (FolioLayers)
+    };
 
     // Fill the current layer's region (or whole layer) with the brush color
     void floodFillAt(int x, int y);
@@ -122,6 +179,9 @@ public:
 private:
     void syncLayersFromImage();
     KisPaintDeviceSP currentPaintDevice();
+    KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;
+    bool isLayerEditable(int index) const;   // background/locked check
+    int indexOfNode(KisNode *node) const;
     // Force a full synchronous recomposite of the root projection. Krita's
     // projection updates are driven by dirty-region propagation, which does
     // not cover node-structure changes (add/remove layer, visibility, blend
@@ -137,15 +197,13 @@ private:
         qreal pressure = 1.0;
     };
 
-    struct LayerEntry {
-        KisPaintLayer *layer = nullptr;
-        bool visible = true;
-        QString name;
-    };
+
 
     KisImageSP m_document;
-    QVector<LayerEntry> m_layers;   // bottom -> top
+    QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
     int m_currentLayer = 0;
+    KisSelectionSP m_selection;     // optional active selection
+    int m_soloedLayer = -1;          // currently soloed layer, -1 if none
 
     // Brush state
     qreal m_brushSize = 20.0;

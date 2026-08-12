@@ -24,6 +24,15 @@
 #include <kis_paint_device.h>
 #include <kis_refresh_subtree_walker.h>
 #include <kis_async_merger.h>
+#include <kis_group_layer.h>
+#include <kis_selection.h>
+#include <kis_pixel_selection.h>
+#include <kis_default_bounds.h>
+#include <KisImageResolutionProxy.h>
+#include <kis_node_facade.h>
+#include <kis_layer.h>
+#include <kis_base_node.h>
+#include <KoCompositeOpRegistry.h>
 #include <kis_paint_layer.h>
 #include <kis_group_layer.h>
 #include <kis_layer.h>
@@ -92,7 +101,8 @@ bool ReverieCore::newDocument(int width, int height)
     }
     image->setResolution(72.0, 72.0);
 
-    // Background paint layer (white, opaque)
+    // Background layer (white, opaque, locked): index 0, cannot be painted
+    // on, deleted, renamed or moved. Hiding it reveals the transparent grid.
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
     if (!bg) {
         return false;
@@ -100,12 +110,31 @@ bool ReverieCore::newDocument(int width, int height)
     KoColor white(QColor(Qt::white), cs);
     bg->original()->fill(QRect(0, 0, width, height), white);
     bg->original()->setDirty();
+    bg->setUserLocked(true);
+    bg->setAlphaLocked(true);
     image->addNode(bg, image->rootLayer());
+
+    // First paint layer above the background (Krita-style 颜料图层)
+    KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("颜料图层 1"), 255, cs);
+    if (!paint) {
+        m_document = image.data();
+        m_docWidth = width;
+        m_docHeight = height;
+        syncLayersFromImage();
+        markDirty();
+        return true;
+    }
+    paint->original()->fill(QRect(0, 0, width, height), KoColor(Qt::transparent, cs));
+    paint->original()->setDirty();
+    image->addNode(paint, image->rootLayer());
 
     m_document = image.data();
     m_docWidth = width;
     m_docHeight = height;
+    // Must run AFTER m_document is set (recompositeProjection reads it)
+    recompositeProjection();
     syncLayersFromImage();
+    m_currentLayer = 1;
     markDirty();
     return true;
 }
@@ -122,7 +151,17 @@ void ReverieCore::fillBackground(const QString &colorName)
         c = Qt::white;
     }
     KoColor koColor(c, cs);
-    KisPaintDeviceSP dev = m_layers.first().layer->original();
+    // Fill the topmost paintable layer (never the locked background)
+    KisPaintDeviceSP dev;
+    for (int i = m_layers.size() - 1; i >= 0; --i) {
+        if (!m_layers[i].isGroup && !m_layers[i].background && !m_layers[i].locked) {
+            dev = layerPaintDeviceFor(m_layers[i]);
+            break;
+        }
+    }
+    if (!dev) {
+        return;
+    }
     dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
     dev->setDirty();
     markDirty();
@@ -183,80 +222,249 @@ void ReverieCore::syncLayersFromImage()
     if (!root) {
         return;
     }
-    std::function<void(KisNodeSP)> walk = [&](KisNodeSP parent) {
+    std::function<void(KisNodeSP, int)> walk = [&](KisNodeSP parent, int depth) {
         KisNodeSP node = parent->firstChild();
         while (node) {
+            const bool isGroup = dynamic_cast<KisGroupLayer *>(node.data()) != nullptr;
             if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node.data())) {
                 LayerEntry entry;
-                entry.layer = pl;
+                entry.node = node.data();
                 entry.visible = pl->visible();
                 entry.name = pl->name();
+                entry.depth = depth;
+                entry.isGroup = false;
+                entry.locked = pl->userLocked();
+                entry.alphaLocked = pl->alphaLocked();
+                entry.colorLabel = pl->colorLabelIndex();
+                entry.clipped = false;  // our own flag, not a Krita property
+                entry.background = m_layers.isEmpty();  // first paint layer = bg
+                m_layers.append(entry);
+            } else if (isGroup) {
+                // Group layers participate in the layer list (depth, name,
+                // visibility) so the UI can nest and the index space stays
+                // a full tree traversal
+                LayerEntry entry;
+                entry.node = node.data();
+                entry.visible = node->visible();
+                entry.name = node->name();
+                entry.depth = depth;
+                entry.isGroup = true;
+                entry.locked = node->userLocked();
+                entry.colorLabel = node->colorLabelIndex();
                 m_layers.append(entry);
             }
             if (node->childCount() > 0) {
-                walk(node);
+                walk(node, depth + 1);
             }
             node = node->nextSibling();
         }
     };
-    walk(root);
+    walk(root, 0);
+    if (!m_layers.isEmpty()) {
+        m_layers[0].background = true;
+        // Background is always fully opaque + alpha-locked
+        m_layers[0].locked = true;
+        m_layers[0].alphaLocked = true;
+        m_layers[0].clipped = false;
+    }
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.isEmpty() ? 0 : m_layers.size() - 1;
     }
+    if (m_soloedLayer >= m_layers.size()) {
+        m_soloedLayer = -1;
+    }
 }
 
-void ReverieCore::addLayer(const QString &name)
+int ReverieCore::indexOfNode(KisNode *node) const
+{
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (m_layers[i].node == node) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool ReverieCore::isLayerEditable(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    const LayerEntry &e = m_layers[index];
+    return !(e.isGroup || e.background || e.locked);
+}
+
+KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
+{
+    KisPaintLayer *pl = e.isGroup ? nullptr : dynamic_cast<KisPaintLayer *>(e.node);
+    return pl ? pl->paintDevice() : KisPaintDeviceSP();
+}
+
+
+static QString defaultPaintLayerName(const QVector<ReverieCore::LayerEntry> &layers)
+{
+    int n = 1;
+    for (const auto &e : layers) {
+        // parse trailing number of "颜料图层 N"
+        const int sp = e.name.lastIndexOf(QLatin1Char(' '));
+        if (sp >= 0) {
+            bool ok = false;
+            const int num = e.name.mid(sp + 1).toInt(&ok);
+            if (ok) {
+                n = qMax(n, num + 1);
+            }
+        }
+    }
+    return QStringLiteral("颜料图层 %1").arg(n);
+}
+
+
+// Insert position above the current layer: inside the current group when the
+// current layer IS a group, otherwise directly above it at the same level.
+static void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current, KisNodeSP &above, KisNodeSP &parent, KisImageSP image)
+{
+    if (current >= 0 && current < int(layers.size())) {
+        const auto &e = layers[current];
+        if (e.node) {
+            if (e.isGroup) {
+                above = KisNodeSP();
+                parent = KisNodeSP(e.node);
+                return;
+            }
+            above = KisNodeSP(e.node);
+            parent = above->parent();
+            return;
+        }
+    }
+    above = KisNodeSP();
+    parent = KisNodeSP(image->rootLayer());
+}
+int ReverieCore::addLayer(const QString &name)
 {
     KisImageSP image = m_document;
     if (!image) {
-        return;
+        return -1;
     }
     const KoColorSpace *cs = image->colorSpace();
-    const int w = image->width();
-    const int h = image->height();
-
-    KisPaintLayerSP newLayer = new KisPaintLayer(image, name, 255, cs);
+    const QString layerName = name.isEmpty() ? defaultPaintLayerName(m_layers) : name;
+    KisPaintLayerSP newLayer = new KisPaintLayer(image, layerName, 255, cs);
     if (!newLayer) {
-        return;
+        return -1;
     }
-    // Give the new layer a real (transparent) device so painting works
-    newLayer->original()->fill(QRect(0, 0, w, h), KoColor(Qt::transparent, cs));
+    newLayer->original()->fill(QRect(0, 0, image->width(), image->height()),
+                               KoColor(Qt::transparent, cs));
     newLayer->original()->setDirty();
 
-    if (!image->addNode(newLayer, image->rootLayer())) {
-        return;
+    // Insert directly above the current layer (inside its group if any)
+    KisNodeSP above;
+    KisNodeSP parent;
+    currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!image->addNode(newLayer, parent, above)) {
+        return -1;
     }
-    // Structural change: the native scheduler does not rebuild the root
-    // projection for a new child, so force a full walker+merger pass.
     recompositeProjection();
-
-    LayerEntry entry;
-    entry.layer = newLayer.data();
-    entry.visible = true;
-    entry.name = name;
-    m_layers.append(entry);
-    m_currentLayer = m_layers.size() - 1;
+    syncLayersFromImage();
+    m_currentLayer = indexOfNode(newLayer.data());
     markDirty();
+    return m_currentLayer;
+}
+
+int ReverieCore::addGroupLayer(const QString &name)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return -1;
+    }
+    const QString groupName = name.isEmpty() ? QStringLiteral("图层组") : name;
+    KisGroupLayerSP group = new KisGroupLayer(image, groupName, 255, image->colorSpace());
+    if (!group) {
+        return -1;
+    }
+    KisNodeSP above;
+    KisNodeSP parent;
+    currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!image->addNode(group, parent, above)) {
+        return -1;
+    }
+    recompositeProjection();
+    syncLayersFromImage();
+    m_currentLayer = indexOfNode(group.data());
+    markDirty();
+    return m_currentLayer;
+}
+
+int ReverieCore::copyLayer(int index)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return -1;  // background cannot be copied
+    }
+    LayerEntry &src = m_layers[index];
+    KisPaintLayer *sl = src.isGroup ? nullptr : dynamic_cast<KisPaintLayer *>(src.node);
+    if (!sl) {
+        return -1;  // groups are not copied in the MVP
+    }
+    KisImageSP image = m_document;
+    if (!image) {
+        return -1;
+    }
+    KisPaintLayerSP nl = new KisPaintLayer(image, src.name + QStringLiteral(" 副本"), 255, image->colorSpace());
+    if (!nl) {
+        return -1;
+    }
+    // Copy pixels: reuse Krita's clone helper over the content bounds
+    const QRect ext = sl->paintDevice()->extent();
+    if (!ext.isEmpty()) {
+        nl->original()->makeCloneFrom(sl->paintDevice(), ext);
+        nl->original()->setDirty(ext);
+    }
+    nl->setOpacity(sl->opacity());
+    nl->setCompositeOpId(sl->compositeOpId());
+    nl->setVisible(src.visible);
+    nl->setAlphaLocked(src.alphaLocked);
+    nl->setUserLocked(src.locked);
+    nl->setColorLabelIndex(src.colorLabel);
+
+    KisNodeSP above = KisNodeSP(src.node);
+    KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
+    if (!image->addNode(nl, parent, above)) {
+        return -1;
+    }
+    recompositeProjection();
+    syncLayersFromImage();
+    m_currentLayer = indexOfNode(nl.data());
+    markDirty();
+    return m_currentLayer;
 }
 
 void ReverieCore::removeLayer(int index)
 {
-    if (m_layers.size() <= 1 || index < 0 || index >= m_layers.size()) {
-        return;
+    if (index <= 0 || index >= m_layers.size()) {
+        return;  // background (0) is protected
+    }
+    if (!isLayerEditable(index)) {
+        return;  // locked layers cannot be deleted
     }
     KisImageSP image = m_document;
-    if (!image) {
+    if (!image || !m_layers[index].node) {
         return;
     }
-    LayerEntry &entry = m_layers[index];
-    if (entry.layer) {
-        KisNodeSP node = entry.layer;
-        image->removeNode(node);
+    image->removeNode(KisNodeSP(m_layers[index].node));
+    recompositeProjection();
+    syncLayersFromImage();
+    markDirty();
+}
+
+void ReverieCore::clearLayer(int index)
+{
+    if (!isLayerEditable(index)) {
+        return;
     }
-    m_layers.removeAt(index);
-    if (m_currentLayer >= m_layers.size()) {
-        m_currentLayer = m_layers.size() - 1;
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
     }
+    dev->clear();
+    dev->setDirty();
     markDirty();
 }
 
@@ -276,6 +484,17 @@ QString ReverieCore::layerName(int index) const
     return m_layers[index].name;
 }
 
+void ReverieCore::setLayerName(int index, const QString &name)
+{
+    if (index <= 0 || index >= m_layers.size() || name.isEmpty()) {
+        return;  // background cannot be renamed
+    }
+    if (m_layers[index].node) {
+        m_layers[index].node->setName(name);
+        m_layers[index].name = name;
+    }
+}
+
 void ReverieCore::setLayerVisible(int index, bool visible)
 {
     if (index < 0 || index >= m_layers.size()) {
@@ -283,12 +502,12 @@ void ReverieCore::setLayerVisible(int index, bool visible)
     }
     if (m_layers[index].visible != visible) {
         m_layers[index].visible = visible;
-        if (m_layers[index].layer) {
-            m_layers[index].layer->setVisible(visible);
+        if (m_layers[index].node) {
+            m_layers[index].node->setVisible(visible);
             // Visibility is a structural change: KisNode::setVisible only
             // notifies the graph listener, it does not schedule a projection
             // recomposite. setDirty() -> requestProjectionUpdate does.
-            m_layers[index].layer->setDirty(
+            m_layers[index].node->setDirty(
                 QRect(0, 0, m_document->width(), m_document->height()));
         }
         markDirty();
@@ -303,16 +522,73 @@ bool ReverieCore::layerVisible(int index) const
     return m_layers[index].visible;
 }
 
-void ReverieCore::setLayerBlendMode(int index, const QString &opId)
+bool ReverieCore::layerLocked(int index) const
 {
     if (index < 0 || index >= m_layers.size()) {
-        return;
+        return false;
     }
-    if (m_layers[index].layer) {
-        m_layers[index].layer->setCompositeOpId(opId);
-        // Blend mode is a structural change: schedule a native projection
-        // recomposite of the whole layer region.
-        m_layers[index].layer->setDirty(
+    return m_layers[index].locked;
+}
+
+void ReverieCore::setLayerLocked(int index, bool locked)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;  // background is always locked
+    }
+    if (m_layers[index].node) {
+        m_layers[index].node->setUserLocked(locked);
+        m_layers[index].locked = locked;
+    }
+}
+
+bool ReverieCore::layerAlphaLocked(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    return m_layers[index].alphaLocked;
+}
+
+void ReverieCore::setLayerAlphaLocked(int index, bool locked)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;  // background is always alpha-locked
+    }
+    KisPaintLayer *pl = m_layers[index].isGroup ? nullptr
+                                               : dynamic_cast<KisPaintLayer *>(m_layers[index].node);
+    if (pl) {
+        pl->setAlphaLocked(locked);
+        m_layers[index].alphaLocked = locked;
+    }
+}
+
+qreal ReverieCore::layerOpacity(int index) const
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return 1.0;
+    }
+    return qreal(m_layers[index].node->opacity()) / 255.0;
+}
+
+void ReverieCore::setLayerOpacity(int index, qreal opacity)
+{
+    if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;  // background stays opaque
+    }
+    const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
+    m_layers[index].node->setOpacity(o);
+    m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+    markDirty();
+}
+
+void ReverieCore::setLayerBlendMode(int index, const QString &opId)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;  // background is always 'normal'
+    }
+    if (m_layers[index].node) {
+        m_layers[index].node->setCompositeOpId(opId);
+        m_layers[index].node->setDirty(
             QRect(0, 0, m_document->width(), m_document->height()));
         markDirty();
     }
@@ -320,10 +596,318 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
 
 QString ReverieCore::layerBlendMode(int index) const
 {
-    if (index < 0 || index >= m_layers.size() || !m_layers[index].layer) {
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
         return QStringLiteral("normal");
     }
-    return m_layers[index].layer->compositeOpId();
+    return m_layers[index].node->compositeOpId();
+}
+
+int ReverieCore::layerColorLabel(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return 0;
+    }
+    return m_layers[index].colorLabel;
+}
+
+void ReverieCore::setLayerColorLabel(int index, int label)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;
+    }
+    m_layers[index].node->setColorLabelIndex(label);
+    m_layers[index].colorLabel = label;
+}
+
+bool ReverieCore::layerIsGroup(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    return m_layers[index].isGroup;
+}
+
+int ReverieCore::layerDepth(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return 0;
+    }
+    return m_layers[index].depth;
+}
+
+bool ReverieCore::layerBackground(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    return m_layers[index].background;
+}
+
+bool ReverieCore::layerClipped(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    return m_layers[index].clipped;
+}
+
+void ReverieCore::setLayerClipped(int index, bool clipped)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;
+    }
+    m_layers[index].clipped = clipped;
+    markDirty();
+}
+
+static void flipDevice(KisPaintDeviceSP dev, bool horizontal)
+{
+    // exactBounds = actual content bounds (extent() includes the 256px
+    // default bounds with garbage beyond the document edge)
+    const QRect ext = dev->exactBounds();
+    if (ext.isEmpty()) {
+        return;
+    }
+    // Krita readBytes returns device-native RGBA bytes; RGBA8888 matches
+    // that byte order exactly (ARGB32_Premultiplied would swap R/B)
+    QImage img(ext.size(), QImage::Format_RGBA8888);
+    dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+    img = horizontal ? img.mirrored(true, false) : img.mirrored(false, true);
+    dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
+    dev->setDirty(ext);
+}
+
+void ReverieCore::flipLayerHorizontal(int index)
+{
+    if (!isLayerEditable(index)) {
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
+    }
+    flipDevice(dev, true);
+    markDirty();
+}
+
+void ReverieCore::flipLayerVertical(int index)
+{
+    if (!isLayerEditable(index)) {
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
+    }
+    flipDevice(dev, false);
+    markDirty();
+}
+
+bool ReverieCore::mergeDown(int index)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return false;
+    }
+    LayerEntry &e = m_layers[index];
+    if (e.isGroup || e.locked) {
+        return false;
+    }
+    // Target: nearest paint layer below (groups cannot be bitBlt targets)
+    int ti = index - 1;
+    while (ti > 0 && m_layers[ti].isGroup) {
+        --ti;
+    }
+    if (ti < 0 || m_layers[ti].isGroup || m_layers[ti].locked || m_layers[ti].background) {
+        return false;
+    }
+    KisImageSP image = m_document;
+    if (!image) {
+        return false;
+    }
+    KisPaintDeviceSP src = layerPaintDeviceFor(e);
+    KisPaintDeviceSP dst = layerPaintDeviceFor(m_layers[ti]);
+    if (!src || !dst) {
+        return false;
+    }
+    const QRect ext = src->exactBounds();
+    if (!ext.isEmpty()) {
+        KisPainter painter(dst);
+        painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+        painter.setCompositeOpId(e.node->compositeOpId());
+        painter.bitBlt(ext.x(), ext.y(), src, ext.x(), ext.y(), ext.width(), ext.height());
+        dst->setDirty(ext);
+    }
+    KisNode *targetNode = m_layers[ti].node;
+    image->removeNode(KisNodeSP(e.node));
+    recompositeProjection();
+    syncLayersFromImage();
+    m_currentLayer = indexOfNode(targetNode);
+    markDirty();
+    return true;
+}
+
+void ReverieCore::soloLayer(int index)
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (index == m_soloedLayer) {
+        // Restore the pre-solo visibility (FolioLayers behavior)
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (i < m_layers[i].soloPrev.size()) {
+                setLayerVisible(i, m_layers[i].soloPrev[i]);
+            }
+        }
+        m_soloedLayer = -1;
+    } else {
+        // Record the current visibility of every layer, then show only this
+        // one (the background is hidden too, revealing the transparent grid)
+        for (LayerEntry &e : m_layers) {
+            e.soloPrev.clear();
+            e.soloPrev.append(e.visible);
+        }
+        m_soloedLayer = index;
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (i != index) {
+                setLayerVisible(i, false);
+            }
+        }
+    }
+}
+
+bool ReverieCore::layerSoloed(int index) const
+{
+    return index >= 0 && index == m_soloedLayer;
+}
+
+void ReverieCore::applyFilter(int index, int filterId)
+{
+    if (!isLayerEditable(index)) {
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
+    }
+    const QRect ext = dev->exactBounds();
+    if (ext.isEmpty()) {
+        return;
+    }
+    QImage img(ext.size(), QImage::Format_RGBA8888);
+    dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+    switch (filterId) {
+    case 0: {  // grayscale (RGBA8888 byte order: R,G,B,A)
+        for (int y = 0; y < img.height(); ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < img.width(); ++x) {
+                quint8 *px = line + x * 4;
+                const int gray = (px[0] * 299 + px[1] * 587 + px[2] * 114) / 1000;
+                px[0] = quint8(gray); px[1] = quint8(gray); px[2] = quint8(gray);
+            }
+        }
+        break;
+    }
+    case 1: {  // invert (keep alpha)
+        for (int y = 0; y < img.height(); ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < img.width(); ++x) {
+                quint8 *px = line + x * 4;
+                px[0] = 255 - px[0]; px[1] = 255 - px[1]; px[2] = 255 - px[2];
+            }
+        }
+        break;
+    }
+    case 2: {  // box blur 3x3, two passes
+        QImage tmp = img;
+        const int w = img.width(), h = img.height();
+        for (int pass = 0; pass < 2; ++pass) {
+            for (int y = 0; y < h; ++y) {
+                quint8 *d = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    int r = 0, g = 0, b = 0, a = 0, nn = 0;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const int yy = qBound(0, y + dy, h - 1);
+                            const int xx = qBound(0, x + dx, w - 1);
+                            const quint8 *p = tmp.constScanLine(yy) + xx * 4;
+                            r += p[0]; g += p[1]; b += p[2]; a += p[3];
+                            ++nn;
+                        }
+                    }
+                    quint8 *px = d + x * 4;
+                    px[0] = quint8(r / nn); px[1] = quint8(g / nn);
+                    px[2] = quint8(b / nn); px[3] = quint8(a / nn);
+                }
+            }
+            tmp = img;
+        }
+        break;
+    }
+    case 3: {  // sharpen 3x3
+        QImage tmp = img;
+        const int w = img.width(), h = img.height();
+        for (int y = 0; y < h; ++y) {
+            quint8 *d = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                int r = 0, g = 0, b = 0, a = 0;
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const int yy = qBound(0, y + dy, h - 1);
+                        const int xx = qBound(0, x + dx, w - 1);
+                        const quint8 *p = tmp.constScanLine(yy) + xx * 4;
+                        const int k = (dx == 0 && dy == 0) ? 9 : -1;
+                        r += k * p[0]; g += k * p[1]; b += k * p[2]; a += k * p[3];
+                    }
+                }
+                quint8 *px = d + x * 4;
+                px[0] = quint8(qBound(0, r, 255)); px[1] = quint8(qBound(0, g, 255));
+                px[2] = quint8(qBound(0, b, 255)); px[3] = quint8(qBound(0, a, 255));
+            }
+        }
+        break;
+    }
+    default:
+        return;
+    }
+    dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
+    dev->setDirty(ext);
+    markDirty();
+}
+
+bool ReverieCore::selectionFromLayer(int index)
+{
+    if (index < 0 || index >= m_layers.size() || m_layers[index].isGroup) {
+        return false;
+    }
+    KisImageSP image = m_document;
+    if (!image) {
+        return false;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return false;
+    }
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    // Copy the layer's alpha channel into the selection (Krita mechanism:
+    // KisPixelSelection::copyAlphaFrom)
+    ps->copyAlphaFrom(dev, dev->extent());
+    m_selection = sel;
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::hasSelection() const
+{
+    return bool(m_selection);
+}
+
+void ReverieCore::clearSelection()
+{
+    m_selection = nullptr;
+    markDirty();
 }
 
 // ---------------------------------------------------------------------------
@@ -338,10 +922,11 @@ KisPaintDeviceSP ReverieCore::currentPaintDevice()
     }
     const int idx = qBound(0, m_currentLayer, m_layers.size() - 1);
     LayerEntry &entry = m_layers[idx];
-    if (!entry.layer) {
+    // Background and locked layers are never paintable
+    if (entry.isGroup || entry.background || entry.locked) {
         return KisPaintDeviceSP();
     }
-    return entry.layer->original();
+    return layerPaintDeviceFor(entry);
 }
 
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
@@ -443,10 +1028,10 @@ void ReverieCore::touchStrokeCancel()
         const int h = m_document->height();
         QByteArray cur;
         for (const LayerEntry &entry : m_layers) {
-            if (!entry.layer) continue;
+            KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
+            if (!dev) continue;
             QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-            entry.layer->original()->readBytes(
-                reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+            dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
             cur.append(layerBytes);
         }
         applySnapshot(m_undoStack.takeLast(), cur);
@@ -539,6 +1124,10 @@ void ReverieCore::flushStrokeBatch()
         m_strokePainter = new KisPainter(target);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        // Constrain the whole stroke to the active selection (if any)
+        if (m_selection) {
+            m_strokePainter->setSelection(m_selection);
+        }
     }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();
@@ -684,8 +1273,48 @@ void ReverieCore::commitStrokeToLayer()
     KisPainter painter(device);
     painter.setOpacityF(opacity);
     painter.setCompositeOpId(QStringLiteral("normal"));
+    // Transparency lock: preserve the existing alpha by masking the alpha
+    // channel out of the write (Krita's KisPaintLayer::setAlphaLocked uses
+    // the same channelFlags mechanism)
+    const LayerEntry &cur = m_layers[qBound(0, m_currentLayer, m_layers.size() - 1)];
+    if (cur.alphaLocked) {
+        painter.setChannelFlags(device->colorSpace()->channelFlags(true, false));
+    }
+    // Active selection: constrain the stroke to the selection mask
+    if (m_selection) {
+        painter.setSelection(m_selection);
+    }
     painter.bitBlt(ext.x(), ext.y(), m_strokeBuffer,
                    ext.x(), ext.y(), ext.width(), ext.height());
+    // Clipping mask (self-implemented): keep only the pixels that sit on top
+    // of the next paint layer's opaque area. Krita only has inherit-opacity,
+    // so we mask the freshly committed stroke region against the base layer.
+    if (cur.clipped && !cur.isGroup) {
+        KisPaintDeviceSP base;
+        for (int i = m_currentLayer - 1; i >= 0; --i) {
+            if (!m_layers[i].isGroup) {
+                base = layerPaintDeviceFor(m_layers[i]);
+                break;
+            }
+        }
+        if (base) {
+            QImage devImg(ext.size(), QImage::Format_RGBA8888);
+            QImage baseImg(ext.size(), QImage::Format_RGBA8888);
+            device->readBytes(devImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+            base->readBytes(baseImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+            for (int y = 0; y < devImg.height(); ++y) {
+                quint8 *d = devImg.scanLine(y);
+                const quint8 *b = baseImg.constScanLine(y);
+                for (int x = 0; x < devImg.width(); ++x) {
+                    quint8 *dp = d + x * 4;
+                    const quint8 *bp = b + x * 4;
+                    dp[3] = quint8(int(dp[3]) * int(bp[3]) / 255);
+                }
+            }
+            device->writeBytes(devImg.constBits(), ext.x(), ext.y(),
+                               ext.width(), ext.height());
+        }
+    }
     // Krita's dirty propagation: mark the region dirty on the layer device
     // so its projection leaf recomposites it.
     device->setDirty(ext);
@@ -774,10 +1403,11 @@ void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curByt
     const quint8 *curP = reinterpret_cast<const quint8 *>(curBytes.constData());
     QRect all;
     for (int i = 0; i < layerCount; ++i) {
-        if (!m_layers[i].layer) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
+        if (!dev) continue;
         const QRect diff = layerDiffRect(curP, snapP, w, h);
         if (!diff.isNull()) {
-            writeRegionToDevice(m_layers[i].layer->original().data(), snapP, w, h, diff);
+            writeRegionToDevice(dev.data(), snapP, w, h, diff);
             all = all.isNull() ? diff : all.united(diff);
         }
         curP += size_t(w) * h * 4;
@@ -798,10 +1428,10 @@ void ReverieCore::snapshotForUndo()
     const int h = image->height();
     QByteArray bytes;
     for (const LayerEntry &entry : m_layers) {
-        if (!entry.layer) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
+        if (!dev) continue;
         QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        entry.layer->original()->readBytes(
-            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
         bytes.append(layerBytes);
     }
     m_undoStack.append(bytes);
@@ -830,10 +1460,10 @@ void ReverieCore::undo()
     // Snapshot current state into redo
     QByteArray cur;
     for (const LayerEntry &entry : m_layers) {
-        if (!entry.layer) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
+        if (!dev) continue;
         QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        entry.layer->original()->readBytes(
-            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
         cur.append(layerBytes);
     }
     m_redoStack.append(cur);
@@ -858,10 +1488,10 @@ void ReverieCore::redo()
 
     QByteArray cur;
     for (const LayerEntry &entry : m_layers) {
-        if (!entry.layer) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
+        if (!dev) continue;
         QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        entry.layer->original()->readBytes(
-            reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
         cur.append(layerBytes);
     }
     m_undoStack.append(cur);
@@ -984,7 +1614,7 @@ void ReverieCore::floodFillAt(int x, int y)
     // KisFillTool (which lives in kritaui).
     const int iw = image->width();
     const int ih = image->height();
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -1075,7 +1705,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
 
     // Read the current layer content into a QImage, draw the shape with
     // QPainter (supports line/rect/ellipse), then write it back.
-    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(region.size(), QImage::Format_RGBA8888);
     {
         const qint32 rw = region.width();
         const qint32 rh = region.height();
@@ -1140,7 +1770,7 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
         return;
     }
 
-    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(region.size(), QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
         device->readBytes(bytes.data(), region.x(), region.y(), region.width(), region.height());
@@ -1220,7 +1850,7 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
 
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -1262,7 +1892,7 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
 
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -1297,7 +1927,7 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
     const int iw = image->width();
     const int ih = image->height();
 
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -1358,12 +1988,18 @@ bool ReverieCore::loadPng(const QString &path)
     if (!newDocument(img.width(), img.height())) {
         return false;
     }
-    // Blit the loaded pixels into the background layer
+    // Blit the loaded pixels into the topmost paintable layer (never the
+    // locked background, which stays white)
     KisImageSP image = m_document;
-    if (!image || m_layers.isEmpty()) {
+    if (!image || m_layers.size() < 2) {
         return false;
     }
-    KisPaintDeviceSP dev = m_layers.first().layer->original();
+    const LayerEntry &dest = m_layers[m_layers.size() - 1];
+    KisPaintDeviceSP dev = dest.isGroup ? KisPaintDeviceSP()
+                                        : layerPaintDeviceFor(dest);
+    if (!dev) {
+        return false;
+    }
     const KoColorSpace *cs = image->colorSpace();
     const QImage conv = img.convertToFormat(QImage::Format_ARGB32);
     for (int y = 0; y < conv.height(); ++y) {
