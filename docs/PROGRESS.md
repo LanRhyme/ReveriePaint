@@ -60,14 +60,23 @@
 
 ### 阶段 1: 笔刷引擎 (Krita 真实笔刷)
 
-- [ ] 交叉编译 kritalibpaintop + kritadefaultpaintops_static
+- [x] 交叉编译 kritalibpaintop + kritadefaultpaintops_static
       (+ colorsmudge/spray/roundmarker/sketch/hairy/particle/deform/filterop/gridbrush/tangentnormal)
-- [ ] 静态注册 paintop factories (绕过 Qt 插件机制)
-- [ ] APK assets 打包 16 个自带预设
-- [ ] 预设加载管线: KisPaintOpPreset::loadFromDevice + KisLocalStrokeResources
-- [ ] 替换 dab 循环: setPaintOpPreset + KisPaintInformation + paintLine
-- [ ] 桌面 harness 像素验证 (笔刷形状/软硬边/压感)
-- [ ] 笔刷面板 UI: 预设列表 (缩略图) + 参数 (大小/不透明度/流量/硬度/间距/纹理强度)
+- [x] 静态注册 paintop factories (register_static.cpp 编译进
+      kritadefaultpaintops_static, 避免模板跨 DSO vtable 错位崩溃)
+- [x] APK assets 打包 16 个自带预设 (krita/data/paintoppresets)
+- [x] 预设加载管线: KisPaintOpPreset::loadFromDevice + KisLocalStrokeResources
+- [x] 替换 dab 循环: KisBrushOp::paintLine + KisPaintInformation (压感渐变)
+      + KisFakeRunnableStrokeJobsExecutor 同步驱动异步 dab 管线
+      + doAsynchronousUpdate 取 ready dabs 并 bitBlt
+- [x] 桌面 harness 像素验证 (压力 1.0->0.3 线宽 38px->2px, 软边 hfade)
+- [x] 笔刷库面板 UI: 16 个真实 Krita 预设缩略图网格 (kpp 即 PNG)
+- [x] ReverieCore/JNI/Kotlin 全链路 (loadBrushPresetsFromDir/loadBrushPreset/
+      setBrushSize/Opacity/Flow), APK 构建通过 (51MB)
+- [ ] 真机验证 (用户)
+- [ ] 笔刷参数面板: 流量/硬度/间距滑块 (kpp 预设参数编辑)
+- [ ] colorsmudge 注册 (1 个预设用 Water-Pattern, 需给
+      kritacolorsmudgepaintop 加 register_static)
 
 ### 阶段 2: 工具面板
 
@@ -115,6 +124,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - AGP 9.3.1 + Gradle 9.5 (离线缓存)
 - NDK 25.2.9519653, compileSdk 36, minSdk 23
 - Qt for Android 6.6.3 (引擎运行时), Krita 6.1.0-prealpha arm64 交叉编译库
+- paintop 库: kritalibpaintop + kritadefaultpaintops_static (含 register_static.cpp)
+  + 12 个其他 paintop 插件 (build-android)
 
 ## 完整图层系统 (2026-08-12)
 
