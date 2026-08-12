@@ -310,7 +310,10 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     if (!m_document) {
         return;
     }
-    snapshotForUndo();
+    // Defer the undo snapshot to the first real flush: reading every layer
+    // here costs a full-document read per touch-down, which is felt as lag
+    // when starting strokes. Nothing is painted at down time anyway.
+    m_snapshotPending = true;
     m_drawing = true;
     m_strokeBatchOpen = true;
     m_lastPressure = pressure;
@@ -376,23 +379,26 @@ void ReverieCore::touchStrokeCancel()
     m_strokeBatchOpen = false;
     m_drawing = false;
 
-    if (!m_undoStack.isEmpty() && !m_layers.isEmpty()) {
+    // No pixels were painted (the deferred snapshot was never taken), so
+    // there is nothing to restore - the top undo entry belongs to an
+    // earlier stroke.
+    if (m_snapshotPending) {
+        m_snapshotPending = false;
+        return;
+    }
+    if (!m_undoStack.isEmpty() && !m_layers.isEmpty() && m_document) {
         const int w = m_document->width();
         const int h = m_document->height();
-        const int expected = w * h * 4 * m_layers.size();
-        const QByteArray snapshot = m_undoStack.takeLast();
-        if (snapshot.size() == expected) {
-            const quint8 *p = reinterpret_cast<const quint8 *>(snapshot.constData());
-            for (LayerEntry &entry : m_layers) {
-                if (!entry.layer) continue;
-                entry.layer->original()->writeBytes(p, 0, 0, w, h);
-                entry.layer->original()->setDirty();
-                p += size_t(w) * h * 4;
-            }
+        QByteArray cur;
+        for (const LayerEntry &entry : m_layers) {
+            if (!entry.layer) continue;
+            QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
+            entry.layer->original()->readBytes(
+                reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
+            cur.append(layerBytes);
         }
+        applySnapshot(m_undoStack.takeLast(), cur);
     }
-    recompositeProjection();
-    markDirty();
 }
 
 void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
@@ -420,6 +426,10 @@ void ReverieCore::flushStrokeBatch()
 {
     if (m_strokeSamples.isEmpty()) {
         return;
+    }
+    if (m_snapshotPending) {
+        snapshotForUndo();
+        m_snapshotPending = false;
     }
 
     KisImageSP image = m_document;
@@ -556,6 +566,90 @@ void ReverieCore::endStrokeBatch()
 // Undo / redo
 // ---------------------------------------------------------------------------
 
+// Bounding box of the pixels that differ between two w*h RGBA buffers.
+// Row-wise memcmp first (cheap), then a per-pixel pass only over the changed
+// rows. Returns an empty QRect when the buffers are identical.
+static QRect layerDiffRect(const quint8 *a, const quint8 *b, int w, int h)
+{
+    const int rowBytes = w * 4;
+    int yMin = -1;
+    int yMax = -1;
+    const quint8 *pa = a;
+    const quint8 *pb = b;
+    for (int y = 0; y < h; ++y) {
+        if (memcmp(pa, pb, rowBytes) != 0) {
+            if (yMin < 0) yMin = y;
+            yMax = y;
+        }
+        pa += rowBytes;
+        pb += rowBytes;
+    }
+    if (yMin < 0) {
+        return QRect();
+    }
+    int xMin = w;
+    int xMax = -1;
+    for (int y = yMin; y <= yMax; ++y) {
+        const quint32 *a32 = reinterpret_cast<const quint32 *>(a + y * rowBytes);
+        const quint32 *b32 = reinterpret_cast<const quint32 *>(b + y * rowBytes);
+        for (int x = 0; x < w; ++x) {
+            if (a32[x] != b32[x]) {
+                if (x < xMin) xMin = x;
+                if (x > xMax) xMax = x;
+            }
+        }
+    }
+    return (xMin >= w) ? QRect() : QRect(xMin, yMin, xMax - xMin + 1, yMax - yMin + 1);
+}
+
+// Copy only the (x,y,w,h) sub-region out of a full-document RGBA buffer and
+// write it into the layer device, then mark exactly that region dirty so the
+// projection recomposites locally instead of doing a full pass.
+static void writeRegionToDevice(KisPaintDevice *dev, const quint8 *full,
+                                int docW, int docH, const QRect &r)
+{
+    if (!dev || r.isNull()) return;
+    const int rowBytes = docW * 4;
+    QByteArray sub(r.width() * r.height() * 4, Qt::Uninitialized);
+    quint8 *dst = reinterpret_cast<quint8 *>(sub.data());
+    const quint8 *src = full + r.y() * rowBytes + r.x() * 4;
+    for (int y = 0; y < r.height(); ++y) {
+        memcpy(dst, src, r.width() * 4);
+        dst += r.width() * 4;
+        src += rowBytes;
+    }
+    dev->writeBytes(reinterpret_cast<const quint8 *>(sub.constData()),
+                    r.x(), r.y(), r.width(), r.height());
+    dev->setDirty(r);
+}
+
+void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curBytes)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || m_layers.isEmpty()) return;
+    const int w = image->width();
+    const int h = image->height();
+    const int layerCount = m_layers.size();
+    const int expected = w * h * 4 * layerCount;
+    if (snap.size() != expected || curBytes.size() != expected) return;
+    const quint8 *snapP = reinterpret_cast<const quint8 *>(snap.constData());
+    const quint8 *curP = reinterpret_cast<const quint8 *>(curBytes.constData());
+    QRect all;
+    for (int i = 0; i < layerCount; ++i) {
+        if (!m_layers[i].layer) continue;
+        const QRect diff = layerDiffRect(curP, snapP, w, h);
+        if (!diff.isNull()) {
+            writeRegionToDevice(m_layers[i].layer->original().data(), snapP, w, h, diff);
+            all = all.isNull() ? diff : all.united(diff);
+        }
+        curP += size_t(w) * h * 4;
+        snapP += size_t(w) * h * 4;
+    }
+    if (!all.isNull()) {
+        markRegionDirty(all);
+    }
+}
+
 void ReverieCore::snapshotForUndo()
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -608,18 +702,7 @@ void ReverieCore::undo()
 
     // Restore the undo snapshot (must match layer count)
     const QByteArray snap = m_undoStack.takeLast();
-    const int expected = w * h * 4 * layerCount;
-    if (snap.size() == expected) {
-        const quint8 *p = reinterpret_cast<const quint8 *>(snap.constData());
-        for (int i = 0; i < layerCount; ++i) {
-            if (!m_layers[i].layer) continue;
-            m_layers[i].layer->original()->writeBytes(p, 0, 0, w, h);
-            m_layers[i].layer->original()->setDirty();
-            p += size_t(w) * h * 4;
-        }
-    }
-    recompositeProjection();
-    markDirty();
+    applySnapshot(snap, cur);
 }
 
 void ReverieCore::redo()
@@ -646,18 +729,7 @@ void ReverieCore::redo()
     m_undoStack.append(cur);
 
     const QByteArray snap = m_redoStack.takeLast();
-    const int expected = w * h * 4 * layerCount;
-    if (snap.size() == expected) {
-        const quint8 *p = reinterpret_cast<const quint8 *>(snap.constData());
-        for (int i = 0; i < layerCount; ++i) {
-            if (!m_layers[i].layer) continue;
-            m_layers[i].layer->original()->writeBytes(p, 0, 0, w, h);
-            m_layers[i].layer->original()->setDirty();
-            p += size_t(w) * h * 4;
-        }
-    }
-    recompositeProjection();
-    markDirty();
+    applySnapshot(snap, cur);
 }
 
 // ---------------------------------------------------------------------------
@@ -672,11 +744,6 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     }
     const int iw = image->width();
     const int ih = image->height();
-    // Flush any pending asynchronous projection updates (Krita schedules
-    // projection recomposites through its strokes queue). Without this,
-    // a convertToQImage issued right after painting can read stale tiles
-    // and the newest stroke is missing from the display.
-    image->waitForDone();
     if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
         // New document (or resized): full redraw
         m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);

@@ -187,7 +187,15 @@ private:
     // Undo/redo snapshot stacks (serialized layer bytes per stroke)
     QVector<QByteArray> m_undoStack;
     QVector<QByteArray> m_redoStack;
+    // Deferred snapshot: taken on the first real flush of a stroke, not at
+    // touch-down, so a pure tap or an instantly-cancelled stroke never pays
+    // the full-document read cost.
+    bool m_snapshotPending = false;
     void snapshotForUndo();
+    // Restore a snapshot, writing back only the regions that differ from the
+    // current layer pixels and recompositing those regions locally (no full
+    // document pass). curBytes must be the current serialized layer state.
+    void applySnapshot(const QByteArray &snap, const QByteArray &curBytes);
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;
