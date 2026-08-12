@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -90,7 +92,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val drawerWidth = 96.dp
-private val rowHeight = 56.dp
+private val rowHeight = 48.dp
 
 private fun Boolean?.orFalse() = this ?: false
 
@@ -152,7 +154,7 @@ fun LayerPanel(
                     .align(Alignment.TopEnd)
                     .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)
-                    .heightIn(max = 640.dp)
+                    .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Morandi.panelHi.copy(alpha = opacity))
                     .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
@@ -444,11 +446,17 @@ private fun LayerListView(
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
         var listTop by remember { mutableStateOf(0f) }
+        // Adaptive height: grows with the layer count, capped at
+        // screen*3/4 minus the panel header (~56dp); scrolls beyond that
+        val cfg = LocalConfiguration.current
+        val maxListH = (cfg.screenHeightDp * 3 / 4 - 56).dp
+        val targetListH = (rowHeight * vm.layers.size.toFloat()).coerceAtMost(maxListH)
+        val listH by animateDpAsState(targetListH, tween(200), label = "listH")
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 320.dp)
+                    .height(listH)
                     .onGloballyPositioned { listTop = it.boundsInRoot().top },
         ) {
             LazyColumn(
@@ -767,7 +775,9 @@ private fun LayerRow(
                                 when {
                                     dragOnGroup -> Morandi.accent.copy(alpha = 0.3f)
                                     selected -> Morandi.accent
-                                    else -> Morandi.panelHi
+                                    // rows are transparent by default; the
+                                    // panel itself is translucent
+                                    else -> Color.Transparent
                                 },
                             animationSpec = tween(180),
                             label = "rowBg",
@@ -805,7 +815,7 @@ private fun LayerRowContent(
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // Group indent: whole row content shifts right for nested layers,
         // with VS Code style vertical guide lines (one per nesting level)
@@ -866,7 +876,7 @@ private fun LayerRowContent(
         // Thumbnail (light checkerboard behind)
         Box(
             Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .border(1.dp, Morandi.border.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
         ) {
