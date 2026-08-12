@@ -70,8 +70,10 @@ static void clearPendingJniExceptions(JNIEnv *env)
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
 {
+    __android_log_print(ANDROID_LOG_INFO, "RP-JNI", "JNI_OnLoad enter");
     JNIEnv *env = nullptr;
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
+        __android_log_print(ANDROID_LOG_ERROR, "RP-JNI", "GetEnv failed");
         return JNI_ERR;
     }
 
@@ -96,6 +98,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
     // libQt6Core yet (unlikely, but possible with lazy binding), this loads
     // it so the dlsym below can find initJNI.
     void *qtCore = dlopen("libQt6Core_arm64-v8a.so", RTLD_NOW);
+    if (!qtCore) {
+        __android_log_print(ANDROID_LOG_ERROR, "RP-JNI", "dlopen Qt6Core failed: %s", dlerror());
+    }
     if (qtCore) {
         QtInitJNIFn initJNI = reinterpret_cast<QtInitJNIFn>(
             dlsym(qtCore, "_ZN16QtAndroidPrivate7initJNIEP7_JavaVMP7_JNIEnv"));
@@ -246,6 +251,12 @@ JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeEnd(JNIEnv *, jobject)
 {
     core()->touchStrokeEnd();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeCancel(JNIEnv *, jobject)
+{
+    core()->touchStrokeCancel();
 }
 
 JNIEXPORT jboolean JNICALL

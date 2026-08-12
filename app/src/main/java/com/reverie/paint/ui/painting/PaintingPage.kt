@@ -80,33 +80,39 @@ fun PaintingPage(vm: PaintViewModel) {
     var tool by remember { mutableStateOf(Tool.BRUSH) }
 
     Box(Modifier.fillMaxSize().background(Morandi.bg)) {
-        // ---- Canvas (full bleed, behind rails) ----
-        CanvasView(
-            vm = vm,
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(top = 56.dp, start = 60.dp)
-                    .onSizeChanged {
-                        canvasW = it.width
-                        canvasH = it.height
-                    },
-            zoom = zoom,
-            rotation = rotation,
-            panX = panX,
-            panY = panY,
-            fitScale = fitScale,
-            onFitScale = { fitScale = it },
-            onTransform = { z, r, px, py ->
-                zoom = z
-                rotation = r
-                panX = px
-                panY = py
-                flashIndicator()
-            },
-            onTextRequested = { x, y -> textDialogPos = x to y },
-            tool = tool,
-        )
+        // ---- Canvas workspace (content starts below the top bar and beside
+        // the rail). Keep the padding on a wrapper, not on CanvasView itself:
+        // padding on a fillMaxSize composable leaves its measured size equal
+        // to the full screen and shifts the transform center to the right.
+        Box(
+            modifier = Modifier.fillMaxSize().padding(top = 56.dp, start = 60.dp),
+        ) {
+            CanvasView(
+                vm = vm,
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .onSizeChanged {
+                            canvasW = it.width
+                            canvasH = it.height
+                        },
+                zoom = zoom,
+                rotation = rotation,
+                panX = panX,
+                panY = panY,
+                fitScale = fitScale,
+                onFitScale = { fitScale = it },
+                onTransform = { z, r, px, py ->
+                    zoom = z
+                    rotation = r
+                    panX = px
+                    panY = py
+                    flashIndicator()
+                },
+                onTextRequested = { x, y -> textDialogPos = x to y },
+                tool = tool,
+            )
+        }
 
         // ---- Top bar ----
         TopBar(

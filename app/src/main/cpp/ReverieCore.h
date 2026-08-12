@@ -92,6 +92,7 @@ public:
     void redo();
     void touchStrokeMove(qreal x, qreal y, qreal pressure);
     void touchStrokeEnd();
+    void touchStrokeCancel();
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
     // with the composited document. Returns true on success.

@@ -3,6 +3,7 @@ package com.reverie.paint.ui.painting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,11 @@ fun LayerPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Native getters are not Compose state by themselves. Reading the
+    // revision here makes add/remove/select/visibility changes recompose the
+    // complete layer list immediately.
+    val layerRevision = vm.layerRevision
+
     Box(
         modifier =
             modifier
@@ -126,7 +132,7 @@ fun LayerPanel(
                         Modifier
                             .weight(1f)
                             .height(30.dp)
-                            .verticalScroll(rememberScrollState()),
+                            .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     for ((opId, label) in vm.blendModes) {

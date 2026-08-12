@@ -1,44 +1,41 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateCentroid
-import androidx.compose.foundation.gestures.calculatePan
-import androidx.compose.foundation.gestures.calculateRotation
-import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.sin
 
 private enum class GestureMode { NONE, STROKE, PAN, TRANSFORM }
 
 /**
- * The painting canvas - displays the composited document bitmap and routes
- * touch input to the C++ engine:
- *  - one finger: BRUSH/ERASER/SMUDGE paint (pressure), HAND pans, PICKER samples
- *  - two fingers: pinch zoom / rotate / pan (画世界 Pro style)
+ * Full workspace canvas with one shared forward and inverse transform
+ *
+ * The pointer handler deliberately does not key on zoom/pan/rotation. Those
+ * states change on every gesture event; keying on them cancels pointerInput
+ * during the gesture and was the reason pinch/rotate stopped after one frame
  */
 @Composable
 fun CanvasView(
@@ -56,10 +53,19 @@ fun CanvasView(
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
-    var viewZoom by remember { mutableFloatStateOf(zoom) }
-    var viewRotation by remember { mutableFloatStateOf(rotation) }
-    var viewPanX by remember { mutableFloatStateOf(panX) }
-    var viewPanY by remember { mutableFloatStateOf(panY) }
+    val bmp = vm.displayBitmap
+    val imageBitmap = bmp?.asImageBitmap()
+    val latestZoom by rememberUpdatedState(zoom)
+    val latestRotation by rememberUpdatedState(rotation)
+    val latestPanX by rememberUpdatedState(panX)
+    val latestPanY by rememberUpdatedState(panY)
+    val latestFitScale by rememberUpdatedState(fitScale)
+
+    LaunchedEffect(bmp?.width, bmp?.height, viewW, viewH) {
+        if (bmp != null && viewW > 0 && viewH > 0) {
+            onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height) * 0.88f)
+        }
+    }
 
     Box(
         modifier =
@@ -67,214 +73,285 @@ fun CanvasView(
                 .onSizeChanged {
                     viewW = it.width
                     viewH = it.height
-                }.background(Morandi.canvasBg),
-    ) {
-        val bmp = vm.displayBitmap
-        if (bmp != null) {
-            LaunchedEffect(bmp.width, bmp.height, viewW, viewH) {
-                if (viewW > 0 && viewH > 0) {
-                    onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height))
-                }
-            }
-            val scale = zoom * fitScale
+                }.background(Morandi.canvasBg)
+                // Only stable document/tool identity belongs in the key
+                .pointerInput(tool, bmp?.width, bmp?.height) {
+                    val image = bmp ?: return@pointerInput
+                    if (latestFitScale <= 0f) return@pointerInput
 
-            // Drop shadow behind the canvas
-            Canvas(Modifier.fillMaxSize()) {
-                val cw = bmp.width * scale
-                val ch = bmp.height * scale
-                drawRoundRect(
-                    color = Morandi.canvasShadow,
-                    topLeft =
-                        Offset(
-                            viewW / 2f - cw / 2f + panX + 10f,
-                            viewH / 2f - ch / 2f + panY + 10f,
-                        ),
-                    size = Size(cw, ch),
-                    cornerRadius = CornerRadius(4f, 4f),
-                )
-            }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val docW = image.width
+                        val docH = image.height
+                        var localZoom = latestZoom
+                        var localRotation = latestRotation
+                        var localPanX = latestPanX
+                        var localPanY = latestPanY
+                        var mode =
+                            when (tool) {
+                                Tool.HAND -> GestureMode.PAN
+                                Tool.PICKER, Tool.FILL, Tool.TEXT -> GestureMode.NONE
+                                else -> GestureMode.STROKE
+                            }
+                        var strokeStarted = false
+                        var transformStarted = false
+                        val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
+                        var shapeEnd = Offset.Zero
+                        val lassoPoints = mutableListOf<Offset>()
+                        var liquifyPrevious = Offset.Zero
+                        var previousSinglePoint = down.position
 
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = null,
-                modifier =
-                    Modifier
-                        .graphicsLayer {
-                            translationX = panX + viewW / 2f
-                            translationY = panY + viewH / 2f
-                            scaleX = scale
-                            scaleY = scale
-                            rotationZ = rotation
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        }.pointerInput(bmp.width, bmp.height, fitScale, zoom, rotation, panX, panY, tool) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val p0 = down.position
-                                val img0 =
-                                    widgetToImage(
-                                        p0,
-                                        viewW,
-                                        viewH,
-                                        panX,
-                                        panY,
-                                        zoom,
-                                        fitScale,
-                                        bmp.width,
-                                        bmp.height,
-                                    )
-                                var lassoPoints = mutableListOf<Offset>(img0)
-                                var liquifyPrev = img0
-                                var mode =
-                                    when (tool) {
-                                        Tool.HAND -> {
-                                            GestureMode.PAN
+                        val firstImage =
+                            widgetToImage(
+                                down.position,
+                                viewW,
+                                viewH,
+                                localPanX,
+                                localPanY,
+                                localZoom,
+                                latestFitScale,
+                                localRotation,
+                                docW,
+                                docH,
+                            )
+                        shapeEnd = firstImage
+                        lassoPoints += firstImage
+                        liquifyPrevious = firstImage
+
+                        when (tool) {
+                            Tool.PICKER -> vm.pickColor(firstImage.x, firstImage.y)
+                            Tool.FILL -> vm.floodFill(firstImage.x, firstImage.y)
+                            Tool.TEXT -> onTextRequested(firstImage.x, firstImage.y)
+                            else -> Unit
+                        }
+
+                        // Two-finger transform: per-event incremental deltas,
+                        // anchored at the two-finger centroid (Procreate style)
+                        var prevCentroid = Offset.Zero
+                        var prevDistance = 1f
+                        var prevAngle = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
+
+                            if (pressed.size >= 2) {
+                                val pair = pressed.sortedBy { it.id.value }.take(2)
+                                val a = pair[0].position
+                                val b = pair[1].position
+                                val centroid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+                                val distance = hypot(b.x - a.x, b.y - a.y).coerceAtLeast(1f)
+                                val angle = angleDegrees(a, b)
+
+                                if (!transformStarted) {
+                                    if (strokeStarted) {
+                                        vm.touchCancel()
+                                        strokeStarted = false
+                                    }
+                                    transformStarted = true
+                                    mode = GestureMode.TRANSFORM
+                                    prevCentroid = centroid
+                                    prevDistance = distance
+                                    prevAngle = angle
+                                } else {
+                                    val k = (distance / prevDistance).coerceAtLeast(0.1f)
+                                    val dRot = normalizeAngle(angle - prevAngle)
+                                    val dPanX = centroid.x - prevCentroid.x
+                                    val dPanY = centroid.y - prevCentroid.y
+
+                                    // Keep the point under the fingers fixed while
+                                    // rotating by dRot and scaling by k around the
+                                    // current centroid, then translate by the
+                                    // centroid movement. center = C0 + pan.
+                                    val centerX = viewW / 2f + localPanX
+                                    val centerY = viewH / 2f + localPanY
+                                    val vx = centroid.x - centerX
+                                    val vy = centroid.y - centerY
+                                    val radians = Math.toRadians(dRot.toDouble())
+                                    val cosR = cos(radians).toFloat()
+                                    val sinR = sin(radians).toFloat()
+                                    val rx = vx * cosR - vy * sinR
+                                    val ry = vx * sinR + vy * cosR
+
+                                    localZoom = (localZoom * k).coerceIn(0.05f, 32f)
+                                    localRotation += dRot
+                                    localPanX = centroid.x - k * rx - viewW / 2f + dPanX
+                                    localPanY = centroid.y - k * ry - viewH / 2f + dPanY
+
+                                    prevCentroid = centroid
+                                    prevDistance = distance
+                                    prevAngle = angle
+                                    onTransform(localZoom, localRotation, localPanX, localPanY)
+                                }
+                                pair.forEach { it.consume() }
+                                continue
+                            }
+
+                            // After a two-finger gesture, never turn the remaining
+                            // finger into a new stroke during the same gesture
+                            if (transformStarted) {
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+
+                            val point = pressed.first()
+                            val delta = point.position - previousSinglePoint
+                            previousSinglePoint = point.position
+                            val imagePos =
+                                widgetToImage(
+                                    point.position,
+                                    viewW,
+                                    viewH,
+                                    localPanX,
+                                    localPanY,
+                                    localZoom,
+                                    latestFitScale,
+                                    localRotation,
+                                    docW,
+                                    docH,
+                                )
+
+                            when (mode) {
+                                GestureMode.PAN -> {
+                                    localPanX += delta.x
+                                    localPanY += delta.y
+                                    onTransform(localZoom, localRotation, localPanX, localPanY)
+                                    point.consume()
+                                }
+
+                                GestureMode.STROKE -> {
+                                    when {
+                                        shapeTool -> {
+                                            shapeEnd = imagePos
                                         }
 
-                                        Tool.PICKER -> {
-                                            vm.pickColor(img0.x, img0.y)
-                                            GestureMode.NONE
+                                        tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
+                                            if (lassoPoints.lastOrNull() != imagePos) lassoPoints += imagePos
                                         }
 
-                                        Tool.FILL -> {
-                                            vm.floodFill(img0.x, img0.y)
-                                            GestureMode.NONE
-                                        }
-
-                                        Tool.TEXT -> {
-                                            onTextRequested(img0.x, img0.y)
-                                            GestureMode.NONE
-                                        }
-
-                                        Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                                            vm.touchStart(img0.x, img0.y)
-                                            GestureMode.STROKE
-                                        }
-
-                                        Tool.LASSO, Tool.MAGICWAND -> {
-                                            lassoPoints = mutableListOf(img0)
-                                            GestureMode.STROKE
-                                        }
-
-                                        Tool.LIQUIFY -> {
-                                            liquifyPrev = img0
-                                            GestureMode.STROKE
+                                        tool == Tool.LIQUIFY -> {
+                                            if (!strokeStarted) {
+                                                vm.touchStart(imagePos.x, imagePos.y)
+                                                strokeStarted = true
+                                            }
+                                            vm.liquify(liquifyPrevious.x, liquifyPrevious.y, imagePos.x, imagePos.y)
+                                            liquifyPrevious = imagePos
                                         }
 
                                         else -> {
-                                            GestureMode.PAN
-                                        }
-                                    }
-
-                                var startZoom = zoom
-                                var startRotation = rotation
-                                var startPanX = panX
-                                var startPanY = panY
-                                var lastCentroid = Offset.Zero
-                                var shapeStart = img0
-                                var shapeEnd = img0
-                                var isShapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
-                                if (isShapeTool) {
-                                    vm.touchCancel()
-                                }
-
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pressed = event.changes.filter { it.pressed }
-                                    if (pressed.isEmpty()) break
-
-                                    if (pressed.size >= 2 && mode != GestureMode.TRANSFORM) {
-                                        // Two fingers: cancel any partial stroke, start transform
-                                        if (mode == GestureMode.STROKE) vm.touchCancel()
-                                        mode = GestureMode.TRANSFORM
-                                        startZoom = zoom
-                                        startRotation = rotation
-                                        startPanX = panX
-                                        startPanY = panY
-                                        lastCentroid = event.calculateCentroid()
-                                    }
-
-                                    when (mode) {
-                                        GestureMode.STROKE -> {
-                                            val c = pressed.first()
-                                            val img =
-                                                widgetToImage(
-                                                    c.position,
-                                                    viewW,
-                                                    viewH,
-                                                    panX,
-                                                    panY,
-                                                    zoom,
-                                                    fitScale,
-                                                    bmp.width,
-                                                    bmp.height,
-                                                )
-                                            if (isShapeTool) {
-                                                // Shape tools: track the drag end; draw on release
-                                                shapeEnd = img
-                                            } else if (tool == Tool.LASSO || tool == Tool.MAGICWAND) {
-                                                lassoPoints.add(img)
-                                            } else if (tool == Tool.LIQUIFY) {
-                                                vm.liquify(liquifyPrev.x, liquifyPrev.y, img.x, img.y)
-                                                liquifyPrev = img
+                                            if (!strokeStarted) {
+                                                vm.touchStart(imagePos.x, imagePos.y)
+                                                strokeStarted = true
                                             } else {
-                                                vm.touchMove(img.x, img.y)
+                                                vm.touchMove(imagePos.x, imagePos.y)
                                             }
-                                            c.consume()
                                         }
-
-                                        GestureMode.PAN -> {
-                                            val delta = event.calculatePan()
-                                            onTransform(zoom, rotation, panX + delta.x, panY + delta.y)
-                                            event.changes.forEach { it.consume() }
-                                        }
-
-                                        GestureMode.TRANSFORM -> {
-                                            val centroid = event.calculateCentroid()
-                                            val z = event.calculateZoom()
-                                            val r = event.calculateRotation()
-                                            val pan = event.calculatePan()
-                                            val newZoom = (startZoom * z).coerceIn(0.05f, 32f)
-                                            // Compose's calculateRotation is cumulative per event; apply directly
-                                            val newRot = (startRotation + r) % 360f
-                                            val newPanX = startPanX + pan.x
-                                            val newPanY = startPanY + pan.y
-                                            onTransform(newZoom, newRot, newPanX, newPanY)
-                                            event.changes.forEach { it.consume() }
-                                        }
-
-                                        GestureMode.NONE -> {}
                                     }
+                                    point.consume()
                                 }
 
-                                when (mode) {
-                                    GestureMode.STROKE -> {
-                                        if (isShapeTool) {
-                                            val kind =
-                                                when (tool) {
-                                                    Tool.RECT -> 1
-                                                    Tool.ELLIPSE -> 2
-                                                    else -> 0
-                                                }
-                                            vm.drawShape(kind, shapeStart.x, shapeStart.y, shapeEnd.x, shapeEnd.y)
-                                        } else if (tool == Tool.LASSO || tool == Tool.MAGICWAND) {
-                                            if (lassoPoints.size >= 3) {
-                                                val pts = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                                if (tool == Tool.LASSO) {
-                                                    vm.lassoFill(pts)
-                                                } else {
-                                                    vm.lassoClear(pts)
-                                                }
-                                            }
-                                        } else {
-                                            vm.touchEnd()
-                                        }
-                                    }
-
-                                    else -> {}
+                                else -> {
+                                    point.consume()
                                 }
                             }
-                        },
-            )
+                        }
+
+                        if (!transformStarted) {
+                            when {
+                                shapeTool -> {
+                                    val kind =
+                                        when (tool) {
+                                            Tool.RECT -> 1
+                                            Tool.ELLIPSE -> 2
+                                            else -> 0
+                                        }
+                                    vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
+                                }
+
+                                tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
+                                    if (lassoPoints.size >= 3) {
+                                        val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                        if (tool == Tool.LASSO) vm.lassoFill(points) else vm.lassoClear(points)
+                                    }
+                                }
+
+                                strokeStarted -> {
+                                    vm.touchEnd()
+                                }
+
+                                // A pure tap on a painting tool (no movement)
+                                // still commits a single dab at the tap point
+                                mode == GestureMode.STROKE &&
+                                    (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) -> {
+                                    vm.touchStart(firstImage.x, firstImage.y)
+                                    vm.touchEnd()
+                                }
+                            }
+                        }
+                    }
+                },
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val image = imageBitmap ?: return@Canvas
+            val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+            val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
+            withTransform({
+                translate(center.x + 8f, center.y + 8f)
+                rotate(rotation)
+                scale(scale, scale)
+            }) {
+                drawRect(
+                    Morandi.canvasShadow,
+                    topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                    size =
+                        androidx.compose.ui.geometry
+                            .Size(image.width.toFloat(), image.height.toFloat()),
+                )
+            }
+            withTransform({
+                translate(center.x, center.y)
+                rotate(rotation)
+                scale(scale, scale)
+            }) {
+                drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
+            }
         }
     }
+}
+
+private fun angleDegrees(
+    a: Offset,
+    b: Offset,
+): Float = Math.toDegrees(atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())).toFloat()
+
+private fun normalizeAngle(value: Float): Float {
+    var result = value % 360f
+    if (result > 180f) result -= 360f
+    if (result < -180f) result += 360f
+    return result
+}
+
+/** Convert workspace coordinates into document coordinates using the inverse view transform. */
+fun widgetToImage(
+    p: Offset,
+    canvasW: Int,
+    canvasH: Int,
+    panX: Float,
+    panY: Float,
+    zoom: Float,
+    fitScale: Float,
+    rotation: Float,
+    docW: Int,
+    docH: Int,
+): Offset {
+    val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+    val dx = p.x - (canvasW / 2f + panX)
+    val dy = p.y - (canvasH / 2f + panY)
+    val radians = Math.toRadians((-rotation).toDouble())
+    val cosR = cos(radians).toFloat()
+    val sinR = sin(radians).toFloat()
+    val unrotatedX = dx * cosR - dy * sinR
+    val unrotatedY = dx * sinR + dy * cosR
+    return Offset(unrotatedX / scale + docW / 2f, unrotatedY / scale + docH / 2f)
 }

@@ -7,20 +7,76 @@ import android.graphics.Bitmap
  * All methods are thin wrappers over the native library.
  */
 object ReverieCoreBridge {
-    init {
-        // Qt6Core's JNI layer (used by QCoreApplication inside the engine)
-        // finds its Java classes via the app class loader. QtActivity does
-        // this automatically; in a pure Compose Activity we must register it
-        // ourselves BEFORE loading the native library, otherwise Qt's
-        // QJniObject::getMethodID dies with "NULL jclass".
+    /**
+     * The engine links Qt6Core (for Krita's QObject-based classes) and
+     * KF6I18n, whose KCatalogStaticData ctor calls
+     * QAndroidApplication::context() and invokes getAssets() on it without
+     * checking validity. In a pure Compose Activity Qt has no registered
+     * context, so context() returns null and the call crashes with
+     * "GetMethodID received NULL jclass".
+     *
+     * QtActivity normally registers the Activity via QtNative.setActivity.
+     * We emulate that with reflection: set the private static m_activity
+     * field so Qt's context() returns our Activity. The class loader is
+     * registered first for the same reason (Qt finds its classes through
+     * the app class loader).
+     */
+    fun initQtAndroid() {
         try {
             val qtNative = Class.forName("org.qtproject.qt.android.QtNative")
-            val cls = qtNative.getMethod("setClassLoader", ClassLoader::class.java)
-            cls.invoke(null, this.javaClass.classLoader)
+            qtNative
+                .getMethod("setClassLoader", ClassLoader::class.java)
+                .invoke(null, this.javaClass.classLoader)
             android.util.Log.i("RP-BRIDGE", "QtNative.setClassLoader OK")
+
+            val activityField = qtNative.getDeclaredField("m_activity")
+            activityField.isAccessible = true
+            val activityClass = Class.forName("android.app.Activity")
+            val act = mainActivity
+            if (act != null) {
+                activityField.set(null, activityClass.cast(act))
+                android.util.Log.i("RP-BRIDGE", "QtNative.m_activity registered")
+            } else {
+                android.util.Log.w("RP-BRIDGE", "mainActivity null, skip activity registration")
+            }
         } catch (t: Throwable) {
-            android.util.Log.e("RP-BRIDGE", "setClassLoader failed", t)
+            android.util.Log.e("RP-BRIDGE", "Qt init failed", t)
         }
+    }
+
+    /** Called from MainActivity.onResume so Qt always has a live context. */
+    fun syncActivity(activity: android.app.Activity) {
+        mainActivity = activity
+        // The native library may already be loaded; re-register the
+        // activity if the field update matters for later context() calls.
+        try {
+            val qtNative = Class.forName("org.qtproject.qt.android.QtNative")
+            val activityField = qtNative.getDeclaredField("m_activity")
+            activityField.isAccessible = true
+            val activityClass = Class.forName("android.app.Activity")
+            activityField.set(null, activityClass.cast(activity))
+            android.util.Log.i("RP-BRIDGE", "syncActivity: m_activity registered OK")
+        } catch (t: Throwable) {
+            android.util.Log.e("RP-BRIDGE", "syncActivity failed", t)
+        }
+    }
+
+    @Volatile
+    var mainActivity: android.app.Activity? = null
+
+    @Volatile
+    private var nativeLoaded = false
+
+    /**
+     * Must be called from MainActivity.onCreate AFTER the activity exists,
+     * so Qt's C++ side (initJNI) reads a live activity reference into its
+     * global g_jActivity cache. Calling it earlier (in a class-init block)
+     * would cache null and KF6I18n's context() calls would still crash.
+     */
+    fun ensureLoaded() {
+        if (nativeLoaded) return
+        nativeLoaded = true
+        initQtAndroid()
         System.loadLibrary("reverie_jni")
     }
 
@@ -43,7 +99,10 @@ object ReverieCoreBridge {
 
     external fun layerName(index: Int): String
 
-    external fun setLayerBlendMode(index: Int, opId: String)
+    external fun setLayerBlendMode(
+        index: Int,
+        opId: String,
+    )
 
     external fun layerBlendMode(index: Int): String
 
@@ -57,7 +116,12 @@ object ReverieCoreBridge {
     external fun currentLayerIndex(): Int
 
     external fun setToolMode(mode: Int)
-    external fun floodFillAt(x: Int, y: Int)
+
+    external fun floodFillAt(
+        x: Int,
+        y: Int,
+    )
+
     external fun setBrushSize(size: Double)
 
     external fun setBrushColor(color: String)
@@ -78,19 +142,59 @@ object ReverieCoreBridge {
 
     external fun touchStrokeEnd()
 
+    external fun touchStrokeCancel()
+
     external fun renderToBuffer(bitmap: Bitmap): Boolean
 
-    external fun pickColorAt(x: Int, y: Int): String?
+    external fun pickColorAt(
+        x: Int,
+        y: Int,
+    ): String?
+
     external fun undo()
+
     external fun redo()
+
     external fun canUndo(): Boolean
+
     external fun canRedo(): Boolean
-    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int)
-    external fun lassoFill(xs: IntArray, ys: IntArray, count: Int)
-    external fun lassoClear(xs: IntArray, ys: IntArray, count: Int)
-    external fun drawText(x: Int, y: Int, text: String, fontSize: Double)
-    external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int)
+
+    external fun liquify(
+        fx: Int,
+        fy: Int,
+        tx: Int,
+        ty: Int,
+    )
+
+    external fun lassoFill(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+    )
+
+    external fun lassoClear(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+    )
+
+    external fun drawText(
+        x: Int,
+        y: Int,
+        text: String,
+        fontSize: Double,
+    )
+
+    external fun drawShape(
+        kind: Int,
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+    )
+
     external fun savePng(path: String): Boolean
+
     external fun loadPng(path: String): Boolean
 
     external fun docWidth(): Int

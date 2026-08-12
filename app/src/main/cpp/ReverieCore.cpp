@@ -322,6 +322,41 @@ void ReverieCore::touchStrokeEnd()
     m_drawing = false;
 }
 
+void ReverieCore::touchStrokeCancel()
+{
+    if (!m_document || !m_strokeBatchOpen) {
+        m_drawing = false;
+        m_strokeSamples.clear();
+        m_strokeBatchOpen = false;
+        return;
+    }
+
+    // A second finger must cancel, not commit, the partial stroke. The
+    // snapshot was pushed by touchStrokeStart, so restore and remove that
+    // snapshot without touching the redo stack.
+    m_strokeSamples.clear();
+    endStrokeBatch();
+    m_strokeBatchOpen = false;
+    m_drawing = false;
+
+    if (!m_undoStack.isEmpty() && !m_layers.isEmpty()) {
+        const int w = m_document->width();
+        const int h = m_document->height();
+        const int expected = w * h * 4 * m_layers.size();
+        const QByteArray snapshot = m_undoStack.takeLast();
+        if (snapshot.size() == expected) {
+            const quint8 *p = reinterpret_cast<const quint8 *>(snapshot.constData());
+            for (LayerEntry &entry : m_layers) {
+                if (!entry.layer) continue;
+                entry.layer->original()->writeBytes(p, 0, 0, w, h);
+                entry.layer->original()->setDirty();
+                p += size_t(w) * h * 4;
+            }
+        }
+    }
+    markDirty();
+}
+
 void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
 {
     // Krita-style spacing sampling: only emit a dab when the stylus moved
@@ -388,6 +423,18 @@ void ReverieCore::flushStrokeBatch()
     painter.setCompositeOpId(m_toolMode == ToolEraser
         ? QStringLiteral("erase")
         : QStringLiteral("normal"));
+
+    // Single tap: paint a round dot. A zero-length line with round caps
+    // renders a circle of diameter = brush width.
+    if (m_strokeSamples.size() == 1) {
+        const QPointF p = m_strokeSamples.first().imgPos;
+        const qreal w = qMax<qreal>(1.0, m_brushSize
+                                         * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0));
+        painter.drawLine(p, p, w, true);
+        m_strokeSamples.clear();
+        markDirty();
+        return;
+    }
 
     // Subdivide each segment at ~brush-spacing resolution so pressure
     // ramps smoothly (Krita's KisDistanceInformation behaviour)

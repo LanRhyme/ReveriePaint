@@ -30,8 +30,11 @@ class PaintViewModel : ViewModel() {
     var displayBitmap by mutableStateOf<Bitmap?>(null, neverEqualPolicy())
         private set
 
-    // Layer panel
+    // Layer panel. A revision state forces Compose to re-read the native
+    // layer getters after add/remove/select/visibility operations.
     var layerPanelOpen by mutableStateOf(false)
+    var layerRevision by mutableStateOf(0)
+        private set
 
     private var lastPaintNs = 0L
 
@@ -75,14 +78,14 @@ class PaintViewModel : ViewModel() {
             projects = emptyList()
             return
         }
-        projects = dir.listFiles { f -> f.extension == "png" }
+        projects = dir
+            .listFiles { f -> f.extension == "png" }
             ?.sortedByDescending { it.lastModified() }
             ?.map { Project(it.nameWithoutExtension, 0, 0) }
             ?: emptyList()
     }
 
-    fun projectDir(): java.io.File =
-        java.io.File(appContext.filesDir, "projects")
+    fun projectDir(): java.io.File = java.io.File(appContext.filesDir, "projects")
 
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
@@ -181,7 +184,8 @@ class PaintViewModel : ViewModel() {
     }
 
     fun touchCancel() {
-        ReverieCoreBridge.touchStrokeEnd()
+        ReverieCoreBridge.touchStrokeCancel()
+        refreshDisplay()
     }
 
     /** Map a UI tool to the engine's tool mode and record the active tool. */
@@ -191,10 +195,18 @@ class PaintViewModel : ViewModel() {
     fun applyTool(toolId: String) {
         activeTool = toolId
         when (toolId) {
-            "brush" -> ReverieCoreBridge.setToolMode(0) // ToolBrush
-            "eraser" -> ReverieCoreBridge.setToolMode(1) // ToolEraser
-            "fill" -> ReverieCoreBridge.setToolMode(2) // ToolFill
-            "smudge" -> ReverieCoreBridge.setToolMode(3) // ToolSmudge
+            "brush" -> ReverieCoreBridge.setToolMode(0)
+
+            // ToolBrush
+            "eraser" -> ReverieCoreBridge.setToolMode(1)
+
+            // ToolEraser
+            "fill" -> ReverieCoreBridge.setToolMode(2)
+
+            // ToolFill
+            "smudge" -> ReverieCoreBridge.setToolMode(3)
+
+            // ToolSmudge
             else -> ReverieCoreBridge.setToolMode(0)
         }
     }
@@ -213,7 +225,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun liquify(fx: Float, fy: Float, tx: Float, ty: Float) {
+    fun liquify(
+        fx: Float,
+        fy: Float,
+        tx: Float,
+        ty: Float,
+    ) {
         ReverieCoreBridge.liquify(fx.toInt(), fy.toInt(), tx.toInt(), ty.toInt())
         refreshDisplay()
     }
@@ -253,54 +270,69 @@ class PaintViewModel : ViewModel() {
         refreshDisplay()
     }
 
-    fun floodFill(x: Float, y: Float) {
+    fun floodFill(
+        x: Float,
+        y: Float,
+    ) {
         ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt())
+        refreshDisplay()
+    }
+
+    private fun notifyLayerChanged() {
+        layerRevision++
         refreshDisplay()
     }
 
     fun addLayer() {
         ReverieCoreBridge.addLayer("图层 ${layerCount + 1}")
-        refreshDisplay()
+        notifyLayerChanged()
     }
 
     fun removeLayer() {
         ReverieCoreBridge.removeLayer(currentLayerIndex)
-        refreshDisplay()
+        notifyLayerChanged()
     }
 
     fun setCurrentLayer(i: Int) {
         ReverieCoreBridge.setCurrentLayer(i)
-        refreshDisplay()
+        notifyLayerChanged()
     }
 
-    val blendModes = listOf(
-        "normal" to "正常",
-        "multiply" to "正片叠底",
-        "screen" to "滤色",
-        "overlay" to "叠加",
-        "darken" to "变暗",
-        "lighten" to "变亮",
-        "difference" to "差值",
-        "add" to "线性减淡",
-        "erase" to "擦除",
-    )
+    val blendModes =
+        listOf(
+            "normal" to "正常",
+            "multiply" to "正片叠底",
+            "screen" to "滤色",
+            "overlay" to "叠加",
+            "darken" to "变暗",
+            "lighten" to "变亮",
+            "difference" to "差值",
+            "add" to "线性减淡",
+            "erase" to "擦除",
+        )
 
     fun layerBlendMode(i: Int) = ReverieCoreBridge.layerBlendMode(i)
 
-    fun setLayerBlendMode(i: Int, opId: String) {
+    fun setLayerBlendMode(
+        i: Int,
+        opId: String,
+    ) {
         ReverieCoreBridge.setLayerBlendMode(i, opId)
-        refreshDisplay()
+        notifyLayerChanged()
     }
 
     fun toggleLayerVisible(i: Int) {
         ReverieCoreBridge.setLayerVisible(i, !ReverieCoreBridge.layerVisible(i))
-        refreshDisplay()
+        notifyLayerChanged()
     }
 
     fun layerName(i: Int) = ReverieCoreBridge.layerName(i)
 
     /** Sample the color at document-space (x, y) and set it as the brush color. */
-    fun pickColor(x: Float, y: Float) {
+    fun pickColor(
+        x: Float,
+        y: Float,
+    ) {
         val c = ReverieCoreBridge.pickColorAt(x.toInt(), y.toInt()) ?: return
         updateBrushColor(c)
     }

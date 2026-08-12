@@ -1,5 +1,6 @@
 package com.reverie.paint.ui.painting
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -16,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,20 +29,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 
-/**
- * Left tool rail (画世界 Pro style):
- * - tools stacked vertically from the top, current tool highlighted
- * - bottom: brush size (S) and opacity (O) vertical capsule sliders
- * - color swatch opens the color panel
- * Merged flush with the top bar into one connected dark panel.
- */
+/** Left drawing rail with Tabler icon-pack vector icons. */
 @Composable
 fun ToolRail(
     tool: Tool,
@@ -62,52 +60,38 @@ fun ToolRail(
                 .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Tool list (scrollable if the screen is short)
         Column(
-            modifier =
-                Modifier
-                    .width(60.dp)
-                    .verticalScroll(rememberScrollState()),
+            modifier = Modifier.width(60.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            for (t in Tool.entries) {
+            Tool.entries.forEach { t ->
                 ToolBtn(t, t == tool) { onTool(t) }
             }
         }
 
         Spacer(Modifier.weight(1f))
-
-        // Brush panel button (opens brush presets)
-        RailIcon("笔", "笔刷", onOpenBrush)
-
+        RailIcon(Tool.BRUSH, "笔刷", onOpenBrush)
         Spacer(Modifier.height(6.dp))
-
-        // Brush size slider (S)
         RailSlider(
-            label = "${brushSize.toInt()}",
+            label = brushSize.toInt().toString(),
             fraction = ((brushSize - 1) / 99.0).toFloat().coerceIn(0f, 1f),
             onFraction = { onBrushSize(1.0 + it * 99.0) },
         )
-
         Spacer(Modifier.height(10.dp))
-
-        // Opacity slider (O)
         RailSlider(
-            label = "${(opacity * 100).toInt()}",
+            label = (opacity * 100).toInt().toString(),
             fraction = opacity.toFloat(),
             onFraction = { onOpacity(it.toDouble()) },
         )
-
         Spacer(Modifier.height(10.dp))
-
-        // Color swatch (opens color panel)
         Box(
             modifier =
                 Modifier
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(parseColor(brushColor))
-                    .clickable { onOpenColor() },
+                    .clickable(onClick = onOpenColor),
         )
         Spacer(Modifier.height(6.dp))
     }
@@ -125,35 +109,55 @@ private fun ToolBtn(
                 .size(46.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(if (selected) Morandi.accent else Color.Transparent)
-                .clickable { onSelect() },
+                .clickable(onClick = onSelect),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            t.label.take(1),
-            color = if (selected) Color.White else Morandi.icon,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        Icon(
+            painter = painterResource(toolIcon(t)),
+            contentDescription = t.label,
+            tint = if (selected) Color.White else Morandi.icon,
+            modifier = Modifier.size(24.dp),
         )
     }
 }
 
 @Composable
 private fun RailIcon(
-    symbol: String,
+    tool: Tool,
     desc: String,
     onTap: () -> Unit,
 ) {
     Box(
-        modifier =
-            Modifier
-                .size(46.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .clickable { onTap() },
+        modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onTap),
         contentAlignment = Alignment.Center,
     ) {
-        Text(symbol, color = Morandi.icon, fontSize = 14.sp)
+        Icon(
+            painter = painterResource(toolIcon(tool)),
+            contentDescription = desc,
+            tint = Morandi.icon,
+            modifier = Modifier.size(24.dp),
+        )
     }
 }
+
+/** Tabler icon-pack drawable for each tool (see app/src/main/res/drawable). */
+@DrawableRes
+private fun toolIcon(tool: Tool): Int =
+    when (tool) {
+        Tool.BRUSH -> R.drawable.ic_brush
+        Tool.HAND -> R.drawable.ic_hand
+        Tool.ERASER -> R.drawable.ic_eraser
+        Tool.PICKER -> R.drawable.ic_picker
+        Tool.FILL -> R.drawable.ic_fill
+        Tool.LASSO -> R.drawable.ic_lasso
+        Tool.MAGICWAND -> R.drawable.ic_magicwand
+        Tool.LINE -> R.drawable.ic_line
+        Tool.RECT -> R.drawable.ic_rect
+        Tool.ELLIPSE -> R.drawable.ic_ellipse
+        Tool.TEXT -> R.drawable.ic_text
+        Tool.SMUDGE -> R.drawable.ic_smudge
+        Tool.LIQUIFY -> R.drawable.ic_liquify
+    }
 
 @Composable
 private fun RailSlider(
@@ -163,7 +167,7 @@ private fun RailSlider(
 ) {
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.height(120.dp)) {
-        Text(label, color = Morandi.subText, fontSize = 10.sp)
+        Text(label, color = Morandi.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
         Box(
             modifier =
                 Modifier
@@ -173,9 +177,9 @@ private fun RailSlider(
                     .background(Morandi.panelHi)
                     .pointerInput(Unit) {
                         detectDragGestures { change, _ ->
-                            val frac = 1f - (change.position.y / 96f).coerceIn(0f, 1f)
-                            localFraction = frac
-                            onFraction(frac)
+                            val value = 1f - (change.position.y / 96f).coerceIn(0f, 1f)
+                            localFraction = value
+                            onFraction(value)
                             change.consume()
                         }
                     },
