@@ -484,6 +484,7 @@ private fun LayerRow(
                             var maxMoveSq = 0f
                             var tapOk = false
                             var done = false
+                            var loggedMode = false
                             // Full event loop: tap, swipe and long-press drag are
                             // decided here without awaitLongPressOrCancellation
                             // (which swallows the UP event and eats single taps)
@@ -497,18 +498,22 @@ private fun LayerRow(
                                 val elapsed = change.uptimeMillis - downT
                                 if (change.changedToUpIgnoreConsumed()) {
                                     if (dragActive) {
+                                        android.util.Log.d("LayerPanel", "idx=$index drag END")
                                         onDragEnd()
                                     } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
-                                        // long-press released without dragging: no-op
+                                        android.util.Log.d("LayerPanel", "idx=$index longpress-noop")
                                     } else if (maxMoveSq <= longSlopSq) {
+                                        android.util.Log.d("LayerPanel", "idx=$index TAP")
                                         tapOk = true
+                                    } else {
+                                        android.util.Log.d("LayerPanel", "idx=$index up-notap maxMove=${kotlin.math.sqrt(maxMoveSq)}")
                                     }
                                     done = true
                                 } else if (dragActive) {
                                     change.consume()
                                     onDragPosition(rowTop + change.position.y)
                                 } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
-                                    // long press fired -> drag starts here
+                                    android.util.Log.d("LayerPanel", "idx=$index DRAG start")
                                     dragActive = true
                                     onDragStart()
                                     change.consume()
@@ -517,6 +522,10 @@ private fun LayerRow(
                                     // swipe (drawer) while not long-pressing
                                     total += change.position.x - prevX
                                     prevX = change.position.x
+                                    if (!loggedMode) {
+                                        android.util.Log.d("LayerPanel", "idx=$index SWIPE total=$total")
+                                        loggedMode = true
+                                    }
                                     if (total < -thr) {
                                         reveal = true
                                     } else if (total > thr) {
@@ -535,8 +544,27 @@ private fun LayerRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Group indent: whole row content shifts right for nested layers
-            Spacer(Modifier.width((layer.depth * 16).dp))
+            // Group indent: whole row content shifts right for nested layers,
+            // with VS Code style vertical guide lines (one per nesting level)
+            if (layer.depth > 0) {
+                Box(Modifier.width((layer.depth * 16).dp).fillMaxHeight()) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val step = 16.dp.toPx()
+                        val lw = 1.dp.toPx()
+                        for (d in 1..layer.depth) {
+                            val x = step * (d - 0.5f)
+                            drawLine(
+                                color = Morandi.border.copy(alpha = 0.7f),
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = lw,
+                            )
+                        }
+                    }
+                }
+            } else {
+                Spacer(Modifier.width(0.dp))
+            }
 
             // Collapse arrow for groups (toggle, does not select)
             if (layer.isGroup) {
