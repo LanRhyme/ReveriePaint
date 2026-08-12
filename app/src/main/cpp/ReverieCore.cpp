@@ -441,8 +441,12 @@ void ReverieCore::removeLayer(int index)
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background (0) is protected
     }
-    if (!isLayerEditable(index)) {
-        return;  // locked layers cannot be deleted
+    // Groups CAN be deleted (removeNode removes the whole subtree), but
+    // locked layers cannot. isLayerEditable() also excludes groups, so it
+    // must not gate deletion.
+    const LayerEntry &e = m_layers[index];
+    if (e.background || e.locked) {
+        return;
     }
     KisImageSP image = m_document;
     if (!image || !m_layers[index].node) {
