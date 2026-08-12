@@ -670,8 +670,9 @@ private fun LayerRow(
                             label = "rowBg",
                         ).value,
                     )
-                    // slide left while the drawer is revealed
-                    .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
+                    // slide left while the drawer is revealed (boolean, not the
+                    // animation value - the fade must never gate visibility)
+                    .offset { IntOffset(if (reveal) -drawerPx else 0, 0) }
                     // while dragging: dim the in-list row (the floating copy in
                     // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
