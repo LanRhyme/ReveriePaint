@@ -15,8 +15,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -324,20 +326,13 @@ fun CanvasView(
             val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
             withTransform({
                 translate(center.x + 8f, center.y + 8f)
-                // IMPORTANT: rotate/scale default their pivot to the draw-area
-                // center (size/2), NOT the local origin. The touch mapping
-                // (widgetToImage) assumes the local origin is the anchor, so
-                // the pivot must be forced to Offset.Zero - otherwise zoom /
-                // rotation anchor at a phantom point and strokes land offset.
                 rotate(rotation, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
                 drawRect(
                     Morandi.canvasShadow,
                     topLeft = Offset(-image.width / 2f, -image.height / 2f),
-                    size =
-                        androidx.compose.ui.geometry
-                            .Size(image.width.toFloat(), image.height.toFloat()),
+                    size = androidx.compose.ui.geometry.Size(image.width.toFloat(), image.height.toFloat()),
                 )
             }
             withTransform({
@@ -345,6 +340,14 @@ fun CanvasView(
                 rotate(rotation, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
+                // Draw a grid on the paper background to make transparency obvious
+                drawRect(
+                    Color.White,
+                    topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                    size = androidx.compose.ui.geometry.Size(image.width.toFloat(), image.height.toFloat())
+                )
+                
+                // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
             }
         }

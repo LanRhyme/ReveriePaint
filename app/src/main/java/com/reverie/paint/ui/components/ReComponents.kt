@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -44,7 +45,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.composed
 import com.reverie.paint.ui.theme.Theme
+import androidx.compose.foundation.interaction.MutableInteractionSource
+
+fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
+    clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+        onClick()
+    }
+}
 
 /**
  * Shared component library (画世界 Pro / Procreate style).
@@ -76,16 +85,13 @@ fun ReIconButton(
     size: androidx.compose.ui.unit.Dp = 32.dp,
 ) {
     val colors = Theme.current
-    val bgColor by animateColorAsState(if (selected) colors.accent else Color.Transparent, tween(200))
-    val tintColor by animateColorAsState(if (selected) colors.onAccent else colors.icon, tween(200))
+    val tintColor by animateColorAsState(if (selected) colors.accent else colors.icon, tween(200))
 
     Box(
-        modifier =
-            modifier
-                .size(size)
-                .clip(RoundedCornerShape(8.dp))
-                .background(bgColor)
-                .clickable { onTap() },
+        modifier = modifier
+            .defaultMinSize(minWidth = size, minHeight = size)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onTap() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -306,6 +312,7 @@ fun RePanel(
     title: String,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    opacity: Float = 0.95f,
     content: @Composable () -> Unit,
 ) {
     val colors = Theme.current
@@ -329,7 +336,7 @@ fun RePanel(
                     Modifier
                         .fillMaxWidth()
                         .background(
-                            color = colors.panel,
+                            color = colors.panel.copy(alpha = opacity),
                             shape = RoundedCornerShape(topStart = Dimens.radius * 2, topEnd = Dimens.radius * 2),
                         ).padding(bottom = 12.dp)
                         .clickable(enabled = false) {}, // consume clicks inside panel

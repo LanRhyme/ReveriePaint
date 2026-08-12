@@ -30,7 +30,9 @@ class PaintViewModel : ViewModel() {
     // Brush state
     var brushSize by mutableStateOf(20.0)
     var brushColor by mutableStateOf("#262a30")
+    var brushSecondaryColor by mutableStateOf("#ffffff")
     var brushOpacity by mutableStateOf(1.0)
+    var brushFlow by mutableStateOf(1.0)
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
@@ -41,8 +43,14 @@ class PaintViewModel : ViewModel() {
     // Layer panel. A revision state forces Compose to re-read the native
     // layer getters after add/remove/select/visibility operations.
     var layerPanelOpen by mutableStateOf(false)
+    var brushPanelOpen by mutableStateOf(false)
+    var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
         private set
+        
+    // UI Settings
+    var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
+    var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
 
     // Recent projects (name -> {w, h})
     data class Project(
@@ -265,9 +273,20 @@ class PaintViewModel : ViewModel() {
         ReverieCoreBridge.setBrushColor(c)
     }
 
+    fun swapColors() {
+        val temp = brushColor
+        updateBrushColor(brushSecondaryColor)
+        brushSecondaryColor = temp
+    }
+
     fun updateBrushOpacity(v: Double) {
         brushOpacity = v
         ReverieCoreBridge.setBrushOpacity(v)
+    }
+
+    fun updateBrushFlow(v: Double) {
+        brushFlow = v
+        ReverieCoreBridge.setBrushFlow(v)
     }
 
     fun touchStart(

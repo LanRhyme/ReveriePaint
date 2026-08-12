@@ -326,13 +326,15 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_lastPressure = pressure;
     m_strokeColor = m_brushColor;
     m_strokeOpacity = m_brushOpacity;
+    m_strokeFlow = m_brushFlow;
+    if (!m_strokeBuffer) {
+        m_strokeBuffer = new KisPaintDevice(m_document->colorSpace());
+    } else {
+        m_strokeBuffer->clear();
+    }
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
     m_strokeHadMove = false;
-    // The stroke starts at the finger-down position: append it as the first
-    // sample so the down -> first-move segment is drawn. Otherwise the first
-    // flush sees one sample and paints a dot, and the stroke start is cut off
-    // (Android can move several px before the first move event arrives).
     StrokeSample s;
     s.imgPos = m_strokeStartImg;
     s.pressure = pressure;
@@ -363,6 +365,22 @@ void ReverieCore::touchStrokeEnd()
             m_strokeSamples.append(s);
         }
         flushStrokeBatch();
+        
+        if (m_strokeBuffer) {
+            KisPaintDeviceSP device = currentPaintDevice();
+            if (device) {
+                KisPainter painter(device);
+                painter.setOpacityF(m_strokeOpacity);
+                QRect ext = m_strokeBuffer->exactBounds();
+                if (!ext.isEmpty()) {
+                    painter.bitBlt(ext.x(), ext.y(), m_strokeBuffer, ext.x(), ext.y(), ext.width(), ext.height());
+                    device->setDirty(ext);
+                    markRegionDirty(ext);
+                }
+            }
+            m_strokeBuffer->clear();
+        }
+        
         endStrokeBatch();
         m_strokeBatchOpen = false;
     }
@@ -383,6 +401,9 @@ void ReverieCore::touchStrokeCancel()
     // snapshot without touching the redo stack.
     m_strokeSamples.clear();
     endStrokeBatch();
+    if (m_strokeBuffer) {
+        m_strokeBuffer->clear();
+    }
     m_strokeBatchOpen = false;
     m_drawing = false;
 
@@ -479,18 +500,18 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
+    qreal flow = qBound<qreal>(0.0, m_strokeFlow, 1.0);
     // Smudge: a translucent smearing pass (MVP approximation of the real
     // smudge brush which pushes color along the stroke path).
     if (m_toolMode == ToolSmudge) {
-        opacity = qMin<qreal>(opacity, 0.12);
+        flow = qMin<qreal>(flow, 0.12);
     }
 
     // Krita-style: reuse one KisPainter for the whole stroke
-    if (!m_strokePainter || m_strokeDevice != (void *)device.data()) {
+    if (!m_strokePainter || m_strokeDevice != (void *)m_strokeBuffer.data()) {
         endStrokeBatch();
-        m_strokeDevice = (void *)device.data();
-        m_strokePainter = new KisPainter(device);
+        m_strokeDevice = (void *)m_strokeBuffer.data();
+        m_strokePainter = new KisPainter(m_strokeBuffer);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
     }
@@ -503,7 +524,7 @@ void ReverieCore::flushStrokeBatch()
     KoColor koColor(qColor, cs);
     painter.setPaintColor(koColor);
     painter.setBackgroundColor(koColor);
-    painter.setOpacityF(opacity);
+    painter.setOpacityF(flow);
     // Eraser composites with the erase op (transparent); brush uses normal.
     // KisPainter's API takes the composite op id string.
     painter.setCompositeOpId(m_toolMode == ToolEraser
@@ -605,15 +626,6 @@ void ReverieCore::flushStrokeBatch()
         markRegionDirty(strokeDirty);
     } else {
         markDirty();
-    }
-
-    // Krita's dirty propagation: mark the stroke region dirty on the layer
-    // device so its projection leaf recomposites it. IMPORTANT: KisPainter's
-    // drawLine does NOT accumulate dirty rects (takeDirtyRegion returns
-    // empty after lines, unlike paintEllipse), so use our own segment
-    // bounds instead - otherwise multi-layer projections never update.
-    if (!strokeDirty.isNull()) {
-        device->setDirty(strokeDirty);
     }
 }
 
@@ -836,6 +848,28 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
             }
             m_lastDirty = r;
         }
+        
+        if (m_drawing && m_strokeBuffer) {
+            QRect strokeExt = m_strokeBuffer->exactBounds();
+            if (!strokeExt.isEmpty()) {
+                QRect cr = strokeExt.intersected(QRect(0, 0, iw, ih));
+                if (!cr.isEmpty()) {
+                    QImage strokeImg(cr.size(), QImage::Format_ARGB32_Premultiplied);
+                    QVector<quint8> bytes(cr.width() * cr.height() * 4);
+                    m_strokeBuffer->readBytes(bytes.data(), cr.x(), cr.y(), cr.width(), cr.height());
+                    memcpy(strokeImg.bits(), bytes.constData(), bytes.size());
+                    
+                    QPainter p(&m_displayImage);
+                    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+                    p.setOpacity(m_strokeOpacity);
+                    p.drawImage(cr.topLeft(), strokeImg);
+                    p.end();
+                    
+                    m_lastDirty = m_lastDirty.isNull() ? cr : m_lastDirty.united(cr);
+                }
+            }
+        }
+        
         m_dirtyRect = QRect();
     }
 

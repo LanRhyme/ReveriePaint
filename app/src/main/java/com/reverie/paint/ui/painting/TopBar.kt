@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +27,7 @@ import com.reverie.paint.ui.theme.Morandi
 @Composable
 fun TopBar(
     modifier: Modifier = Modifier,
+    opacity: Float = 1.0f,
     vm: PaintViewModel,
     onBack: () -> Unit,
     onRotateCw: () -> Unit,
@@ -40,26 +42,16 @@ fun TopBar(
     Row(
         modifier =
             modifier
-                .fillMaxWidth()
-                .height(36.dp)
-                .background(Morandi.panel)
-                .padding(horizontal = 0.dp),
+                .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp))
+                .background(Morandi.panel.copy(alpha = opacity))
+                .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        ReIconButton(R.drawable.ic_x, "关闭", onBack) // Using X icon like reference
-        Spacer(Modifier.width(4.dp))
-        Text(
-            vm.docName,
-            color = Morandi.text,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
         ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
         ReIconButton(R.drawable.ic_redo, "重做", onRedo)
         ReIconButton(R.drawable.ic_layers, "图层", onLayers)
         ReIconButton(R.drawable.ic_settings, "设置", onSettings)
+        ReIconButton(R.drawable.ic_x, "关闭", onBack) // Moved to the right
     }
 }

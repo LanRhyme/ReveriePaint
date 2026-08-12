@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReMenuItem
+import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -42,17 +43,13 @@ fun SettingsPanel(
     onClose: () -> Unit,
     onResetView: () -> Unit = {},
     modifier: Modifier = Modifier,
+    opacity: Float = 1.0f,
 ) {
     Box(
         modifier =
             modifier
                 .fillMaxSize()
-                .background(Color.Transparent)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClose
-                ),
+                .noRippleClickable(onClose),
     ) {
         Column(
             modifier =
@@ -60,9 +57,9 @@ fun SettingsPanel(
                     .align(Alignment.TopEnd)
                     .padding(top = 64.dp, end = 8.dp)
                     .width(320.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi.copy(alpha = opacity))
+                    .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(8.dp))
                     .padding(16.dp)
                     .clickable(enabled = false) {}, // consume clicks
         ) {

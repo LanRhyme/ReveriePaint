@@ -1,6 +1,9 @@
 package com.reverie.paint.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.reverie.paint.model.BrushPreset
 import com.reverie.paint.model.CanvasPreset
 
@@ -32,16 +35,16 @@ data class AppColors(
 /** Default Morandi palette - low saturation, warm/cool tones. */
 val MorandiColors =
     AppColors(
-        bg = Color(0xFF18191A), // Darker greyish with slight tint
-        panel = Color(0xFF2B2C2F), // Slightly lighter for panels
-        panelHi = Color(0xFF35373A),
+        bg = Color(0xFF0C0C0D), // Ultra dark interface background
+        panel = Color(0xFF1B1C1E), // Slightly lighter for panels
+        panelHi = Color(0xFF26282A),
         accent = Color(0xFF5E8BA8), // Morandi blue accent, slightly muted
         accentHi = Color(0xFF769EBB),
         onAccent = Color(0xFFFFFFFF),
         text = Color(0xFFE2E2E2),
         subText = Color(0xFF989A9C),
-        canvasBg = Color(0xFF101112), // Even darker behind canvas
-        border = Color(0xFF3F4145),
+        canvasBg = Color(0xFF2C2D30), // Brightened dark grey behind canvas
+        border = Color(0xFF323438),
         icon = Color(0xFFB5B7B9),
         scrim = Color(0x99000000),
         gridLine = Color(0xFF3F4145),
@@ -53,7 +56,7 @@ val MorandiColors =
  * this (light/dark/accent presets or user-defined colors) at runtime.
  */
 object Theme {
-    var current: AppColors = MorandiColors
+    var current by mutableStateOf(MorandiColors)
 }
 
 /** Backwards-compatible alias so existing call sites can migrate gradually. */

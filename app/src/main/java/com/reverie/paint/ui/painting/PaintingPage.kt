@@ -12,6 +12,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -28,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
@@ -87,14 +91,12 @@ fun PaintingPage(vm: PaintViewModel) {
     var tool by remember { mutableStateOf(Tool.BRUSH) }
     var moreToolsOpen by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize().background(Morandi.panel)) {
+    Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 36.dp, start = 36.dp)
-                .clip(RoundedCornerShape(topStart = 8.dp))
-                .background(Morandi.bg)
+                .background(Color.Transparent)
         ) {
             CanvasView(
                 vm = vm,
@@ -125,8 +127,9 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Top bar ----
         TopBar(
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier.align(Alignment.TopEnd),
             vm = vm,
+            opacity = vm.uiOpacity,
             onBack = { vm.goHome() },
             onRotateCw = {
                 rotation = (rotation + 90) % 360
@@ -150,7 +153,12 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Left tool rail ----
         ToolRail(
-            modifier = Modifier.align(Alignment.CenterStart).padding(top = 36.dp),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 48.dp) // Gap from top bar
+                .fillMaxHeight(),
+            vm = vm,
+            opacity = vm.uiOpacity.toDouble(),
             tool = tool,
             onTool = {
                 tool = it
@@ -161,7 +169,8 @@ fun PaintingPage(vm: PaintViewModel) {
             onToggleMoreTools = { moreToolsOpen = !moreToolsOpen },
             brushSize = vm.brushSize,
             onBrushSize = { vm.updateBrushSize(it) },
-            opacity = vm.brushOpacity,
+            popupOpacity = vm.popupPanelOpacity,
+            brushOpacity = vm.brushOpacity,
             onOpacity = { vm.updateBrushOpacity(it) },
             brushColor = vm.brushColor,
             onOpenBrush = { brushPanelOpen = true },
@@ -199,6 +208,7 @@ fun PaintingPage(vm: PaintViewModel) {
             BrushPanel(
                 vm = vm,
                 onClose = { brushPanelOpen = false },
+                opacity = vm.popupPanelOpacity,
             )
         }
         AnimatedVisibility(
@@ -210,6 +220,7 @@ fun PaintingPage(vm: PaintViewModel) {
             LayerPanel(
                 vm = vm,
                 onClose = { layerPanelOpen = false },
+                opacity = vm.popupPanelOpacity,
             )
         }
         AnimatedVisibility(
@@ -221,17 +232,19 @@ fun PaintingPage(vm: PaintViewModel) {
             SettingsPanel(
                 vm = vm,
                 onClose = { settingsPanelOpen = false },
+                opacity = vm.popupPanelOpacity,
             )
         }
         AnimatedVisibility(
             visible = colorPanelOpen,
             enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 44.dp, bottom = 16.dp).zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f)
         ) {
             ColorPanel(
                 vm = vm,
                 onClose = { colorPanelOpen = false },
+                opacity = vm.popupPanelOpacity,
             )
         }
 

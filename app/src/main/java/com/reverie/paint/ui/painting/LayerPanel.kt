@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.components.noRippleClickable
 
 /**
  * Layer panel (dropdown at top-right, 画世界 Pro style)
@@ -57,6 +58,7 @@ fun LayerPanel(
     vm: PaintViewModel,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    opacity: Float = 0.95f,
 ) {
     val layerRevision = vm.layerRevision
 
@@ -65,11 +67,7 @@ fun LayerPanel(
             modifier
                 .fillMaxSize()
                 .background(Color.Transparent)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClose
-                ),
+                .noRippleClickable(onClose),
     ) {
         Column(
             modifier =
@@ -78,9 +76,9 @@ fun LayerPanel(
                     .padding(top = 64.dp, end = 8.dp)
                     .width(280.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
-                    .clickable(enabled = false) {}, // Consume clicks
+                    .background(Morandi.panelHi.copy(alpha = opacity))
+                    .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                    .noRippleClickable {}, // Consume clicks
         ) {
             // Top Actions Toolbar
             Row(
@@ -114,7 +112,7 @@ fun LayerPanel(
                                 .fillMaxWidth()
                                 .height(56.dp)
                                 .background(if (selected) Morandi.accentHi else Morandi.panelHi)
-                                .clickable { vm.setCurrentLayer(idx) }
+                                .noRippleClickable { vm.setCurrentLayer(idx) }
                                 .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -124,7 +122,7 @@ fun LayerPanel(
                             tint = if (selected) Color.White else Morandi.icon,
                             modifier = Modifier
                                 .size(20.dp)
-                                .clickable { vm.toggleLayerVisible(idx) }
+                                .noRippleClickable { vm.toggleLayerVisible(idx) }
                         )
                         
                         // Thumbnail Placeholder
@@ -180,7 +178,7 @@ private fun IconAction(icon: androidx.compose.ui.graphics.vector.ImageVector, on
         modifier = Modifier
             .size(32.dp)
             .clip(RoundedCornerShape(6.dp))
-            .clickable { onClick() },
+            .noRippleClickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, contentDescription = null, tint = Morandi.text, modifier = Modifier.size(20.dp))

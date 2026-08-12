@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,8 +21,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -34,10 +45,12 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
+import com.reverie.paint.core.PaintViewModel
 
 @Composable
 fun ToolRail(
     modifier: Modifier = Modifier,
+    vm: PaintViewModel,
     tool: Tool,
     onTool: (Tool) -> Unit,
     moreToolsOpen: Boolean = false,
@@ -45,6 +58,8 @@ fun ToolRail(
     brushSize: Double,
     onBrushSize: (Double) -> Unit,
     opacity: Double,
+    popupOpacity: Float = 1f,
+    brushOpacity: Double,
     onOpacity: (Double) -> Unit,
     brushColor: String,
     onOpenBrush: () -> Unit,
@@ -53,84 +68,139 @@ fun ToolRail(
     val mainTools = listOf(Tool.BRUSH, Tool.HAND, Tool.ERASER, Tool.PICKER, Tool.FILL)
     val moreTools = Tool.entries.filter { it !in mainTools }
 
+    var tooltipTool by remember { mutableStateOf<Tool?>(null) }
+    LaunchedEffect(tooltipTool) {
+        if (tooltipTool != null) {
+            delay(1500)
+            tooltipTool = null
+        }
+    }
+
     Box(modifier = modifier.fillMaxHeight().width(36.dp)) {
         Column(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(36.dp)
-                .background(
-                    color = Morandi.panel
-                )
-                .padding(vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Bottom
         ) {
+            // Upper panel
             Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .width(36.dp)
+                    .weight(1f, fill = false)
+                    .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
+                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                    .padding(vertical = 4.dp)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 mainTools.forEach { t ->
-                    ReIconButton(toolIcon(t), t.label, { onTool(t) }, selected = t == tool)
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                        ReIconButton(
+                            toolIcon(t),
+                            t.label,
+                            modifier = Modifier.fillMaxWidth().height(32.dp),
+                            onTap = { 
+                                tooltipTool = t
+                                if (t == tool && t == Tool.BRUSH) onOpenBrush() 
+                                else onTool(t) 
+                            },
+                            selected = t == tool
+                        )
+                        if (tooltipTool == t) {
+                            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(110, 0)) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Morandi.panelHi)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(t.label, color = Morandi.text, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // More tools button
+                val isMoreToolsActive = moreToolsOpen || tool in moreTools
+                val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.accent else Morandi.icon, androidx.compose.animation.core.tween(200))
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .fillMaxWidth()
+                        .height(32.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (moreToolsOpen || tool in moreTools) Morandi.accent else Color.Transparent)
                         .clickable { onToggleMoreTools() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_layers), // Placeholder for 4-squares
                         contentDescription = "更多工具",
-                        tint = if (moreToolsOpen || tool in moreTools) Morandi.onAccent else Morandi.icon,
+                        tint = moreToolsTint,
                         modifier = Modifier.size(20.dp),
                     )
                 }
             }
-
-            Spacer(Modifier.weight(1f))
             
-            ReVerticalSlider(
-                label = "S",
-                fraction = ((brushSize - 1) / 99.0).toFloat().coerceIn(0f, 1f),
-                onFraction = { onBrushSize(1.0 + it * 99.0) },
-                trackHeight = 160
-            )
-            Spacer(Modifier.height(8.dp))
-            ReVerticalSlider(
-                label = "O",
-                fraction = opacity.toFloat(),
-                onFraction = { onOpacity(it.toDouble()) },
-                trackHeight = 160
-            )
-            Spacer(Modifier.height(12.dp))
-            Box(
-                modifier =
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(parseColor(brushColor))
-                        .border(2.dp, Morandi.panelHi, CircleShape)
+            Spacer(Modifier.height(48.dp))
+            
+            // Lower panel
+            Column(
+                modifier = Modifier
+                    .width(36.dp)
+                    .clip(RoundedCornerShape(topEnd = 16.dp)) // no bottom-right corner
+                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                    .padding(top = 4.dp, bottom = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
                         .clickable(onClick = onOpenColor),
-            )
-            Spacer(Modifier.height(8.dp))
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(parseColor(brushColor))
+                            .border(1.5.dp, Morandi.panelHi, CircleShape)
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                ReVerticalSlider(
+                    label = "S",
+                    fraction = ((brushSize - 1) / 99.0).toFloat().coerceIn(0f, 1f),
+                    onFraction = { onBrushSize(1.0 + it * 99.0) },
+                    trackHeight = 160
+                )
+                Spacer(Modifier.height(8.dp))
+                ReVerticalSlider(
+                    label = "O",
+                    fraction = brushOpacity.toFloat(),
+                    onFraction = { onOpacity(it.toDouble()) },
+                    trackHeight = 160
+                )
+            }
         }
 
         if (moreToolsOpen) {
             Popup(
                 alignment = Alignment.CenterStart,
-                offset = androidx.compose.ui.unit.IntOffset(160, 0) // offset from the rail
+                offset = androidx.compose.ui.unit.IntOffset(110, 0) // Moved closer
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(180.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
-                        .padding(12.dp)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = moreToolsOpen,
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInHorizontally(),
+                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutHorizontally()
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .width(180.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Morandi.panelHi.copy(alpha = popupOpacity))
+                            .border(1.dp, Morandi.border.copy(alpha = popupOpacity), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
                     Column {
                         val chunked = moreTools.chunked(2)
                         chunked.forEach { rowTools ->
@@ -166,7 +236,6 @@ fun ToolRail(
                         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
                         Spacer(Modifier.height(8.dp))
                         
-                        // Fake tools from the screenshot
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             FakeToolIcon("动画", R.drawable.ic_rect)
                             FakeToolIcon("导入", R.drawable.ic_rect)
@@ -180,6 +249,7 @@ fun ToolRail(
             }
         }
     }
+}
 }
 
 @Composable
