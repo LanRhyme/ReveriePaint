@@ -78,6 +78,8 @@ class PaintViewModel : ViewModel() {
 
     override fun onCleared() {
         renderThread?.quitSafely()
+        renderThread = null
+        renderHandler = null
         super.onCleared()
     }
 

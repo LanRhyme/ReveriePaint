@@ -441,6 +441,15 @@ static QPointF centripetalCatmullRom(const QPointF &p0, const QPointF &p1,
     const qreal t1 = t0 + std::sqrt(QLineF(p0, p1).length());
     const qreal t2 = t1 + std::sqrt(QLineF(p1, p2).length());
     const qreal t3 = t2 + std::sqrt(QLineF(p2, p3).length());
+    // Degenerate intervals: coincident control points (end segments use
+    // P0=P1 / P3=P2, and duplicate samples can occur at high zoom) make a
+    // parameter interval zero. The division then yields NaN dab positions,
+    // and Krita's bezier subdivider (getBezierCurvePoints) recurses forever
+    // on NaN -> stack overflow (SIGSEGV on arm64). Fall back to the plain
+    // linear point instead.
+    if (!(t1 > t0) || !(t2 > t1) || !(t3 > t2)) {
+        return (u < 0.5) ? p1 : p2;
+    }
     const qreal t = t1 + (t2 - t1) * u;
     const QPointF a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1;
     const QPointF a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2;
