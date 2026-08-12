@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.core.PaintViewModel
@@ -95,9 +96,11 @@ fun CanvasView(
                             }
                         var strokeStarted = false
                         var transformStarted = false
-                        // Pressure: stylus reports real force (0..1+). Raw
-                        // values can be noisy on touch screens, so smooth
-                        // with an EMA inside each stroke.
+                        // Pressure: only a stylus reports meaningful force.
+                        // Touch screens report arbitrary small values for
+                        // fingers, which would shrink strokes into dotted
+                        // lines - so fingers always paint at full width.
+                        val stylus = down.type == PointerType.Stylus
                         var smoothedPressure = 0.8f
                         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
                         var shapeEnd = Offset.Zero
@@ -253,16 +256,21 @@ fun CanvasView(
                                                 // Start at the finger-DOWN position (not the first
                                                 // move), so the stroke's beginning is not cut off
                                                 val downP = down.pressure.coerceIn(0f, 1f)
-                                                smoothedPressure = if (downP > 0f) downP else 0.8f
-                                                vm.touchStart(firstImage.x, firstImage.y, smoothedPressure.toDouble())
+                                                smoothedPressure = if (stylus && downP > 0f) downP else 0.8f
+                                                val startP = if (stylus) smoothedPressure.toDouble() else 1.0
+                                                vm.touchStart(firstImage.x, firstImage.y, startP)
                                                 strokeStarted = true
-                                                vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
+                                                vm.touchMove(imagePos.x, imagePos.y, startP)
                                             } else {
-                                                val rawP = point.pressure.coerceIn(0f, 1f)
-                                                if (rawP > 0f) {
-                                                    smoothedPressure = smoothedPressure * 0.6f + rawP * 0.4f
+                                                if (stylus) {
+                                                    val rawP = point.pressure.coerceIn(0f, 1f)
+                                                    if (rawP > 0f) {
+                                                        smoothedPressure = smoothedPressure * 0.6f + rawP * 0.4f
+                                                    }
+                                                    vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
+                                                } else {
+                                                    vm.touchMove(imagePos.x, imagePos.y, 1.0)
                                                 }
-                                                vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
                                             }
                                         }
                                     }
@@ -302,8 +310,7 @@ fun CanvasView(
                                 // still commits a single dab at the tap point
                                 mode == GestureMode.STROKE &&
                                     (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) -> {
-                                    val downP = down.pressure.coerceIn(0f, 1f)
-                                    vm.touchStart(firstImage.x, firstImage.y, if (downP > 0f) downP.toDouble() else 0.8)
+                                    vm.touchStart(firstImage.x, firstImage.y, if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0)
                                     vm.touchEnd()
                                 }
                             }

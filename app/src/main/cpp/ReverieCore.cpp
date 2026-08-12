@@ -516,8 +516,11 @@ void ReverieCore::flushStrokeBatch()
     // trailing single sample of a real stroke is NOT a dot.
     if (m_strokeSamples.size() == 1 && !m_strokeHadMove) {
         const QPointF p = m_strokeSamples.first().imgPos;
-        const qreal w = qMax<qreal>(1.0, m_brushSize
-                                         * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0));
+        // 15% brush-size floor: a light pressure must never shrink the dab
+        // below a visible dot (the old floor of 1px made light strokes
+        // disappear into dotted artifacts)
+        qreal w = m_brushSize * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0);
+        w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
         painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         m_strokeSamples.clear();
         markRegionDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
@@ -533,7 +536,6 @@ void ReverieCore::flushStrokeBatch()
     // brush-like edge - much closer to Krita's real strokes than straight
     // drawLine segments (which show sharp polyline corners, especially on
     // fast strokes with sparse touch events).
-    const qreal dabSpacing = qMax<qreal>(1.5, m_brushSize * 0.2);
     QRect strokeDirty;
     const auto addDab = [&](const QPointF &p, qreal w) {
         painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
@@ -543,7 +545,9 @@ void ReverieCore::flushStrokeBatch()
     };
     QPointF prev = m_strokeSamples.first().imgPos;
     qreal prevP = m_strokeSamples.first().pressure;
-    addDab(prev, qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, prevP, 1.0)));
+    qreal prevW = m_brushSize * qBound<qreal>(0.0, prevP, 1.0);
+    prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.15));
+    addDab(prev, prevW);
     // Catmull-Rom spline interpolation between samples: straight segments
     // between sparse touch samples make arcs look like polylines, so the
     // dab path follows a smooth curve through the samples instead (with
@@ -551,35 +555,49 @@ void ReverieCore::flushStrokeBatch()
     for (int i = 1; i < m_strokeSamples.size(); ++i) {
         const QPointF cur = m_strokeSamples[i].imgPos;
         const qreal curP = m_strokeSamples[i].pressure;
-        // End segments use P0=P1 / P3=P2 so the curve departs towards the
-        // neighbour sample instead of overshooting (mirror extension made
-        // stroke starts turn too sharply).
-        const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev;
+        // First/last segments mirror their missing neighbour. With a single
+        // trailing sample every flush is the degenerate first segment
+        // (P0==P1) which paints only its endpoints -> dotted strokes, so we
+        // keep TWO trailing samples AND mirror the ends; centripetal
+        // parameterisation has no overshoot, so mirrored ends stay smooth.
+        const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev + (prev - cur);
         const QPointF p1 = prev;
         const QPointF p2 = cur;
         const QPointF p3 = (i + 1 < m_strokeSamples.size()) ? m_strokeSamples[i + 1].imgPos
-                                                            : cur;
+                                                            : cur + (cur - prev);
         const qreal segLen = QLineF(prev, cur).length();
+        // Dab spacing is a fraction of the CURRENT width, not of the fixed
+        // brush size: pressure-shrunk strokes keep their dabs overlapping
+        // (a fixed spacing with a thin width produced dotted lines).
+        qreal segW = m_brushSize * qBound<qreal>(0.0, (prevP + curP) / 2.0, 1.0);
+        segW = qMax(segW, qMax<qreal>(1.0, m_brushSize * 0.15));
+        const qreal dabSpacing = qMax<qreal>(1.5, segW * 0.2);
         const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
         for (int j = 1; j <= n; ++j) {
             const qreal t = qreal(j) / n;
             const QPointF p = centripetalCatmullRom(p0, p1, p2, p3, t);
             const qreal pMid = prevP + (curP - prevP) * t;
-            const qreal width = qMax<qreal>(1.0, m_brushSize * qBound<qreal>(0.0, pMid, 1.0));
+            qreal width = m_brushSize * qBound<qreal>(0.0, pMid, 1.0);
+            width = qMax(width, qMax<qreal>(1.0, m_brushSize * 0.15));
             addDab(p, width);
         }
         prev = cur;
         prevP = curP;
     }
-    // Keep the last sample as the start of the next segment. The batch
-    // pattern is [trailing, new1, new2, ...]: each flush draws the new
-    // segments and the next flush continues the polyline. Clearing fully
-    // made every second flush a single-sample batch -> dotted strokes.
-    const StrokeSample trailing =
-        m_strokeSamples.isEmpty() ? StrokeSample() : m_strokeSamples.last();
+    // Keep the last TWO samples as the next segment's context. A single
+    // trailing sample made every flush a 2-sample batch whose only segment
+    // is the degenerate first segment (P0==P1) - it painted just its
+    // endpoints, producing dotted strokes with small brush widths.
+    QVector<StrokeSample> trailing;
+    if (m_strokeSamples.size() >= 2) {
+        trailing << m_strokeSamples.at(m_strokeSamples.size() - 2)
+                 << m_strokeSamples.last();
+    } else if (!m_strokeSamples.isEmpty()) {
+        trailing << m_strokeSamples.last();
+    }
     m_strokeSamples.clear();
-    if (!trailing.imgPos.isNull()) {
-        m_strokeSamples.append(trailing);
+    for (const StrokeSample &t : trailing) {
+        m_strokeSamples.append(t);
     }
 
     // Only the stroke's bounding region needs re-compositing
