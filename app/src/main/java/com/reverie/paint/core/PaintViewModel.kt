@@ -33,6 +33,8 @@ class PaintViewModel : ViewModel() {
     var brushColor by mutableStateOf("#262a30")
     var brushSecondaryColor by mutableStateOf("#ffffff")
     var brushOpacity by mutableStateOf(1.0)
+    var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
+    var brushPresetIndex by mutableStateOf(-1)
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
@@ -327,6 +329,45 @@ class PaintViewModel : ViewModel() {
 
     fun refreshDisplay() {
         scheduleRender(immediate = true)
+    }
+
+    fun loadBrushPresets() {
+        // Copy the bundled presets from assets to filesDir once
+        val dir = java.io.File(appContext.filesDir, "paintoppresets")
+        try {
+            if (!dir.exists()) dir.mkdirs()
+            val assets = appContext.assets
+            for (name in assets.list("paintoppresets") ?: emptyArray()) {
+                val target = java.io.File(dir, name)
+                if (!target.exists()) {
+                    assets.open("paintoppresets/$name").use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "preset copy failed", e)
+        }
+        runCore {
+            val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
+            val list = (0 until n).map { i ->
+                BrushPresetInfo(
+                    index = i,
+                    name = ReverieCoreBridge.brushPresetName(i),
+                    thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+                )
+            }
+            brushPresets = list
+        }
+    }
+
+    fun selectBrushPreset(index: Int) {
+        if (index == brushPresetIndex) return
+        runCore {
+            if (ReverieCoreBridge.loadBrushPreset(index)) {
+                brushPresetIndex = index
+            }
+        }
     }
 
     fun updateBrushSize(v: Double) {
@@ -728,3 +769,11 @@ class PaintViewModel : ViewModel() {
 }
 
 enum class Page { HOME, CREATE, PAINTING }
+
+
+/** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */
+data class BrushPresetInfo(
+    val index: Int,
+    val name: String,
+    val thumbBytes: ByteArray,
+)

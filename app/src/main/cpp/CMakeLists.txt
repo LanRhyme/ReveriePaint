@@ -42,6 +42,7 @@ set(KRITA_INCLUDES
     ${KRITA_BIN_DIR}/libs/version
     ${KRITA_BIN_DIR}/libs/metadata
     ${KRITA_BIN_DIR}/libs/libbrush
+    ${KRITA_BIN_DIR}/libs/brush
     ${KRITA_BIN_DIR}/libs/command
     ${KRITA_BIN_DIR}/libs/koplugin
     ${KRITA_BIN_DIR}/libs/color
@@ -56,6 +57,12 @@ set(KRITA_INCLUDES
     ${KRITA_SRC_DIR}/libs/flake/text
     ${KRITA_SRC_DIR}/libs/flake/tools
     ${KRITA_SRC_DIR}/libs/image/brushengine
+    ${KRITA_SRC_DIR}/plugins/paintops/libpaintop
+    ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops
+    ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops/brush
+    ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops/duplicate
+    ${KRITA_BIN_DIR}/plugins/paintops/libpaintop
+    ${KRITA_BIN_DIR}/plugins/paintops/defaultpaintops
     ${KRITA_SRC_DIR}/libs/image/filter
     ${KRITA_SRC_DIR}/libs/image/generator
     ${KRITA_SRC_DIR}/libs/image/layerstyles
@@ -129,6 +136,10 @@ set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritawidgets.so
     ${KRITA_BIN_DIR}/lib/libkritaresourcewidgets.so
     ${KRITA_BIN_DIR}/lib/libkritaflake.so
+    ${KRITA_BIN_DIR}/lib/libkritalibbrush.so
+    ${KRITA_BIN_DIR}/lib/libkritaui.so
+    ${KRITA_BIN_DIR}/lib/libkritalibpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritadefaultpaintops_static.a
 )
 
 add_library(reverie_jni SHARED
@@ -142,6 +153,13 @@ target_include_directories(reverie_jni PRIVATE
     ${QT_ANDROID_DIR}/include/QtCore
     ${QT_ANDROID_DIR}/include/QtGui
     ${QT_ANDROID_DIR}/include/QtWidgets
+    ${QT_ANDROID_DIR}/include/QtXml
+    ${QT_ANDROID_DIR}/include/QtNetwork
+    ${QT_ANDROID_DIR}/include/QtSvg
+    ${QT_ANDROID_DIR}/include/QtSql
+    ${QT_ANDROID_DIR}/include/QtOpenGL
+    ${QT_ANDROID_DIR}/include/QtConcurrent
+    ${QT_ANDROID_DIR}/include/QtCore5Compat
     ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
     ${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android
 )
@@ -158,6 +176,13 @@ target_link_directories(reverie_jni PRIVATE ${LINK_DIRS})
 target_link_libraries(reverie_jni
     ${KRITA_LIBS}
     ${QT_LIBS}
+    ${DEPS_DIR}/lib/libKF6I18n.so
+    ${DEPS_DIR}/lib/libKF6CoreAddons.so
+    ${DEPS_DIR}/lib/libKF6WidgetsAddons.so
+    ${DEPS_DIR}/lib/libKF6ItemViews.so
+    ${DEPS_DIR}/lib/libKF6Completion.so
+    ${DEPS_DIR}/lib/libKF6GuiAddons.so
+    ${DEPS_DIR}/lib/libKF6ConfigCore.so
     z
     log
     android

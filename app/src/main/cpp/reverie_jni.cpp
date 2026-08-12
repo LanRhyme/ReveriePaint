@@ -221,6 +221,52 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSize(JNIEnv *, jobject, jd
     core()->setBrushSize(size);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPresetsFromDir(JNIEnv *env, jobject, jstring dirPath)
+{
+    const char *p = env->GetStringUTFChars(dirPath, nullptr);
+    const int n = core()->loadBrushPresetsFromDir(QString::fromUtf8(p));
+    env->ReleaseStringUTFChars(dirPath, p);
+    return n;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPreset(JNIEnv *, jobject, jint index)
+{
+    return core()->loadBrushPreset(index);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetCount(JNIEnv *, jobject)
+{
+    return core()->brushPresetCount();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetName(JNIEnv *env, jobject, jint index)
+{
+    const QString name = core()->brushPresetName(index);
+    return env->NewStringUTF(name.toUtf8().constData());
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetThumbData(JNIEnv *env, jobject, jint index)
+{
+    const QByteArray data = core()->brushPresetThumbData(index);
+    jbyteArray arr = env->NewByteArray(data.size());
+    if (data.size() > 0) {
+        env->SetByteArrayRegion(arr, 0, data.size(),
+                                reinterpret_cast<const jbyte *>(data.constData()));
+    }
+    return arr;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_currentBrushPreset(JNIEnv *, jobject)
+{
+    return core()->currentBrushPreset();
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {

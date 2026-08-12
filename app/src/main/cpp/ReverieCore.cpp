@@ -9,6 +9,20 @@
 
 #include "ReverieCore.h"
 
+#include <QDir>
+#include <QFile>
+#include <QBuffer>
+
+#include <brushengine/kis_paintop_preset.h>
+#include <brushengine/kis_paintop_registry.h>
+#include <brushengine/kis_paint_information.h>
+#include <kis_distance_information.h>
+#include <KisLocalStrokeResources.h>
+#include <KisFakeRunnableStrokeJobsExecutor.h>
+#include <KisRunnableStrokeJobData.h>
+#include <kis_brush_based_paintop_settings.h>
+#include <kis_brushop.h>
+
 #include <QDebug>
 #include <algorithm>
 #include <QPainter>
@@ -1089,6 +1103,131 @@ KisPaintDeviceSP ReverieCore::currentPaintDevice()
     return layerPaintDeviceFor(entry);
 }
 
+// ---------------------------------------------------------------------------
+// Krita brush engine
+// ---------------------------------------------------------------------------
+
+extern "C" void krita_register_default_paintops();
+
+void ReverieCore::registerPaintOps()
+{
+    static bool done = false;
+    if (!done) {
+        // Implemented inside the cross-compiled kritadefaultpaintops_static
+        // library so the KisSimplePaintOpFactory vtable layout matches
+        // libkritaimage's view (instantiating the template in this module
+        // produced vtable misalignment and crashes).
+        krita_register_default_paintops();
+        done = true;
+    }
+}
+
+int ReverieCore::loadBrushPresetsFromDir(const QString &dirPath)
+{
+    registerPaintOps();
+    QDir dir(dirPath);
+    const QStringList kpps = dir.entryList(QStringList() << QStringLiteral("*.kpp"),
+                                           QDir::Files, QDir::Name);
+    m_presets.clear();
+    for (const QString &f : kpps) {
+        QString name = f;
+        name.chop(4);  // strip ".kpp"
+        m_presets.append(qMakePair(name, dir.filePath(f)));
+    }
+    return m_presets.size();
+}
+
+bool ReverieCore::loadBrushPreset(int index)
+{
+    if (index < 0 || index >= m_presets.size()) {
+        return false;
+    }
+    registerPaintOps();
+    const QString path = m_presets[index].second;
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+    KisResourcesInterfaceSP ri(new KisLocalStrokeResources());
+    KisPaintOpPresetSP preset(new KisPaintOpPreset(m_presets[index].first));
+    const bool ok = preset->loadFromDevice(&f, ri);
+    f.close();
+    if (!ok) {
+        return false;
+    }
+    m_brushPreset = preset;
+    m_brushResources = ri;
+    m_brushPresetIndex = index;
+    // Re-apply the user's current size / opacity / flow over the preset's
+    // own values (they are stored per preset and would otherwise override)
+    setBrushSize(m_brushSize);
+    setBrushOpacity(m_brushOpacity);
+    setBrushFlow(1.0);
+    return true;
+}
+
+int ReverieCore::brushPresetCount() const
+{
+    return m_presets.size();
+}
+
+QString ReverieCore::brushPresetName(int index) const
+{
+    if (index < 0 || index >= m_presets.size()) {
+        return QString();
+    }
+    return m_presets[index].first;
+}
+
+QString ReverieCore::brushPresetPath(int index) const
+{
+    if (index < 0 || index >= m_presets.size()) {
+        return QString();
+    }
+    return m_presets[index].second;
+}
+
+QByteArray ReverieCore::brushPresetThumbData(int index) const
+{
+    // The .kpp files ARE PNG thumbnails with an embedded "preset" zTXt chunk;
+    // return the raw bytes so the UI can decode them directly.
+    if (index < 0 || index >= m_presets.size()) {
+        return QByteArray();
+    }
+    QFile f(m_presets[index].second);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return QByteArray();
+    }
+    return f.readAll();
+}
+
+void ReverieCore::setBrushSize(qreal v)
+{
+    m_brushSize = v;
+    if (m_brushPreset && m_brushPreset->settings()) {
+        KisBrushBasedPaintOpSettings *bs =
+            dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
+        if (bs) {
+            bs->setPaintOpSize(v);
+        }
+    }
+}
+
+void ReverieCore::setBrushOpacity(qreal v)
+{
+    m_brushOpacity = v;
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpOpacity(v);
+    }
+}
+
+void ReverieCore::setBrushFlow(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpFlow(v);
+    }
+}
+
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
 {
     if (!m_document) {
@@ -1288,6 +1427,19 @@ void ReverieCore::flushStrokeBatch()
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
         }
+        // Real Krita brush engine: construct the brush op once per stroke
+        // and drive its async dab pipeline synchronously (the fake executor
+        // runs the rendering jobs inline, exactly like Krita's own tests).
+        if (m_brushPreset && m_strokePainter) {
+            m_strokePainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+            const int layerIndex = qBound(0, m_currentLayer, m_layers.size() - 1);
+            m_strokeOp = new KisBrushOp(m_brushPreset->settings(), m_strokePainter,
+                                        KisNodeSP(m_layers[layerIndex].node), image);
+            const QPointF start =
+                m_strokeSamples.isEmpty() ? m_strokeStartImg : m_strokeSamples.first().imgPos;
+            delete m_strokeDistance;
+            m_strokeDistance = new KisDistanceInformation(start, 0.0);
+        }
     }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();
@@ -1310,69 +1462,95 @@ void ReverieCore::flushStrokeBatch()
     // trailing single sample of a real stroke is NOT a dot.
     if (m_strokeSamples.size() == 1 && !m_strokeHadMove) {
         const QPointF p = m_strokeSamples.first().imgPos;
-        // 15% brush-size floor: a light pressure must never shrink the dab
-        // below a visible dot (the old floor of 1px made light strokes
-        // disappear into dotted artifacts)
-        qreal w = m_brushSize * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0);
-        w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
-        painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
+        const qreal pressure =
+            qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0);
+        if (m_brushPreset && m_strokeOp) {
+            // Krita dab for a genuine tap (paintAt = single dab at pos)
+            m_strokeOp->paintAt(KisPaintInformation(p, pressure), m_strokeDistance);
+            QVector<KisRunnableStrokeJobData *> jobs;
+            m_strokeOp->doAsynchronousUpdate(jobs);
+            for (auto *j : jobs) {
+                j->run();
+                delete j;
+            }
+        } else {
+            // 15% brush-size floor: a light pressure must never shrink the
+            // dab below a visible dot (the old floor of 1px made light
+            // strokes disappear into dotted artifacts)
+            qreal w = m_brushSize * pressure;
+            w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
+            painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
+        }
         m_strokeSamples.clear();
         return;
     }
 
-    // Krita-style round dabs: place overlapping circles along the stroke
-    // path (dab spacing ~20% of the brush diameter), each with the
-    // pressure-interpolated width. Overlapping circles produce a smooth
-    // brush-like edge - much closer to Krita's real strokes than straight
-    // drawLine segments (which show sharp polyline corners, especially on
-    // fast strokes with sparse touch events).
     QRect strokeDirty;
-    const auto addDab = [&](const QPointF &p, qreal w) {
-        painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
-        const QRect r(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
-                      2 * int(w) + 2, 2 * int(w) + 2);
-        strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
-    };
-    QPointF prev = m_strokeSamples.first().imgPos;
-    qreal prevP = m_strokeSamples.first().pressure;
-    qreal prevW = m_brushSize * qBound<qreal>(0.0, prevP, 1.0);
-    prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.15));
-    addDab(prev, prevW);
-    // Catmull-Rom spline interpolation between samples: straight segments
-    // between sparse touch samples make arcs look like polylines, so the
-    // dab path follows a smooth curve through the samples instead (with
-    // mirror-extended neighbours at the stroke ends).
-    for (int i = 1; i < m_strokeSamples.size(); ++i) {
-        const QPointF cur = m_strokeSamples[i].imgPos;
-        const qreal curP = m_strokeSamples[i].pressure;
-        // First/last segments mirror their missing neighbour. With a single
-        // trailing sample every flush is the degenerate first segment
-        // (P0==P1) which paints only its endpoints -> dotted strokes, so we
-        // keep TWO trailing samples AND mirror the ends; centripetal
-        // parameterisation has no overshoot, so mirrored ends stay smooth.
-        const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev + (prev - cur);
-        const QPointF p1 = prev;
-        const QPointF p2 = cur;
-        const QPointF p3 = (i + 1 < m_strokeSamples.size()) ? m_strokeSamples[i + 1].imgPos
-                                                            : cur + (cur - prev);
-        const qreal segLen = QLineF(prev, cur).length();
-        // Dab spacing is a fraction of the CURRENT width, not of the fixed
-        // brush size: pressure-shrunk strokes keep their dabs overlapping
-        // (a fixed spacing with a thin width produced dotted lines).
-        qreal segW = m_brushSize * qBound<qreal>(0.0, (prevP + curP) / 2.0, 1.0);
-        segW = qMax(segW, qMax<qreal>(1.0, m_brushSize * 0.15));
-        const qreal dabSpacing = qMax<qreal>(1.5, segW * 0.2);
-        const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
-        for (int j = 1; j <= n; ++j) {
-            const qreal t = qreal(j) / n;
-            const QPointF p = centripetalCatmullRom(p0, p1, p2, p3, t);
-            const qreal pMid = prevP + (curP - prevP) * t;
-            qreal width = m_brushSize * qBound<qreal>(0.0, pMid, 1.0);
-            width = qMax(width, qMax<qreal>(1.0, m_brushSize * 0.15));
-            addDab(p, width);
+    if (m_brushPreset && m_strokeOp) {
+        // ---- Real Krita brush engine ----
+        // Continuous paintLine through the samples (the op interpolates dabs
+        // along the path itself, with the real spacing/softness/flow of the
+        // preset). The async dab pipeline is driven synchronously: render
+        // jobs ran inline via the fake executor at enqueue time, and these
+        // update jobs bitBlt the finished dabs onto the target device.
+        for (int i = 1; i < m_strokeSamples.size(); ++i) {
+            const StrokeSample &a = m_strokeSamples[i - 1];
+            const StrokeSample &b = m_strokeSamples[i];
+            m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
+                                  KisPaintInformation(b.imgPos, b.pressure),
+                                  m_strokeDistance);
         }
-        prev = cur;
-        prevP = curP;
+        QVector<KisRunnableStrokeJobData *> jobs;
+        m_strokeOp->doAsynchronousUpdate(jobs);
+        for (auto *j : jobs) {
+            j->run();
+            delete j;
+        }
+        // Approximate dirty region: the exact dab rects live inside the op,
+        // so we conservatively mark the samples' neighbourhood.
+        for (const StrokeSample &sm : m_strokeSamples) {
+            const int w = int(m_brushSize) + 2;
+            const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
+                          2 * w, 2 * w);
+            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+        }
+    } else {
+        // ---- Fallback: classic round-dab loop (no preset loaded) ----
+        const auto addDab = [&](const QPointF &p, qreal w) {
+            painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
+            const QRect r(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
+                          2 * int(w) + 2, 2 * int(w) + 2);
+            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+        };
+        QPointF prev = m_strokeSamples.first().imgPos;
+        qreal prevP = m_strokeSamples.first().pressure;
+        qreal prevW = m_brushSize * qBound<qreal>(0.0, prevP, 1.0);
+        prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.15));
+        addDab(prev, prevW);
+        for (int i = 1; i < m_strokeSamples.size(); ++i) {
+            const QPointF cur = m_strokeSamples[i].imgPos;
+            const qreal curP = m_strokeSamples[i].pressure;
+            const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev + (prev - cur);
+            const QPointF p1 = prev;
+            const QPointF p2 = cur;
+            const QPointF p3 = (i + 1 < m_strokeSamples.size()) ? m_strokeSamples[i + 1].imgPos
+                                                                : cur + (cur - prev);
+            const qreal segLen = QLineF(prev, cur).length();
+            qreal segW = m_brushSize * qBound<qreal>(0.0, (prevP + curP) / 2.0, 1.0);
+            segW = qMax(segW, qMax<qreal>(1.0, m_brushSize * 0.15));
+            const qreal dabSpacing = qMax<qreal>(1.5, segW * 0.2);
+            const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
+            for (int j = 1; j <= n; ++j) {
+                const qreal t = qreal(j) / n;
+                const QPointF p = centripetalCatmullRom(p0, p1, p2, p3, t);
+                const qreal pMid = prevP + (curP - prevP) * t;
+                qreal width = m_brushSize * qBound<qreal>(0.0, pMid, 1.0);
+                width = qMax(width, qMax<qreal>(1.0, m_brushSize * 0.15));
+                addDab(p, width);
+            }
+            prev = cur;
+            prevP = curP;
+        }
     }
     // Keep the last TWO samples as the next segment's context. A single
     // trailing sample made every flush a 2-sample batch whose only segment
@@ -1487,6 +1665,11 @@ void ReverieCore::endStrokeBatch()
     delete m_strokePainter;
     m_strokePainter = nullptr;
     m_strokeDevice = nullptr;
+    // The brush op pins the painter's device; drop it first, then the
+    // distance accumulator.
+    m_strokeOp = nullptr;
+    delete m_strokeDistance;
+    m_strokeDistance = nullptr;
 }
 
 // ---------------------------------------------------------------------------

@@ -19,10 +19,13 @@
 #include <QString>
 
 #include <kis_types.h>
+#include <KisResourcesInterface.h>
+#include <KisFakeRunnableStrokeJobsExecutor.h>
 
 class KisImage;
 class KisPaintLayer;
 class KisPainter;
+class KisDistanceInformation;
 
 class ReverieCore
 {
@@ -131,11 +134,11 @@ public:
     void liquify(int fx, int fy, int tx, int ty);
 
     // Brush
-    void setBrushSize(qreal size) { m_brushSize = size; }
+    void setBrushSize(qreal size);
     qreal brushSize() const { return m_brushSize; }
     void setBrushColor(const QColor &c) { m_brushColor = c; }
     void setBrushColorName(const QString &colorName);
-    void setBrushOpacity(qreal opacity) { m_brushOpacity = opacity; }
+    void setBrushOpacity(qreal opacity);
     qreal brushOpacity() const { return m_brushOpacity; }
     QColor brushColor() const { return m_brushColor; }
 
@@ -156,6 +159,22 @@ public:
     void touchStrokeMove(qreal x, qreal y, qreal pressure);
     void touchStrokeEnd();
     void touchStrokeCancel();
+
+    // ---- Krita brush engine (KisPaintOpPreset / KisBrushOp) ----
+    // Registers the bundled Krita paintop factories (must be called once
+    // before any preset is used). Implemented in register_paintops.cpp
+    // inside the cross-compiled kritadefaultpaintops_static library so the
+    // factory vtables match libkritaimage's view.
+    static void registerPaintOps();
+    // Scans a directory for .kpp presets and loads them lazily
+    int loadBrushPresetsFromDir(const QString &dirPath);
+    bool loadBrushPreset(int index);
+    int brushPresetCount() const;
+    QString brushPresetName(int index) const;
+    QString brushPresetPath(int index) const;
+    QByteArray brushPresetThumbData(int index) const;
+    void setBrushFlow(qreal v);
+    int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
     // with the composited document. Returns true on success.
@@ -218,6 +237,18 @@ private:
     QColor m_brushColor = Qt::black;
     qreal m_brushOpacity = 1.0;
     ToolMode m_toolMode = ToolBrush;
+
+    // Krita brush engine state
+    KisPaintOpPresetSP m_brushPreset;
+    KisResourcesInterfaceSP m_brushResources;
+    QVector<QPair<QString, QString>> m_presets;  // name -> path
+    int m_brushPresetIndex = -1;
+    // In-progress stroke op + distance accumulator (lives across flushes)
+    KisPaintOpSP m_strokeOp;
+    KisDistanceInformation *m_strokeDistance = nullptr;
+    // Synchronous executor for the async dab-rendering pipeline (Krita uses
+    // this in its own tests; on-device it keeps dab rendering deterministic)
+    KisFakeRunnableStrokeJobsExecutor m_fakeExecutor;
 
     // Stroke batching
     QVector<StrokeSample> m_strokeSamples;

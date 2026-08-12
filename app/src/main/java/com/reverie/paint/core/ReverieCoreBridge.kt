@@ -128,6 +128,18 @@ object ReverieCoreBridge {
 
     external fun setBrushOpacity(opacity: Double)
 
+    external fun loadBrushPresetsFromDir(dirPath: String): Int
+
+    external fun loadBrushPreset(index: Int): Boolean
+
+    external fun brushPresetCount(): Int
+
+    external fun brushPresetName(index: Int): String
+
+    external fun brushPresetThumbData(index: Int): ByteArray
+
+    external fun currentBrushPreset(): Int
+
 
     external fun touchStrokeStart(
         x: Double,

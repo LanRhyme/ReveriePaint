@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
             vm.appContext = applicationContext
             vm.updateColorPickerMode(applicationContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).getString("colorPickerMode", "SQUARE") ?: "SQUARE")
             vm.refreshProjects()
+            vm.loadBrushPresets()
             ReverieApp(vm)
         }
     }
