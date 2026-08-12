@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -166,6 +168,9 @@ private fun RailSlider(
     onFraction: (Float) -> Unit,
 ) {
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
+    // position.y from drag gestures is in pixels; trackHeight must be the
+    // on-screen pixel height of the track, not the dp value
+    var trackHeight by remember { mutableIntStateOf(1) }
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.height(120.dp)) {
         Text(label, color = Morandi.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
         Box(
@@ -175,9 +180,10 @@ private fun RailSlider(
                     .height(96.dp)
                     .clip(RoundedCornerShape(13.dp))
                     .background(Morandi.panelHi)
+                    .onSizeChanged { trackHeight = it.height }
                     .pointerInput(Unit) {
                         detectDragGestures { change, _ ->
-                            val value = 1f - (change.position.y / 96f).coerceIn(0f, 1f)
+                            val value = 1f - (change.position.y / trackHeight.toFloat()).coerceIn(0f, 1f)
                             localFraction = value
                             onFraction(value)
                             change.consume()

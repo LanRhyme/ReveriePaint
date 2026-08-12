@@ -432,13 +432,20 @@ void ReverieCore::flushStrokeBatch()
                                          * qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0));
         painter.drawLine(p, p, w, true);
         m_strokeSamples.clear();
-        markDirty();
+        markRegionDirty(QRect(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
+                              2 * int(w) + 2, 2 * int(w) + 2));
         return;
     }
 
     // Subdivide each segment at ~brush-spacing resolution so pressure
     // ramps smoothly (Krita's KisDistanceInformation behaviour)
     const qreal subSpacing = qMax<qreal>(2.0, m_brushSize * 0.5);
+    QRect strokeDirty;
+    const auto addSegment = [&](const QPointF &a, const QPointF &b, qreal w) {
+        const QRect seg(QPoint(int(a.x()) - int(w) - 1, int(a.y()) - int(w) - 1),
+                        QPoint(int(b.x()) + int(w) + 1, int(b.y()) + int(w) + 1));
+        strokeDirty = strokeDirty.isNull() ? seg : strokeDirty.united(seg);
+    };
     QPointF prev = m_strokeSamples.first().imgPos;
     qreal prevP = m_strokeSamples.first().pressure;
     for (int i = 1; i < m_strokeSamples.size(); ++i) {
@@ -462,12 +469,18 @@ void ReverieCore::flushStrokeBatch()
             // the antialiased edge. For a softer look we could render dabs
             // via QRadialGradient into the device - deferred.
             painter.drawLine(a, b, width, true);
+            addSegment(a, b, width);
         }
         prev = cur;
         prevP = curP;
     }
     m_strokeSamples.clear();
-    markDirty();
+    // Only the stroke's bounding region needs re-compositing
+    if (!strokeDirty.isNull()) {
+        markRegionDirty(strokeDirty);
+    } else {
+        markDirty();
+    }
 }
 
 void ReverieCore::endStrokeBatch()
@@ -593,25 +606,40 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     if (!image || !buffer) {
         return false;
     }
-    // Cache the composited full-res image; re-composite only when the
-    // projection extent (content bounds) or document size changed. This
-    // avoids re-scanning every layer on every frame during a stroke.
-    if (m_renderCache.isNull() || m_renderDirty) {
-        m_renderCache = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
-        m_renderDirty = false;
+    const int iw = image->width();
+    const int ih = image->height();
+    if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
+        // New document (or resized): full redraw
+        m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);
+        m_dirtyRect = QRect(0, 0, iw, ih);
     }
-    if (m_renderCache.isNull()) {
-        return false;
+
+    // Re-composite only the dirty region. Krita's projection recomputes
+    // exactly the tiles that changed, so a stroke costs a small convertToQImage
+    // instead of a full-document pass every frame.
+    if (!m_dirtyRect.isEmpty()) {
+        const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
+        if (!r.isEmpty()) {
+            const QImage comp = image->convertToQImage(r.x(), r.y(), r.width(), r.height(), nullptr);
+            if (!comp.isNull()) {
+                const QImage conv = comp.convertToFormat(QImage::Format_RGBA8888);
+                for (int y = 0; y < conv.height() && (r.y() + y) < ih; ++y) {
+                    memcpy(m_displayImage.scanLine(r.y() + y) + r.x() * 4,
+                           conv.constScanLine(y), size_t(conv.width()) * 4);
+                }
+            }
+        }
+        m_dirtyRect = QRect();
     }
-    QImage target(m_renderCache);
-    if (target.width() != w || target.height() != h) {
-        target = target.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+
+    // Full copy into the Android bitmap buffer (a straight ~8MB memcpy;
+    // the compositing itself was already done regionally above)
+    if (w == iw && h == ih) {
+        memcpy(buffer, m_displayImage.constBits(), size_t(iw) * ih * 4);
+    } else {
+        const QImage scaled = m_displayImage.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        memcpy(buffer, scaled.constBits(), size_t(w) * h * 4);
     }
-    const QImage conv = target.convertToFormat(QImage::Format_RGBA8888);
-    if (conv.size() != QSize(w, h)) {
-        return false;
-    }
-    memcpy(buffer, conv.constBits(), size_t(w) * h * 4);
     return true;
 }
 

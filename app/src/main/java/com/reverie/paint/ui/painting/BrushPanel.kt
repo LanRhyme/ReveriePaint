@@ -1,5 +1,6 @@
 package com.reverie.paint.ui.painting
 
+import com.reverie.paint.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,7 +64,7 @@ fun BrushPanel(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("笔刷", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.weight(1f))
-                IconBtn("✕", "关闭", onClose)
+                IconBtn(R.drawable.ic_x, "关闭", onClose)
             }
 
             Spacer(Modifier.height(10.dp))
@@ -73,11 +74,6 @@ fun BrushPanel(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((i, p) in BrushPresets.withIndex()) {
-                        if (i % 3 == 0) Spacer(Modifier.width(0.dp))
-                    }
-                }
                 // Simpler: grid of presets, 3 per row
                 BrushPresets.chunked(3).forEach { row ->
                     Row(

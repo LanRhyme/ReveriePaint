@@ -155,8 +155,13 @@ fun CanvasView(
                                     prevDistance = distance
                                     prevAngle = angle
                                 } else {
-                                    val k = (distance / prevDistance).coerceAtLeast(0.1f)
-                                    val dRot = normalizeAngle(angle - prevAngle)
+                                    // Clamp per-event deltas: a freshly landed
+                                    // second finger makes prevDistance tiny and
+                                    // would otherwise explode the zoom; a fast
+                                    // rotation should never jump more than 15 deg
+                                    // per event
+                                    val k = (distance / prevDistance).coerceIn(0.5f, 2f)
+                                    val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
                                     val dPanX = centroid.x - prevCentroid.x
                                     val dPanY = centroid.y - prevCentroid.y
 

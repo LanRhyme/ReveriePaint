@@ -17,7 +17,7 @@ class PaintViewModel : ViewModel() {
 
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
-    var docName by mutableStateOf("画布")
+    var docName by mutableStateOf("Untitled")
 
     // Brush state
     var brushSize by mutableStateOf(20.0)
@@ -106,7 +106,7 @@ class PaintViewModel : ViewModel() {
         if (ReverieCoreBridge.newDocument(w, h)) {
             docWidth = w
             docHeight = h
-            docName = "画布"
+            docName = "Untitled"
             currentPage = Page.PAINTING
             refreshDisplay()
         }

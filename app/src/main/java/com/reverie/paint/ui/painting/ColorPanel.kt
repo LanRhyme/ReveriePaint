@@ -1,5 +1,6 @@
 package com.reverie.paint.ui.painting
 
+import com.reverie.paint.R
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -95,7 +96,7 @@ fun ColorPanel(
                 Spacer(Modifier.width(8.dp))
                 Text(currentHex, color = Morandi.subText, fontSize = 11.sp)
                 Spacer(Modifier.weight(1f))
-                IconBtn("✕", "关闭", onClose)
+                IconBtn(R.drawable.ic_x, "关闭", onClose)
             }
 
             Spacer(Modifier.height(12.dp))

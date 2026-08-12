@@ -122,10 +122,6 @@ private:
     void appendStrokeSample(const QPointF &imgPos, qreal pressure);
     void flushStrokeBatch();
     void endStrokeBatch();
-    void markDirty() {
-        m_renderDirty = true;
-        if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
-    }
 
     struct StrokeSample {
         QPointF imgPos;
@@ -163,9 +159,19 @@ private:
     int m_docWidth = 0;
     int m_docHeight = 0;
 
-    // Render cache: the last composited document, reused when nothing changed
-    QImage m_renderCache;
-    bool m_renderDirty = true;
+    // Render cache: the full-document display image (RGBA8888) plus the
+    // dirty region that still needs re-compositing. Krita's projection
+    // recomputes only the tiles that changed; we re-run convertToQImage on
+    // the dirty region only and copy the rest from the cached image.
+    QImage m_displayImage;
+    QRect m_dirtyRect;
+    void markDirty() {
+        markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    }
+    void markRegionDirty(const QRect &r) {
+        m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
+        if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
+    }
 
     // Undo/redo snapshot stacks (serialized layer bytes per stroke)
     QVector<QByteArray> m_undoStack;

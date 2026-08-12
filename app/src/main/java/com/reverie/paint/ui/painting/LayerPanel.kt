@@ -1,5 +1,6 @@
 package com.reverie.paint.ui.painting
 
+import com.reverie.paint.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -67,7 +68,7 @@ fun LayerPanel(
                 Spacer(Modifier.width(8.dp))
                 Text("${vm.layerCount} 层", color = Morandi.subText, fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
-                IconBtn("✕", "关闭", onClose)
+                IconBtn(R.drawable.ic_x, "关闭", onClose)
             }
 
             Spacer(Modifier.height(8.dp))

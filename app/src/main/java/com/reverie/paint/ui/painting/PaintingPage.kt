@@ -227,25 +227,6 @@ fun PaintingPage(vm: PaintViewModel) {
     }
 }
 
-/** Coordinate conversion: widget -> document space (accounts for pan/zoom/rotation). */
-fun widgetToImage(
-    p: Offset,
-    canvasW: Int,
-    canvasH: Int,
-    panX: Float,
-    panY: Float,
-    zoom: Float,
-    fitScale: Float,
-    docW: Int,
-    docH: Int,
-): Offset {
-    val scale = zoom * fitScale
-    // widget center is the image center (before rotation)
-    val dx = p.x - panX - canvasW / 2f
-    val dy = p.y - panY - canvasH / 2f
-    return Offset(dx / scale + docW / 2f, dy / scale + docH / 2f)
-}
-
 /** Text input dialog for the text tool (MVP). */
 @Composable
 fun TextInputDialog(
