@@ -810,12 +810,38 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
         }
         parent = aboveNode->parent() ? aboveNode->parent() : m_document->root();
     } else {
-        // aboveIndex == -1: move to the very top of the root
+        // aboveIndex == -1: move to the very top of the root.
+        // moveNode's newIndex semantics are relative to the PRE-removal tree,
+        // so it cannot express "land at index childCount"; remove + add to the
+        // end instead (addNode(node, parent) appends at the visual top).
         parent = m_document->root();
         aboveNode = parent->lastChild();
         if (aboveNode == node) {
             return true;  // already at the top
         }
+        if (src.isGroup) {
+            KisNodeSP p = node->parent();
+            while (p) {
+                if (p == node) {
+                    return false;
+                }
+                p = p->parent();
+            }
+        }
+        KisNodeSP oldParent = node->parent();
+        int oldIndex = oldParent ? oldParent->index(node) : -1;
+        if (!m_document->removeNode(node)) {
+            return false;
+        }
+        if (!m_document->addNode(node, parent)) {
+            Q_UNUSED(oldParent);
+            Q_UNUSED(oldIndex);
+            return false;
+        }
+        syncLayersFromImage();
+        recompositeProjection();
+        markDirty();
+        return true;
     }
     if (parent == node) {
         return false;  // cannot move a group into its own subtree

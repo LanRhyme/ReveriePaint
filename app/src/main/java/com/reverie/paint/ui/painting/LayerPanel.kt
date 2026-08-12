@@ -303,9 +303,12 @@ private fun LayerListView(
     fun updateDragPos(fingerY: Float) {
         dragFingerY = fingerY
         // Math-mapped target: rows are fixed-height, so the insert index is
-        // (fingerY - listTop) / rowHeight. No dependency on the re-shuffled
-        // rowBounds, so the parting animation and the drop land at the same spot.
-        var target = ((fingerY - columnTop) / rowPx).toInt().coerceIn(0, displayList.size - 1)
+        // (fingerY - listTop) / rowHeight, ROUNDED to the nearest row boundary
+        // (finger in the top half of a row = insert before it, bottom half =
+        // insert after it). The parting animation and the drop use the same
+        // index, so what the user sees is where it lands.
+        val rowPos = (fingerY - columnTop) / rowPx
+        var target = rowPos.roundToInt().coerceIn(0, displayList.size - 1)
         // Background protection: never below the background row (index 0)
         val bgVisual = displayList.indexOfFirst { it.index == 0 }
         if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
@@ -482,7 +485,12 @@ private fun LayerListView(
                     Box(
                         modifier =
                             Modifier
-                                .offset { IntOffset(0, (dragFingerY - listTop - rowPx / 2f).roundToInt()) }
+                                // Snapped to the drop slot (what the parting
+                                // animation shows) so the floating row is
+                                // exactly where it will land
+                                .offset {
+                                    IntOffset(0, (columnTop + dragTargetIdx * rowPx - listTop).roundToInt())
+                                }
                                 .fillMaxWidth()
                                 .height(rowHeight)
                                 .graphicsLayer {
@@ -626,6 +634,7 @@ private fun LayerRow(
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
                         .width(drawerWidth)
+                        .zIndex(2f)
                         .clip(RoundedCornerShape(8.dp)),
             ) {
                 Row(modifier = Modifier.fillMaxSize()) {
@@ -670,9 +679,8 @@ private fun LayerRow(
                             label = "rowBg",
                         ).value,
                     )
-                    // slide left while the drawer is revealed (boolean, not the
-                    // animation value - the fade must never gate visibility)
-                    .offset { IntOffset(if (reveal) -drawerPx else 0, 0) }
+                    // slide left while the drawer is revealed (animated)
+                    .offset { IntOffset(-(drawerPx * revealFraction).roundToInt(), 0) }
                     // while dragging: dim the in-list row (the floating copy in
                     // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
