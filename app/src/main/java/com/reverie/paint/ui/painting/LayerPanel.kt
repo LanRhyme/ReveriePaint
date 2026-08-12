@@ -17,7 +17,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -26,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -251,7 +251,9 @@ private fun LayerListView(
                     }
                 }
             }
-            buildList { collectBlock(0, n, 0, this) }
+            // C++ walk(root, 0) gives root children depth=0, so top-level
+            // siblings match parentDepth -1
+            buildList { collectBlock(0, n, -1, this) }
         }
 
     fun endDrag() {
@@ -432,8 +434,8 @@ private fun LayerRow(
             modifier =
                 Modifier
                     .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
                     .width(drawerWidth)
-                    .fillMaxSize()
                     .clip(RoundedCornerShape(8.dp)),
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -471,54 +473,71 @@ private fun LayerRow(
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val startX = down.position.x
-                            android.util.Log.d("LayerPanel", "gesture down idx=$index at $startX")
-                            val lp = awaitLongPressOrCancellation(down.id)
-                            if (lp != null) {
-                                android.util.Log.d("LayerPanel", "gesture LONGPRESS idx=$index")
-                                onDragStart()
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                    if (change == null || change.changedToUpIgnoreConsumed()) break
+                            val startY = down.position.y
+                            val downT = down.uptimeMillis
+                            val longSlop = viewConfiguration.touchSlop * 1.5f
+                            val longSlopSq = longSlop * longSlop
+                            val thr = dragThresholdPx.toFloat()
+                            var dragActive = false
+                            var total = 0f
+                            var prevX = startX
+                            var maxMoveSq = 0f
+                            var tapOk = false
+                            var done = false
+                            // Full event loop: tap, swipe and long-press drag are
+                            // decided here without awaitLongPressOrCancellation
+                            // (which swallows the UP event and eats single taps)
+                            while (!done) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null) break
+                                val dx = change.position.x - startX
+                                val dy = change.position.y - startY
+                                val movedSq = dx * dx + dy * dy
+                                val elapsed = change.uptimeMillis - downT
+                                if (change.changedToUpIgnoreConsumed()) {
+                                    if (dragActive) {
+                                        onDragEnd()
+                                    } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
+                                        // long-press released without dragging: no-op
+                                    } else if (maxMoveSq <= longSlopSq) {
+                                        tapOk = true
+                                    }
+                                    done = true
+                                } else if (dragActive) {
                                     change.consume()
                                     onDragPosition(rowTop + change.position.y)
-                                }
-                                onDragEnd()
-                            } else {
-                                var swiping = false
-                                var total = 0f
-                                var prevX = startX
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id }
-                                    if (change == null || change.changedToUpIgnoreConsumed()) {
-                                        val tap = !swiping || (total > -dragThresholdPx.toFloat() && total < dragThresholdPx.toFloat())
-                                        android.util.Log.d("LayerPanel", "gesture UP idx=$index swiping=$swiping total=$total tap=$tap")
-                                        if (tap) onClick()
-                                        break
+                                } else if (elapsed >= viewConfiguration.longPressTimeoutMillis && maxMoveSq <= longSlopSq) {
+                                    // long press fired -> drag starts here
+                                    dragActive = true
+                                    onDragStart()
+                                    change.consume()
+                                    onDragPosition(rowTop + change.position.y)
+                                } else if (movedSq > longSlopSq) {
+                                    // swipe (drawer) while not long-pressing
+                                    total += change.position.x - prevX
+                                    prevX = change.position.x
+                                    if (total < -thr) {
+                                        reveal = true
+                                    } else if (total > thr) {
+                                        reveal = false
                                     }
-                                    val dx = change.position.x - startX
-                                    if (!swiping && (dx > viewConfiguration.touchSlop || dx < -viewConfiguration.touchSlop)) {
-                                        swiping = true
-                                    }
-                                    if (swiping) {
-                                        change.consume()
-                                        total += change.position.x - prevX
-                                        prevX = change.position.x
-                                        if (total < -dragThresholdPx.toFloat()) {
-                                            reveal = true
-                                        } else if (total > dragThresholdPx.toFloat()) {
-                                            reveal = false
-                                        }
-                                    }
+                                    change.consume()
+                                    if (movedSq > maxMoveSq) maxMoveSq = movedSq
+                                } else {
+                                    if (movedSq > maxMoveSq) maxMoveSq = movedSq
                                 }
                             }
+                            if (tapOk) onClick()
                         }
                     }
                     .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // Group indent: whole row content shifts right for nested layers
+            Spacer(Modifier.width((layer.depth * 16).dp))
+
             // Collapse arrow for groups (toggle, does not select)
             if (layer.isGroup) {
                 Box(
@@ -569,8 +588,6 @@ private fun LayerRow(
                     )
                 }
             }
-            // Group indent
-            Spacer(Modifier.width((layer.depth * 14).dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     text = layer.name,
