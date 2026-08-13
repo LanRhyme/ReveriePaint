@@ -1915,28 +1915,8 @@ void ReverieCore::flushStrokeBatch()
     }
     if (m_selection) {
         m_strokePainter->setSelection(m_selection);
-        {
-            // Diagnose: sample the selection mask to see whether it actually
-            // covers the stroke area (a full-255 mask = constraint disabled)
-            KisPixelSelectionSP ps = m_selection->pixelSelection();
-            const int iw = image->width();
-            const int ih = image->height();
-            QVector<quint8> row(size_t(iw), 0);
-            int nonzero = 0, total = 0;
-            const int stepY = qMax(1, ih / 20);
-            const int stepX = qMax(1, iw / 20);
-            for (int yy = 0; yy < ih; yy += stepY) {
-                ps->readBytes(row.data(), 0, yy, iw, 1);
-                for (int xx = 0; xx < iw; xx += stepX) {
-                    if (row[xx] > 0) ++nonzero;
-                    ++total;
-                }
-            }
-            RPC_LOG("RPC selDiag maskNonzero=%d/%d iw=%d ih=%d", nonzero, total, iw, ih);
-        }
     } else {
         m_strokePainter->setSelection(KisSelectionSP());
-        RPC_LOG("RPC selCon straint=0");
     }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();

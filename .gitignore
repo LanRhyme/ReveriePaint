@@ -7,3 +7,4 @@ local.properties
 .idea/
 *.hprof
 app/.cxx/
+app/src/main/jniLibs/
