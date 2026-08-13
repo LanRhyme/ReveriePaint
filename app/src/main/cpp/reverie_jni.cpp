@@ -479,10 +479,10 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobjec
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_pickColorAt(JNIEnv *env, jobject, jint x, jint y)
+Java_com_reverie_paint_core_ReverieCoreBridge_pickColorAt(JNIEnv *env, jobject, jint x, jint y, jboolean currentLayerOnly)
 {
-    const QString c = core()->pickColorAt(x, y);
-    return env->NewStringUTF(c.toUtf8().constData());
+    const QString c = core()->pickColorAt(x, y, currentLayerOnly);
+    return c.isEmpty() ? nullptr : env->NewStringUTF(c.toUtf8().constData());
 }
 
 JNIEXPORT jboolean JNICALL

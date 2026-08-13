@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -94,13 +95,17 @@ fun BrushPanel(
         initialFirstVisibleItemScrollOffset = vm.brushPresetScrollOffset
     )
 
+    LaunchedEffect(selectedCategory) {
+        vm.updateBrushPanelCategory(selectedCategory)
+        vm.brushPanelDetailIndex = null
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             vm.brushCategoryScrollIndex = categoryScrollState.firstVisibleItemIndex
             vm.brushCategoryScrollOffset = categoryScrollState.firstVisibleItemScrollOffset
             vm.brushPresetScrollIndex = presetScrollState.firstVisibleItemIndex
             vm.brushPresetScrollOffset = presetScrollState.firstVisibleItemScrollOffset
-            vm.brushPanelSelectedCategory = selectedCategory
             vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
         }
     }

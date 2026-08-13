@@ -6,6 +6,8 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -30,7 +32,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.painterResource
+import com.reverie.paint.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -180,8 +186,20 @@ fun PaintingPage(vm: PaintViewModel) {
                 zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
                 flashIndicator()
             },
-            onLayers = { layerPanelOpen = true },
-            onSettings = { settingsPanelOpen = true },
+            onLayers = {
+                layerPanelOpen = true
+                brushPanelOpen = false
+                settingsPanelOpen = false
+                colorPanelOpen = false
+                moreToolsOpen = false
+            },
+            onSettings = {
+                settingsPanelOpen = true
+                layerPanelOpen = false
+                brushPanelOpen = false
+                colorPanelOpen = false
+                moreToolsOpen = false
+            },
         )
 
         // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
@@ -236,15 +254,33 @@ fun PaintingPage(vm: PaintViewModel) {
                 moreToolsOpen = false
             },
             moreToolsOpen = moreToolsOpen,
-            onToggleMoreTools = { moreToolsOpen = !moreToolsOpen },
+            onToggleMoreTools = {
+                brushPanelOpen = false
+                colorPanelOpen = false
+                layerPanelOpen = false
+                settingsPanelOpen = false
+                moreToolsOpen = !moreToolsOpen
+            },
             brushSize = vm.brushSize,
             onBrushSize = { vm.updateBrushSize(it) },
             popupOpacity = vm.popupPanelOpacity,
             brushOpacity = vm.brushOpacity,
             onOpacity = { vm.updateBrushOpacity(it) },
             brushColor = vm.brushColor,
-            onOpenBrush = { brushPanelOpen = true },
-            onOpenColor = { colorPanelOpen = true },
+            onOpenBrush = {
+                brushPanelOpen = true
+                colorPanelOpen = false
+                layerPanelOpen = false
+                settingsPanelOpen = false
+                moreToolsOpen = false
+            },
+            onOpenColor = {
+                colorPanelOpen = true
+                brushPanelOpen = false
+                layerPanelOpen = false
+                settingsPanelOpen = false
+                moreToolsOpen = false
+            },
         )
 
         // ---- Floating selection panel (Krita tool-options style) ----
@@ -283,6 +319,96 @@ fun PaintingPage(vm: PaintViewModel) {
                     selectionPanelOffsetY += dy
                 }
             )
+        }
+
+        // ---- Floating Color Picker layer-source bar (PaintWorld style) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.PICKER,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(200)
+                ) +
+                    androidx.compose.animation.slideInVertically(
+                        androidx.compose.animation.core.tween(200),
+                        initialOffsetY = { it / 2 }
+                    ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core.tween(200)
+                ) +
+                    androidx.compose.animation.slideOutVertically(
+                        androidx.compose.animation.core.tween(200),
+                        targetOffsetY = { it / 2 }
+                    )
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Morandi.panel.copy(alpha = 0.94f))
+                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                    .padding(6.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val currentSelected = vm.pickerCurrentLayerOnly
+                    // Current Layer button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (currentSelected) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable { vm.pickerCurrentLayerOnly = true }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_layerstack),
+                                contentDescription = "当前图层",
+                                tint = if (currentSelected) Morandi.accent else Morandi.icon,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "当前图层",
+                                fontSize = 11.sp,
+                                color = if (currentSelected) Morandi.accent else Morandi.subText,
+                                fontWeight = if (currentSelected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    // All Layers button
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (!currentSelected) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
+                            .clickable { vm.pickerCurrentLayerOnly = false }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_layers),
+                                contentDescription = "全部图层",
+                                tint = if (!currentSelected) Morandi.accent else Morandi.icon,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                "全部图层",
+                                fontSize = 11.sp,
+                                color = if (!currentSelected) Morandi.accent else Morandi.subText,
+                                fontWeight = if (!currentSelected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // ---- Transform indicator (bottom-center, 画世界 Pro style) ----
@@ -352,6 +478,31 @@ fun PaintingPage(vm: PaintViewModel) {
             ColorPanel(
                 vm = vm,
                 onClose = { colorPanelOpen = false },
+                opacity = vm.popupPanelOpacity,
+            )
+        }
+        AnimatedVisibility(
+            visible = moreToolsOpen,
+            enter = fadeIn(tween(250, easing = FastOutSlowInEasing)) + slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -40 },
+            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
+            modifier = Modifier.fillMaxSize().zIndex(10f)
+        ) {
+            AllToolsPanel(
+                vm = vm,
+                tool = tool,
+                onTool = {
+                    tool = it
+                    vm.applyTool(it.id)
+                    if (it in selectionTools) {
+                        selectionPanelOpen = true
+                    }
+                    moreToolsOpen = false
+                },
+                onOpenBrush = {
+                    brushPanelOpen = true
+                    moreToolsOpen = false
+                },
+                onClose = { moreToolsOpen = false },
                 opacity = vm.popupPanelOpacity,
             )
         }

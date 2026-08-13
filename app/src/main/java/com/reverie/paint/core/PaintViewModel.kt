@@ -78,6 +78,22 @@ class PaintViewModel : ViewModel() {
     var brushPropertyScrollValue by mutableStateOf(0)
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
+
+    data class ToolBrushState(
+        val presetIndex: Int = -1,
+        val category: String = "全部",
+        val categoryScrollIndex: Int = 0,
+        val categoryScrollOffset: Int = 0,
+        val presetScrollIndex: Int = 0,
+        val presetScrollOffset: Int = 0
+    )
+    var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())
+        private set
+        
+    var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(emptyList())
+        private set
+        
+    var currentToolId by mutableStateOf("brush")
         private set
         
     // UI Settings
@@ -638,6 +654,34 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    private fun persistToolBrushStates() {
+        try {
+            val json = org.json.JSONArray()
+            for ((id, s) in toolBrushStates) {
+                val o = org.json.JSONObject()
+                o.put("id", id)
+                o.put("pi", s.presetIndex)
+                o.put("c", s.category)
+                o.put("csi", s.categoryScrollIndex)
+                o.put("cso", s.categoryScrollOffset)
+                o.put("psi", s.presetScrollIndex)
+                o.put("pso", s.presetScrollOffset)
+                json.put(o)
+            }
+            prefs().edit().putString("tool_brush_states", json.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun savePinnedTools(tools: List<com.reverie.paint.model.Tool>) {
+        pinnedTools = tools
+        try {
+            val ids = tools.map { it.id }.joinToString(",")
+            prefs().edit().putString("pinned_tools", ids).apply()
+        } catch (_: Exception) {
+        }
+    }
+
     private fun loadBrushParams() {
         try {
             val raw = prefs().getString("brush_params", null) ?: return
@@ -648,6 +692,43 @@ class PaintViewModel : ViewModel() {
                     BrushParams(o.getDouble("s"), o.getDouble("o"), o.getDouble("f"))
             }
         } catch (_: Exception) {
+        }
+        
+        try {
+            val raw = prefs().getString("tool_brush_states", null) ?: return
+            val json = org.json.JSONArray(raw)
+            val map = mutableMapOf<String, ToolBrushState>()
+            for (i in 0 until json.length()) {
+                val o = json.getJSONObject(i)
+                map[o.getString("id")] = ToolBrushState(
+                    presetIndex = o.optInt("pi", -1),
+                    category = o.optString("c", "全部"),
+                    categoryScrollIndex = o.optInt("csi", 0),
+                    categoryScrollOffset = o.optInt("cso", 0),
+                    presetScrollIndex = o.optInt("psi", 0),
+                    presetScrollOffset = o.optInt("pso", 0)
+                )
+            }
+            toolBrushStates = map
+        } catch (_: Exception) {
+        }
+        
+        try {
+            val raw = prefs().getString("pinned_tools", null)
+            if (raw != null && raw.isNotBlank()) {
+                val tools = raw.split(",").map { com.reverie.paint.model.Tool.fromId(it) }
+                pinnedTools = tools
+            } else {
+                pinnedTools = listOf(
+                    com.reverie.paint.model.Tool.BRUSH,
+                    com.reverie.paint.model.Tool.ERASER
+                )
+            }
+        } catch (_: Exception) {
+            pinnedTools = listOf(
+                com.reverie.paint.model.Tool.BRUSH,
+                com.reverie.paint.model.Tool.ERASER
+            )
         }
     }
 
@@ -679,8 +760,35 @@ class PaintViewModel : ViewModel() {
             }
             if (ReverieCoreBridge.loadBrushPreset(index)) {
                 brushPresetIndex = index
+                updateCurrentToolBrushState { it.copy(presetIndex = index) }
             }
         }
+    }
+
+    private fun updateCurrentToolBrushState(updater: (ToolBrushState) -> ToolBrushState) {
+        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
+        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
+            val state = toolBrushStates[t.id] ?: ToolBrushState()
+            toolBrushStates = toolBrushStates.toMutableMap().apply { put(t.id, updater(state)) }
+            persistToolBrushStates()
+        }
+    }
+
+    fun updateBrushPanelCategory(cat: String) {
+        brushPanelSelectedCategory = cat
+        updateCurrentToolBrushState { it.copy(category = cat) }
+    }
+
+    fun updateBrushCategoryScroll(index: Int, offset: Int) {
+        brushCategoryScrollIndex = index
+        brushCategoryScrollOffset = offset
+        updateCurrentToolBrushState { it.copy(categoryScrollIndex = index, categoryScrollOffset = offset) }
+    }
+
+    fun updateBrushPresetScroll(index: Int, offset: Int) {
+        brushPresetScrollIndex = index
+        brushPresetScrollOffset = offset
+        updateCurrentToolBrushState { it.copy(presetScrollIndex = index, presetScrollOffset = offset) }
     }
 
     fun updateBrushSize(v: Double) {
@@ -742,21 +850,52 @@ class PaintViewModel : ViewModel() {
             when (toolId) {
                 "brush" -> 0
                 "eraser" -> 1
-                "fill" -> 2
                 "smudge" -> 3
-                "gradient" -> 4
-                "select_rect" -> 5
-                "select_ellipse" -> 6
-                "select_polygon" -> 7
-                "select_similar" -> 8
-                "polygon" -> 9
-                "polyline" -> 10
-                "move" -> 11
-                "crop" -> 12
-                "transform" -> 13
-                else -> 0
+                else -> -1
             }
-        ReverieCoreBridge.setToolMode(mode)
+        if (mode >= 0) {
+            ReverieCoreBridge.setToolMode(mode)
+        }
+        currentToolId = toolId
+
+        val t = com.reverie.paint.model.Tool.fromId(toolId)
+        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
+            var state = toolBrushStates[toolId]
+            if (state == null) {
+                val cat = when (t) {
+                    com.reverie.paint.model.Tool.ERASER -> "橡皮擦"
+                    com.reverie.paint.model.Tool.SMUDGE -> "混合"
+                    else -> "全部"
+                }
+                var defaultIdx = brushPresets.indexOfFirst { it.group == cat }
+                if (defaultIdx < 0) defaultIdx = 0
+                state = ToolBrushState(category = cat, presetIndex = defaultIdx)
+                toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
+            }
+            
+            brushPanelSelectedCategory = state.category
+            brushCategoryScrollIndex = state.categoryScrollIndex
+            brushCategoryScrollOffset = state.categoryScrollOffset
+            brushPresetScrollIndex = state.presetScrollIndex
+            brushPresetScrollOffset = state.presetScrollOffset
+            
+            if (state.presetIndex >= 0) {
+                if (state.presetIndex != brushPresetIndex) {
+                    selectBrushPreset(state.presetIndex)
+                } else {
+                    // Force refresh Krita param for this specific tool even if it's the same index
+                    val saved = brushParams[brushPresets.getOrNull(state.presetIndex)?.name]
+                    if (saved != null) {
+                        brushSize = saved.size
+                        brushOpacity = saved.opacity
+                        brushFlow = saved.flow
+                        ReverieCoreBridge.setBrushSize(saved.size)
+                        ReverieCoreBridge.setBrushOpacity(saved.opacity)
+                        ReverieCoreBridge.setBrushFlow(saved.flow)
+                    }
+                }
+            }
+        }
     }
 
     // ---- New Krita tool actions --------------------------------------
@@ -1125,13 +1264,17 @@ class PaintViewModel : ViewModel() {
 
     fun layerName(i: Int) = ReverieCoreBridge.layerName(i)
 
+    var pickerCurrentLayerOnly by mutableStateOf(false)
+
     /** Sample the color at document-space (x, y) and set it as the brush color. */
     fun pickColor(
         x: Float,
         y: Float,
-    ) {
-        val c = ReverieCoreBridge.pickColorAt(x.toInt(), y.toInt()) ?: return
+        currentLayerOnly: Boolean = pickerCurrentLayerOnly,
+    ): String? {
+        val c = ReverieCoreBridge.pickColorAt(x.toInt(), y.toInt(), currentLayerOnly) ?: return null
         updateBrushColor(c)
+        return c
     }
 
     fun layerVisible(i: Int) = ReverieCoreBridge.layerVisible(i)

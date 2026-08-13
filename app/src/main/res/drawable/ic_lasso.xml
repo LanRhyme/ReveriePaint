@@ -1,21 +1,25 @@
-<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-        <path
-            android:pathData="M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="1.7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:fillColor="#00000000" />
-        <path
-            android:pathData="M9 11l3 3l3 -3"
-            android:strokeColor="#FFFFFFFF"
-            android:strokeWidth="1.7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:fillColor="#00000000" />
+    <!-- Tabler Icon: lasso -->
+    <path
+        android:pathData="M4.028,13.252 C3.371,12.28 3,11.174 3,10 C3,6.134 7.03,3 12,3 S21,6.134 21,10 S16.97,17 12,17 C10.068,17 8.282,16.526 6.839,15.718"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M3,15 A2,2 0,1 0,7,15 A2,2 0,1 0,3,15"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M5,17 C5,18.42 5.316,19.804 6,21"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
 </vector>

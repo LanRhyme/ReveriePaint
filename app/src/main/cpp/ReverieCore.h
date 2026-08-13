@@ -238,7 +238,7 @@ public:
 
     // Sample the composited color at document-space coordinates;
     // returns "#rrggbb" or empty if outside the document.
-    QString pickColorAt(int x, int y);
+    QString pickColorAt(int x, int y, bool currentLayerOnly = false);
 
     // Export the composited document to a PNG file. Returns true on success.
     bool savePng(const QString &path);

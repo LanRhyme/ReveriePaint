@@ -1184,8 +1184,7 @@ bool ReverieCore::selectionFromLayer(int index)
     // Copy the layer's alpha channel into the selection (Krita mechanism:
     // KisPixelSelection::copyAlphaFrom)
     ps->copyAlphaFrom(dev, dev->extent());
-    m_selection = sel;
-    markDirty();
+    setSelection(sel);
     return true;
 }
 
@@ -1196,8 +1195,7 @@ bool ReverieCore::hasSelection() const
 
 void ReverieCore::clearSelection()
 {
-    m_selection = nullptr;
-    markDirty();
+    setSelection(nullptr);
 }
 
 void ReverieCore::selectAll()
@@ -1211,8 +1209,7 @@ void ReverieCore::selectAll()
         toQShared(new KisImageResolutionProxy(image)));
     sel->pixelSelection()->select(
         QRect(0, 0, image->width(), image->height()), OPACITY_OPAQUE_U8);
-    m_selection = sel;
-    markDirty();
+    setSelection(sel);
 }
 
 void ReverieCore::invertSelection()
@@ -1248,6 +1245,12 @@ KisPixelSelectionSP ReverieCore::currentSelectionPixelSelection() const
 
 void ReverieCore::setSelection(KisSelectionSP sel)
 {
+    // Deliberately NOT installing a KisSelectionMask on the layer tree:
+    // that changes the projection composition (the mask would clip every
+    // layer below it) and corrupts the render, which made brush strokes
+    // ignore the selection while eraser strokes were clipped. Instead the
+    // selection constrains painting at the KisPainter level (setSelection
+    // applies to bltFixed/bitBlt), exactly like Krita's tools.
     m_selection = sel;
     markDirty();
 }
@@ -1264,8 +1267,7 @@ void ReverieCore::featherSelection(int radius)
     KisPixelSelectionSP ps = m_selection->pixelSelection();
     ps->readBytes(mask.data(), 0, 0, iw, ih);
     blurMask(mask, iw, ih, radius);
-    m_selection = selectionFromMask(image, mask);
-    markDirty();
+    setSelection(selectionFromMask(image, mask));
 }
 
 void ReverieCore::expandSelection(int px)
@@ -1280,8 +1282,7 @@ void ReverieCore::expandSelection(int px)
     KisPixelSelectionSP ps = m_selection->pixelSelection();
     ps->readBytes(mask.data(), 0, 0, iw, ih);
     dilateMask(mask, iw, ih, px);
-    m_selection = selectionFromMask(image, mask);
-    markDirty();
+    setSelection(selectionFromMask(image, mask));
 }
 
 void ReverieCore::contractSelection(int px)
@@ -1296,8 +1297,7 @@ void ReverieCore::contractSelection(int px)
     KisPixelSelectionSP ps = m_selection->pixelSelection();
     ps->readBytes(mask.data(), 0, 0, iw, ih);
     erodeMask(mask, iw, ih, px);
-    m_selection = selectionFromMask(image, mask);
-    markDirty();
+    setSelection(selectionFromMask(image, mask));
 }
 
 void ReverieCore::smoothSelection(int radius)
@@ -1314,8 +1314,7 @@ void ReverieCore::smoothSelection(int radius)
     // Close then open: erosion clears specks, dilation restores the bulk
     erodeMask(mask, iw, ih, radius);
     dilateMask(mask, iw, ih, radius);
-    m_selection = selectionFromMask(image, mask);
-    markDirty();
+    setSelection(selectionFromMask(image, mask));
 }
 
 QByteArray ReverieCore::selectionMask() const
@@ -1914,6 +1913,11 @@ void ReverieCore::flushStrokeBatch()
         m_strokePainter->setCompositeOpId(
             m_brushPreset->settings()->effectivePaintOpCompositeOp());
     }
+    if (m_selection) {
+        m_strokePainter->setSelection(m_selection);
+    } else {
+        m_strokePainter->setSelection(KisSelectionSP());
+    }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();
     QColor qColor(m_strokeColor);
@@ -2507,7 +2511,7 @@ void ReverieCore::floodFillAt(int x, int y)
     }
 }
 
-QString ReverieCore::pickColorAt(int x, int y)
+QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -2515,6 +2519,21 @@ QString ReverieCore::pickColorAt(int x, int y)
     }
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) {
         return QString();
+    }
+    if (currentLayerOnly) {
+        KisPaintDeviceSP dev = currentPaintDevice();
+        if (!dev) return QString();
+        // Use KoColor so the channel order is handled by the colour space
+        // (readBytes returns the space's native byte order, which made the
+        // manual hex construction swap R and B on the RGB8 space)
+        KoColor c(dev->colorSpace());
+        dev->pixel(x, y, &c);
+        const QColor qc = c.toQColor();
+        if (qc.alpha() == 0) return QString(); // transparent
+        return QStringLiteral("#%1%2%3")
+                .arg(qc.red(), 2, 16, QLatin1Char('0'))
+                .arg(qc.green(), 2, 16, QLatin1Char('0'))
+                .arg(qc.blue(), 2, 16, QLatin1Char('0'));
     }
     const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
     if (img.isNull() || x >= img.width() || y >= img.height()) {
@@ -2744,52 +2763,44 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
     if (!image) {
         return;
     }
-    QPainterPath path;
-    const QRectF r(qMin(x1, x2), qMin(y1, y2),
-                   qAbs(x2 - x1), qAbs(y2 - y1));
+    const int iw = image->width();
+    const int ih = image->height();
+    const int rx = qBound(0, qMin(x1, x2), iw - 1);
+    const int ry = qBound(0, qMin(y1, y2), ih - 1);
+    const int rw = qBound(1, qAbs(x2 - x1), iw - rx);
+    const int rh = qBound(1, qAbs(y2 - y1), ih - ry);
+
+    QVector<quint8> mask(size_t(iw) * ih, 0);
     if (kind == 1) {
-        path.addEllipse(r);
+        // Ellipse
+        const double cx = rx + rw / 2.0;
+        const double cy = ry + rh / 2.0;
+        const double a = rw / 2.0;
+        const double b = rh / 2.0;
+        if (a > 0 && b > 0) {
+            for (int y = ry; y < ry + rh; ++y) {
+                for (int x = rx; x < rx + rw; ++x) {
+                    const double dx = (x - cx) / a;
+                    const double dy = (y - cy) / b;
+                    if (dx * dx + dy * dy <= 1.0) {
+                        mask[size_t(y) * iw + x] = 255;
+                    }
+                }
+            }
+        }
     } else {
-        path.addRect(r);
+        // Rect
+        for (int y = ry; y < ry + rh; ++y) {
+            memset(&mask[size_t(y) * iw + rx], 255, size_t(rw));
+        }
     }
-    KisSelectionSP sel = new KisSelection(
-        new KisSelectionDefaultBounds(image->projection()),
-        toQShared(new KisImageResolutionProxy(image)));
-    KisPixelSelectionSP ps = sel->pixelSelection();
-    const QRegion region(path.toFillPolygon().toPolygon());
-    for (const QRect &rr : region) {
-        ps->select(rr, OPACITY_OPAQUE_U8);
-    }
-    m_selection = sel;
+    setSelectionFromMask(this, image, mask, int(m_selectionMode));
     markDirty();
 }
 
 void ReverieCore::selectPolygon(const QVector<QPoint> &points)
 {
-    KisImageSP image = m_document;
-    if (!image || points.size() < 3) {
-        return;
-    }
-    QPainterPath path;
-    path.moveTo(points.first());
-    for (int i = 1; i < points.size(); ++i) {
-        path.lineTo(points[i]);
-    }
-    path.closeSubpath();
-    KisSelectionSP sel = new KisSelection(
-        new KisSelectionDefaultBounds(image->projection()),
-        toQShared(new KisImageResolutionProxy(image)));
-    KisPixelSelectionSP ps = sel->pixelSelection();
-    const QRegion region(path.toFillPolygon().toPolygon());
-    for (const QRect &rr : region) {
-        ps->select(rr, OPACITY_OPAQUE_U8);
-    }
-    const int iw = image->width();
-    const int ih = image->height();
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    ps->readBytes(mask.data(), 0, 0, iw, ih);
-    setSelectionFromMask(this, image, mask, int(m_selectionMode));
-    markDirty();
+    lassoSelect(points);
 }
 
 static int colorDistance(const QRgb &a, const QRgb &b)
@@ -2816,12 +2827,7 @@ static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
         }
         finalMask = combineSelectionMasks(existing, mask, selMode);
     }
-    KisSelectionSP sel = new KisSelection(
-        new KisSelectionDefaultBounds(image->projection()),
-        toQShared(new KisImageResolutionProxy(image)));
-    KisPixelSelectionSP nps = sel->pixelSelection();
-    nps->writeBytes(finalMask.constData(), 0, 0, image->width(), image->height());
-    core->setSelection(sel);
+    core->setSelection(selectionFromMask(image, finalMask));
 }
 
 static KisSelectionSP selectionFromMask(const KisImageSP &image,

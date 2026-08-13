@@ -199,6 +199,7 @@ object ReverieCoreBridge {
     external fun pickColorAt(
         x: Int,
         y: Int,
+        currentLayerOnly: Boolean = false,
     ): String?
 
     external fun undo()

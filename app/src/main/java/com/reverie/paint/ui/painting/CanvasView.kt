@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -66,6 +68,10 @@ fun CanvasView(
 
     // Live selection preview path (updated while dragging a selection tool)
     var liveSelectionPath by remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
+    var pickerActive by remember { mutableStateOf(false) }
+    var pickerScreenPos by remember { mutableStateOf(Offset.Zero) }
+    var pickerInitialColor by remember { mutableStateOf(Color.White) }
+    var pickerCurrentColor by remember { mutableStateOf(Color.White) }
 
     // Clear the preview once the committed overlay is ready (no blink), and
     // whenever the active tool is no longer a selection tool
@@ -123,9 +129,9 @@ fun CanvasView(
                         var mode =
                             when (tool) {
                                 Tool.MOVE -> GestureMode.MOVE
-                                Tool.PICKER, Tool.FILL, Tool.TEXT, Tool.MEASURE,
+                                Tool.PICKER, Tool.FILL, Tool.TEXT,
                                 Tool.MAGICWAND, Tool.SELECT_SIMILAR -> GestureMode.NONE
-                                else -> GestureMode.STROKE
+                                else -> GestureMode.STROKE // Includes MEASURE, TRANSFORM, DYNA, etc.
                             }
                         var strokeStarted = false
                         var transformStarted = false
@@ -159,7 +165,14 @@ fun CanvasView(
                         liquifyPrevious = firstImage
 
                         when (tool) {
-                            Tool.PICKER -> vm.pickColor(firstImage.x, firstImage.y)
+                            Tool.PICKER -> {
+                                pickerActive = true
+                                pickerScreenPos = down.position
+                                val refHex = vm.brushColor
+                                pickerInitialColor = parseColor(refHex)
+                                val hex = vm.pickColor(firstImage.x, firstImage.y)
+                                pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
+                            }
                             Tool.FILL -> vm.floodFill(firstImage.x, firstImage.y)
                             Tool.TEXT -> onTextRequested(firstImage.x, firstImage.y)
                             Tool.MAGICWAND ->
@@ -351,6 +364,14 @@ fun CanvasView(
                                             shapeEnd = imagePos
                                         }
 
+                                        tool == Tool.PICKER -> {
+                                            pickerScreenPos = point.position
+                                            val hex = vm.pickColor(imagePos.x, imagePos.y)
+                                            if (hex != null) {
+                                                pickerCurrentColor = parseColor(hex)
+                                            }
+                                        }
+
                                         trackShapeTool || trackSelectTool ||
                                             tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (lassoPoints.lastOrNull() != imagePos) lassoPoints += imagePos
@@ -465,7 +486,7 @@ fun CanvasView(
                                 tool == Tool.LASSO -> {
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                        vm.lassoSelect(points)
+                                        vm.selectPolygon(points)
                                     }
                                 }
 
@@ -475,13 +496,13 @@ fun CanvasView(
 
                                 // A pure tap on a painting tool (no movement)
                                 // still commits a single dab at the tap point
-                                mode == GestureMode.STROKE &&
-                                    (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) -> {
+                                mode == GestureMode.STROKE -> {
                                     vm.touchStart(firstImage.x, firstImage.y, if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0)
                                     vm.touchEnd()
                                 }
-
                             }
+
+                            pickerActive = false
                         }
                     }
                 },
@@ -552,6 +573,101 @@ fun CanvasView(
 
                     drawContext.canvas.restore()
                 }
+            }
+
+            // Draw PaintWorld-style Color Loupe when picker is active
+            if (pickerActive) {
+                val loupeCenter = pickerScreenPos + Offset(0f, -80.dp.toPx())
+                val outerRadius = 45.dp.toPx()
+                val innerRadius = 28.dp.toPx()
+                val ringThickness = outerRadius - innerRadius
+                val ringRadius = (outerRadius + innerRadius) / 2f
+
+                // Outer drop shadow
+                drawCircle(
+                    color = Color.Black.copy(alpha = 0.35f),
+                    radius = outerRadius + 4.dp.toPx(),
+                    center = loupeCenter
+                )
+
+                // Top half ring: Reference / Previous color
+                drawArc(
+                    color = pickerInitialColor,
+                    startAngle = 180f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
+                    size = Size(ringRadius * 2, ringRadius * 2),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = ringThickness)
+                )
+
+                // Bottom half ring: Current sampled color
+                drawArc(
+                    color = pickerCurrentColor,
+                    startAngle = 0f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
+                    size = Size(ringRadius * 2, ringRadius * 2),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = ringThickness)
+                )
+
+                // Outer border line
+                drawCircle(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    radius = outerRadius,
+                    center = loupeCenter,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                )
+                // Inner border line
+                drawCircle(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    radius = innerRadius,
+                    center = loupeCenter,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                )
+
+                // Center crosshair inside the loupe
+                val crosshairInner = 6.dp.toPx()
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.7f),
+                    start = Offset(loupeCenter.x - crosshairInner, loupeCenter.y),
+                    end = Offset(loupeCenter.x + crosshairInner, loupeCenter.y),
+                    strokeWidth = 1.5.dp.toPx()
+                )
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.7f),
+                    start = Offset(loupeCenter.x, loupeCenter.y - crosshairInner),
+                    end = Offset(loupeCenter.x, loupeCenter.y + crosshairInner),
+                    strokeWidth = 1.5.dp.toPx()
+                )
+
+                // Crosshair at the target touch point on the canvas
+                val crossLen = 14.dp.toPx()
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
+                    end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
+                    strokeWidth = 3.dp.toPx()
+                )
+                drawLine(
+                    color = Color.White,
+                    start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
+                    end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
+                    strokeWidth = 1.5.dp.toPx()
+                )
+                drawLine(
+                    color = Color.Black.copy(alpha = 0.5f),
+                    start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
+                    end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
+                    strokeWidth = 3.dp.toPx()
+                )
+                drawLine(
+                    color = Color.White,
+                    start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
+                    end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
+                    strokeWidth = 1.5.dp.toPx()
+                )
             }
         }
     }
