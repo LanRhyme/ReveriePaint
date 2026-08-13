@@ -250,7 +250,7 @@ fun PaintingPage(vm: PaintViewModel) {
         // in from the canvas edge; draggable so it never blocks the work
         androidx.compose.animation.AnimatedVisibility(
             visible = tool in selectionTools,
-            modifier = Modifier.align(Alignment.CenterEnd),
+            modifier = Modifier.align(Alignment.BottomCenter),
             enter =
                 androidx.compose.animation.fadeIn(
                     androidx.compose.animation.core.tween(180),
@@ -265,8 +265,9 @@ fun PaintingPage(vm: PaintViewModel) {
                 ),
         ) {
             SelectionFloatPanel(
-                modifier = Modifier.padding(end = 8.dp),
+                modifier = Modifier.padding(bottom = 24.dp),
                 vm = vm,
+                tool = tool,
                 propsOpen = selectionPropsOpen,
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
             )
@@ -422,17 +423,20 @@ private fun SelectionMenuItem(
     }
 }
 
-// Floating selection panel in Krita's tool-options style: a compact
-// semi-transparent panel docked to the canvas edge, draggable like Krita's
-// floating tool options (OSD opacity 0.85, rounded corners).
+// Floating selection panel docked at the bottom of the screen, in the style
+// of Krita's tool options docker. Each selection tool exposes its own
+// property set: the magic wand / similar-color tools get a tolerance slider
+// plus the common feather/expand/contract/smooth modifiers, while simple
+// lasso-style tools only get the common modifiers (like Krita, which has no
+// tolerance on the lasso). No close button: switching tools hides it.
 @Composable
 private fun SelectionFloatPanel(
     modifier: Modifier = Modifier,
     vm: PaintViewModel,
+    tool: Tool,
     propsOpen: Boolean,
     onToggleProps: () -> Unit,
 ) {
-    var panelOffset by remember { mutableStateOf(Offset.Zero) }
     val modes =
         listOf(
             0 to "替换",
@@ -443,32 +447,16 @@ private fun SelectionFloatPanel(
     Column(
         modifier =
             modifier
-                .offset { IntOffset(panelOffset.x.roundToInt(), panelOffset.y.roundToInt()) }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        panelOffset += drag
-                    }
-                }
-                .clip(RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
                 .background(Morandi.panelHi.copy(alpha = 0.85f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                .padding(6.dp),
+                .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Drag hint: thin grab bar so users know the panel floats
-        Box(
-            Modifier
-                .width(24.dp)
-                .height(3.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(Morandi.border),
-        )
-        // Mode row: replace / add / subtract / intersect
-        Row(
-            modifier = Modifier.padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
+        // Row 1: merge mode (all selection tools)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             modes.forEach { (mode, label) ->
                 val selected = vm.selectionMode == mode
                 Box(
@@ -477,33 +465,43 @@ private fun SelectionFloatPanel(
                             .clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Morandi.accent else Morandi.panel)
                             .noRippleClickable { vm.updateSelectionMode(mode) }
-                            .padding(horizontal = 7.dp, vertical = 5.dp),
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                 ) {
                     Text(
                         label,
                         color = if (selected) Morandi.onAccent else Morandi.text,
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                     )
                 }
             }
         }
-        // Action row: quick operations + close
+        // Row 2: tool-specific properties
+        if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
+            // Tolerance slider (magic wand / similar color only, like Krita)
+            SelectionPropSlider(
+                "容差",
+                range = 0..255,
+                value = vm.selectionTolerance,
+                onApply = { vm.updateSelectionTolerance(it) },
+            )
+        }
+        // Common modifiers: feather / expand / contract / smooth
+        // (Krita's lasso tools have no tolerance but still support these)
+        if (propsOpen) {
+            SelectionPropSlider("羽化", 0..32, 8) { vm.featherSelection(it) }
+            SelectionPropSlider("扩展", 0..64, 16) { vm.expandSelection(it) }
+            SelectionPropSlider("收缩", 0..64, 8) { vm.contractSelection(it) }
+            SelectionPropSlider("平滑", 1..16, 4) { vm.smoothSelection(it) }
+        }
+        // Row 3: quick actions
         Row(
-            modifier = Modifier.padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
+            modifier = Modifier.padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             SelectionActionChip("全选") { vm.selectAllAction() }
             SelectionActionChip("反选") { vm.invertSelectionAction() }
             SelectionActionChip("清除", danger = true) { vm.clearSelectionAction() }
-            SelectionActionChip(if (propsOpen) "▲" else "属性") { onToggleProps() }
-            SelectionActionChip("✕") { vm.applyTool(Tool.BRUSH.id) }
-        }
-        // Property rows (feather / expand / contract / smooth)
-        if (propsOpen) {
-            SelectionPropSlider("羽化", 0..32) { vm.featherSelection(it) }
-            SelectionPropSlider("扩展", 0..64) { vm.expandSelection(it) }
-            SelectionPropSlider("收缩", 0..64) { vm.contractSelection(it) }
-            SelectionPropSlider("平滑", 1..16) { vm.smoothSelection(it) }
+            SelectionActionChip(if (propsOpen) "收起属性" else "羽化/扩展") { onToggleProps() }
         }
     }
 }
@@ -534,23 +532,27 @@ private fun SelectionActionChip(
 private fun SelectionPropSlider(
     label: String,
     range: IntRange,
+    initial: Int = range.last / 2,
+    value: Int? = null,
     onApply: (Int) -> Unit,
 ) {
-    var value by remember { mutableStateOf(range.last / 2) }
+    var local by remember { mutableStateOf(initial) }
+    val current = value ?: local
     Row(
         modifier = Modifier.padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, color = Morandi.subText, fontSize = 11.sp)
         ReSlider(
-            value = (value - range.first).toFloat() / (range.last - range.first),
+            value = (current - range.first).toFloat() / (range.last - range.first),
             onValue = {
-                value = range.first + (it * (range.last - range.first)).toInt()
+                val v = range.first + (it * (range.last - range.first)).toInt()
+                if (value == null) local = v
+                onApply(v)
             },
-            modifier = Modifier.width(110.dp),
+            modifier = Modifier.width(140.dp),
         )
-        Text("${value}px", color = Morandi.text, fontSize = 11.sp)
-        SelectionActionChip("应用") { onApply(value) }
+        Text("$current", color = Morandi.text, fontSize = 11.sp)
     }
 }

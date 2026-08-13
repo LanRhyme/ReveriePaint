@@ -831,40 +831,7 @@ class PaintViewModel : ViewModel() {
     // of the canvas so the user can see the active selection (Krita-style)
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
 
-    fun refreshSelection() {
-        runCore(after = {
-            val mask = ReverieCoreBridge.selectionMask()
-            selectionMask = mask
-            hasSelection = mask != null && mask.any { it.toInt() != 0 }
-            android.util.Log.d(
-                "ReverieSel",
-                "refresh mask=${mask?.size} doc=${coreW}x${coreH} hasSel=$hasSelection",
-            )
-            val docW = coreW
-            val docH = coreH
-            if (mask != null && hasSelection && docW > 0 && docH > 0 &&
-                mask.size == docW * docH
-            ) {
-                val bmp = android.graphics.Bitmap.createBitmap(
-                    docW, docH, android.graphics.Bitmap.Config.ARGB_8888
-                )
-                // White alpha mask; CanvasView tints it with the theme accent
-                val px = IntArray(mask.size)
-                for (i in mask.indices) {
-                    px[i] = if (mask[i].toInt() != 0) 0xFFFFFFFF.toInt() else 0
-                }
-                bmp.setPixels(px, 0, docW, 0, 0, docW, docH)
-                selectionOverlayBitmap = bmp
-            } else {
-                selectionOverlayBitmap = null
-            }
-        }) {
-            // read on the render thread
-            ReverieCoreBridge.selectionMask()
-        }
-    }
-
-    // ---- Selection mode (replace/add/subtract/intersect) ----
+    // ---- Selection merge mode (replace/add/subtract/intersect) ----
     var selectionMode by mutableStateOf(0)
 
     fun updateSelectionMode(mode: Int) {
@@ -896,10 +863,59 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+
+    fun refreshSelection() {
+        // Build the overlay bitmap on the render thread; only assign the
+        // Compose state on the main thread (via after) so the UI never
+        // blocks on the 2M-pixel mask conversion
+        var result: android.graphics.Bitmap? = null
+        runCore(after = {
+            selectionOverlayBitmap = result
+            hasSelection = result != null
+        }) {
+            val mask = ReverieCoreBridge.selectionMask()
+            val docW = coreW
+            val docH = coreH
+            result =
+                if (
+                    mask != null &&
+                    docW > 0 &&
+                    docH > 0 &&
+                    mask.size == docW * docH &&
+                    mask.any { it.toInt() != 0 }
+                ) {
+                    val bmp =
+                        android.graphics.Bitmap.createBitmap(
+                            docW,
+                            docH,
+                            android.graphics.Bitmap.Config.ARGB_8888,
+                        )
+                    // White alpha mask; CanvasView tints it with the theme accent
+                    val px = IntArray(mask.size)
+                    for (i in mask.indices) {
+                        px[i] = if (mask[i].toInt() != 0) 0xFFFFFFFF.toInt() else 0
+                    }
+                    bmp.setPixels(px, 0, docW, 0, 0, docW, docH)
+                    bmp
+                } else {
+                    null
+                }
+        }
+    }
+
+    // Clear only the displayed overlay (replace mode: finger-down clears the
+    // old selection immediately; the C++ selection is committed on release)
+    fun clearSelectionOverlayLocal() {
+        selectionOverlayBitmap = null
+        selectionMask = null
+        hasSelection = false
+    }
+
     fun clearSelectionAction() {
         runCore(after = {
             selectionMask = null
             hasSelection = false
+            selectionOverlayBitmap = null
         }) {
             ReverieCoreBridge.clearSelection()
             refreshDisplay()
@@ -929,15 +945,24 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    // Magic-wand / similar-color tolerance (0-255, default 24 like Krita)
+    var selectionTolerance by mutableStateOf(24)
+
+    fun updateSelectionTolerance(value: Int) {
+        selectionTolerance = value.coerceIn(0, 255)
+    }
+
     fun selectContiguous(x: Int, y: Int) {
+        val tol = selectionTolerance
         runCore(after = { refreshSelection() }) {
-            ReverieCoreBridge.selectContiguousAt(x, y)
+            ReverieCoreBridge.selectContiguousAt(x, y, tol)
         }
     }
 
     fun selectSimilar(x: Int, y: Int) {
+        val tol = selectionTolerance
         runCore(after = { refreshSelection() }) {
-            ReverieCoreBridge.selectSimilarAt(x, y)
+            ReverieCoreBridge.selectSimilarAt(x, y, tol)
         }
     }
 

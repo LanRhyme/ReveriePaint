@@ -106,6 +106,19 @@ fun CanvasView(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val docW = image.width
                         val docH = image.height
+
+                        // Replace mode: finger-down clears the previous
+                        // selection display immediately so the new selection
+                        // starts fresh (the C++ commit happens on release)
+                        val isSelTool =
+                            tool == Tool.SELECT_RECT ||
+                                tool == Tool.SELECT_ELLIPSE ||
+                                tool == Tool.SELECT_POLYGON ||
+                                tool == Tool.SELECT_MAGNETIC ||
+                                tool == Tool.LASSO
+                        if (isSelTool && vm.selectionMode == 0) {
+                            vm.clearSelectionOverlayLocal()
+                        }
                         var localZoom = latestZoom
                         var localRotation = latestRotation
                         var localPanX = latestPanX
