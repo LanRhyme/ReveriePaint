@@ -296,6 +296,10 @@ fun CanvasView(
                                 onPolyPoint(firstImage)
                             }
 
+                            Tool.CROP -> {
+                                onCropRect(null)
+                            }
+
                             Tool.MEASURE -> {
                                 measureStart = firstImage
                                 measureEnd = firstImage
