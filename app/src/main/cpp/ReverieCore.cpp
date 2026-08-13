@@ -1915,8 +1915,28 @@ void ReverieCore::flushStrokeBatch()
     }
     if (m_selection) {
         m_strokePainter->setSelection(m_selection);
+        {
+            // Diagnose: sample the selection mask to see whether it actually
+            // covers the stroke area (a full-255 mask = constraint disabled)
+            KisPixelSelectionSP ps = m_selection->pixelSelection();
+            const int iw = image->width();
+            const int ih = image->height();
+            QVector<quint8> row(size_t(iw), 0);
+            int nonzero = 0, total = 0;
+            const int stepY = qMax(1, ih / 20);
+            const int stepX = qMax(1, iw / 20);
+            for (int yy = 0; yy < ih; yy += stepY) {
+                ps->readBytes(row.data(), 0, yy, iw, 1);
+                for (int xx = 0; xx < iw; xx += stepX) {
+                    if (row[xx] > 0) ++nonzero;
+                    ++total;
+                }
+            }
+            RPC_LOG("RPC selDiag maskNonzero=%d/%d iw=%d ih=%d", nonzero, total, iw, ih);
+        }
     } else {
         m_strokePainter->setSelection(KisSelectionSP());
+        RPC_LOG("RPC selCon straint=0");
     }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();
@@ -1993,6 +2013,35 @@ void ReverieCore::flushStrokeBatch()
         // preset). The async dab pipeline is driven synchronously: render
         // jobs ran inline via the fake executor at enqueue time, and these
         // update jobs bitBlt the finished dabs onto the target device.
+        //
+        // Selection constraint: engines like roundmarker/spray/sketch write
+        // pixels DIRECTLY to the layer device (KisMarkerPainter and friends),
+        // bypassing KisPainter::bitBlt/bltFixed, so painter->setSelection is
+        // ignored by them (paintbrush/duplicate go through bltFixed and are
+        // constrained natively). For those engines we snapshot the affected
+        // box before painting and restore the pixels outside the selection
+        // afterwards - the same net effect as a selection-clipped blit.
+        const QString opId = m_brushPreset->paintOp().id();
+        const bool engineBypassesSelection =
+            opId != QLatin1String("paintbrush") && opId != QLatin1String("duplicate");
+        QByteArray selClipBefore;
+        QRect selClipBox;
+        if (m_selection && engineBypassesSelection) {
+            for (const StrokeSample &sm : m_strokeSamples) {
+                const int w = int(m_brushSize) + 2;
+                const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
+                              2 * w, 2 * w);
+                selClipBox = selClipBox.isNull() ? r : selClipBox.united(r);
+            }
+            selClipBox &= QRect(0, 0, image->width(), image->height());
+            if (!selClipBox.isEmpty()) {
+                const int ps = target->pixelSize();
+                selClipBefore.resize(selClipBox.width() * selClipBox.height() * ps);
+                target->readBytes(reinterpret_cast<quint8 *>(selClipBefore.data()),
+                                  selClipBox.x(), selClipBox.y(),
+                                  selClipBox.width(), selClipBox.height());
+            }
+        }
         for (int i = 1; i < m_strokeSamples.size(); ++i) {
             const StrokeSample &a = m_strokeSamples[i - 1];
             const StrokeSample &b = m_strokeSamples[i];
@@ -2011,6 +2060,34 @@ void ReverieCore::flushStrokeBatch()
         for (auto *j : jobs) {
             j->run();
             delete j;
+        }
+        // Restore the pixels outside the selection for engines that bypass
+        // KisPainter's selection clipping (see above)
+        if (m_selection && engineBypassesSelection && !selClipBox.isEmpty() &&
+            !selClipBefore.isEmpty()) {
+            const int w = selClipBox.width();
+            const int h = selClipBox.height();
+            const int ps = target->pixelSize();
+            QByteArray after;
+            after.resize(size_t(w) * h * ps);
+            target->readBytes(reinterpret_cast<quint8 *>(after.data()),
+                              selClipBox.x(), selClipBox.y(), w, h);
+            QByteArray maskB(size_t(w) * h, 0);
+            m_selection->pixelSelection()->readBytes(
+                reinterpret_cast<quint8 *>(maskB.data()),
+                selClipBox.x(), selClipBox.y(), w, h);
+            for (int yy = 0; yy < h; ++yy) {
+                for (int xx = 0; xx < w; ++xx) {
+                    if (maskB[size_t(yy) * w + xx] == 0) {
+                        const int o = (yy * w + xx) * ps;
+                        for (int k = 0; k < ps; ++k) {
+                            after[o + k] = selClipBefore[o + k];
+                        }
+                    }
+                }
+            }
+            target->writeBytes(reinterpret_cast<const quint8 *>(after.constData()),
+                               selClipBox.x(), selClipBox.y(), w, h);
         }
         // Exact dirty propagation: the op's own rendering accumulates dirty
         // rects inside the painter - dab bitBlt for KisBrushOp, and the
