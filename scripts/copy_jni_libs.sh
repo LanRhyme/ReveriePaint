@@ -9,23 +9,23 @@ DST="$REPO_ROOT/app/src/main/jniLibs/arm64-v8a"
 mkdir -p "$DST"
 
 copy_libs() {
-    local dir="$1"
-    for f in "$dir"/lib*.so; do cp -f "$f" "$DST/"; done
-    for f in "$dir"/krita*paintop.so; do
-        [ -f "$f" ] && cp -f "$f" "$DST/lib$(basename "$f")"
-    done
-    for f in "$dir"/lib-prefixed/*.so; do
-        [ -f "$f" ] && cp -f "$f" "$DST/"
-    done
+	local dir="$1"
+	for f in "$dir"/lib*.so; do cp -f "$f" "$DST/"; done
+	for f in "$dir"/krita*paintop.so; do
+		[ -f "$f" ] && cp -f "$f" "$DST/lib$(basename "$f")"
+	done
+	for f in "$dir"/lib-prefixed/*.so; do
+		[ -f "$f" ] && cp -f "$f" "$DST/"
+	done
 }
 
 if [ -d "$SRC" ] && ls "$SRC"/lib*.so >/dev/null 2>&1; then
-    copy_libs "$SRC"
-    echo "copied Krita libs + paintop plugins from local build $SRC"
+	copy_libs "$SRC"
+	echo "copied Krita libs + paintop plugins from local build $SRC"
 elif [ -d "$REPO_ROOT/third_party/krita-android-libs" ] && ls "$REPO_ROOT/third_party/krita-android-libs"/lib*.so >/dev/null 2>&1; then
-    copy_libs "$REPO_ROOT/third_party/krita-android-libs"
-    echo "copied Krita libs from third_party/krita-android-libs (仓库内置预编译库)"
+	copy_libs "$REPO_ROOT/third_party/krita-android-libs"
+	echo "copied Krita libs from third_party/krita-android-libs (仓库内置预编译库)"
 else
-    echo "未找到 Krita 库, 请先交叉编译或从 GitHub Release 下载解压到 third_party/krita-android-libs/"
-    exit 1
+	echo "未找到 Krita 库, 请先交叉编译或从 GitHub Release 下载解压到 third_party/krita-android-libs/"
+	exit 1
 fi

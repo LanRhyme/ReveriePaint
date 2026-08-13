@@ -232,13 +232,14 @@ class PaintViewModel : ViewModel() {
      * projection recomposition running on the render thread.
      */
     private fun runCore(
+        render: Boolean = true,
         after: (() -> Unit)? = null,
         op: () -> Unit,
     ) {
         val h = renderHandler ?: return
         h.post {
             op()
-            scheduleRender()
+            if (render) scheduleRender()
             if (after != null) mainHandler.post { after() }
         }
     }
@@ -965,8 +966,13 @@ class PaintViewModel : ViewModel() {
     }
 
     fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int) {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.selectShape(kind, x1, y1, x2, y2)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
@@ -974,8 +980,13 @@ class PaintViewModel : ViewModel() {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }
         val ys = IntArray(points.size) { points[it].second }
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.selectPolygon(xs, ys, points.size)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
@@ -1045,80 +1056,95 @@ class PaintViewModel : ViewModel() {
     }
 
     fun featherSelection(radius: Int) {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.featherSelection(radius)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
     fun expandSelection(px: Int) {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.expandSelection(px)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
     fun contractSelection(px: Int) {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.contractSelection(px)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
     fun smoothSelection(radius: Int) {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.smoothSelection(radius)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
 
+    /** Build the selection overlay bitmap on the render thread (must be
+     *  called inside a runCore op). The full-document mask is downsampled to
+     *  the viewport size so it matches the canvas bitmap 1:1. */
+    private fun buildSelectionOverlayLocked(): android.graphics.Bitmap? {
+        val mask = ReverieCoreBridge.selectionMask()
+        val docW = coreW
+        val docH = coreH
+        if (mask == null || docW <= 0 || docH <= 0 || mask.size != docW * docH) {
+            return null
+        }
+        var any = false
+        for (i in mask.indices) {
+            if (mask[i].toInt() != 0) {
+                any = true
+                break
+            }
+        }
+        if (!any) return null
+        // White alpha mask; CanvasView tints it with the theme accent
+        val vw = maxOf(1, renderW)
+        val vh = maxOf(1, renderH)
+        val bmp = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
+        val px = IntArray(vw * vh)
+        val stepX = docW.toFloat() / vw
+        val stepY = docH.toFloat() / vh
+        for (y in 0 until vh) {
+            val srcY = minOf(docH - 1, (y * stepY).toInt())
+            val rowOff = srcY * docW
+            val dstOff = y * vw
+            for (x in 0 until vw) {
+                val srcX = minOf(docW - 1, (x * stepX).toInt())
+                px[dstOff + x] = if (mask[rowOff + srcX].toInt() != 0) 0xFFFFFFFF.toInt() else 0
+            }
+        }
+        bmp.setPixels(px, 0, vw, 0, 0, vw, vh)
+        return bmp
+    }
+
     fun refreshSelection() {
-        // Build the overlay bitmap on the render thread; only assign the
-        // Compose state on the main thread (via after) so the UI never
-        // blocks on the 2M-pixel mask conversion
         var result: android.graphics.Bitmap? = null
-        runCore(after = {
+        runCore(render = false, after = {
             selectionOverlayBitmap = result
             hasSelection = result != null
         }) {
-            val mask = ReverieCoreBridge.selectionMask()
-            val docW = coreW
-            val docH = coreH
-            result =
-                if (
-                    mask != null &&
-                    docW > 0 &&
-                    docH > 0 &&
-                    mask.size == docW * docH &&
-                    mask.any { it.toInt() != 0 }
-                ) {
-                    // Render the overlay at the viewport size so it matches
-                    // the (downscaled) canvas bitmap 1:1; the full-document
-                    // mask is downsampled on the render thread
-                    val vw = maxOf(1, renderW)
-                    val vh = maxOf(1, renderH)
-                    val bmp =
-                        android.graphics.Bitmap.createBitmap(
-                            vw,
-                            vh,
-                            android.graphics.Bitmap.Config.ARGB_8888,
-                        )
-                    // White alpha mask; CanvasView tints it with the theme accent
-                    val px = IntArray(vw * vh)
-                    val stepX = docW.toFloat() / vw
-                    val stepY = docH.toFloat() / vh
-                    for (y in 0 until vh) {
-                        val srcY = minOf(docH - 1, (y * stepY).toInt())
-                        val rowOff = srcY * docW
-                        val dstOff = y * vw
-                        for (x in 0 until vw) {
-                            val srcX = minOf(docW - 1, (x * stepX).toInt())
-                            px[dstOff + x] =
-                                if (mask[rowOff + srcX].toInt() != 0) 0xFFFFFFFF.toInt() else 0
-                        }
-                    }
-                    bmp.setPixels(px, 0, vw, 0, 0, vw, vh)
-                    bmp
-                } else {
-                    null
-                }
+            result = buildSelectionOverlayLocked()
         }
     }
 
@@ -1143,16 +1169,24 @@ class PaintViewModel : ViewModel() {
 
     fun selectAllAction() {
         val layerIdx = currentLayerIndex
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.selectionFromLayer(layerIdx)
-            refreshDisplay()
+            ov = buildSelectionOverlayLocked()
         }
     }
 
     fun invertSelectionAction() {
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.invertSelection()
-            refreshDisplay()
+            ov = buildSelectionOverlayLocked()
         }
     }
 
@@ -1166,16 +1200,17 @@ class PaintViewModel : ViewModel() {
         radius: Int = 24,
         onPath: (List<Pair<Int, Int>>) -> Unit,
     ) {
-        runCore(after = {
-            val arr = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
+        var arr: IntArray? = null
+        runCore(render = false, after = {
             if (arr != null) {
-                val pts = ArrayList<Pair<Int, Int>>(arr.size / 2)
-                for (i in arr.indices step 2) {
-                    pts.add(arr[i] to arr[i + 1])
+                val pts = ArrayList<Pair<Int, Int>>(arr!!.size / 2)
+                for (i in arr!!.indices step 2) {
+                    pts.add(arr!![i] to arr!![i + 1])
                 }
                 onPath(pts)
             }
         }) {
+            arr = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
         }
     }
 
@@ -1183,8 +1218,13 @@ class PaintViewModel : ViewModel() {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }
         val ys = IntArray(points.size) { points[it].second }
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.lassoSelect(xs, ys, points.size)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
@@ -1197,15 +1237,25 @@ class PaintViewModel : ViewModel() {
 
     fun selectContiguous(x: Int, y: Int) {
         val tol = selectionTolerance
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.selectContiguousAt(x, y, tol)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
     fun selectSimilar(x: Int, y: Int) {
         val tol = selectionTolerance
-        runCore(after = { refreshSelection() }) {
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
             ReverieCoreBridge.selectSimilarAt(x, y, tol)
+            ov = buildSelectionOverlayLocked()
         }
     }
 
