@@ -270,6 +270,19 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
 }
 
 JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyTransform(JNIEnv *env, jobject,
+                                                             jdouble xscale, jdouble yscale,
+                                                             jdouble xshear, jdouble yshear,
+                                                             jdouble rotationRad,
+                                                             jdouble xtranslate, jdouble ytranslate)
+{
+    return core()->applyTransform(xscale, yscale, xshear, yshear,
+                                  rotationRad, xtranslate, ytranslate)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
 Java_com_reverie_paint_core_ReverieCoreBridge_cropCanvas(JNIEnv *, jobject, jint x, jint y, jint w, jint h)
 {
     core()->cropCanvas(x, y, w, h);

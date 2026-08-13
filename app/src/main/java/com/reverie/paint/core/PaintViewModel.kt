@@ -1007,6 +1007,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun applyTransform(
+        xscale: Double, yscale: Double,
+        xshear: Double, yshear: Double,
+        rotationRad: Double,
+        xtranslate: Double, ytranslate: Double,
+    ) {
+        runCore {
+            ReverieCoreBridge.applyTransform(
+                xscale, yscale, xshear, yshear,
+                rotationRad, xtranslate, ytranslate,
+            )
+        }
+    }
+
     fun undo() {
         runCore(after = {
             notifyLayerChanged()

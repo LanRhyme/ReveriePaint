@@ -33,7 +33,7 @@
 #include <android/log.h>
 #define RPC_LOG(...) __android_log_print(ANDROID_LOG_INFO, "ReverieCore", __VA_ARGS__)
 #else
-#define RPC_LOG(...) fprintf(stderr, __VA_ARGS__)
+#define RPC_LOG(...) do { fprintf(stderr, __VA_ARGS__); fflush(stderr); } while (0)
 #endif
 #include <algorithm>
 #include <queue>
@@ -58,6 +58,8 @@
 #include <layerstyles/kis_ls_utils.h>
 #include <kis_selection_filters.h>
 #include <kis_gaussian_kernel.h>
+#include <kis_transform_worker.h>
+#include <kis_filter_strategy.h>
 #include <kis_convolution_painter.h>
 #include <KoColorSpaceRegistry.h>
 #include <KoColorSpace.h>
@@ -1691,22 +1693,26 @@ QByteArray ReverieCore::selectionMask() const
     }
     const int iw = image->width();
     const int ih = image->height();
-    QByteArray mask(iw * ih, 0);
-    if (m_selection) {
-        KisPixelSelectionSP ps = m_selection->pixelSelection();
-        QVector<quint8> bytes(size_t(iw) * ih);
-        ps->readBytes(bytes.data(), 0, 0, iw, ih);
-        int nonZero = 0;
-        for (int i = 0; i < iw * ih; ++i) {
-            mask[i] = bytes[i] > 127 ? char(255) : char(0);
-            if (bytes[i] > 127) {
-                ++nonZero;
-            }
-        }
-        RPC_LOG("RPC selectionMask nonzero=%d of %d", nonZero, iw * ih);
-    } else {
+    if (!m_selection) {
         RPC_LOG("RPC selectionMask null selection");
+        // No selection: return an EMPTY array so callers (floodFillAt,
+        // applyTransform, clipEditToSelection) treat the operation as
+        // unconstrained. Returning the full zero-filled document mask made
+        // them read the seed pixel as "not selected" and abort the op.
+        return QByteArray();
     }
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    QByteArray mask(iw * ih, 0);
+    QVector<quint8> bytes(size_t(iw) * ih);
+    ps->readBytes(bytes.data(), 0, 0, iw, ih);
+    int nonZero = 0;
+    for (int i = 0; i < iw * ih; ++i) {
+        mask[i] = bytes[i] > 127 ? char(255) : char(0);
+        if (bytes[i] > 127) {
+            ++nonZero;
+        }
+    }
+    RPC_LOG("RPC selectionMask nonzero=%d of %d", nonZero, iw * ih);
     return mask;
 }
 
@@ -3063,17 +3069,24 @@ QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
     if (currentLayerOnly) {
         KisPaintDeviceSP dev = currentPaintDevice();
         if (!dev) return QString();
-        // Use KoColor so the channel order is handled by the colour space
-        // (readBytes returns the space's native byte order, which made the
-        // manual hex construction swap R and B on the RGB8 space)
-        KoColor c(dev->colorSpace());
-        dev->pixel(x, y, &c);
-        const QColor qc = c.toQColor();
-        if (qc.alpha() == 0) return QString(); // transparent
+        // readBytes is authoritative: dev->pixel's NG iterator read stale
+        // tile data after a writeBytes+readBytes round-trip on some tiles
+        // (observed in the transform desktop harness - pixel said transparent
+        // while readBytes returned the written red). The RGB8 (KoBgrU8Traits)
+        // device stores B,G,R,A, so byte0/1/2 are B,G,R.
+        // 1x1 readBytes is unreliable on some tiles (observed after a
+        // writeBytes round-trip), so read the whole row and pick the pixel -
+        // full-row reads traverse the tiles exactly like the full-document
+        // read that proved correct in the transform harness
+        const int dw = image->width();
+        QVector<quint8> row(size_t(dw) * 4);
+        dev->readBytes(row.data(), 0, y, dw, 1);
+        const size_t o = size_t(x) * 4;
+        if (row[o + 3] == 0) return QString(); // transparent
         return QStringLiteral("#%1%2%3")
-                .arg(qc.red(), 2, 16, QLatin1Char('0'))
-                .arg(qc.green(), 2, 16, QLatin1Char('0'))
-                .arg(qc.blue(), 2, 16, QLatin1Char('0'));
+                .arg(row[o + 2], 2, 16, QLatin1Char('0'))
+                .arg(row[o + 1], 2, 16, QLatin1Char('0'))
+                .arg(row[o], 2, 16, QLatin1Char('0'));
     }
     const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
     if (img.isNull() || x >= img.width() || y >= img.height()) {
@@ -3631,6 +3644,130 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
+}
+
+bool ReverieCore::applyTransform(double xscale, double yscale,
+                                 double xshear, double yshear,
+                                 double rotationRad,
+                                 double xtranslate, double ytranslate)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return false;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+
+    // Krita-native undo: wrap the transform in a transaction
+    KisTransaction txn(kundo2_i18n("Transform"), device);
+
+    // Content bounding box (or the whole canvas when empty); the transform
+    // pivots around its centre like Krita's KisToolTransform
+    QRect bounds = device->exactBounds().intersected(QRect(0, 0, iw, ih));
+    if (!bounds.isValid()) {
+        bounds = QRect(0, 0, iw, ih);
+    }
+    const QPointF center = bounds.center();
+
+    // KisTransformWorker applies SC * S * R * T (translate, rotate, shear,
+    // scale). To pivot around the content centre we must compensate the
+    // linear part applied to the centre point:
+    //   T_full(x) = L(x - c) + c + t = L(x) + (c + t - L(c))
+    QTransform lin;
+    lin.scale(xscale, yscale);
+    lin.shear(0, yshear);
+    lin.shear(xshear, 0);
+    lin.rotateRadians(rotationRad);
+    const QPointF linC = lin.map(center);
+    const double tx = center.x() + xtranslate - linC.x();
+    const double ty = center.y() + ytranslate - linC.y();
+
+    if (m_selection) {
+        // Selection-constrained transform: crop the selected pixels out,
+        // transform them, clear the original selection area, composite back
+        QImage full(iw, ih, QImage::Format_ARGB32_Premultiplied);
+        {
+            QVector<quint8> bytes(size_t(iw) * ih * 4);
+            device->readBytes(bytes.data(), 0, 0, iw, ih);
+            memcpy(full.bits(), bytes.constData(), size_t(iw) * ih * 4);
+        }
+        const QByteArray selMask = selectionMask();
+        // Work on a copy: zero out unselected pixels in the transform source
+        // only - 'full' keeps the untouched layer content (outside the
+        // selection) that must survive
+        QImage content = full.copy();
+        {
+            QRgb *pix = reinterpret_cast<QRgb *>(content.bits());
+            for (int i = 0; i < iw * ih; ++i) {
+                if (!selMask.isEmpty() && !selMask[i]) {
+                    pix[i] = 0;
+                }
+            }
+        }
+        // Transform the selected content
+        QImage out(iw, ih, QImage::Format_ARGB32_Premultiplied);
+        out.fill(0);
+        {
+            QTransform tf;
+            tf.translate(tx, ty);
+            tf.rotateRadians(rotationRad);
+            tf.shear(xshear, 0);
+            tf.shear(0, yshear);
+            tf.scale(xscale, yscale);
+            QPainter p(&out);
+            p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+            p.setTransform(tf);
+            p.drawImage(0, 0, content);
+            p.end();
+        }
+        // Clear the original selection area on the layer (only the selected
+        // pixels - DestinationOut keeps everything outside the mask)
+        {
+            // Clear only the selected pixels: the mask image must be
+            // TRANSPARENT everywhere except the selection (DestinationOut
+            // clears where the source is opaque) - filling with an opaque
+            // black wiped the whole document including unselected content
+            QImage selImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+            selImg.fill(0); // fully transparent
+            if (!selMask.isEmpty()) {
+                QRgb *sp = reinterpret_cast<QRgb *>(selImg.bits());
+                for (int i = 0; i < iw * ih; ++i) {
+                    if (selMask[i]) {
+                        sp[i] = 0xFFFFFFFF;
+                    }
+                }
+            }
+            QPainter p(&full);
+            p.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+            p.drawImage(0, 0, selImg);
+            p.end();
+        }
+        // Composite the transformed content back (only where it lands)
+        {
+            QPainter p(&full);
+            p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+            p.drawImage(0, 0, out);
+            p.end();
+        }
+        device->writeBytes(full.constBits(), 0, 0, iw, ih);
+    } else {
+        // Krita's own transform worker over the whole layer device
+        // (the filter strategy is mandatory - nullptr crashes the weights
+        // buffer; bilinear matches Krita's default transform quality)
+        KisBilinearFilterStrategy filter;
+        KisTransformWorker worker(device, xscale, yscale, xshear, yshear,
+                                  rotationRad, tx, ty, nullptr, &filter);
+        worker.run();
+    }
+    device->setDirty(QRect(0, 0, iw, ih));
+    markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
+    return true;
 }
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)

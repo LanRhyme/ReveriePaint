@@ -128,6 +128,12 @@ object ReverieCoreBridge {
 
     external fun cropCanvas(x: Int, y: Int, w: Int, h: Int)
 
+    external fun applyTransform(
+        xscale: Double, yscale: Double,
+        xshear: Double, yshear: Double,
+        rotationRad: Double,
+        xtranslate: Double, ytranslate: Double,
+    ): Boolean
     external fun setBrushSecondaryColor(color: String)
 
     external fun floodFillAt(

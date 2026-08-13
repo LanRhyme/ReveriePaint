@@ -178,6 +178,13 @@ public:
     void selectContiguousAt(int x, int y, int tolerance = 24);
     void selectSimilarAt(int x, int y, int tolerance = 24);
     void moveLayerContent(int dx, int dy);
+    // Krita transform tool: apply scale/shear/rotation/translate around the
+    // content bounding-box centre. With an active selection only the selected
+    // pixels transform (KisToolTransform semantics). Uses Krita's own
+    // KisTransformWorker (SC*S*R*T order) for the no-selection case.
+    bool applyTransform(double xscale, double yscale, double xshear,
+                        double yshear, double rotationRad,
+                        double xtranslate, double ytranslate);
     void cropCanvas(int x, int y, int w, int h);
 
     // Draw text at (x, y) with the current brush color/size
