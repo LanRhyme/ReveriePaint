@@ -1697,8 +1697,19 @@ void ReverieCore::flushStrokeBatch()
             j->run();
             delete j;
         }
-        // Approximate dirty region: the exact dab rects live inside the op,
-        // so we conservatively mark the samples' neighbourhood.
+        // Exact dirty propagation: the op's own rendering accumulates dirty
+        // rects inside the painter - dab bitBlt for KisBrushOp, and the
+        // fillPainterPath bitBlt (whole-path rects) for the special engines
+        // like experimentbrush. Using these instead of the brushSize
+        // neighbourhood fixes special brushes whose shape covers the whole
+        // stroke path (they previously only showed after undo/new-layer,
+        // which triggered a full recomposite).
+        const QVector<QRect> exactDirty = painter.takeDirtyRegion();
+        for (const QRect &r : exactDirty) {
+            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+        }
+        // Conservative fallback: the samples' neighbourhood, for engines that
+        // paint outside the painter's dirty accounting.
         for (const StrokeSample &sm : m_strokeSamples) {
             const int w = int(m_brushSize) + 2;
             const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,

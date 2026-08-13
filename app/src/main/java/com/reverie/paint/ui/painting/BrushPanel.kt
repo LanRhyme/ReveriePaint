@@ -1,5 +1,11 @@
 package com.reverie.paint.ui.painting
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.pointerInput
+import com.reverie.paint.R
+import androidx.compose.ui.res.painterResource
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -399,86 +405,142 @@ private fun BrushPropertyPage(
     onBack: () -> Unit,
 ) {
     val preset = vm.brushPresets.getOrNull(presetIndex)
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
+    var showBlendModes by remember { mutableStateOf(false) }
+
+    val blendModeList = listOf(
+        "normal" to "正常",
+        "multiply" to "正片叠底",
+        "screen" to "滤色",
+        "overlay" to "叠加",
+        "darken" to "变暗",
+        "lighten" to "变亮",
+        "dodge" to "颜色减淡",
+        "burn" to "颜色加深",
+        "hard_light" to "强光",
+        "soft_light" to "柔光",
+        "difference" to "差值",
+        "exclusion" to "排除",
+    )
+
+    Column(
+        modifier =
+            Modifier
                 .fillMaxWidth()
-                .height(52.dp)
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .verticalScroll(rememberScrollState()),
+    ) {
+        // Header: < 笔刷设置 (same style as the layer panel detail page)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(
-                Icons.Default.ArrowBack,
-                contentDescription = "返回",
-                tint = Morandi.text,
-                modifier = Modifier.size(22.dp).clickable { onBack() }
+            Box(
+                modifier =
+                    Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .noRippleClickable(onBack),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = "返回",
+                    tint = Morandi.icon,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                "笔刷设置",
+                color = Morandi.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
             Text(
                 preset?.name ?: "",
-                color = Morandi.text,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                color = Morandi.subText,
+                fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+
+        // Blend mode row button (expands the mode list, like the layer panel)
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .noRippleClickable { showBlendModes = !showBlendModes }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("笔刷属性", color = Morandi.subText, fontSize = 12.sp)
-            Spacer(Modifier.height(8.dp))
-            BrushParamSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
-            BrushParamSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
-            BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
-            BrushParamSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
-            BrushParamSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
-            BrushParamSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
-            BrushParamSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
-            BrushParamSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
-            BrushParamSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
-            BrushParamSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
-            BrushParamSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
-            Spacer(Modifier.height(6.dp))
-            Text("混合模式", color = Morandi.subText, fontSize = 12.sp)
-            Spacer(Modifier.height(4.dp))
-            // Composite op dropdown (Krita's standard blend modes)
-            LazyColumn(Modifier.heightIn(max = 160.dp)) {
-                items(
-                    listOf(
-                        "normal" to "正常",
-                        "multiply" to "正片叠底",
-                        "screen" to "滤色",
-                        "overlay" to "叠加",
-                        "darken" to "变暗",
-                        "lighten" to "变亮",
-                        "dodge" to "颜色减淡",
-                        "burn" to "颜色加深",
-                        "hard_light" to "强光",
-                        "soft_light" to "柔光",
-                        "difference" to "差值",
-                        "exclusion" to "排除",
-                    )
-                ) { (id, label) ->
-                    val sel = vm.brushCompositeOp == id
-                    Row(
-                        modifier = Modifier
+            Icon(
+                painterResource(R.drawable.ic_layerstack),
+                contentDescription = null,
+                tint = Morandi.accent,
+                modifier = Modifier.size(18.dp),
+            )
+            Text("混合模式", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(
+                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: "正常",
+                color = Morandi.subText,
+                fontSize = 13.sp,
+            )
+            Icon(
+                painterResource(R.drawable.ic_chevron),
+                contentDescription = null,
+                tint = Morandi.subText,
+                modifier = Modifier.size(16.dp).rotate(if (showBlendModes) 90f else 0f),
+            )
+        }
+
+        if (showBlendModes) {
+            for ((opId, name) in blendModeList) {
+                val sel = vm.brushCompositeOp == opId
+                Row(
+                    modifier =
+                        Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (sel) Morandi.accent.copy(alpha = 0.15f) else Color.Transparent)
-                            .clickable { vm.updateBrushCompositeOp(id) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                    ) {
-                        Text(label, color = if (sel) Morandi.accent else Morandi.text, fontSize = 13.sp)
+                            .noRippleClickable { vm.updateBrushCompositeOp(opId) }
+                            .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .padding(horizontal = 26.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        name,
+                        color = if (sel) Morandi.accent else Morandi.text,
+                        fontSize = 13.sp,
+                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (sel) {
+                        Icon(
+                            painterResource(R.drawable.ic_check),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                 }
             }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
         }
+
+        // Parameter sliders (capsule style, consistent with the rest of the app)
+        BrushParamSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
+        BrushParamSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
+        BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
+        BrushParamSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
+        BrushParamSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
+        BrushParamSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
+        BrushParamSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
+        BrushParamSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
+        BrushParamSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
+        BrushParamSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
+        BrushParamSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
     }
 }
 
@@ -488,6 +550,7 @@ private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }
 
+/** Capsule parameter slider in the same style as ReSlider / the layer panel. */
 @Composable
 private fun BrushParamSlider(
     label: String,
@@ -496,24 +559,48 @@ private fun BrushParamSlider(
     max: Double,
     onChange: (Double) -> Unit,
 ) {
+    val fraction = ((value - min) / (max - min)).toFloat().coerceIn(0f, 1f)
+    var isDragging by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(36.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(text = label, color = Morandi.subText, fontSize = 12.sp, modifier = Modifier.width(52.dp))
-        androidx.compose.material3.Slider(
-            value = value.toFloat(),
-            onValueChange = { onChange(it.toDouble()) },
-            valueRange = min.toFloat()..max.toFloat(),
-            modifier = Modifier.weight(1f),
-        )
+        Text(text = label, color = Morandi.text, fontSize = 13.sp, modifier = Modifier.width(48.dp))
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = { isDragging = true },
+                            onDragEnd = { isDragging = false },
+                            onDragCancel = { isDragging = false },
+                        ) { change, _ ->
+                            val w = size.width.toFloat()
+                            if (w > 0f) {
+                                onChange((change.position.x / w).coerceIn(0f, 1f) * (max - min) + min)
+                                change.consume()
+                            }
+                        }
+                    },
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawRoundRect(
+                    color = Morandi.accent,
+                    size = androidx.compose.ui.geometry.Size(size.width * fraction, size.height),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
+                )
+            }
+        }
         Text(
             text = if (max > 100) "${value.toInt()}" else "${(value * 100).toInt()}%",
             color = Morandi.text,
-            fontSize = 11.sp,
-            modifier = Modifier.width(40.dp),
+            fontSize = 12.sp,
+            modifier = Modifier.width(42.dp),
             textAlign = TextAlign.End,
         )
     }
