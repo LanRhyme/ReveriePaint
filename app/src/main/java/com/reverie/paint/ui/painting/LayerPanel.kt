@@ -167,8 +167,15 @@ fun LayerPanel(
             AnimatedContent(
                 targetState = view,
                 transitionSpec = {
-                    (slideInHorizontally { it / 3 } + fadeIn(tween(180)))
-                        .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut(tween(120)))
+                    if (targetState is LayerView.Detail && initialState is LayerView.List) {
+                        (slideInHorizontally { it } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut(tween(120)))
+                    } else if (targetState is LayerView.List && initialState is LayerView.Detail) {
+                        (slideInHorizontally { -it / 3 } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally { it } + fadeOut(tween(120)))
+                    } else {
+                        fadeIn() togetherWith fadeOut()
+                    }
                 },
                 label = "layerPages",
             ) { v ->

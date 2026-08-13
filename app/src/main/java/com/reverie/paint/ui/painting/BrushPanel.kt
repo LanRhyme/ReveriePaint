@@ -1,5 +1,12 @@
 package com.reverie.paint.ui.painting
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.rotate
@@ -15,6 +22,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,10 +30,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,12 +53,19 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.ReSlider
 
 /**
  * Brush library panel with Krita's real bundled presets (.kpp).
  * Main view = category rail + preset list. Tapping the already-selected
  * preset opens the second-level property page (size/opacity/flow).
  */
+
+private sealed interface BrushView {
+    data object List : BrushView
+    data class Detail(val index: Int) : BrushView
+}
+
 @Composable
 fun BrushPanel(
     vm: PaintViewModel,
@@ -56,21 +73,37 @@ fun BrushPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
 ) {
-    // Real Krita-style categories plus user-created groups
     val categories = remember(vm.brushPresets, vm.customBrushGroups) {
         listOf("全部") +
             vm.brushPresets.map { it.group }.distinct() +
             vm.customBrushGroups.filter { g -> vm.brushPresets.none { it.group == g } }
     }
-    var selectedCategory by remember { mutableStateOf("全部") }
-    // new-group dialog state
+    var selectedCategory by remember { mutableStateOf(vm.brushPanelSelectedCategory) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
-    // move-preset-to-group dialog state (preset name)
     var movePresetName by remember { mutableStateOf<String?>(null) }
-    // reorder menu state (preset name)
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
-    // null = list view; non-null = second-level property page for that preset
-    var detailIndex by remember { mutableStateOf<Int?>(null) }
+    
+    var view by remember { mutableStateOf<BrushView>(if (vm.brushPanelDetailIndex != null) BrushView.Detail(vm.brushPanelDetailIndex!!) else BrushView.List) }
+
+    val categoryScrollState = rememberLazyListState(
+        initialFirstVisibleItemIndex = vm.brushCategoryScrollIndex,
+        initialFirstVisibleItemScrollOffset = vm.brushCategoryScrollOffset
+    )
+    val presetScrollState = rememberLazyListState(
+        initialFirstVisibleItemIndex = vm.brushPresetScrollIndex,
+        initialFirstVisibleItemScrollOffset = vm.brushPresetScrollOffset
+    )
+
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.brushCategoryScrollIndex = categoryScrollState.firstVisibleItemIndex
+            vm.brushCategoryScrollOffset = categoryScrollState.firstVisibleItemScrollOffset
+            vm.brushPresetScrollIndex = presetScrollState.firstVisibleItemIndex
+            vm.brushPresetScrollOffset = presetScrollState.firstVisibleItemScrollOffset
+            vm.brushPanelSelectedCategory = selectedCategory
+            vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
+        }
+    }
 
     Box(
         modifier = modifier
@@ -88,153 +121,173 @@ fun BrushPanel(
                 .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(12.dp))
                 .clickable(enabled = false) {}
         ) {
-            if (detailIndex != null && detailIndex!! < vm.brushPresets.size) {
-                BrushPropertyPage(
-                    vm = vm,
-                    presetIndex = detailIndex!!,
-                    onBack = { detailIndex = null },
-                )
-            } else {
-                Column(Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        // Left categories
-                        LazyColumn(
-                            modifier = Modifier
-                                .width(88.dp)
-                                .fillMaxHeight()
-                                .background(Morandi.panel.copy(alpha = opacity))
-                        ) {
-                            items(categories) { cat ->
-                                val sel = cat == selectedCategory
-                                Box(
+            AnimatedContent(
+                targetState = view,
+                transitionSpec = {
+                    if (targetState is BrushView.Detail && initialState is BrushView.List) {
+                        (slideInHorizontally { it } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally { -it / 3 } + fadeOut(tween(120)))
+                    } else if (targetState is BrushView.List && initialState is BrushView.Detail) {
+                        (slideInHorizontally { -it / 3 } + fadeIn(tween(180)))
+                            .togetherWith(slideOutHorizontally { it } + fadeOut(tween(120)))
+                    } else {
+                        fadeIn() togetherWith fadeOut()
+                    }
+                },
+                label = "brushPages"
+            ) { v ->
+                when (v) {
+                    is BrushView.List -> {
+                        Column(Modifier.fillMaxSize()) {
+                            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                // Left categories
+                                LazyColumn(
+                                    state = categoryScrollState,
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(42.dp)
-                                        .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
-                                        .clickable { selectedCategory = cat },
-                                    contentAlignment = Alignment.CenterStart
+                                        .width(88.dp)
+                                        .fillMaxHeight()
+                                        .background(Morandi.panel.copy(alpha = opacity))
                                 ) {
-                                    Text(
-                                        text = cat,
-                                        color = if (sel) Morandi.accent else Morandi.subText,
-                                        fontSize = 13.sp,
-                                        modifier = Modifier.padding(start = 12.dp)
-                                    )
+                                    items(categories) { cat ->
+                                        val sel = cat == selectedCategory
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(42.dp)
+                                                .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
+                                                .clickable { selectedCategory = cat },
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            Text(
+                                                text = cat,
+                                                color = if (sel) Morandi.accent else Morandi.subText,
+                                                fontSize = 13.sp,
+                                                modifier = Modifier.padding(start = 12.dp)
+                                            )
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        // Right preset list
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(52.dp)
-                                    .padding(horizontal = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("笔刷库", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.weight(1f))
-                                Text(
-                                    "${vm.brushPresets.size} 个 Krita 预设",
-                                    color = Morandi.subText,
-                                    fontSize = 11.sp,
-                                )
-                            }
-
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .padding(horizontal = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val filtered = if (selectedCategory == "全部") {
-                                    vm.brushPresets
-                                } else {
-                                    vm.brushPresets.filter { it.group == selectedCategory }
-                                }
-                                items(filtered) { preset ->
-                                    val isSelected = preset.index == vm.brushPresetIndex
+                                // Right preset list
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(52.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (isSelected) Morandi.accent.copy(alpha = 0.15f) else Morandi.panel.copy(alpha = 0.5f))
-                                            .border(
-                                                width = if (isSelected) 1.5.dp else 0.dp,
-                                                color = if (isSelected) Morandi.accent else Color.Transparent,
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                            .combinedClickable(
-                                                onClick = {
-                                                    // Tap selects; tap the selected one again -> property page
-                                                    if (isSelected) detailIndex = preset.index
-                                                    else vm.selectBrushPreset(preset.index)
-                                                },
-                                                onLongClick = {
-                                                    reorderPresetName = preset.name
-                                                },
-                                            )
-                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            .padding(horizontal = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        val bmp = rememberBytes(preset.thumbBytes)
-                                        if (bmp != null) {
-                                            Image(
-                                                bitmap = bmp.asImageBitmap(),
-                                                contentDescription = preset.name,
-                                                modifier = Modifier
-                                                    .size(38.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                            )
+                                        Text("笔刷库", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.weight(1f))
+                                        Text(
+                                            "${vm.brushPresets.size} 个 Krita 预设",
+                                            color = Morandi.subText,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
+
+                                    LazyColumn(
+                                        state = presetScrollState,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f)
+                                            .padding(horizontal = 12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val filtered = if (selectedCategory == "全部") {
+                                            vm.brushPresets
                                         } else {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(38.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(Morandi.panelHi)
-                                            )
+                                            vm.brushPresets.filter { it.group == selectedCategory }
                                         }
-                                        Spacer(Modifier.width(10.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                preset.name,
-                                                color = if (isSelected) Morandi.accent else Morandi.subText,
-                                                fontSize = 12.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            if (isSelected) {
-                                                Text("使用中 · 点按调属性", color = Morandi.accent, fontSize = 10.sp)
+                                        items(filtered) { preset ->
+                                            val isSelected = preset.index == vm.brushPresetIndex
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(52.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.15f) else Morandi.panel.copy(alpha = 0.5f))
+                                                    .border(
+                                                        width = if (isSelected) 1.5.dp else 0.dp,
+                                                        color = if (isSelected) Morandi.accent else Color.Transparent,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .combinedClickable(
+                                                        onClick = {
+                                                            if (isSelected) view = BrushView.Detail(preset.index)
+                                                            else vm.selectBrushPreset(preset.index)
+                                                        },
+                                                        onLongClick = {
+                                                            reorderPresetName = preset.name
+                                                        },
+                                                    )
+                                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val bmp = rememberBytes(preset.thumbBytes)
+                                                if (bmp != null) {
+                                                    Image(
+                                                        bitmap = bmp.asImageBitmap(),
+                                                        contentDescription = preset.name,
+                                                        modifier = Modifier
+                                                            .size(38.dp)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                    )
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(38.dp)
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(Morandi.panelHi)
+                                                    )
+                                                }
+                                                Spacer(Modifier.width(10.dp))
+                                                Column(Modifier.weight(1f)) {
+                                                    Text(
+                                                        preset.name,
+                                                        color = if (isSelected) Morandi.accent else Morandi.subText,
+                                                        fontSize = 12.sp,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis,
+                                                    )
+                                                    if (isSelected) {
+                                                        Text("使用中 · 点按调属性", color = Morandi.accent, fontSize = 10.sp)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+
+                            // Bottom toolbar (kept from the original panel design)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .background(Morandi.panel.copy(alpha = opacity))
+                                    .padding(horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Spacer(Modifier.weight(1f))
+                                Icon(Icons.Default.Add, contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
+                                Spacer(Modifier.width(16.dp))
+                                Icon(Icons.Default.Folder, contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                                Spacer(Modifier.width(16.dp))
+                                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                            }
                         }
                     }
-
-                    // Bottom toolbar (kept from the original panel design)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .background(Morandi.panel.copy(alpha = opacity))
-                            .padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Spacer(Modifier.weight(1f))
-                        Icon(Icons.Default.Add, contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
-                        Spacer(Modifier.width(16.dp))
-                        Icon(Icons.Default.Folder, contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
-                        Spacer(Modifier.width(16.dp))
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                    is BrushView.Detail -> {
+                        BrushPropertyPage(
+                            vm = vm,
+                            presetIndex = v.index,
+                            onBack = { view = BrushView.List },
+                        )
                     }
                 }
             }
@@ -399,7 +452,7 @@ private fun MoveBrushGroupDialog(
 
 /** Second-level page: brush property sliders for the active preset. */
 @Composable
-private fun BrushPropertyPage(
+fun BrushPropertyPage(
     vm: PaintViewModel,
     presetIndex: Int,
     onBack: () -> Unit,
@@ -422,13 +475,18 @@ private fun BrushPropertyPage(
         "exclusion" to "排除",
     )
 
+    val scrollState = rememberScrollState(initial = vm.brushPropertyScrollValue)
+    DisposableEffect(Unit) {
+        onDispose { vm.brushPropertyScrollValue = scrollState.value }
+    }
+
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(scrollState),
     ) {
-        // Header: < 笔刷设置 (same style as the layer panel detail page)
+        // Header
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -462,12 +520,28 @@ private fun BrushPropertyPage(
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 4.dp)
             )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .noRippleClickable { vm.resetBrushParams() }
+                    .padding(end = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Default.Refresh,
+                    contentDescription = "重置数值",
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        // Blend mode row button (expands the mode list, like the layer panel)
+        // Blend mode row button
         Row(
             modifier =
                 Modifier
@@ -527,22 +601,27 @@ private fun BrushPropertyPage(
                 }
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+        } else {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
         }
 
-        // Parameter sliders (capsule style, consistent with the rest of the app)
-        BrushParamSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
-        BrushParamSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
-        BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
-        BrushParamSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
-        BrushParamSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
-        BrushParamSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
-        BrushParamSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
-        BrushParamSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
-        BrushParamSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
-        BrushParamSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
-        BrushParamSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
+        // Parameter sliders
+        BrushParamReSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
+        BrushParamReSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
+        BrushParamReSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
+        BrushParamReSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
+        BrushParamReSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
+        BrushParamReSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
+        BrushParamReSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
+        BrushParamReSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
+        BrushParamReSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
+        BrushParamReSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
+        BrushParamReSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
+        
+        Spacer(Modifier.height(16.dp))
     }
 }
+
 
 @Composable
 private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
@@ -550,9 +629,8 @@ private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
     return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }
 
-/** Capsule parameter slider in the same style as ReSlider / the layer panel. */
 @Composable
-private fun BrushParamSlider(
+private fun BrushParamReSlider(
     label: String,
     value: Double,
     min: Double,
@@ -560,48 +638,27 @@ private fun BrushParamSlider(
     onChange: (Double) -> Unit,
 ) {
     val fraction = ((value - min) / (max - min)).toFloat().coerceIn(0f, 1f)
-    var isDragging by remember { mutableStateOf(false) }
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(text = label, color = Morandi.text, fontSize = 13.sp, modifier = Modifier.width(48.dp))
-        Box(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panelHi)
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { isDragging = true },
-                            onDragEnd = { isDragging = false },
-                            onDragCancel = { isDragging = false },
-                        ) { change, _ ->
-                            val w = size.width.toFloat()
-                            if (w > 0f) {
-                                onChange((change.position.x / w).coerceIn(0f, 1f) * (max - min) + min)
-                                change.consume()
-                            }
-                        }
-                    },
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Canvas(Modifier.fillMaxSize()) {
-                drawRoundRect(
-                    color = Morandi.accent,
-                    size = androidx.compose.ui.geometry.Size(size.width * fraction, size.height),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
-                )
-            }
+            Text(label, color = Morandi.text, fontSize = 13.sp)
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = if (max > 100) "${value.toInt()}" else "${(value * 100).toInt()}%",
+                color = Morandi.subText,
+                fontSize = 13.sp,
+            )
         }
-        Text(
-            text = if (max > 100) "${value.toInt()}" else "${(value * 100).toInt()}%",
-            color = Morandi.text,
-            fontSize = 12.sp,
-            modifier = Modifier.width(42.dp),
-            textAlign = TextAlign.End,
+        ReSlider(
+            value = fraction,
+            onValue = { f ->
+                onChange(f * (max - min) + min)
+            },
+            modifier = Modifier.padding(horizontal = 14.dp)
         )
     }
+    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
 }
+

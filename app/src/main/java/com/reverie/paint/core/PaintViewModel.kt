@@ -67,6 +67,15 @@ class PaintViewModel : ViewModel() {
     // layer getters after add/remove/select/visibility operations.
     var layerPanelOpen by mutableStateOf(false)
     var brushPanelOpen by mutableStateOf(false)
+    
+    // Brush panel persistence state
+    var brushPanelSelectedCategory by mutableStateOf("全部")
+    var brushPanelDetailIndex by mutableStateOf<Int?>(null)
+    var brushCategoryScrollIndex by mutableStateOf(0)
+    var brushCategoryScrollOffset by mutableStateOf(0)
+    var brushPresetScrollIndex by mutableStateOf(0)
+    var brushPresetScrollOffset by mutableStateOf(0)
+    var brushPropertyScrollValue by mutableStateOf(0)
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
         private set
@@ -534,6 +543,32 @@ class PaintViewModel : ViewModel() {
         brushFlow = v
         saveBrushParam()
         ReverieCoreBridge.setBrushFlow(v)
+    }
+
+    fun resetBrushParams() {
+        val preset = brushPresets.getOrNull(brushPresetIndex) ?: return
+        brushParams.remove(preset.name)
+        persistBrushParams()
+        
+        updateBrushSpacing(0.1)
+        updateBrushAngle(0.0)
+        updateBrushScatter(0.0)
+        updateBrushFade(0.0)
+        updateBrushSoftness(0.5)
+        updateBrushRatio(1.0)
+        updateBrushSharpness(0.0)
+        updateBrushRotation(0.0)
+
+        runCore(after = {
+            val d = ReverieCoreBridge.brushPresetDefaults(brushPresetIndex)
+            if (d != null && d.size >= 3) {
+                brushSize = d[0]
+                brushOpacity = d[1].coerceIn(0.0, 1.0)
+                brushFlow = d[2].coerceIn(0.0, 1.0)
+            }
+        }) {
+            ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
+        }
     }
 
     fun updateBrushSpacing(v: Double) {

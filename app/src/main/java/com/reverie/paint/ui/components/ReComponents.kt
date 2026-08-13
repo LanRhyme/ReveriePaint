@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -219,7 +221,6 @@ fun ReSlider(
     height: Int = 20,
 ) {
     val colors = Theme.current
-    var isDragging by remember { mutableStateOf(false) }
     Box(
         modifier =
             modifier
@@ -228,10 +229,18 @@ fun ReSlider(
                 .clip(RoundedCornerShape((height / 2).dp))
                 .background(colors.panelHi)
                 .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = { isDragging = true },
-                        onDragEnd = { isDragging = false },
-                        onDragCancel = { isDragging = false },
+                    detectTapGestures { offset ->
+                        val w = size.width.toFloat()
+                        if (w > 0f) {
+                            onValue((offset.x / w).coerceIn(0f, 1f))
+                        }
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { },
+                        onDragEnd = { },
+                        onDragCancel = { },
                     ) { change, _ ->
                         val w = size.width.toFloat()
                         if (w > 0f) {
@@ -247,19 +256,6 @@ fun ReSlider(
                 size = androidx.compose.ui.geometry.Size(size.width * value.coerceIn(0f, 1f), size.height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
             )
-        }
-        if (isDragging) {
-            androidx.compose.ui.window.Popup(alignment = Alignment.CenterStart) {
-                Box(
-                    Modifier
-                        .padding(start = 0.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colors.panel)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    Text("${(value * 100).roundToInt()}%", color = colors.accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
         }
     }
 }
