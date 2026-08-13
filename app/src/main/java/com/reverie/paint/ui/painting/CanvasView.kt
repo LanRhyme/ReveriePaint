@@ -147,6 +147,7 @@ fun CanvasView(
                         var replaceCleared = false
                         val lassoPoints = mutableListOf<Offset>()
                         var magneticPrev: Offset? = null
+                        var gestureEnded = false
                         var liquifyPrevious = Offset.Zero
                         var previousSinglePoint = down.position
 
@@ -168,22 +169,36 @@ fun CanvasView(
                         magneticPrev = null
                         liquifyPrevious = firstImage
 
-                        // One-shot tap tools (magic wand, similar, fill, text,
-                        // picker) must NOT fire on finger-down: a two-finger
-                        // zoom/pan starts with the first finger down, so firing
-                        // here would select/fill/eyedrop mid-transform. They
-                        // run on release (up) only when the gesture was a
-                        // genuine single-finger tap.
+                        // Krita's selection tools select on the primary action
+                        // (finger-down): the magic wand / similar-color / fill
+                        // fire immediately here, and a second finger landing
+                        // mid-gesture (zoom/pan) reverts them with an undo.
+                        // Text keeps the release-confirmed tap because a modal
+                        // dialog must not pop up during a transform.
                         var pendingTap: Offset? = null
+                        var tapReverted = false
                         when (tool) {
                             Tool.PICKER -> {
                                 pickerActive = true
                                 pickerScreenPos = down.position
                                 val refHex = vm.brushColor
                                 pickerInitialColor = parseColor(refHex)
-                                pendingTap = firstImage
+                                val hex = vm.pickColor(firstImage.x, firstImage.y)
+                                pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
                             }
-                            Tool.FILL, Tool.TEXT, Tool.MAGICWAND, Tool.SELECT_SIMILAR -> {
+                            Tool.MAGICWAND -> {
+                                vm.selectContiguous(firstImage.x.toInt(), firstImage.y.toInt())
+                                tapReverted = true
+                            }
+                            Tool.SELECT_SIMILAR -> {
+                                vm.selectSimilar(firstImage.x.toInt(), firstImage.y.toInt())
+                                tapReverted = true
+                            }
+                            Tool.FILL -> {
+                                vm.floodFill(firstImage.x, firstImage.y)
+                                tapReverted = true
+                            }
+                            Tool.TEXT -> {
                                 pendingTap = firstImage
                             }
                             else -> Unit
@@ -213,6 +228,14 @@ fun CanvasView(
                                     if (strokeStarted) {
                                         vm.touchCancel()
                                         strokeStarted = false
+                                    }
+                                    if (tapReverted) {
+                                        // A second finger means zoom/pan, not a
+                                        // wand tap: revert the just-applied
+                                        // selection / fill (Krita's stroke-based
+                                        // selection is cancelled the same way)
+                                        tapReverted = false
+                                        vm.undo()
                                     }
                                     transformStarted = true
                                     mode = GestureMode.TRANSFORM
@@ -400,7 +423,7 @@ fun CanvasView(
                                                         cur.x.toInt(), cur.y.toInt(),
                                                         40,
                                                     ) { pts ->
-                                                        if (pts.isNotEmpty()) {
+                                                        if (!gestureEnded && pts.isNotEmpty()) {
                                                             for (p in pts) {
                                                                 if (lassoPoints.lastOrNull() !=
                                                                     Offset(p.first.toFloat(), p.second.toFloat())
@@ -475,19 +498,8 @@ fun CanvasView(
                         // the committed selection
                         if (!transformStarted) {
                             pendingTap?.let { tap ->
-                                when (tool) {
-                                    Tool.MAGICWAND ->
-                                        vm.selectContiguous(tap.x.toInt(), tap.y.toInt())
-                                    Tool.SELECT_SIMILAR ->
-                                        vm.selectSimilar(tap.x.toInt(), tap.y.toInt())
-                                    Tool.FILL -> vm.floodFill(tap.x, tap.y)
-                                    Tool.PICKER -> {
-                                        val hex = vm.pickColor(tap.x, tap.y)
-                                        pickerCurrentColor =
-                                            hex?.let { parseColor(it) } ?: pickerInitialColor
-                                    }
-                                    Tool.TEXT -> onTextRequested(tap.x, tap.y)
-                                    else -> Unit
+                                if (tool == Tool.TEXT) {
+                                    onTextRequested(tap.x, tap.y)
                                 }
                             }
                             when {
@@ -531,14 +543,15 @@ fun CanvasView(
                                 }
 
                                 trackSelectTool -> {
+                                    // Freeze the preview: late magnetic-lasso
+                                    // callbacks must not keep mutating the path
+                                    // after the selection has been committed
+                                    gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
                                         if (tool == Tool.SELECT_POLYGON) {
                                             vm.selectPolygon(points)
                                         } else {
-                                            // Magnetic lasso (simplified: a
-                                            // freehand selection, edge snapping
-                                            // is a later refinement)
                                             vm.lassoSelect(points)
                                         }
                                     }
@@ -551,6 +564,10 @@ fun CanvasView(
                                 }
 
                                 tool == Tool.LASSO || tool == Tool.SELECT_MAGNETIC -> {
+                                    // Freeze the preview: late magnetic-lasso
+                                    // callbacks must not keep mutating the path
+                                    // after the selection has been committed
+                                    gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
                                         vm.selectPolygon(points)
