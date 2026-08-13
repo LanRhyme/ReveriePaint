@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -40,6 +42,32 @@ import com.reverie.paint.ui.components.noRippleClickable
  * Main view = category rail + preset list. Tapping the already-selected
  * preset opens the second-level property page (size/opacity/flow).
  */
+/** Krita-style brush grouping: the preset name prefix maps to a group. */
+private fun brushGroupOf(name: String): String = when {
+    name.startsWith("a)") -> "橡皮擦"
+    name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
+    name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
+    name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
+    name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
+    name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
+    name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
+    name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
+    name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
+    name.startsWith("j)") || name.startsWith("Water") -> "水彩"
+    name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
+    name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
+    name.startsWith("t)") || name.startsWith("Shape") -> "形状"
+    name.startsWith("u)") || name.contains("Pixel") -> "像素画"
+    name.startsWith("v)") -> "特效"
+    name.startsWith("w)") -> "纹理"
+    name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
+    name.startsWith("y)") -> "纹理"
+    name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
+    name.contains("Spray") -> "喷枪"
+    name.contains("Clone") || name.contains("Distort") -> "特效"
+    else -> "其他"
+}
+
 @Composable
 fun BrushPanel(
     vm: PaintViewModel,
@@ -47,7 +75,10 @@ fun BrushPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
 ) {
-    val categories = listOf("全部", "基础", "圆头", "勾线", "水彩", "喷枪", "纹理", "橡皮")
+    // Real Krita-style categories, derived from the loaded presets
+    val categories = remember(vm.brushPresets) {
+        listOf("全部") + vm.brushPresets.map { brushGroupOf(it.name) }.distinct()
+    }
     var selectedCategory by remember { mutableStateOf("全部") }
     // null = list view; non-null = second-level property page for that preset
     var detailIndex by remember { mutableStateOf<Int?>(null) }
@@ -133,7 +164,12 @@ fun BrushPanel(
                                     .padding(horizontal = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(vm.brushPresets) { preset ->
+                                val filtered = if (selectedCategory == "全部") {
+                                    vm.brushPresets
+                                } else {
+                                    vm.brushPresets.filter { brushGroupOf(it.name) == selectedCategory }
+                                }
+                                items(filtered) { preset ->
                                     val isSelected = preset.index == vm.brushPresetIndex
                                     Row(
                                         modifier = Modifier
@@ -248,6 +284,8 @@ private fun BrushPropertyPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             Text("笔刷属性", color = Morandi.subText, fontSize = 12.sp)
@@ -255,6 +293,10 @@ private fun BrushPropertyPage(
             BrushParamSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
             BrushParamSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
             BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
+            BrushParamSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
+            BrushParamSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
+            BrushParamSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
+            BrushParamSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
         }
     }
 }

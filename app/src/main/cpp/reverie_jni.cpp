@@ -283,6 +283,30 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFlow(JNIEnv *, jobject, jd
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSpacing(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushSpacing(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushAngle(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushAngle(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushScatter(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushScatter(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFade(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushFade(v);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {
     const char *c = env->GetStringUTFChars(color, nullptr);

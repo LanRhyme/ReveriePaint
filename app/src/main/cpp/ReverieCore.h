@@ -179,6 +179,10 @@ public:
     QString brushPresetPath(int index) const;
     QByteArray brushPresetThumbData(int index) const;
     void setBrushFlow(qreal v);
+    void setBrushSpacing(qreal v);
+    void setBrushAngle(qreal v);
+    void setBrushScatter(qreal v);
+    void setBrushFade(qreal v);
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)

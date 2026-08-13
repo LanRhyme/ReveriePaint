@@ -1339,6 +1339,38 @@ void ReverieCore::setBrushFlow(qreal v)
     }
 }
 
+void ReverieCore::setBrushSpacing(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        KisBrushBasedPaintOpSettings *bs =
+            dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
+        if (bs) {
+            bs->setSpacing(v);
+        }
+    }
+}
+
+void ReverieCore::setBrushAngle(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpAngle(v);
+    }
+}
+
+void ReverieCore::setBrushScatter(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpScatter(v);
+    }
+}
+
+void ReverieCore::setBrushFade(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpFade(v);
+    }
+}
+
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
 {
     if (!m_document) {
