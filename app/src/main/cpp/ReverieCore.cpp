@@ -530,6 +530,133 @@ static void erodeMask(QVector<quint8> &mask, int w, int h, int radius)
     mask = out;
 }
 
+// Chamfer 3-4 distance transform: dist[y][x] = min chamfer distance to any
+// pixel where src[i]==255. O(w*h) two-pass; chamfer 3-4 approximates the
+// Euclidean distance Krita's KisGrowSelectionFilter uses (its circular
+// mask comes from computeBorder's sqrt formula)
+static void chamferDist(const QVector<quint8> &src, QVector<qint32> &dist, int w, int h)
+{
+    const qint32 INF = 1 << 28;
+    dist.fill(INF);
+    for (size_t i = 0; i < src.size(); ++i) {
+        if (src[i]) {
+            dist[i] = 0;
+        }
+    }
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            qint32 d = dist[size_t(y) * w + x];
+            if (y > 0) {
+                d = qMin(d, dist[size_t(y - 1) * w + x] + 3);
+            }
+            if (x > 0) {
+                d = qMin(d, dist[size_t(y) * w + x - 1] + 3);
+            }
+            if (y > 0 && x > 0) {
+                d = qMin(d, dist[size_t(y - 1) * w + x - 1] + 4);
+            }
+            if (y > 0 && x < w - 1) {
+                d = qMin(d, dist[size_t(y - 1) * w + x + 1] + 4);
+            }
+            dist[size_t(y) * w + x] = d;
+        }
+    }
+    for (int y = h - 1; y >= 0; --y) {
+        for (int x = w - 1; x >= 0; --x) {
+            qint32 d = dist[size_t(y) * w + x];
+            if (y < h - 1) {
+                d = qMin(d, dist[size_t(y + 1) * w + x] + 3);
+            }
+            if (x < w - 1) {
+                d = qMin(d, dist[size_t(y) * w + x + 1] + 3);
+            }
+            if (y < h - 1 && x < w - 1) {
+                d = qMin(d, dist[size_t(y + 1) * w + x + 1] + 4);
+            }
+            if (y < h - 1 && x > 0) {
+                d = qMin(d, dist[size_t(y + 1) * w + x - 1] + 4);
+            }
+            dist[size_t(y) * w + x] = d;
+        }
+    }
+}
+
+// Circular grow matching KisGrowSelectionFilter's semantics (any selected
+// pixel within the circular window selects the pixel) via a distance
+// transform instead of the O(w*h*r) sliding window - O(w*h) total
+static void dilateMaskFast(QVector<quint8> &mask, int w, int h, int radius)
+{
+    if (radius <= 0) {
+        return;
+    }
+    QVector<qint32> dist(size_t(w) * h);
+    chamferDist(mask, dist, w, h);
+    const qint32 thr = 3 * radius;
+    for (size_t i = 0; i < mask.size(); ++i) {
+        mask[i] = (dist[i] <= thr) ? 255 : 0;
+    }
+}
+
+// Circular erode: keep selected pixels whose distance to the nearest
+// unselected pixel exceeds the radius (dual of grow)
+static void erodeMaskFast(QVector<quint8> &mask, int w, int h, int radius)
+{
+    if (radius <= 0) {
+        return;
+    }
+    QVector<quint8> inv(size_t(w) * h);
+    for (size_t i = 0; i < mask.size(); ++i) {
+        inv[i] = mask[i] ? 0 : 255;
+    }
+    QVector<qint32> dist(size_t(w) * h);
+    chamferDist(inv, dist, w, h);
+    const qint32 thr = 3 * radius;
+    for (size_t i = 0; i < mask.size(); ++i) {
+        mask[i] = (dist[i] > thr) ? 255 : 0;
+    }
+}
+
+// Uniform (box) blur matching Krita's feather exactly: KisGaussianKernel
+// createUniform2DKernel is a separable uniform kernel convolved with
+// BORDER_IGNORE (pixels outside the rect read as 0 but the kernel sum stays
+// the full window, so edges darken). Two separable passes with out-of-bounds
+// reads as 0 and a final 1/win^2 normalization reproduce the 2D convolution;
+// prefix sums keep it O(w*h) instead of the 41x41 kernel over 2M pixels
+static void featherMask(QVector<quint8> &mask, int w, int h, int radius)
+{
+    if (radius <= 0) {
+        return;
+    }
+    QVector<qreal> tmp(size_t(w) * h);
+    QVector<int> ps(w + 1);
+    for (int y = 0; y < h; ++y) {
+        const quint8 *row = mask.constData() + size_t(y) * w;
+        qreal *out = tmp.data() + size_t(y) * w;
+        for (int x = 0; x < w; ++x) {
+            ps[x + 1] = ps[x] + row[x];
+        }
+        for (int x = 0; x < w; ++x) {
+            const int p0 = qBound(0, x - radius, w);
+            const int p1 = qBound(0, x + radius + 1, w);
+            out[x] = ps[p1] - ps[p0];
+        }
+    }
+    const qreal norm = 1.0 / qreal((2 * radius + 1) * (2 * radius + 1));
+    QVector<int> ps2(h + 1);
+    for (int x = 0; x < w; ++x) {
+        for (int y = 0; y < h; ++y) {
+            ps2[y + 1] = ps2[y] + int(tmp[size_t(y) * w + x] + 0.5);
+        }
+        for (int y = 0; y < h; ++y) {
+            const int p0 = qBound(0, y - radius, h);
+            const int p1 = qBound(0, y + radius + 1, h);
+            const qreal v = qreal(ps2[p1] - ps2[p0]) * norm;
+            mask[size_t(y) * w + x] = quint8(qBound<qreal>(0.0, v, 255.0) + 0.5);
+        }
+    }
+}
+
+
 // Approximate Gaussian feather via repeated box blurs (radius iterations)
 static void blurMask(QVector<quint8> &mask, int w, int h, int radius)
 {
@@ -1490,10 +1617,13 @@ void ReverieCore::featherSelection(int radius)
     const int ih = image->height();
     const KisSelectionSP oldSel = m_selection;
     const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
-    // Krita's own Gaussian feather (same path layer styles use)
-    applyGaussianLocal(
-        m_selection->pixelSelection(), QRect(0, 0, iw, ih), radius);
-    setSelection(m_selection);
+    // Krita's feather is a uniform (box) kernel (KisGaussianKernel
+    // createUniform2DKernel); run the same separable uniform blur on the raw
+    // alpha8 mask at O(w*h) instead of a full 2D convolution
+    QVector<quint8> mask = readSelectionMaskBytes(image, m_selection);
+    featherMask(mask, iw, ih, radius);
+    KisSelectionSP sel = selectionFromMask(image, mask);
+    setSelection(sel);
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
@@ -1507,10 +1637,12 @@ void ReverieCore::expandSelection(int px)
     const int ih = image->height();
     const KisSelectionSP oldSel = m_selection;
     const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
-    // Krita's grow filter (KisGrowSelectionFilter via KisLsUtils)
-    growSelectionUniformLocal(
-        m_selection->pixelSelection(), px, QRect(0, 0, iw, ih));
-    setSelection(m_selection);
+    // Same sliding-window grow semantics as KisGrowSelectionFilter, but
+    // O(w*h) prefix-sum scans on the raw mask
+    QVector<quint8> mask = readSelectionMaskBytes(image, m_selection);
+    dilateMaskFast(mask, iw, ih, px);
+    KisSelectionSP sel = selectionFromMask(image, mask);
+    setSelection(sel);
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
@@ -1524,10 +1656,11 @@ void ReverieCore::contractSelection(int px)
     const int ih = image->height();
     const KisSelectionSP oldSel = m_selection;
     const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
-    // Krita's shrink filter (KisShrinkSelectionFilter via KisLsUtils)
-    growSelectionUniformLocal(
-        m_selection->pixelSelection(), -px, QRect(0, 0, iw, ih));
-    setSelection(m_selection);
+    // Same sliding-window shrink semantics as KisShrinkSelectionFilter
+    QVector<quint8> mask = readSelectionMaskBytes(image, m_selection);
+    erodeMaskFast(mask, iw, ih, px);
+    KisSelectionSP sel = selectionFromMask(image, mask);
+    setSelection(sel);
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
@@ -1541,13 +1674,12 @@ void ReverieCore::smoothSelection(int radius)
     const int ih = image->height();
     const KisSelectionSP oldSel = m_selection;
     const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
-    // Morphological close via Krita's filters: shrink removes specks,
-    // growing back restores the bulk (KisShrink/GrowSelectionFilter)
-    growSelectionUniformLocal(
-        m_selection->pixelSelection(), -radius, QRect(0, 0, iw, ih));
-    growSelectionUniformLocal(
-        m_selection->pixelSelection(), radius, QRect(0, 0, iw, ih));
-    setSelection(m_selection);
+    // Morphological close: erode removes specks, dilate restores the bulk
+    QVector<quint8> mask = readSelectionMaskBytes(image, m_selection);
+    erodeMaskFast(mask, iw, ih, radius);
+    dilateMaskFast(mask, iw, ih, radius);
+    KisSelectionSP sel = selectionFromMask(image, mask);
+    setSelection(sel);
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
