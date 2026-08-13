@@ -140,6 +140,7 @@ fun ReVerticalSlider(
     modifier: Modifier = Modifier,
     trackWidth: Int = 24,
     trackHeight: Int = 100,
+    tooltipText: String? = null,
 ) {
     val colors = Theme.current
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
@@ -180,7 +181,11 @@ fun ReVerticalSlider(
                         .background(colors.panel, RoundedCornerShape(8.dp))
                         .border(1.dp, colors.border, RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        Text("${(localFraction * 100).toInt()}", color = colors.text, fontSize = 12.sp)
+                        Text(
+                            tooltipText ?: "${(localFraction * 100).toInt()}",
+                            color = colors.text,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }

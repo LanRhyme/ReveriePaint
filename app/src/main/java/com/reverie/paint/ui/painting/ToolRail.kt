@@ -302,18 +302,12 @@ private fun BrushSizeGroup(
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("S", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-        Text(
-            text = "${brushSize.roundToInt()}",
-            color = Morandi.text,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 1.dp),
-        )
         ReVerticalSlider(
             label = "",
             fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
             onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
             trackHeight = 100,
+            tooltipText = "${kotlin.math.round(brushSize).toInt()}",
         )
     }
 }
@@ -326,18 +320,12 @@ private fun OpacityGroup(
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("O", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-        Text(
-            text = "${(opacity * 100).roundToInt()}%",
-            color = Morandi.text,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 1.dp),
-        )
         ReVerticalSlider(
             label = "",
             fraction = opacity.toFloat(),
             onFraction = { onOpacity(it.toDouble()) },
             trackHeight = 100,
+            tooltipText = "${(opacity * 100).roundToInt()}%",
         )
     }
 }
