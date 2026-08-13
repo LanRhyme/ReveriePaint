@@ -1229,12 +1229,12 @@ void ReverieCore::invertSelection()
         QVector<quint8> selBytes(size_t(iw) * ih);
         ps->readBytes(selBytes.data(), 0, 0, iw, ih);
         for (int i = 0; i < iw * ih; ++i) {
-            mask[i] = selBytes[i] > 127 ? 0 : 1;
+            mask[i] = selBytes[i] > 127 ? 0 : quint8(255);
         }
     } else {
         // No selection yet -> invert of "nothing selected" is everything
         for (int i = 0; i < iw * ih; ++i) {
-            mask[i] = 1;
+            mask[i] = 255;
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
@@ -2882,7 +2882,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     QVector<int> queue;
     queue.reserve(iw * ih / 4);
     const int start = y * iw + x;
-    mask[start] = 1;
+    mask[start] = 255;
     queue.append(start);
     size_t head = 0;
     while (head < queue.size()) {
@@ -2891,19 +2891,19 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         const int cy = cur / iw;
         if (cx > 0) {
             const int n = cur - 1;
-            if (!mask[n] && colorDistance(pxAt(cx - 1, cy), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+            if (!mask[n] && colorDistance(pxAt(cx - 1, cy), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
         }
         if (cx + 1 < iw) {
             const int n = cur + 1;
-            if (!mask[n] && colorDistance(pxAt(cx + 1, cy), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+            if (!mask[n] && colorDistance(pxAt(cx + 1, cy), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
         }
         if (cy > 0) {
             const int n = cur - iw;
-            if (!mask[n] && colorDistance(pxAt(cx, cy - 1), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+            if (!mask[n] && colorDistance(pxAt(cx, cy - 1), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
         }
         if (cy + 1 < ih) {
             const int n = cur + iw;
-            if (!mask[n] && colorDistance(pxAt(cx, cy + 1), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+            if (!mask[n] && colorDistance(pxAt(cx, cy + 1), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
@@ -2939,7 +2939,7 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
             const int o = (py * iw + px) * 4;
             const QRgb c = qRgba(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
             if (colorDistance(c, seed) <= tolSq) {
-                mask[size_t(py) * iw + px] = 1;
+                mask[size_t(py) * iw + px] = 255;
             }
         }
     }
@@ -3094,7 +3094,7 @@ void ReverieCore::lassoSelect(const QVector<QPoint> &points)
     for (int y = 0; y < ih; ++y) {
         for (int x = 0; x < iw; ++x) {
             if (mask[size_t(y) * iw + x]) {
-                selMask[size_t(y) * iw + x] = 1;
+                selMask[size_t(y) * iw + x] = 255;
             }
         }
     }
