@@ -325,5 +325,11 @@ object ReverieCoreBridge {
 
     external fun hasSelection(): Boolean
 
+    external fun selectionMask(): ByteArray
+
+    external fun selectAll()
+
+    external fun invertSelection()
+
     external fun clearSelection()
 }

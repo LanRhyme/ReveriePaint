@@ -762,7 +762,31 @@ Java_com_reverie_paint_core_ReverieCoreBridge_hasSelection(JNIEnv *, jobject)
     return core()->hasSelection();
 }
 
-extern "C" JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jbyteArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectionMask(JNIEnv *env, jobject)
+{
+    const QByteArray mask = core()->selectionMask();
+    jbyteArray arr = env->NewByteArray(mask.size());
+    if (mask.size() > 0) {
+        env->SetByteArrayRegion(arr, 0, mask.size(),
+                                reinterpret_cast<const jbyte *>(mask.constData()));
+    }
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectAll(JNIEnv *, jobject)
+{
+    core()->selectAll();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_invertSelection(JNIEnv *, jobject)
+{
+    core()->invertSelection();
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_clearSelection(JNIEnv *, jobject)
 {
     core()->clearSelection();

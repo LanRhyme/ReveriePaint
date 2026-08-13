@@ -96,6 +96,10 @@ public:
     bool selectionFromLayer(int index);
     bool hasSelection() const;
     void clearSelection();
+    void selectAll();
+    void invertSelection();
+    // Export the selection mask (1 byte per pixel, 0/255) for the UI overlay
+    QByteArray selectionMask() const;
 
     // Tool mode: the complete Krita tool set. Brush-family modes drive the
     // stroke composite (eraser -> erase even with a plain brush preset);

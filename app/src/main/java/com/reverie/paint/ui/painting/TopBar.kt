@@ -38,6 +38,7 @@ fun TopBar(
     onSettings: () -> Unit,
     onUndo: () -> Unit = { vm.undo() },
     onRedo: () -> Unit = { vm.redo() },
+    onSelection: () -> Unit = {},
 ) {
     Row(
         modifier =
@@ -50,6 +51,7 @@ fun TopBar(
     ) {
         ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
         ReIconButton(R.drawable.ic_redo, "重做", onRedo)
+        ReIconButton(R.drawable.ic_select, "选区", onSelection)
         ReIconButton(R.drawable.ic_layers, "图层", onLayers)
         ReIconButton(R.drawable.ic_settings, "设置", onSettings)
         ReIconButton(R.drawable.ic_x, "关闭", onBack) // Moved to the right

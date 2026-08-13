@@ -766,14 +766,18 @@ class PaintViewModel : ViewModel() {
     }
 
     fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int) {
-        runCore { ReverieCoreBridge.selectShape(kind, x1, y1, x2, y2) }
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.selectShape(kind, x1, y1, x2, y2)
+        }
     }
 
     fun selectPolygon(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }
         val ys = IntArray(points.size) { points[it].second }
-        runCore { ReverieCoreBridge.selectPolygon(xs, ys, points.size) }
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.selectPolygon(xs, ys, points.size)
+        }
     }
 
     fun drawPolygon(points: List<Pair<Int, Int>>, closed: Boolean) {
@@ -820,19 +824,85 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    // ---- Selection state (mirrored from C++ for the canvas overlay) ----
+    var selectionMask: ByteArray? by mutableStateOf(null)
+    var hasSelection by mutableStateOf(false)
+    // Semi-transparent blue overlay bitmap built from the mask, drawn on top
+    // of the canvas so the user can see the active selection (Krita-style)
+    var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
+
+    fun refreshSelection() {
+        runCore(after = {
+            val mask = ReverieCoreBridge.selectionMask()
+            selectionMask = mask
+            hasSelection = mask != null && mask.any { it.toInt() != 0 }
+            val docW = coreW
+            val docH = coreH
+            if (mask != null && hasSelection && docW > 0 && docH > 0 &&
+                mask.size == docW * docH
+            ) {
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    docW, docH, android.graphics.Bitmap.Config.ARGB_8888
+                )
+                val px = IntArray(mask.size)
+                val selColor = 0x4D1E88E5.toInt()  // ~30% blue (marching-ants tint)
+                for (i in mask.indices) {
+                    px[i] = if (mask[i].toInt() != 0) selColor else 0
+                }
+                bmp.setPixels(px, 0, docW, 0, 0, docW, docH)
+                selectionOverlayBitmap = bmp
+            } else {
+                selectionOverlayBitmap = null
+            }
+        }) {
+            // read on the render thread
+            ReverieCoreBridge.selectionMask()
+        }
+    }
+
+    fun clearSelectionAction() {
+        runCore(after = {
+            selectionMask = null
+            hasSelection = false
+        }) {
+            ReverieCoreBridge.clearSelection()
+            refreshDisplay()
+        }
+    }
+
+    fun selectAllAction() {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.selectAll()
+            refreshDisplay()
+        }
+    }
+
+    fun invertSelectionAction() {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.invertSelection()
+            refreshDisplay()
+        }
+    }
+
     fun lassoSelect(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }
         val ys = IntArray(points.size) { points[it].second }
-        runCore { ReverieCoreBridge.lassoSelect(xs, ys, points.size) }
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.lassoSelect(xs, ys, points.size)
+        }
     }
 
     fun selectContiguous(x: Int, y: Int) {
-        runCore { ReverieCoreBridge.selectContiguousAt(x, y) }
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.selectContiguousAt(x, y)
+        }
     }
 
     fun selectSimilar(x: Int, y: Int) {
-        runCore { ReverieCoreBridge.selectSimilarAt(x, y) }
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.selectSimilarAt(x, y)
+        }
     }
 
     fun lassoFill(points: List<Pair<Int, Int>>) {

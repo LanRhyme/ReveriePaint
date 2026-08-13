@@ -423,6 +423,16 @@ fun CanvasView(
                 
                 // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
+
+                // Active selection overlay (semi-transparent tint so the user
+                // sees exactly which pixels are selected)
+                val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
+                if (selBmp != null) {
+                    drawImage(
+                        selBmp,
+                        topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                    )
+                }
             }
         }
     }

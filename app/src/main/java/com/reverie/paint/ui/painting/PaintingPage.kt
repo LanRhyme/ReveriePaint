@@ -15,11 +15,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.reverie.paint.ui.components.noRippleClickable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.border
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,6 +96,7 @@ fun PaintingPage(vm: PaintViewModel) {
     // Currently selected tool
     var tool by remember { mutableStateOf(Tool.BRUSH) }
     var moreToolsOpen by remember { mutableStateOf(false) }
+    var selectionMenuOpen by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
@@ -158,7 +164,41 @@ fun PaintingPage(vm: PaintViewModel) {
             },
             onLayers = { layerPanelOpen = true },
             onSettings = { settingsPanelOpen = true },
+            onSelection = { selectionMenuOpen = true },
         )
+
+        // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
+        if (selectionMenuOpen) {
+            androidx.compose.ui.window.Popup(
+                alignment = Alignment.TopEnd,
+                offset = androidx.compose.ui.unit.IntOffset(0, 180),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Morandi.panelHi)
+                            .border(
+                                1.dp,
+                                Morandi.border,
+                                RoundedCornerShape(10.dp),
+                            ),
+                ) {
+                    Column {
+                        SelectionMenuItem("全选") { vm.selectAllAction() }
+                        SelectionMenuItem("反选") { vm.invertSelectionAction() }
+                        SelectionMenuItem("清除选区", danger = true) { vm.clearSelectionAction() }
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(Morandi.border)
+                        )
+                        SelectionMenuItem("关闭") { selectionMenuOpen = false }
+                    }
+                }
+            }
+        }
 
         // ---- Left tool rail ----
         ToolRail(
@@ -310,4 +350,28 @@ fun TextInputDialog(
         },
         containerColor = Morandi.panelHi,
     )
+}
+
+@Composable
+private fun SelectionMenuItem(
+    label: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .noRippleClickable {
+                    onClick()
+                }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            color = if (danger) Color(0xFFB05552) else Morandi.text,
+            fontSize = 13.sp,
+        )
+    }
 }

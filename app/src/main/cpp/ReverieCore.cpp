@@ -325,6 +325,9 @@ KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 }
 
 
+static KisSelectionSP selectionFromMask(const KisImageSP &image,
+                                        const QVector<quint8> &mask);
+
 static QString defaultPaintLayerName(const QVector<ReverieCore::LayerEntry> &layers)
 {
     int n = 1;
@@ -1092,6 +1095,67 @@ void ReverieCore::clearSelection()
 {
     m_selection = nullptr;
     markDirty();
+}
+
+void ReverieCore::selectAll()
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    sel->pixelSelection()->select(
+        QRect(0, 0, image->width(), image->height()), OPACITY_OPAQUE_U8);
+    m_selection = sel;
+    markDirty();
+}
+
+void ReverieCore::invertSelection()
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    if (m_selection) {
+        KisPixelSelectionSP ps = m_selection->pixelSelection();
+        QVector<quint8> selBytes(size_t(iw) * ih);
+        ps->readBytes(selBytes.data(), 0, 0, iw, ih);
+        for (int i = 0; i < iw * ih; ++i) {
+            mask[i] = selBytes[i] > 127 ? 0 : 1;
+        }
+    } else {
+        // No selection yet -> invert of "nothing selected" is everything
+        for (int i = 0; i < iw * ih; ++i) {
+            mask[i] = 1;
+        }
+    }
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
+QByteArray ReverieCore::selectionMask() const
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return QByteArray();
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QByteArray mask(iw * ih, 0);
+    if (m_selection) {
+        KisPixelSelectionSP ps = m_selection->pixelSelection();
+        QVector<quint8> bytes(size_t(iw) * ih);
+        ps->readBytes(bytes.data(), 0, 0, iw, ih);
+        for (int i = 0; i < iw * ih; ++i) {
+            mask[i] = bytes[i] > 127 ? char(255) : char(0);
+        }
+    }
+    return mask;
 }
 
 // ---------------------------------------------------------------------------
@@ -2211,6 +2275,13 @@ void ReverieCore::floodFillAt(int x, int y)
 
     const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
 
+    // Active selection constrains the fill (Krita behaviour): the seed must
+    // be inside the selection and only selected pixels are repainted.
+    const QByteArray selMask = selectionMask();
+    if (!selMask.isEmpty() && !selMask[size_t(y) * iw + x]) {
+        return;
+    }
+
     // BFS
     QVector<QPoint> stack;
     QVector<bool> visited(size_t(iw) * ih, false);
@@ -2221,6 +2292,9 @@ void ReverieCore::floodFillAt(int x, int y)
         const QPoint p = stack.takeLast();
         const int px = p.x(), py = p.y();
         if (px < 0 || px >= iw || py < 0 || py >= ih) continue;
+        if (!selMask.isEmpty() && !selMask[size_t(py) * iw + px]) {
+            continue;
+        }
         const QRgb c = layerImg.pixel(px, py);
         if (qAbs(qRed(c) - r0) > tol || qAbs(qGreen(c) - g0) > tol || qAbs(qBlue(c) - b0) > tol) {
             continue;
@@ -2266,6 +2340,35 @@ QString ReverieCore::pickColorAt(int x, int y)
             .arg(qBlue(c), 2, 16, QLatin1Char('0'));
 }
 
+// Restore pixels outside the active selection after a QImage-based edit
+// (drawShape / drawPolygon / gradientFill / moveLayerContent), so those
+// tools are constrained to the selection exactly like Krita. 'edited' is the
+// region-sized image, 'original' its pre-edit copy, 'selMask' the full
+// document mask, and offsetX/offsetY locate 'edited' inside the document.
+static void clipEditToSelection(QImage &edited, const QImage &original,
+                                const QByteArray &selMask,
+                                int offsetX, int offsetY)
+{
+    if (selMask.isEmpty() || edited.size() != original.size()) {
+        return;
+    }
+    const int iw = edited.width();
+    const int ih = edited.height();
+    for (int y = 0; y < ih; ++y) {
+        const int my = offsetY + y;
+        const int stride = iw + offsetX;  // document width
+        const uchar *m = reinterpret_cast<const uchar *>(selMask.constData()) +
+                         size_t(my) * stride + offsetX;
+        const uchar *src = original.constScanLine(y);
+        uchar *dst = edited.scanLine(y);
+        for (int x = 0; x < iw; ++x) {
+            if (!m[x]) {
+                memcpy(dst + x * 4, src + x * 4, 4);
+            }
+        }
+    }
+}
+
 void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -2308,6 +2411,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
     const qreal penWidth = qMax<qreal>(1.0, m_brushSize);
 
+    const QImage originalImg = layerImg.copy();  // pre-edit copy for selection clip
     QPainter painter(&layerImg);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -2325,6 +2429,9 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     }
     painter.end();
 
+    if (m_selection) {
+        clipEditToSelection(layerImg, originalImg, selectionMask(), region.x(), region.y());
+    }
     const qint32 rw = region.width();
     const qint32 rh = region.height();
     device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
@@ -2376,6 +2483,7 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
         qColor = Qt::black;
     }
     qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    const QImage originalImg = layerImg.copy();
     QPainter painter(&layerImg);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
@@ -2386,6 +2494,10 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     painter.translate(-region.topLeft());
     painter.drawPath(path);
     painter.end();
+    if (m_selection) {
+        clipEditToSelection(layerImg, originalImg, selectionMask(),
+                            region.x(), region.y());
+    }
     device->writeBytes(layerImg.constBits(), region.x(), region.y(),
                        region.width(), region.height());
     device->setDirty();
@@ -2423,6 +2535,7 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     }
     c1.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
     c2.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    const QImage originalImg = layerImg.copy();
     QPainter painter(&layerImg);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     QLinearGradient grad(x1, y1, x2, y2);
@@ -2430,6 +2543,9 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     grad.setColorAt(1.0, c2);
     painter.fillRect(0, 0, iw, ih, grad);
     painter.end();
+    if (m_selection) {
+        clipEditToSelection(layerImg, originalImg, selectionMask(), 0, 0);
+    }
     device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
     device->setDirty();
     markDirty();
@@ -2641,6 +2757,9 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     p.setCompositionMode(QPainter::CompositionMode_Source);
     p.drawImage(dx, dy, src);
     p.end();
+    if (m_selection) {
+        clipEditToSelection(out, src, selectionMask(), 0, 0);
+    }
     device->writeBytes(out.constBits(), 0, 0, iw, ih);
     device->setDirty();
     markDirty();
