@@ -345,9 +345,9 @@ class PaintViewModel : ViewModel() {
     fun loadBrushPresets() {
         // Copy the bundled presets from assets to filesDir once
         val dir = java.io.File(appContext.filesDir, "paintoppresets")
+        val assets = appContext.assets
         try {
             if (!dir.exists()) dir.mkdirs()
-            val assets = appContext.assets
             for (name in assets.list("paintoppresets") ?: emptyArray()) {
                 val target = java.io.File(dir, name)
                 if (!target.exists()) {
@@ -360,6 +360,23 @@ class PaintViewModel : ViewModel() {
             android.util.Log.e("ReveriePaint", "preset copy failed", e)
         }
         android.util.Log.d("ReveriePaint", "loadBrushPresets files=" + (dir.list()?.size ?: -1))
+        // Copy the bundled brush resource files (.gbr/.gih/.png/.svg) from
+        // assets to filesDir once, so presets can resolve their
+        // brush_definition files via the shared KisLocalStrokeResources.
+        val brushDir = java.io.File(appContext.filesDir, "brushes")
+        try {
+            if (!brushDir.exists()) brushDir.mkdirs()
+            for (name in assets.list("brushes") ?: emptyArray()) {
+                val target = java.io.File(brushDir, name)
+                if (!target.exists()) {
+                    assets.open("brushes/$name").use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "brush copy failed", e)
+        }
         // Build the list on the render thread (JNI reads), but assign the
         // Compose state on the MAIN thread: mutableStateOf written from the
         // render HandlerThread is not reliably visible to composition.
@@ -369,6 +386,8 @@ class PaintViewModel : ViewModel() {
             brushPresets = list.toList()
         }) {
             android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
+            val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
+            android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
             val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
             android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
             list.clear()

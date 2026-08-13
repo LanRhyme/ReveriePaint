@@ -230,6 +230,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPresetsFromDir(JNIEnv *en
     return n;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushResources(JNIEnv *env, jobject, jstring dirPath)
+{
+    const char *p = env->GetStringUTFChars(dirPath, nullptr);
+    const int n = core()->loadBrushResources(QString::fromUtf8(p));
+    env->ReleaseStringUTFChars(dirPath, p);
+    return n;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPreset(JNIEnv *, jobject, jint index)
 {

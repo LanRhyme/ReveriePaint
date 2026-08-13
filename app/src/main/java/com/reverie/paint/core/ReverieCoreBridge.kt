@@ -130,6 +130,8 @@ object ReverieCoreBridge {
 
     external fun loadBrushPresetsFromDir(dirPath: String): Int
 
+    external fun loadBrushResources(dirPath: String): Int
+
     external fun loadBrushPreset(index: Int): Boolean
 
     external fun brushPresetCount(): Int

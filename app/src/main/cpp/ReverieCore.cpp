@@ -22,6 +22,10 @@
 #include <KisRunnableStrokeJobData.h>
 #include <kis_brush_based_paintop_settings.h>
 #include <kis_brushop.h>
+#include <kis_gbr_brush.h>
+#include <kis_png_brush.h>
+#include <kis_imagepipe_brush.h>
+#include <kis_svg_brush.h>
 
 #include <QDebug>
 #if defined(Q_OS_ANDROID)
@@ -1145,27 +1149,83 @@ int ReverieCore::loadBrushPresetsFromDir(const QString &dirPath)
     return m_presets.size();
 }
 
+int ReverieCore::loadBrushResources(const QString &dirPath)
+{
+    // The shared resources interface: presets resolve their brush_definition
+    // filename through it, so the loaded brush files must live here. It is
+    // created once and reused by every loadBrushPreset call.
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
+    QDir dir(dirPath);
+    const QStringList files = dir.entryList(
+        QStringList() << QStringLiteral("*.gbr") << QStringLiteral("*.gih")
+                      << QStringLiteral("*.png") << QStringLiteral("*.svg"),
+        QDir::Files, QDir::Name);
+    int loaded = 0;
+    for (const QString &base : files) {
+        const QString fullPath = dir.filePath(base);
+        KoResource *res = nullptr;
+        if (base.endsWith(QLatin1String(".gbr"))) {
+            res = new KisGbrBrush(base);
+        } else if (base.endsWith(QLatin1String(".gih"))) {
+            res = new KisImagePipeBrush(base);
+        } else if (base.endsWith(QLatin1String(".png"))) {
+            res = new KisPngBrush(base);
+        } else if (base.endsWith(QLatin1String(".svg"))) {
+            res = new KisSvgBrush(base);
+        }
+        if (!res) {
+            continue;
+        }
+        QFile f(fullPath);
+        if (f.open(QIODevice::ReadOnly)) {
+            // The resource's filename() is the bare file name (matching the
+            // filename attribute in presets' brush_definition), so we load
+            // from the full path manually instead of KoResource::load().
+            if (res->loadFromDevice(&f, m_brushResources)) {
+                KisLocalStrokeResources *lr =
+                    dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
+                if (lr) {
+                    lr->addResource(KoResourceSP(res));
+                    ++loaded;
+                } else {
+                    delete res;
+                }
+            } else {
+                delete res;
+            }
+            f.close();
+        } else {
+            delete res;
+        }
+    }
+    RPC_LOG("RPC loadBrushResources dir=%s loaded=%d", dirPath.toUtf8().constData(), loaded);
+    return loaded;
+}
+
 bool ReverieCore::loadBrushPreset(int index)
 {
     if (index < 0 || index >= m_presets.size()) {
         return false;
     }
     registerPaintOps();
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
     const QString path = m_presets[index].second;
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         return false;
     }
-    KisResourcesInterfaceSP ri(new KisLocalStrokeResources());
     KisPaintOpPresetSP preset(new KisPaintOpPreset(m_presets[index].first));
-    const bool ok = preset->loadFromDevice(&f, ri);
+    const bool ok = preset->loadFromDevice(&f, m_brushResources);
     f.close();
     RPC_LOG("RPC loadBrushPreset idx=%d path=%s ok=%d", index, path.toUtf8().constData(), ok);
     if (!ok) {
         return false;
     }
     m_brushPreset = preset;
-    m_brushResources = ri;
     m_brushPresetIndex = index;
     // Re-apply the user's current size / opacity / flow over the preset's
     // own values (they are stored per preset and would otherwise override)

@@ -168,6 +168,11 @@ public:
     static void registerPaintOps();
     // Scans a directory for .kpp presets and loads them lazily
     int loadBrushPresetsFromDir(const QString &dirPath);
+    // Scans a directory for brush resource files (.gbr/.gih/.png/.svg) and
+    // loads them into the shared KisLocalStrokeResources so preset
+    // brush_definition lookups (bestMatch by filename) can resolve them.
+    // Must be called before loadBrushPreset. Returns the count loaded.
+    int loadBrushResources(const QString &dirPath);
     bool loadBrushPreset(int index);
     int brushPresetCount() const;
     QString brushPresetName(int index) const;
