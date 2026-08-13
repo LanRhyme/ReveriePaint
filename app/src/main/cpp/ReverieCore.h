@@ -97,8 +97,22 @@ public:
     bool hasSelection() const;
     void clearSelection();
 
-    // Tool mode (drives how strokes composite)
-    enum ToolMode { ToolBrush, ToolEraser, ToolFill, ToolSmudge };
+    // Tool mode: the complete Krita tool set. Brush-family modes drive the
+    // stroke composite (eraser -> erase even with a plain brush preset);
+    // the others are dispatched from Kotlin/Compose with their own logic.
+    enum ToolMode {
+        ToolBrush, ToolEraser, ToolFill, ToolSmudge,
+        ToolGradient,          // 4
+        ToolSelectRect,        // 5
+        ToolSelectEllipse,     // 6
+        ToolSelectPolygon,     // 7
+        ToolSelectSimilar,     // 8
+        ToolPolygon,           // 9
+        ToolPolyline,          // 10
+        ToolMove,              // 11
+        ToolCrop,              // 12
+        ToolTransform,         // 13
+    };
     void setToolMode(int mode) { m_toolMode = ToolMode(mode); }
     int toolMode() const { return int(m_toolMode); }
 
@@ -123,6 +137,13 @@ public:
 
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
     void drawShape(int kind, int x1, int y1, int x2, int y2);
+    // kind 0=line, 1=rect, 2=ellipse, 3=closed polygon, 4=polyline
+    void drawPolygon(const QVector<QPoint> &points, bool closed);
+    void gradientFill(int x1, int y1, int x2, int y2);
+    void selectShape(int kind, int x1, int y1, int x2, int y2);
+    void selectPolygon(const QVector<QPoint> &points);
+    void moveLayerContent(int dx, int dy);
+    void cropCanvas(int x, int y, int w, int h);
 
     // Draw text at (x, y) with the current brush color/size
     void drawText(int x, int y, const QString &text, qreal fontSize);
@@ -138,6 +159,7 @@ public:
     void setBrushSize(qreal size);
     qreal brushSize() const { return m_brushSize; }
     void setBrushColor(const QColor &c) { m_brushColor = c; }
+    void setBrushSecondaryColor(const QColor &c) { m_brushSecondaryColor = c; }
     void setBrushColorName(const QString &colorName);
     void setBrushOpacity(qreal opacity);
     qreal brushOpacity() const { return m_brushOpacity; }
@@ -251,6 +273,7 @@ private:
     // Brush state
     qreal m_brushSize = 20.0;
     QColor m_brushColor = Qt::black;
+    QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;
     qreal m_brushFlow = 1.0;
     ToolMode m_toolMode = ToolBrush;

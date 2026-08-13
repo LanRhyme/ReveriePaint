@@ -2,25 +2,62 @@ package com.reverie.paint.model
 
 /**
  * Data models shared across the painting UI.
- * 画世界 Pro style tool set - the common set users expect in a painter app.
+ * The complete Krita built-in tool set, grouped the way Krita's toolbox
+ * groups them. Brush-family tools (BRUSH / ERASER / SMUDGE) reuse the brush
+ * panel; the rest carry their own tool-option panel.
  */
+enum class ToolGroup(val label: String) {
+    BRUSH("笔刷"),
+    FILL("填充"),
+    SHAPES("形状"),
+    SELECTION("选择"),
+    TRANSFORM("变换"),
+    VIEW("视图"),
+    OTHER("其他"),
+}
+
 enum class Tool(
     val id: String,
     val label: String,
+    val group: ToolGroup,
 ) {
-    BRUSH("brush", "画笔"),
-    HAND("hand", "手"),
-    ERASER("eraser", "橡皮"),
-    PICKER("picker", "取色"),
-    FILL("fill", "填充"),
-    LASSO("lasso", "套索"),
-    MAGICWAND("magicwand", "魔棒"),
-    LINE("line", "直线"),
-    RECT("rect", "矩形"),
-    ELLIPSE("ellipse", "椭圆"),
-    TEXT("text", "文字"),
-    SMUDGE("smudge", "涂抹"),
-    LIQUIFY("liquify", "液化"),
+    // Brush family: share the brush panel (Krita's FreehandBrush tools)
+    BRUSH("brush", "画笔", ToolGroup.BRUSH),
+    ERASER("eraser", "橡皮擦", ToolGroup.BRUSH),
+    SMUDGE("smudge", "混合涂抹", ToolGroup.BRUSH),
+
+    // Fill family
+    FILL("fill", "填充", ToolGroup.FILL),
+    GRADIENT("gradient", "渐变", ToolGroup.FILL),
+
+    // Shape tools (Krita's shape tools)
+    LINE("line", "直线", ToolGroup.SHAPES),
+    RECT("rect", "矩形", ToolGroup.SHAPES),
+    ELLIPSE("ellipse", "椭圆", ToolGroup.SHAPES),
+    POLYGON("polygon", "多边形", ToolGroup.SHAPES),
+    POLYLINE("polyline", "多段线", ToolGroup.SHAPES),
+
+    // Selection tools (Krita's selection tools)
+    SELECT_RECT("select_rect", "矩形选择", ToolGroup.SELECTION),
+    SELECT_ELLIPSE("select_ellipse", "椭圆选择", ToolGroup.SELECTION),
+    SELECT_POLYGON("select_polygon", "多边形选择", ToolGroup.SELECTION),
+    LASSO("lasso", "套索选择", ToolGroup.SELECTION),
+    MAGICWAND("magicwand", "连续选择", ToolGroup.SELECTION),
+
+    // Transform tools
+    TRANSFORM("transform", "变换", ToolGroup.TRANSFORM),
+    MOVE("move", "移动", ToolGroup.TRANSFORM),
+    CROP("crop", "裁剪", ToolGroup.TRANSFORM),
+
+    // View tools
+    HAND("hand", "平移", ToolGroup.VIEW),
+    ZOOM("zoom", "缩放", ToolGroup.VIEW),
+
+    // Other tools
+    PICKER("picker", "拾色", ToolGroup.OTHER),
+    TEXT("text", "文本", ToolGroup.OTHER),
+    LIQUIFY("liquify", "液化", ToolGroup.OTHER),
+    MEASURE("measure", "测量", ToolGroup.OTHER),
     ;
 
     companion object {

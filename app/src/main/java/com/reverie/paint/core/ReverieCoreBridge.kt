@@ -116,6 +116,19 @@ object ReverieCoreBridge {
     external fun currentLayerIndex(): Int
 
     external fun setToolMode(mode: Int)
+    external fun drawPolygon(xs: IntArray, ys: IntArray, count: Int, closed: Boolean)
+
+    external fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int)
+
+    external fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int)
+
+    external fun selectPolygon(xs: IntArray, ys: IntArray, count: Int)
+
+    external fun moveLayerContent(dx: Int, dy: Int)
+
+    external fun cropCanvas(x: Int, y: Int, w: Int, h: Int)
+
+    external fun setBrushSecondaryColor(color: String)
 
     external fun floodFillAt(
         x: Int,

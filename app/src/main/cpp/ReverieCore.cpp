@@ -2332,6 +2332,201 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     markDirty();
 }
 
+void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
+{
+    if (points.size() < 2) {
+        return;
+    }
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    QPainterPath path;
+    path.moveTo(points.first());
+    for (int i = 1; i < points.size(); ++i) {
+        path.lineTo(points[i]);
+    }
+    if (closed) {
+        path.closeSubpath();
+    }
+    const QRectF bb = path.boundingRect();
+    const QRect region =
+        bb.toAlignedRect()
+            .adjusted(-int(m_brushSize), -int(m_brushSize),
+                      int(m_brushSize), int(m_brushSize))
+            .intersected(QRect(0, 0, image->width(), image->height()));
+    if (region.isEmpty()) {
+        return;
+    }
+
+    QImage layerImg(region.size(), QImage::Format_RGBA8888);
+    {
+        QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
+        device->readBytes(bytes.data(), region.x(), region.y(),
+                          region.width(), region.height());
+        memcpy(layerImg.bits(), bytes.constData(),
+               size_t(region.width()) * region.height() * 4);
+    }
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    QPainter painter(&layerImg);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    QPen pen(qColor, qMax<qreal>(1.0, m_brushSize),
+             Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    painter.setPen(pen);
+    painter.setBrush(Qt::NoBrush);
+    painter.translate(-region.topLeft());
+    painter.drawPath(path);
+    painter.end();
+    device->writeBytes(layerImg.constBits(), region.x(), region.y(),
+                       region.width(), region.height());
+    device->setDirty();
+    markDirty();
+}
+
+void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    if (QPoint(x1, y1) == QPoint(x2, y2)) {
+        return;
+    }
+    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+    QColor c1(m_brushColor);
+    if (!c1.isValid()) {
+        c1 = Qt::black;
+    }
+    QColor c2(m_brushSecondaryColor);
+    if (!c2.isValid()) {
+        c2 = Qt::transparent;
+    }
+    c1.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    c2.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    QPainter painter(&layerImg);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    QLinearGradient grad(x1, y1, x2, y2);
+    grad.setColorAt(0.0, c1);
+    grad.setColorAt(1.0, c2);
+    painter.fillRect(0, 0, iw, ih, grad);
+    painter.end();
+    device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
+    device->setDirty();
+    markDirty();
+}
+
+void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    QPainterPath path;
+    const QRectF r(qMin(x1, x2), qMin(y1, y2),
+                   qAbs(x2 - x1), qAbs(y2 - y1));
+    if (kind == 1) {
+        path.addEllipse(r);
+    } else {
+        path.addRect(r);
+    }
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    const QRegion region(path.toFillPolygon().toPolygon());
+    for (const QRect &rr : region) {
+        ps->select(rr, OPACITY_OPAQUE_U8);
+    }
+    m_selection = sel;
+    markDirty();
+}
+
+void ReverieCore::selectPolygon(const QVector<QPoint> &points)
+{
+    KisImageSP image = m_document;
+    if (!image || points.size() < 3) {
+        return;
+    }
+    QPainterPath path;
+    path.moveTo(points.first());
+    for (int i = 1; i < points.size(); ++i) {
+        path.lineTo(points[i]);
+    }
+    path.closeSubpath();
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    const QRegion region(path.toFillPolygon().toPolygon());
+    for (const QRect &rr : region) {
+        ps->select(rr, OPACITY_OPAQUE_U8);
+    }
+    m_selection = sel;
+    markDirty();
+}
+
+void ReverieCore::moveLayerContent(int dx, int dy)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || (dx == 0 && dy == 0)) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QImage src(iw, ih, QImage::Format_RGBA8888);
+    {
+        QVector<quint8> bytes(size_t(iw) * ih * 4);
+        device->readBytes(bytes.data(), 0, 0, iw, ih);
+        memcpy(src.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    }
+    QImage out(iw, ih, QImage::Format_RGBA8888);
+    out.fill(0);
+    QPainter p(&out);
+    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.drawImage(dx, dy, src);
+    p.end();
+    device->writeBytes(out.constBits(), 0, 0, iw, ih);
+    device->setDirty();
+    markDirty();
+}
+
+void ReverieCore::cropCanvas(int x, int y, int w, int h)
+{
+    KisImageSP image = m_document;
+    if (!image || w <= 0 || h <= 0) {
+        return;
+    }
+    const QRect crop(qMax(0, x), qMax(0, y), w, h);
+    image->resizeImage(crop);
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+}
+
 void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();

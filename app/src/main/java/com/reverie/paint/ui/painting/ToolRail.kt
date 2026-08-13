@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import com.reverie.paint.R
 import com.reverie.paint.model.Tool
+import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.theme.Morandi
@@ -68,8 +69,13 @@ fun ToolRail(
     onOpenBrush: () -> Unit,
     onOpenColor: () -> Unit,
 ) {
-    val mainTools = listOf(Tool.BRUSH, Tool.HAND, Tool.ERASER, Tool.PICKER, Tool.FILL)
+    // Krita-style: brush-family + fill + hand on the rail, the complete
+    // tool set in the grouped more-tools panel
+    val mainTools =
+        listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE, Tool.FILL, Tool.HAND)
     val moreTools = Tool.entries.filter { it !in mainTools }
+    val groupedTools = ToolGroup.entries.map { g -> g to moreTools.filter { it.group == g } }
+        .filter { it.second.isNotEmpty() }
 
     var tooltipTool by remember { mutableStateOf<Tool?>(null) }
     LaunchedEffect(tooltipTool) {
@@ -203,47 +209,51 @@ fun ToolRail(
                             .padding(12.dp)
                     ) {
                     Column {
-                        val chunked = moreTools.chunked(2)
-                        chunked.forEach { rowTools ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                rowTools.forEach { t ->
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable { onTool(t) }
-                                            .padding(vertical = 8.dp)
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(toolIcon(t)),
-                                            contentDescription = t.label,
-                                            tint = if (tool == t) Morandi.accentHi else Morandi.icon,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(t.label, color = if (tool == t) Morandi.accentHi else Morandi.text, fontSize = 12.sp)
+                        groupedTools.forEach { (group, tools) ->
+                            Text(
+                                group.label,
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
+                            )
+                            val chunked = tools.chunked(3)
+                            chunked.forEach { rowTools ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    rowTools.forEach { t ->
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    if (tool == t) Morandi.accent.copy(alpha = 0.18f)
+                                                    else Color.Transparent
+                                                )
+                                                .clickable { onTool(t) }
+                                                .padding(vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(toolIcon(t)),
+                                                contentDescription = t.label,
+                                                tint = if (tool == t) Morandi.accentHi else Morandi.icon,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(Modifier.height(3.dp))
+                                            Text(
+                                                t.label,
+                                                color = if (tool == t) Morandi.accentHi else Morandi.text,
+                                                fontSize = 11.sp,
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
-                                }
-                                if (rowTools.size == 1) {
-                                    Spacer(Modifier.weight(1f))
+                                    repeat(3 - rowTools.size) { Spacer(Modifier.weight(1f)) }
                                 }
                             }
-                        }
-                        
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-                        Spacer(Modifier.height(8.dp))
-                        
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            FakeToolIcon("动画", R.drawable.ic_rect)
-                            FakeToolIcon("导入", R.drawable.ic_rect)
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            FakeToolIcon("参考", R.drawable.ic_rect)
-                            FakeToolIcon("对称", R.drawable.ic_rect)
                         }
                     }
                 }
@@ -251,25 +261,6 @@ fun ToolRail(
         }
     }
 }
-}
-
-@Composable
-private fun FakeToolIcon(label: String, @DrawableRes icon: Int) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .width(78.dp)
-            .padding(vertical = 8.dp)
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = label,
-            tint = Morandi.icon,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = Morandi.text, fontSize = 12.sp)
-    }
 }
 
 @DrawableRes
@@ -288,6 +279,17 @@ private fun toolIcon(tool: Tool): Int =
         Tool.TEXT -> R.drawable.ic_text
         Tool.SMUDGE -> R.drawable.ic_smudge
         Tool.LIQUIFY -> R.drawable.ic_liquify
+        Tool.GRADIENT -> R.drawable.ic_gradient
+        Tool.POLYGON -> R.drawable.ic_triangle
+        Tool.POLYLINE -> R.drawable.ic_polyline
+        Tool.SELECT_RECT -> R.drawable.ic_select_rect
+        Tool.SELECT_ELLIPSE -> R.drawable.ic_circle
+        Tool.SELECT_POLYGON -> R.drawable.ic_triangle
+        Tool.MOVE -> R.drawable.ic_move
+        Tool.CROP -> R.drawable.ic_crop
+        Tool.ZOOM -> R.drawable.ic_zoom_in
+        Tool.MEASURE -> R.drawable.ic_polyline
+        Tool.TRANSFORM -> R.drawable.ic_move
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's

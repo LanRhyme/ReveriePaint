@@ -738,17 +738,58 @@ class PaintViewModel : ViewModel() {
     }
 
     fun applyTool(toolId: String) {
-        when (toolId) {
-            "brush" -> ReverieCoreBridge.setToolMode(0)
+        val mode =
+            when (toolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "fill" -> 2
+                "smudge" -> 3
+                "gradient" -> 4
+                "select_rect" -> 5
+                "select_ellipse" -> 6
+                "select_polygon" -> 7
+                "select_similar" -> 8
+                "polygon" -> 9
+                "polyline" -> 10
+                "move" -> 11
+                "crop" -> 12
+                "transform" -> 13
+                else -> 0
+            }
+        ReverieCoreBridge.setToolMode(mode)
+    }
 
-            "eraser" -> ReverieCoreBridge.setToolMode(1)
+    // ---- New Krita tool actions --------------------------------------
 
-            "fill" -> ReverieCoreBridge.setToolMode(2)
+    fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int) {
+        runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2) }
+    }
 
-            "smudge" -> ReverieCoreBridge.setToolMode(3)
+    fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int) {
+        runCore { ReverieCoreBridge.selectShape(kind, x1, y1, x2, y2) }
+    }
 
-            // ToolSmudge
-            else -> ReverieCoreBridge.setToolMode(0)
+    fun selectPolygon(points: List<Pair<Int, Int>>) {
+        if (points.size < 3) return
+        val xs = IntArray(points.size) { points[it].first }
+        val ys = IntArray(points.size) { points[it].second }
+        runCore { ReverieCoreBridge.selectPolygon(xs, ys, points.size) }
+    }
+
+    fun drawPolygon(points: List<Pair<Int, Int>>, closed: Boolean) {
+        if (points.size < 2) return
+        val xs = IntArray(points.size) { points[it].first }
+        val ys = IntArray(points.size) { points[it].second }
+        runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
+    }
+
+    fun moveLayerContent(dx: Int, dy: Int) {
+        runCore { ReverieCoreBridge.moveLayerContent(dx, dy) }
+    }
+
+    fun cropCanvas(x: Int, y: Int, w: Int, h: Int) {
+        runCore {
+            ReverieCoreBridge.cropCanvas(x, y, w, h)
         }
     }
 

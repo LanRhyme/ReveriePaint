@@ -204,7 +204,67 @@ Java_com_reverie_paint_core_ReverieCoreBridge_currentLayerIndex(JNIEnv *, jobjec
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setToolMode(JNIEnv *, jobject, jint mode)
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSecondaryColor(JNIEnv *env, jobject, jstring color)
+{
+    const char *c = env->GetStringUTFChars(color, nullptr);
+    if (c) {
+        core()->setBrushSecondaryColor(QColor(QString::fromUtf8(c)));
+        env->ReleaseStringUTFChars(color, c);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_drawPolygon(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count, jboolean closed)
+{
+    if (count < 2) return;
+    jint *px = env->GetIntArrayElements(xs, nullptr);
+    jint *py = env->GetIntArrayElements(ys, nullptr);
+    QVector<QPoint> pts;
+    for (int i = 0; i < count; ++i) pts.append(QPoint(px[i], py[i]));
+    env->ReleaseIntArrayElements(xs, px, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, py, JNI_ABORT);
+    core()->drawPolygon(pts, closed);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_gradientFill(JNIEnv *, jobject, jint x1, jint y1, jint x2, jint y2)
+{
+    core()->gradientFill(x1, y1, x2, y2);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2)
+{
+    core()->selectShape(kind, x1, y1, x2, y2);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectPolygon(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
+{
+    if (count < 3) return;
+    jint *px = env->GetIntArrayElements(xs, nullptr);
+    jint *py = env->GetIntArrayElements(ys, nullptr);
+    QVector<QPoint> pts;
+    for (int i = 0; i < count; ++i) pts.append(QPoint(px[i], py[i]));
+    env->ReleaseIntArrayElements(xs, px, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, py, JNI_ABORT);
+    core()->selectPolygon(pts);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject, jint dx, jint dy)
+{
+    core()->moveLayerContent(dx, dy);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_cropCanvas(JNIEnv *, jobject, jint x, jint y, jint w, jint h)
+{
+    core()->cropCanvas(x, y, w, h);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_(JNIEnv *, jobject, jint mode)
 {
     core()->setToolMode(mode);
 }

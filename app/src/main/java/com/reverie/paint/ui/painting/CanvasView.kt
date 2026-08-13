@@ -31,7 +31,7 @@ import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
 
-private enum class GestureMode { NONE, STROKE, PAN, TRANSFORM }
+private enum class GestureMode { NONE, STROKE, PAN, MOVE, TRANSFORM }
 
 /**
  * Full workspace canvas with one shared forward and inverse transform
@@ -90,10 +90,17 @@ fun CanvasView(
                         var localRotation = latestRotation
                         var localPanX = latestPanX
                         var localPanY = latestPanY
+                        val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
+                        val trackShapeTool = tool == Tool.POLYGON || tool == Tool.POLYLINE
+                        val twoPointTool =
+                            tool == Tool.GRADIENT || tool == Tool.SELECT_RECT ||
+                                tool == Tool.SELECT_ELLIPSE || tool == Tool.CROP
+                        val trackSelectTool = tool == Tool.SELECT_POLYGON
                         var mode =
                             when (tool) {
-                                Tool.HAND -> GestureMode.PAN
-                                Tool.PICKER, Tool.FILL, Tool.TEXT -> GestureMode.NONE
+                                Tool.HAND, Tool.ZOOM -> GestureMode.PAN
+                                Tool.MOVE -> GestureMode.MOVE
+                                Tool.PICKER, Tool.FILL, Tool.TEXT, Tool.MEASURE -> GestureMode.NONE
                                 else -> GestureMode.STROKE
                             }
                         var strokeStarted = false
@@ -104,7 +111,6 @@ fun CanvasView(
                         // lines - so fingers always paint at full width.
                         val stylus = down.type == PointerType.Stylus
                         var smoothedPressure = 0.8f
-                        val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
                         var shapeEnd = Offset.Zero
                         val lassoPoints = mutableListOf<Offset>()
                         var liquifyPrevious = Offset.Zero
@@ -234,13 +240,25 @@ fun CanvasView(
                                     point.consume()
                                 }
 
+                                GestureMode.MOVE -> {
+                                    // MOVE tool: track the finger's document
+                                    // delta; the whole layer shifts by the
+                                    // first->last offset on release.
+                                    if (!strokeStarted) {
+                                        strokeStarted = true
+                                    }
+                                    shapeEnd = imagePos
+                                    point.consume()
+                                }
+
                                 GestureMode.STROKE -> {
                                     when {
-                                        shapeTool -> {
+                                        shapeTool || twoPointTool -> {
                                             shapeEnd = imagePos
                                         }
 
-                                        tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
+                                        trackShapeTool || trackSelectTool ||
+                                            tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (lassoPoints.lastOrNull() != imagePos) lassoPoints += imagePos
                                         }
 
@@ -297,6 +315,46 @@ fun CanvasView(
                                     vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
                                 }
 
+                                trackShapeTool -> {
+                                    val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                    if (points.size >= 2) {
+                                        vm.drawPolygon(points, closed = tool == Tool.POLYGON)
+                                    }
+                                }
+
+                                twoPointTool -> {
+                                    val x1 = firstImage.x.toInt()
+                                    val y1 = firstImage.y.toInt()
+                                    val x2 = shapeEnd.x.toInt()
+                                    val y2 = shapeEnd.y.toInt()
+                                    when (tool) {
+                                        Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2)
+                                        Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
+                                        Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
+                                        Tool.CROP -> {
+                                            val cx = minOf(x1, x2)
+                                            val cy = minOf(y1, y2)
+                                            val cw = maxOf(1, kotlin.math.abs(x2 - x1))
+                                            val ch = maxOf(1, kotlin.math.abs(y2 - y1))
+                                            vm.cropCanvas(cx, cy, cw, ch)
+                                        }
+                                        else -> Unit
+                                    }
+                                }
+
+                                trackSelectTool -> {
+                                    if (lassoPoints.size >= 3) {
+                                        val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                        vm.selectPolygon(points)
+                                    }
+                                }
+
+                                tool == Tool.MOVE -> {
+                                    val dx = (shapeEnd.x - firstImage.x).toInt()
+                                    val dy = (shapeEnd.y - firstImage.y).toInt()
+                                    if (dx != 0 || dy != 0) vm.moveLayerContent(dx, dy)
+                                }
+
                                 tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
@@ -314,6 +372,16 @@ fun CanvasView(
                                     (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) -> {
                                     vm.touchStart(firstImage.x, firstImage.y, if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0)
                                     vm.touchEnd()
+                                }
+
+                                // ZOOM tool: a tap zooms in one step
+                                tool == Tool.ZOOM -> {
+                                    onTransform(
+                                        (latestZoom * 1.25f).coerceAtMost(32f),
+                                        latestRotation,
+                                        latestPanX,
+                                        latestPanY,
+                                    )
                                 }
                             }
                         }
