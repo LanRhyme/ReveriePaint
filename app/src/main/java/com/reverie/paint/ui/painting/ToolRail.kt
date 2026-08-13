@@ -169,14 +169,14 @@ fun ToolRail(
                             .border(1.5.dp, Morandi.panelHi, CircleShape)
                     )
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(5.dp))
                 // Brush size: Krita top-bar style - always-visible value,
                 // step buttons (+/-) that repeat while held, and the slider
                 BrushSizeGroup(
                     brushSize = brushSize,
                     onBrushSize = onBrushSize,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(5.dp))
                 OpacityGroup(
                     opacity = brushOpacity,
                     onOpacity = onOpacity,
@@ -306,7 +306,7 @@ private fun BrushSizeGroup(
             label = "",
             fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
             onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
-            trackHeight = 100,
+            trackHeight = 140,
             tooltipText = "${kotlin.math.round(brushSize).toInt()}",
         )
     }
@@ -324,7 +324,7 @@ private fun OpacityGroup(
             label = "",
             fraction = opacity.toFloat(),
             onFraction = { onOpacity(it.toDouble()) },
-            trackHeight = 100,
+            trackHeight = 140,
             tooltipText = "${(opacity * 100).roundToInt()}%",
         )
     }

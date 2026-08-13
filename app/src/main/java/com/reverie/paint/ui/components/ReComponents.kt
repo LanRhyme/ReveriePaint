@@ -149,7 +149,7 @@ fun ReVerticalSlider(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.height((trackHeight + 20).dp),
+        modifier = modifier.height((trackHeight + 14).dp),
     ) {
         Text(label, color = colors.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
         Box(
