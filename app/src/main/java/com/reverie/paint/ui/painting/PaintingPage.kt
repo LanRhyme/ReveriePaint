@@ -124,6 +124,7 @@ fun PaintingPage(vm: PaintViewModel) {
         )
 
     val tfState = remember { TransformState() }
+    var cropRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var shapeStrokeWidth by remember { mutableStateOf(4f) }
@@ -176,6 +177,8 @@ fun PaintingPage(vm: PaintViewModel) {
                 tfState = tfState,
                 polyPoints = polyPoints,
                 onPolyPoint = { polyPoints = polyPoints + it },
+                cropRect = cropRect,
+                onCropRect = { cropRect = it },
             )
         }
 
@@ -358,6 +361,13 @@ fun PaintingPage(vm: PaintViewModel) {
                             Tool.POLYGON -> vm.drawPolygon(pts, closed = true)
                             Tool.POLYLINE -> vm.drawPolygon(pts, closed = false)
                             Tool.SELECT_POLYGON -> vm.selectPolygon(pts)
+                            Tool.PATH -> {
+                                // Bézier path: smooth through the anchors with
+                                // a Catmull-Rom spline, commit as a selection
+                                // (Krita's path tool can convert to a selection)
+                                val smooth = smoothPathPoints(pts)
+                                if (smooth.size >= 3) vm.selectPolygon(smooth)
+                            }
                             else -> Unit
                         }
                         polyPoints = emptyList()
@@ -365,6 +375,33 @@ fun PaintingPage(vm: PaintViewModel) {
                 },
                 onCancel = { polyPoints = emptyList() },
             )
+        }
+
+        // ---- Crop tool options panel ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.CROP && cropRect != null,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            cropRect?.let { cr ->
+                CropPanel(
+                    rect = cr,
+                    onApply = {
+                        vm.cropCanvas(
+                            cr.left.toInt(),
+                            cr.top.toInt(),
+                            maxOf(1, cr.width.toInt()),
+                            maxOf(1, cr.height.toInt()),
+                        )
+                        cropRect = null
+                    },
+                    onCancel = { cropRect = null },
+                )
+            }
         }
 
         // ---- Floating selection panel (Krita tool-options style) ----
@@ -810,4 +847,39 @@ private fun SelectionPropSlider(
         )
         Text("$current", color = Morandi.text, fontSize = 11.sp)
     }
+}
+
+
+/** Catmull-Rom spline through the anchor points - Krita's path tool draws
+ * Bézier curves through the clicked anchors; this produces an equivalent
+ * smooth curve used to commit a path selection */
+private fun smoothPathPoints(points: List<Pair<Int, Int>>): List<Pair<Int, Int>> {
+    if (points.size < 3) return points
+    val result = mutableListOf<Pair<Int, Int>>()
+    for (i in 0 until points.size - 1) {
+        val p0 = points[maxOf(0, i - 1)]
+        val p1 = points[i]
+        val p2 = points[i + 1]
+        val p3 = points[minOf(points.size - 1, i + 2)]
+        for (step in 0 until 16) {
+            val u = step / 16f
+            val u2 = u * u
+            val u3 = u2 * u
+            val x = 0.5f * (
+                (2 * p1.first) +
+                    (-p0.first + p2.first) * u +
+                    (2 * p0.first - 5 * p1.first + 4 * p2.first - p3.first) * u2 +
+                    (-p0.first + 3 * p1.first - 3 * p2.first + p3.first) * u3
+                )
+            val y = 0.5f * (
+                (2 * p1.second) +
+                    (-p0.second + p2.second) * u +
+                    (2 * p0.second - 5 * p1.second + 4 * p2.second - p3.second) * u2 +
+                    (-p0.second + 3 * p1.second - 3 * p2.second + p3.second) * u3
+                )
+            result += x.toInt() to y.toInt()
+        }
+    }
+    result += points.last()
+    return result.distinct()
 }

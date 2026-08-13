@@ -58,6 +58,8 @@ fun CanvasView(
     tfState: TransformState,
     polyPoints: List<Offset> = emptyList(),
     onPolyPoint: (Offset) -> Unit = {},
+    cropRect: androidx.compose.ui.geometry.Rect? = null,
+    onCropRect: (androidx.compose.ui.geometry.Rect?) -> Unit = {},
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -169,7 +171,7 @@ fun CanvasView(
                             tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH
                         val twoPointTool =
                             tool == Tool.GRADIENT || tool == Tool.SELECT_RECT ||
-                                tool == Tool.SELECT_ELLIPSE || tool == Tool.CROP
+                                tool == Tool.SELECT_ELLIPSE
                         val trackSelectTool =
                             tool == Tool.SELECT_POLYGON || tool == Tool.SELECT_MAGNETIC
                         var mode =
@@ -281,7 +283,7 @@ fun CanvasView(
                                 }
                             }
 
-                            Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON -> {
+                            Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON, Tool.PATH -> {
                                 // Point-click: add a vertex on each tap
                                 onPolyPoint(firstImage)
                             }
@@ -543,6 +545,18 @@ fun CanvasView(
                                             }
                                         }
 
+                                        tool == Tool.CROP -> {
+                                            shapeEnd = imagePos
+                                            onCropRect(
+                                                androidx.compose.ui.geometry.Rect(
+                                                    minOf(firstImage.x, imagePos.x),
+                                                    minOf(firstImage.y, imagePos.y),
+                                                    maxOf(firstImage.x, imagePos.x),
+                                                    maxOf(firstImage.y, imagePos.y),
+                                                )
+                                            )
+                                        }
+
                                         shapeTool || twoPointTool -> {
                                             shapeEnd = imagePos
                                         }
@@ -730,6 +744,8 @@ fun CanvasView(
                                     tfState.handle = -1
                                 }
 
+                                tool == Tool.CROP -> Unit
+
                                 shapeTool -> {
                                     val kind =
                                         when (tool) {
@@ -744,7 +760,8 @@ fun CanvasView(
                                 // 完成 button (Krita polygon interaction)
                                 tool == Tool.POLYGON ||
                                     tool == Tool.POLYLINE ||
-                                    tool == Tool.SELECT_POLYGON -> Unit
+                                    tool == Tool.SELECT_POLYGON ||
+                                    tool == Tool.PATH -> Unit
 
                                 trackShapeTool -> {
                                     val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
@@ -764,13 +781,6 @@ fun CanvasView(
                                         Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2)
                                         Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
                                         Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
-                                        Tool.CROP -> {
-                                            val cx = minOf(x1, x2)
-                                            val cy = minOf(y1, y2)
-                                            val cw = maxOf(1, kotlin.math.abs(x2 - x1))
-                                            val ch = maxOf(1, kotlin.math.abs(y2 - y1))
-                                            vm.cropCanvas(cx, cy, cw, ch)
-                                        }
                                         else -> Unit
                                     }
                                 }
@@ -898,6 +908,39 @@ fun CanvasView(
                             center = Offset(pt.x * scX - image.width / 2f, pt.y * scY - image.height / 2f),
                         )
                     }
+                }
+
+                // Crop tool preview: dim the outside, white frame
+                cropRect?.let { cr ->
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val bx = { v: Float -> v * scX - image.width / 2f }
+                    val by2 = { v: Float -> v * scY - image.height / 2f }
+                    val hole =
+                        androidx.compose.ui.geometry.Rect(
+                            bx(cr.left),
+                            by2(cr.top),
+                            bx(cr.right),
+                            by2(cr.bottom),
+                        )
+                    drawContext.canvas.saveLayer(
+                        androidx.compose.ui.geometry.Rect(0f, 0f, size.width.toFloat(), size.height.toFloat()),
+                        androidx.compose.ui.graphics.Paint(),
+                    )
+                    drawRect(color = Color.Black.copy(alpha = 0.4f))
+                    drawRect(
+                        color = Color.White,
+                        topLeft = hole.topLeft,
+                        size = hole.size,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Clear,
+                    )
+                    drawContext.canvas.restore()
+                    drawRect(
+                        color = Color.White,
+                        topLeft = hole.topLeft,
+                        size = hole.size,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                    )
                 }
 
                 // Transform tool rubber band (bitmap space, origin at the
