@@ -219,6 +219,8 @@ object ReverieCoreBridge {
 
     external fun lassoSelect(xs: IntArray, ys: IntArray, count: Int)
 
+    external fun magneticLasso(fx: Int, fy: Int, tx: Int, ty: Int, radius: Int): IntArray
+
     external fun selectContiguousAt(x: Int, y: Int, tolerance: Int)
 
     external fun selectSimilarAt(x: Int, y: Int, tolerance: Int)

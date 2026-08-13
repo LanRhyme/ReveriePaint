@@ -1156,6 +1156,29 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    // Magnetic lasso: edge-snapping path from (fx,fy) to (tx,ty), runs on the
+    // render thread, result delivered via onPath on the main thread
+    fun magneticLassoAsync(
+        fx: Int,
+        fy: Int,
+        tx: Int,
+        ty: Int,
+        radius: Int = 24,
+        onPath: (List<Pair<Int, Int>>) -> Unit,
+    ) {
+        runCore(after = {
+            val arr = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
+            if (arr != null) {
+                val pts = ArrayList<Pair<Int, Int>>(arr.size / 2)
+                for (i in arr.indices step 2) {
+                    pts.add(arr[i] to arr[i + 1])
+                }
+                onPath(pts)
+            }
+        }) {
+        }
+    }
+
     fun lassoSelect(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }

@@ -35,6 +35,7 @@
 #define RPC_LOG(...) fprintf(stderr, __VA_ARGS__)
 #endif
 #include <algorithm>
+#include <queue>
 #include <QPainter>
 #include <QFont>
 #include <QFontMetrics>
@@ -987,7 +988,7 @@ static void flipDevice(KisPaintDeviceSP dev, bool horizontal)
     }
     // Krita readBytes returns device-native RGBA bytes; RGBA8888 matches
     // that byte order exactly (ARGB32_Premultiplied would swap R/B)
-    QImage img(ext.size(), QImage::Format_RGBA8888);
+    QImage img(ext.size(), QImage::Format_ARGB32_Premultiplied);
     dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
     img = horizontal ? img.mirrored(true, false) : img.mirrored(false, true);
     dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
@@ -1280,7 +1281,7 @@ void ReverieCore::applyFilter(int index, int filterId)
     }
     // Krita-native undo: wrap the pixel filter in a transaction
     KisTransaction txn(kundo2_i18n("Filter"), dev);
-    QImage img(ext.size(), QImage::Format_RGBA8888);
+    QImage img(ext.size(), QImage::Format_ARGB32_Premultiplied);
     dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
     switch (filterId) {
     case 0: {  // grayscale (RGBA8888 byte order: R,G,B,A)
@@ -1288,7 +1289,7 @@ void ReverieCore::applyFilter(int index, int filterId)
             quint8 *line = img.scanLine(y);
             for (int x = 0; x < img.width(); ++x) {
                 quint8 *px = line + x * 4;
-                const int gray = (px[0] * 299 + px[1] * 587 + px[2] * 114) / 1000;
+                const int gray = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
                 px[0] = quint8(gray); px[1] = quint8(gray); px[2] = quint8(gray);
             }
         }
@@ -2445,8 +2446,8 @@ void ReverieCore::commitStrokeToLayer()
             }
         }
         if (base) {
-            QImage devImg(ext.size(), QImage::Format_RGBA8888);
-            QImage baseImg(ext.size(), QImage::Format_RGBA8888);
+            QImage devImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
+            QImage baseImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
             device->readBytes(devImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
             base->readBytes(baseImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
             for (int y = 0; y < devImg.height(); ++y) {
@@ -2746,7 +2747,7 @@ void ReverieCore::floodFillAt(int x, int y)
     // KisFillTool (which lives in kritaui).
     const int iw = image->width();
     const int ih = image->height();
-    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -2895,7 +2896,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
 
     // Read the current layer content into a QImage, draw the shape with
     // QPainter (supports line/rect/ellipse), then write it back.
-    QImage layerImg(region.size(), QImage::Format_RGBA8888);
+    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
     {
         const qint32 rw = region.width();
         const qint32 rh = region.height();
@@ -2977,7 +2978,7 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
         return;
     }
 
-    QImage layerImg(region.size(), QImage::Format_RGBA8888);
+    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
         device->readBytes(bytes.data(), region.x(), region.y(),
@@ -3030,7 +3031,7 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     }
     // Krita-native undo: wrap the gradient fill in a transaction
     KisTransaction txn(kundo2_i18n("Gradient"), device);
-    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -3180,11 +3181,11 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    // Read the layer pixels (Krita RGBA byte order)
+    // Krita magic-wand semantics: match against the visible composite
+    // (projection), not a single layer's raw pixels
+    KisPaintDeviceSP device = image->projection();
+    image->waitForDone();
+    // Read the composite pixels (Krita RGBA byte order)
     QVector<quint8> bytes(size_t(iw) * ih * 4);
     device->readBytes(bytes.data(), 0, 0, iw, ih);
     const int tolSq = tolerance * tolerance;
@@ -3242,10 +3243,9 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
+    // Krita similar-color semantics: match against the visible composite
+    KisPaintDeviceSP device = image->projection();
+    image->waitForDone();
     QVector<quint8> bytes(size_t(iw) * ih * 4);
     device->readBytes(bytes.data(), 0, 0, iw, ih);
     const int tolSq = tolerance * tolerance;
@@ -3283,13 +3283,13 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     const int ih = image->height();
     // Krita-native undo: wrap the content move in a transaction
     KisTransaction txn(kundo2_i18n("Move Content"), device);
-    QImage src(iw, ih, QImage::Format_RGBA8888);
+    QImage src(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
         memcpy(src.bits(), bytes.constData(), size_t(iw) * ih * 4);
     }
-    QImage out(iw, ih, QImage::Format_RGBA8888);
+    QImage out(iw, ih, QImage::Format_ARGB32_Premultiplied);
     out.fill(0);
     QPainter p(&out);
     p.setCompositionMode(QPainter::CompositionMode_Source);
@@ -3342,7 +3342,7 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
         return;
     }
 
-    QImage layerImg(region.size(), QImage::Format_RGBA8888);
+    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
         device->readBytes(bytes.data(), region.x(), region.y(), region.width(), region.height());
@@ -3409,6 +3409,127 @@ void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool>
 }
 } // namespace
 
+QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to, int radius)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return {};
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    const int r = qMax(2, radius);
+    // Search region: bounding box of both points plus a margin, clipped to
+    // the document (the magnetic path only ever lives inside the canvas)
+    QRect region(QPoint(qMin(from.x(), to.x()), qMin(from.y(), to.y())),
+                 QPoint(qMax(from.x(), to.x()), qMax(from.y(), to.y())));
+    region = region.adjusted(-r, -r, r, r).intersected(QRect(0, 0, iw, ih));
+    const int rw = region.width();
+    const int rh = region.height();
+    if (rw < 3 || rh < 3) {
+        return {from, to};
+    }
+    const QPoint start(from - region.topLeft());
+    const QPoint goal(to - region.topLeft());
+    const int sIdx = start.y() * rw + start.x();
+    const int gIdx = goal.y() * rw + goal.x();
+    if (sIdx < 0 || gIdx < 0 || sIdx >= rw * rh || gIdx >= rw * rh) {
+        return {from, to};
+    }
+
+    // Composite the current projection so the edges match what the user sees
+    image->waitForDone();
+    KisPaintDeviceSP proj = image->projection();
+    QVector<quint8> bytes(size_t(rw) * rh * 4);
+    proj->readBytes(bytes.data(), region.x(), region.y(), rw, rh);
+
+    // Luminance (readBytes returns B,G,R,A for the RGB8 space)
+    QVector<quint8> gray(size_t(rw) * rh);
+    for (int i = 0; i < rw * rh; ++i) {
+        const quint8 b = bytes[size_t(i) * 4];
+        const quint8 g = bytes[size_t(i) * 4 + 1];
+        const quint8 r = bytes[size_t(i) * 4 + 2];
+        gray[i] = quint8((int(r) * 299 + int(g) * 587 + int(b) * 114) / 1000);
+    }
+    // Sobel magnitude edge map (stand-in for Krita's LoG intensity)
+    QVector<quint8> edge(size_t(rw) * rh, 0);
+    int gmax = 1;
+    for (int y = 1; y < rh - 1; ++y) {
+        for (int x = 1; x < rw - 1; ++x) {
+            const int i00 = (y - 1) * rw + x - 1, i01 = (y - 1) * rw + x, i02 = (y - 1) * rw + x + 1;
+            const int i10 = y * rw + x - 1, i12 = y * rw + x + 1;
+            const int i20 = (y + 1) * rw + x - 1, i21 = (y + 1) * rw + x, i22 = (y + 1) * rw + x + 1;
+            const int gx = -gray[i00] - 2 * gray[i10] - gray[i20] + gray[i02] + 2 * gray[i12] + gray[i22];
+            const int gy = -gray[i00] - 2 * gray[i01] - gray[i02] + gray[i20] + 2 * gray[i21] + gray[i22];
+            const int mag = qMin(255, int(std::sqrt(double(gx * gx + gy * gy)) * 0.35));
+            edge[y * rw + x] = quint8(mag);
+            if (mag > gmax) {
+                gmax = mag;
+            }
+        }
+    }
+    if (gmax > 1) {
+        for (int i = 0; i < rw * rh; ++i) {
+            edge[i] = quint8(int(edge[i]) * 255 / gmax);
+        }
+    }
+
+    // Dijkstra over the 8-neighbour graph; edge weight follows Krita:
+    // euclidean step + (255 - average edge intensity) so strong edges are
+    // cheap and the path snaps to them
+    const auto idx = [rw](int x, int y) { return y * rw + x; };
+    QVector<double> gScore(size_t(rw) * rh, std::numeric_limits<double>::max());
+    QVector<int> came(size_t(rw) * rh, -1);
+    typedef std::pair<double, int> QP;
+    std::priority_queue<QP, std::vector<QP>, std::greater<QP>> open;
+    gScore[sIdx] = 0.0;
+    open.push({0.0, sIdx});
+    static const int dx8[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
+    static const int dy8[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
+    while (!open.empty()) {
+        const double f = open.top().first;
+        const int cur = open.top().second;
+        open.pop();
+        if (cur == gIdx) {
+            break;
+        }
+        if (f > gScore[cur]) {
+            continue;
+        }
+        const int cx = cur % rw;
+        const int cy = cur / rw;
+        for (int d = 0; d < 8; ++d) {
+            const int nx = cx + dx8[d];
+            const int ny = cy + dy8[d];
+            if (nx < 0 || ny < 0 || nx >= rw || ny >= rh) {
+                continue;
+            }
+            const int n = idx(nx, ny);
+            const qreal w = std::sqrt(double(dx8[d] * dx8[d] + dy8[d] * dy8[d])) +
+                            255.0 - (edge[cur] + edge[n]) / 2.0;
+            const double ng = gScore[cur] + w;
+            if (ng < gScore[n]) {
+                gScore[n] = ng;
+                came[n] = cur;
+                open.push({ng, n});
+            }
+        }
+    }
+    // Rebuild the path back from the goal
+    QVector<QPoint> path;
+    int cur = gIdx;
+    while (cur != -1) {
+        path.push_front(QPoint(cur % rw + region.x(), cur / rw + region.y()));
+        if (cur == sIdx) {
+            break;
+        }
+        cur = came[cur];
+    }
+    if (path.isEmpty()) {
+        return {from, to};
+    }
+    return path;
+}
+
 void ReverieCore::lassoSelect(const QVector<QPoint> &points)
 {
     RPC_LOG("RPC lassoSelect points=%d", points.size());
@@ -3450,7 +3571,7 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
 
-    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -3492,7 +3613,7 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
 
-    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);
@@ -3529,7 +3650,7 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
     // Krita-native undo: wrap the liquify displacement in a transaction
     KisTransaction txn(kundo2_i18n("Liquify"), device);
 
-    QImage layerImg(iw, ih, QImage::Format_RGBA8888);
+    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
         device->readBytes(bytes.data(), 0, 0, iw, ih);

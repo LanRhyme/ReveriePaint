@@ -546,6 +546,27 @@ Java_com_reverie_paint_core_ReverieCoreBridge_lassoSelect(JNIEnv *env, jobject, 
     core()->lassoSelect(pts);
 }
 
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_magneticLasso(JNIEnv *env, jobject,
+                                                            jint fx, jint fy,
+                                                            jint tx, jint ty,
+                                                            jint radius)
+{
+    const QVector<QPoint> path = core()->magneticLasso(QPoint(fx, fy), QPoint(tx, ty), radius);
+    jintArray arr = env->NewIntArray(jint(path.size() * 2));
+    if (!arr) {
+        return nullptr;
+    }
+    std::vector<jint> flat;
+    flat.reserve(size_t(path.size()) * 2);
+    for (const QPoint &pt : path) {
+        flat.push_back(pt.x());
+        flat.push_back(pt.y());
+    }
+    env->SetIntArrayRegion(arr, 0, jint(flat.size()), flat.data());
+    return arr;
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_lassoFill(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
 {

@@ -162,6 +162,9 @@ public:
     void selectShape(int kind, int x1, int y1, int x2, int y2);
     void selectPolygon(const QVector<QPoint> &points);
     void lassoSelect(const QVector<QPoint> &points);
+    // Magnetic lasso: edge-snapping path from 'from' to 'to' (Krita's
+    // KisMagneticWorker logic, self-contained A* over a Sobel edge map)
+    QVector<QPoint> magneticLasso(const QPoint &from, const QPoint &to, int radius);
     void selectContiguousAt(int x, int y, int tolerance = 24);
     void selectSimilarAt(int x, int y, int tolerance = 24);
     void moveLayerContent(int dx, int dy);
