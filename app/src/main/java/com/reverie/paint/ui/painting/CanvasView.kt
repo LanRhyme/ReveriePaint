@@ -262,25 +262,30 @@ fun CanvasView(
 
                                 GestureMode.STROKE -> {
                                     when {
-                                        shapeTool || twoPointTool -> {
-                                            shapeEnd = imagePos
-                                        }
-
-                                        // Selection tools: live path preview
+                                        // Selection tools: live path preview in real
+                                        // time (must come before the twoPointTool
+                                        // branch because SELECT_RECT/ELLIPSE are
+                                        // two-point tools). The preview path is
+                                        // drawn in canvas space (origin at the image
+                                        // centre), so document coords are shifted by
+                                        // (-docW/2, -docH/2) to match drawImage.
                                         tool == Tool.SELECT_RECT ||
                                             tool == Tool.SELECT_ELLIPSE ||
                                             tool == Tool.SELECT_POLYGON ||
                                             tool == Tool.LASSO ||
                                             tool == Tool.SELECT_MAGNETIC -> {
+                                            shapeEnd = imagePos
+                                            val docW = bmp?.width ?: 0
+                                            val docH = bmp?.height ?: 0
                                             val pth = androidx.compose.ui.graphics.Path()
                                             when (tool) {
                                                 Tool.SELECT_RECT -> {
                                                     pth.addRect(
                                                         androidx.compose.ui.geometry.Rect(
-                                                            minOf(firstImage.x, imagePos.x),
-                                                            minOf(firstImage.y, imagePos.y),
-                                                            maxOf(firstImage.x, imagePos.x),
-                                                            maxOf(firstImage.y, imagePos.y),
+                                                            minOf(firstImage.x, imagePos.x) - docW / 2f,
+                                                            minOf(firstImage.y, imagePos.y) - docH / 2f,
+                                                            maxOf(firstImage.x, imagePos.x) - docW / 2f,
+                                                            maxOf(firstImage.y, imagePos.y) - docH / 2f,
                                                         )
                                                     )
                                                 }
@@ -288,10 +293,10 @@ fun CanvasView(
                                                 Tool.SELECT_ELLIPSE -> {
                                                     pth.addOval(
                                                         androidx.compose.ui.geometry.Rect(
-                                                            minOf(firstImage.x, imagePos.x),
-                                                            minOf(firstImage.y, imagePos.y),
-                                                            maxOf(firstImage.x, imagePos.x),
-                                                            maxOf(firstImage.y, imagePos.y),
+                                                            minOf(firstImage.x, imagePos.x) - docW / 2f,
+                                                            minOf(firstImage.y, imagePos.y) - docH / 2f,
+                                                            maxOf(firstImage.x, imagePos.x) - docW / 2f,
+                                                            maxOf(firstImage.y, imagePos.y) - docH / 2f,
                                                         )
                                                     )
                                                 }
@@ -299,9 +304,9 @@ fun CanvasView(
                                                 else -> {
                                                     val pts = lassoPoints + imagePos
                                                     if (pts.isNotEmpty()) {
-                                                        pth.moveTo(pts[0].x, pts[0].y)
+                                                        pth.moveTo(pts[0].x - docW / 2f, pts[0].y - docH / 2f)
                                                         for (i in 1 until pts.size) {
-                                                            pth.lineTo(pts[i].x, pts[i].y)
+                                                            pth.lineTo(pts[i].x - docW / 2f, pts[i].y - docH / 2f)
                                                         }
                                                         pth.close()
                                                     }
@@ -311,6 +316,10 @@ fun CanvasView(
                                             if (lassoPoints.lastOrNull() != imagePos) {
                                                 lassoPoints += imagePos
                                             }
+                                        }
+
+                                        shapeTool || twoPointTool -> {
+                                            shapeEnd = imagePos
                                         }
 
                                         trackShapeTool || trackSelectTool ||

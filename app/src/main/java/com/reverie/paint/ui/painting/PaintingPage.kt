@@ -102,6 +102,15 @@ fun PaintingPage(vm: PaintViewModel) {
     var selectionMenuOpen by remember { mutableStateOf(false) }
     var selectionPanelOpen by remember { mutableStateOf(false) }
     var selectionPropsOpen by remember { mutableStateOf(false) }
+    val selectionTools =
+        listOf(
+            Tool.SELECT_RECT,
+            Tool.SELECT_ELLIPSE,
+            Tool.SELECT_POLYGON,
+            Tool.SELECT_MAGNETIC,
+            Tool.LASSO,
+            Tool.MAGICWAND,
+        )
 
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
@@ -169,7 +178,6 @@ fun PaintingPage(vm: PaintViewModel) {
             },
             onLayers = { layerPanelOpen = true },
             onSettings = { settingsPanelOpen = true },
-            onSelection = { selectionMenuOpen = true },
         )
 
         // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
@@ -217,6 +225,10 @@ fun PaintingPage(vm: PaintViewModel) {
             onTool = {
                 tool = it
                 vm.applyTool(it.id)
+                // Auto-open the floating selection panel for selection tools
+                if (it in selectionTools) {
+                    selectionPanelOpen = true
+                }
                 moreToolsOpen = false
             },
             moreToolsOpen = moreToolsOpen,
@@ -231,14 +243,15 @@ fun PaintingPage(vm: PaintViewModel) {
             onOpenColor = { colorPanelOpen = true },
         )
 
-        // ---- Floating selection panel (Procreate / Krita style) ----
-        // Shown when a selection exists or a selection tool is active
-        if (selectionPanelOpen || vm.hasSelection) {
+        // ---- Floating selection panel (Krita tool-options style) ----
+        // Shown only while a selection tool is active, exactly like Krita's
+        // context-sensitive tool options; switching tools hides it
+        if (tool in selectionTools) {
             SelectionFloatPanel(
                 modifier =
                     Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 100.dp),
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 8.dp),
                 vm = vm,
                 propsOpen = selectionPropsOpen,
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
@@ -395,8 +408,9 @@ private fun SelectionMenuItem(
     }
 }
 
-// Floating selection panel: merge mode, quick actions and advanced props.
-// Mirrors Krita's selection tool options and Procreate's selection menu.
+// Floating selection panel in Krita's tool-options style: a compact
+// context panel shown while a selection tool is active. Small buttons,
+// minimal chrome, docked to the canvas edge so it never covers the work.
 @Composable
 private fun SelectionFloatPanel(
     modifier: Modifier = Modifier,
@@ -409,48 +423,49 @@ private fun SelectionFloatPanel(
             0 to "替换",
             1 to "加",
             2 to "减",
-            3 to "相交",
+            3 to "交",
         )
     Column(
         modifier =
             modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.94f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
-                .padding(8.dp),
+                .clip(RoundedCornerShape(10.dp))
+                .background(Morandi.panelHi.copy(alpha = 0.95f))
+                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Row 1: merge mode selector
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Mode row: replace / add / subtract / intersect
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             modes.forEach { (mode, label) ->
                 val selected = vm.selectionMode == mode
                 Box(
                     modifier =
                         Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(5.dp))
                             .background(if (selected) Morandi.accent else Morandi.panel)
                             .noRippleClickable { vm.updateSelectionMode(mode) }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 7.dp, vertical = 5.dp),
                 ) {
                     Text(
                         label,
                         color = if (selected) Morandi.onAccent else Morandi.text,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                     )
                 }
             }
         }
-        // Row 2: quick actions
+        // Action row: quick operations + close
         Row(
-            modifier = Modifier.padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             SelectionActionChip("全选") { vm.selectAllAction() }
             SelectionActionChip("反选") { vm.invertSelectionAction() }
             SelectionActionChip("清除", danger = true) { vm.clearSelectionAction() }
-            SelectionActionChip(if (propsOpen) "收起" else "属性") { onToggleProps() }
+            SelectionActionChip(if (propsOpen) "▲" else "属性") { onToggleProps() }
+            SelectionActionChip("✕") { vm.applyTool(Tool.BRUSH.id) }
         }
-        // Row 3: advanced props (feather / expand / contract / smooth)
+        // Property rows (feather / expand / contract / smooth)
         if (propsOpen) {
             SelectionPropSlider("羽化", 0..32) { vm.featherSelection(it) }
             SelectionPropSlider("扩展", 0..64) { vm.expandSelection(it) }

@@ -836,6 +836,10 @@ class PaintViewModel : ViewModel() {
             val mask = ReverieCoreBridge.selectionMask()
             selectionMask = mask
             hasSelection = mask != null && mask.any { it.toInt() != 0 }
+            android.util.Log.d(
+                "ReverieSel",
+                "refresh mask=${mask?.size} doc=${coreW}x${coreH} hasSel=$hasSelection",
+            )
             val docW = coreW
             val docH = coreH
             if (mask != null && hasSelection && docW > 0 && docH > 0 &&

@@ -1331,9 +1331,16 @@ QByteArray ReverieCore::selectionMask() const
         KisPixelSelectionSP ps = m_selection->pixelSelection();
         QVector<quint8> bytes(size_t(iw) * ih);
         ps->readBytes(bytes.data(), 0, 0, iw, ih);
+        int nonZero = 0;
         for (int i = 0; i < iw * ih; ++i) {
             mask[i] = bytes[i] > 127 ? char(255) : char(0);
+            if (bytes[i] > 127) {
+                ++nonZero;
+            }
         }
+        RPC_LOG("RPC selectionMask nonzero=%d of %d", nonZero, iw * ih);
+    } else {
+        RPC_LOG("RPC selectionMask null selection");
     }
     return mask;
 }
@@ -2777,7 +2784,11 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
     for (const QRect &rr : region) {
         ps->select(rr, OPACITY_OPAQUE_U8);
     }
-    m_selection = sel;
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    ps->readBytes(mask.data(), 0, 0, iw, ih);
+    setSelectionFromMask(this, image, mask, int(m_selectionMode));
     markDirty();
 }
 
@@ -2795,6 +2806,7 @@ static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
                                  const QVector<quint8> &mask,
                                  int selMode)
 {
+    RPC_LOG("RPC setSelectionFromMask mode=%d maskPixels=%d", selMode, mask.size());
     QVector<quint8> finalMask = mask;
     if (selMode != ReverieCore::SelReplace && core->hasSelection()) {
         QVector<quint8> existing(size_t(image->width()) * image->height(), 0);
@@ -3069,6 +3081,7 @@ void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool>
 
 void ReverieCore::lassoSelect(const QVector<QPoint> &points)
 {
+    RPC_LOG("RPC lassoSelect points=%d", points.size());
     KisImageSP image = m_document;
     if (!image || points.size() < 3) {
         return;
