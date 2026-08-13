@@ -7,6 +7,15 @@ plugins {
 
 // AGP 9.x has built-in Kotlin support - no org.jetbrains.kotlin.android plugin needed
 
+// 预编译 jni 模式(默认): 使用 third_party/android-native-libs 里预编译的
+// libreverie_jni.so + 全部 Krita/Qt/KF6 动态库, 无需本地 Qt/Krita 环境,
+// 克隆即可构建 APK
+// 强制重新编译 C++: ./gradlew assembleDebug -PbuildNative
+//   (需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6 头文件, 见 README)
+val prebuiltJni = rootProject.file("third_party/android-native-libs/libreverie_jni.so").isFile
+val buildNative = project.hasProperty("buildNative")
+val usePrebuiltJni = prebuiltJni && !buildNative
+
 android {
     namespace = "com.reverie.paint"
     compileSdk = 36
@@ -23,22 +32,26 @@ android {
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
-        externalNativeBuild {
-            cmake {
-                cppFlags += "-std=c++17"
-                arguments +=
-                    listOf(
-                        "-DANDROID_ABI=arm64-v8a",
-                        "-DCMAKE_BUILD_TYPE=Release",
-                    )
+        if (buildNative) {
+            externalNativeBuild {
+                cmake {
+                    cppFlags += "-std=c++17"
+                    arguments +=
+                        listOf(
+                            "-DANDROID_ABI=arm64-v8a",
+                            "-DCMAKE_BUILD_TYPE=Release",
+                        )
+                }
             }
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
+    if (buildNative) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
         }
     }
 

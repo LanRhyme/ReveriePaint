@@ -55,10 +55,13 @@ Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/
 
 ## 构建
 
+### 方式一: 预编译模式 (推荐, 无需任何 C++ 环境)
+
+克隆仓库后仅需 Android Studio / Android SDK + NDK 25 + JDK 17, 动态库全部内置:
+
 ```bash
-# 1 准备 Krita 原生库 (二选一)
-#    已有本地交叉编译: 直接执行
-#    没有: 使用仓库内置的预编译库 (third_party/krita-android-libs, 免编译 Krita)
+# 1 复制仓库内置的 112 个预编译动态库到 jniLibs
+#   (Krita 核心库 + 笔刷引擎 + Qt for Android + KF6 + NDK 依赖 + 预编译 libreverie_jni.so)
 ./scripts/copy_jni_libs.sh
 # 2 构建 APK
 ./gradlew assembleDebug
@@ -66,7 +69,21 @@ Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-预编译 Krita 动态库已提交到仓库 third_party/krita-android-libs (57 个核心库 + 13 个笔刷引擎插件, arm64-v8a, 已 strip)
+预编译动态库在 third_party/android-native-libs (arm64-v8a, 已 strip), 包含 libreverie_jni.so 与全部 111 个运行时依赖, 闭包已验证完整
+
+### 方式二: 重新编译 C++ (开发者模式)
+
+修改 C++ 代码 (app/src/main/cpp) 时需要本地编译环境:
+
+- Qt for Android 6.6.3 (android_arm64_v8a) + 桌面版 gcc_64 (作 QT_HOST_PATH)
+- Krita 源码树 (~/Projects/krita-source) 与交叉编译产物 (build-android)
+- KF6 6.6.0 arm64 交叉编译库 + 各依赖 (见 scripts 与构建记录)
+
+```bash
+./gradlew assembleDebug -PbuildNative
+```
+
+预编译模式与 buildNative 模式通过 gradle 属性切换 (app/build.gradle.kts)
 
 ## 许可
 
