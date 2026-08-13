@@ -28,6 +28,10 @@ class KisPaintLayer;
 class KisPainter;
 class KisDistanceInformation;
 
+class KisSurrogateUndoStore;
+class KisTransaction;
+class KUndo2Command;
+
 class ReverieCore
 {
 public:
@@ -193,8 +197,8 @@ public:
     // Krita's command stack needs the full KisTransaction pipeline; for the
     // MVP we snapshot the current layer before each stroke and restore on
     // undo/redo. (KisSurrogateUndoStore still backs image-level commands.)
-    bool canUndo() const { return !m_undoStack.isEmpty(); }
-    bool canRedo() const { return !m_redoStack.isEmpty(); }
+    bool canUndo() const;
+    bool canRedo() const { return m_redoCount > 0; }
     void undo();
     void redo();
     void touchStrokeMove(qreal x, qreal y, qreal pressure);
@@ -355,17 +359,27 @@ private:
     }
 
     // Undo/redo snapshot stacks (serialized layer bytes per stroke)
-    QVector<QByteArray> m_undoStack;
-    QVector<QByteArray> m_redoStack;
+
     // Deferred snapshot: taken on the first real flush of a stroke, not at
     // touch-down, so a pure tap or an instantly-cancelled stroke never pays
     // the full-document read cost.
     bool m_snapshotPending = false;
-    void snapshotForUndo();
-    // Restore a snapshot, writing back only the regions that differ from the
-    // current layer pixels and recompositing those regions locally (no full
-    // document pass). curBytes must be the current serialized layer state.
-    void applySnapshot(const QByteArray &snap, const QByteArray &curBytes);
+    // Krita-native undo/redo: KisSurrogateUndoStore + KisTransaction +
+    // libs/image/commands node commands. The store is installed on the
+    // KisImage via setUndoStore; every modifying operation is wrapped in a
+    // KisTransaction or a node command pushed through the image's undo
+    // adapter, so undo/redo restores Krita's own tile-level snapshots
+    // (memory-efficient) and covers strokes, fills, shapes, layer
+    // add/remove/move and layer attributes - not just brush strokes.
+    KisSurrogateUndoStore *m_undoStore = nullptr;
+    int m_redoCount = 0;   // redo depth tracked locally (store hides it)
+    // Deferred stroke transaction: created at the first real flush (after
+    // the stroke device exists), committed at stroke end, discarded on
+    // cancel - taps and no-paint strokes never create an undo command.
+    KisTransaction *m_strokeTxn = nullptr;
+    bool m_strokeTxnActive = false;
+    // Wrap a command push through the image's undo adapter and clear redo
+    void pushUndoCommand(KUndo2Command *cmd);
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;

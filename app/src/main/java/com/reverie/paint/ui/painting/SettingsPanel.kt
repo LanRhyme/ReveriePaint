@@ -365,6 +365,23 @@ private fun SettingsTabPage(vm: PaintViewModel) {
             )
         }
 
+        // Immersive mode: fullscreen edge-to-edge + hidden system bars
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("沉浸模式", color = Morandi.text, fontSize = 13.sp)
+            ReSwitch(
+                checked = vm.immersiveMode,
+                onChecked = { vm.updateImmersiveMode(it) }
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+
         // 3-7. List item links with chevron
         SettingNavRow("视图显示") {}
         SettingNavRow("手势") {}

@@ -42,6 +42,16 @@
 
 #include <kis_image.h>
 #include <kis_undo_store.h>
+#include <kis_undo_stores.h>
+#include <kis_transaction.h>
+#include <kundo2command.h>
+#include <kundo2magicstring.h>
+#include <commands/kis_image_layer_add_command.h>
+#include <commands/kis_image_layer_remove_command.h>
+#include <commands/kis_image_layer_move_command.h>
+#include <commands/kis_node_opacity_command.h>
+#include <commands/kis_node_compositeop_command.h>
+#include <commands/KisNodeRenameCommand.h>
 #include <kis_painter.h>
 #include <KoColorSpaceRegistry.h>
 #include <KoColorSpace.h>
@@ -107,8 +117,18 @@ bool ReverieCore::newDocument(int width, int height)
     m_lastPressure = 1.0;
     m_strokeColor = QColor();
     m_strokeOpacity = 1.0;
-    m_undoStack.clear();
-    m_redoStack.clear();
+    // Krita-native undo store: create once per process, reset per document.
+    // The store owns a KUndo2Stack of tile-level KisTransactionData /
+    // node commands, so undo/redo is memory-efficient and covers every
+    // operation type (strokes, fills, shapes, layer structure, attributes).
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+    if (!m_undoStore) {
+        m_undoStore = new KisSurrogateUndoStore();
+    }
+    m_undoStore->clear();
+    m_redoCount = 0;
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
     if (!cs) {
@@ -118,8 +138,11 @@ bool ReverieCore::newDocument(int width, int height)
     // Create a standalone Krita image without KisDocument/KisPart (which
     // live in kritaui and need a full QApplication). KisImage's public
     // ctor is sufficient for a single-document painting engine.
-    KisImageSP image = new KisImage(nullptr /* undoStore */, width, height, cs,
+    KisImageSP image = new KisImage(m_undoStore, width, height, cs,
                                     QStringLiteral("Untitled"));
+    // setUndoStore re-wires the legacy + post-execution undo adapters so
+    // image->undoAdapter()->addCommand() routes into our store
+    image->setUndoStore(m_undoStore);
     if (!image) {
         return false;
     }
@@ -325,6 +348,42 @@ KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 }
 
 
+// KisImageChangeVisibilityCommand is not exported from libkritaimage (no
+// KRITAIMAGE_EXPORT on its header), so provide a small local command with
+// identical semantics: redo()/undo() flip the node's visibility and the
+// caller marks the projection dirty.
+class ReverieNodeVisibleCommand : public KUndo2Command
+{
+public:
+    ReverieNodeVisibleCommand(KisNodeSP node, bool visible,
+                              const KUndo2MagicString &text)
+        : KUndo2Command(text)
+        , m_node(node)
+        , m_newVisible(visible)
+        , m_oldVisible(node ? node->visible() : false)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_node) {
+            m_node->setVisible(m_newVisible);
+        }
+    }
+
+    void undo() override
+    {
+        if (m_node) {
+            m_node->setVisible(m_oldVisible);
+        }
+    }
+
+private:
+    KisNodeSP m_node;
+    bool m_newVisible;
+    bool m_oldVisible;
+};
+
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
                                         const QVector<quint8> &mask);
 static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
@@ -489,12 +548,16 @@ int ReverieCore::addLayer(const QString &name)
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
-    if (!image->addNode(newLayer, parent, above)) {
-        return -1;
-    }
+    // Krita-native undo: push a layer-add command through the undo adapter.
+    // KUndo2Stack::push executes redo() (which performs the addNode).
+    pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
     recompositeProjection();
     syncLayersFromImage();
-    m_currentLayer = indexOfNode(newLayer.data());
+    const int idx = indexOfNode(newLayer.data());
+    if (idx < 0) {
+        return -1;
+    }
+    m_currentLayer = idx;
     markDirty();
     return m_currentLayer;
 }
@@ -513,12 +576,14 @@ int ReverieCore::addGroupLayer(const QString &name)
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
-    if (!image->addNode(group, parent, above)) {
-        return -1;
-    }
+    pushUndoCommand(new KisImageLayerAddCommand(image, group, parent, above));
     recompositeProjection();
     syncLayersFromImage();
-    m_currentLayer = indexOfNode(group.data());
+    const int idx = indexOfNode(group.data());
+    if (idx < 0) {
+        return -1;
+    }
+    m_currentLayer = idx;
     markDirty();
     return m_currentLayer;
 }
@@ -556,12 +621,14 @@ int ReverieCore::copyLayer(int index)
 
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
-    if (!image->addNode(nl, parent, above)) {
-        return -1;
-    }
+    pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
     recompositeProjection();
     syncLayersFromImage();
-    m_currentLayer = indexOfNode(nl.data());
+    const int idx = indexOfNode(nl.data());
+    if (idx < 0) {
+        return -1;
+    }
+    m_currentLayer = idx;
     markDirty();
     return m_currentLayer;
 }
@@ -582,7 +649,8 @@ void ReverieCore::removeLayer(int index)
     if (!image || !m_layers[index].node) {
         return;
     }
-    image->removeNode(KisNodeSP(m_layers[index].node));
+    // Krita-native undo: a layer-remove command (undo re-inserts the node)
+    pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
     recompositeProjection();
     syncLayersFromImage();
     markDirty();
@@ -597,8 +665,19 @@ void ReverieCore::clearLayer(int index)
     if (!dev) {
         return;
     }
+    // Krita-native undo: wrap the pixel clear in a transaction
+    KisTransaction txn(kundo2_i18n("Clear"), dev);
     dev->clear();
     dev->setDirty();
+    if (m_document) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
+    // Content became empty: dirty-region projection leaf updates do not
+    // recomposite regions whose content is now empty, so the cleared layer
+    // would keep showing its old pixels until a later full recomposite.
+    // Force a full subtree walk + merge so the projection matches.
+    recompositeProjection();
     markDirty();
 }
 
@@ -624,7 +703,9 @@ void ReverieCore::setLayerName(int index, const QString &name)
         return;  // background cannot be renamed
     }
     if (m_layers[index].node) {
-        m_layers[index].node->setName(name);
+        const QString oldName = m_layers[index].name;
+        pushUndoCommand(new KisNodeRenameCommand(
+            KisNodeSP(m_layers[index].node), oldName, name));
         m_layers[index].name = name;
     }
 }
@@ -634,16 +715,18 @@ void ReverieCore::setLayerVisible(int index, bool visible)
     if (index < 0 || index >= m_layers.size()) {
         return;
     }
-    if (m_layers[index].visible != visible) {
+    if (m_layers[index].visible != visible && m_layers[index].node) {
+        // Krita-native undo: the visibility command redo() flips the flag
+        // (local command - KisImageChangeVisibilityCommand is not exported)
+        pushUndoCommand(new ReverieNodeVisibleCommand(
+            KisNodeSP(m_layers[index].node), visible,
+            kundo2_i18n("Layer Visibility")));
         m_layers[index].visible = visible;
-        if (m_layers[index].node) {
-            m_layers[index].node->setVisible(visible);
-            // Visibility is a structural change: KisNode::setVisible only
-            // notifies the graph listener, it does not schedule a projection
-            // recomposite. setDirty() -> requestProjectionUpdate does.
-            m_layers[index].node->setDirty(
-                QRect(0, 0, m_document->width(), m_document->height()));
-        }
+        // Visibility is a structural change: KisNode::setVisible only
+        // notifies the graph listener, it does not schedule a projection
+        // recomposite. setDirty() -> requestProjectionUpdate does.
+        m_layers[index].node->setDirty(
+            QRect(0, 0, m_document->width(), m_document->height()));
         markDirty();
     }
 }
@@ -710,7 +793,8 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
         return;  // background stays opaque
     }
     const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
-    m_layers[index].node->setOpacity(o);
+    // Krita-native undo: the opacity command redo() applies the value
+    pushUndoCommand(new KisNodeOpacityCommand(KisNodeSP(m_layers[index].node), o));
     m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
     markDirty();
 }
@@ -721,7 +805,8 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         return;  // background is always 'normal'
     }
     if (m_layers[index].node) {
-        m_layers[index].node->setCompositeOpId(opId);
+        // Krita-native undo: the composite-op command redo() applies the op
+        pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), opId));
         m_layers[index].node->setDirty(
             QRect(0, 0, m_document->width(), m_document->height()));
         markDirty();
@@ -820,8 +905,14 @@ void ReverieCore::flipLayerHorizontal(int index)
     if (!dev) {
         return;
     }
+    // Krita-native undo: wrap the pixel flip in a transaction
+    KisTransaction txn(kundo2_i18n("FlipH"), dev);
     flipDevice(dev, true);
     markDirty();
+    if (m_document) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
 }
 
 void ReverieCore::flipLayerVertical(int index)
@@ -833,8 +924,14 @@ void ReverieCore::flipLayerVertical(int index)
     if (!dev) {
         return;
     }
+    // Krita-native undo: wrap the pixel flip in a transaction
+    KisTransaction txn(kundo2_i18n("FlipV"), dev);
     flipDevice(dev, false);
     markDirty();
+    if (m_document) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
 }
 
 bool ReverieCore::mergeDown(int index)
@@ -863,6 +960,10 @@ bool ReverieCore::mergeDown(int index)
     if (!src || !dst) {
         return false;
     }
+    // Krita-native undo: the pixel merge is one transaction, the layer
+    // removal is a remove command. Commit order matters: txn first, remove
+    // second, so undo re-inserts the layer first, then restores dst pixels.
+    KisTransaction txn(kundo2_i18n("Merge Down"), dst);
     const QRect ext = src->exactBounds();
     if (!ext.isEmpty()) {
         KisPainter painter(dst);
@@ -872,7 +973,8 @@ bool ReverieCore::mergeDown(int index)
         dst->setDirty(ext);
     }
     KisNode *targetNode = m_layers[ti].node;
-    image->removeNode(KisNodeSP(e.node));
+    txn.commit(image->undoAdapter());
+    pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(e.node)));
     recompositeProjection();
     syncLayersFromImage();
     m_currentLayer = indexOfNode(targetNode);
@@ -962,16 +1064,11 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
                 p = p->parent();
             }
         }
-        KisNodeSP oldParent = node->parent();
-        int oldIndex = oldParent ? oldParent->index(node) : -1;
-        if (!m_document->removeNode(node)) {
-            return false;
-        }
-        if (!m_document->addNode(node, parent)) {
-            Q_UNUSED(oldParent);
-            Q_UNUSED(oldIndex);
-            return false;
-        }
+        // Krita-native undo: remove + re-add as two commands so undo
+        // restores the original parent and slot exactly
+        pushUndoCommand(new KisImageLayerRemoveCommand(m_document, node));
+        pushUndoCommand(new KisImageLayerAddCommand(
+            m_document, node, parent, KisNodeSP()));
         syncLayersFromImage();
         recompositeProjection();
         markDirty();
@@ -990,9 +1087,9 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
             p = p->parent();
         }
     }
-    if (!m_document->moveNode(node, parent, aboveNode)) {
-        return false;
-    }
+    // Krita-native undo: the move command redo() relocates the node
+    pushUndoCommand(new KisImageLayerMoveCommand(
+        m_document, node, parent, aboveNode));
     syncLayersFromImage();
     recompositeProjection();
     markDirty();
@@ -1027,9 +1124,9 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
             p = p->parent();
         }
     }
-    if (!m_document->moveNode(node, group, 0)) {
-        return false;
-    }
+    // Krita-native undo: move into the group at its bottom (index 0)
+    pushUndoCommand(new KisImageLayerMoveCommand(
+        m_document, node, group, quint32(0)));
     syncLayersFromImage();
     recompositeProjection();
     markDirty();
@@ -1083,6 +1180,8 @@ void ReverieCore::applyFilter(int index, int filterId)
     if (ext.isEmpty()) {
         return;
     }
+    // Krita-native undo: wrap the pixel filter in a transaction
+    KisTransaction txn(kundo2_i18n("Filter"), dev);
     QImage img(ext.size(), QImage::Format_RGBA8888);
     dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
     switch (filterId) {
@@ -1162,6 +1261,10 @@ void ReverieCore::applyFilter(int index, int filterId)
     dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
     dev->setDirty(ext);
     markDirty();
+    if (m_document) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
 }
 
 bool ReverieCore::selectionFromLayer(int index)
@@ -1744,6 +1847,15 @@ void ReverieCore::touchStrokeEnd()
         endStrokeBatch();
         m_strokeBatchOpen = false;
     }
+    // Commit the Krita transaction: the tile snapshots taken at creation
+    // are diffed and the undo command is pushed to the store.
+    if (m_strokeTxnActive && m_document) {
+        m_strokeTxn->commit(m_document->undoAdapter());
+        delete m_strokeTxn;
+        m_strokeTxn = nullptr;
+        m_strokeTxnActive = false;
+        m_redoCount = 0;
+    }
     m_drawing = false;
 }
 
@@ -1757,33 +1869,17 @@ void ReverieCore::touchStrokeCancel()
     }
 
     // A second finger must cancel, not commit, the partial stroke. The
-    // snapshot was pushed by touchStrokeStart, so restore and remove that
-    // snapshot without touching the redo stack.
+    // deferred Krita transaction is simply discarded: the tile snapshots
+    // it recorded are freed and no undo command is pushed, so the partial
+    // stroke is gone with no undo history impact.
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+    m_snapshotPending = false;
     m_strokeSamples.clear();
     endStrokeBatch();
     m_strokeBatchOpen = false;
     m_drawing = false;
-
-    // No pixels were painted (the deferred snapshot was never taken), so
-    // there is nothing to restore - the top undo entry belongs to an
-    // earlier stroke.
-    if (m_snapshotPending) {
-        m_snapshotPending = false;
-        return;
-    }
-    if (!m_undoStack.isEmpty() && !m_layers.isEmpty() && m_document) {
-        const int w = m_document->width();
-        const int h = m_document->height();
-        QByteArray cur;
-        for (const LayerEntry &entry : m_layers) {
-            KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
-            if (!dev) continue;
-            QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-            dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
-            cur.append(layerBytes);
-        }
-        applySnapshot(m_undoStack.takeLast(), cur);
-    }
 }
 
 void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
@@ -1850,11 +1946,6 @@ void ReverieCore::flushStrokeBatch()
     if (m_strokeSamples.isEmpty()) {
         return;
     }
-    if (m_snapshotPending) {
-        snapshotForUndo();
-        m_snapshotPending = false;
-    }
-
     KisImageSP image = m_document;
     if (!image) {
         m_strokeSamples.clear();
@@ -1876,6 +1967,16 @@ void ReverieCore::flushStrokeBatch()
     if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
         m_strokeDevice = (void *)target.data();
+        // Deferred Krita undo: start the stroke transaction here (after the
+        // device exists) on the first real flush. Taps and no-paint strokes
+        // never reach this point, so they never create an undo command.
+        if (m_snapshotPending && !m_strokeTxnActive) {
+            delete m_strokeTxn;
+            m_strokeTxn = new KisTransaction(
+                kundo2_i18n("Stroke"), target);
+            m_strokeTxnActive = true;
+        }
+        m_snapshotPending = false;
         m_strokePainter = new KisPainter(target);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
@@ -2313,114 +2414,49 @@ static void writeRegionToDevice(KisPaintDevice *dev, const quint8 *full,
     dev->setDirty(r);
 }
 
-void ReverieCore::applySnapshot(const QByteArray &snap, const QByteArray &curBytes)
+void ReverieCore::pushUndoCommand(KUndo2Command *cmd)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || m_layers.isEmpty()) return;
-    const int w = image->width();
-    const int h = image->height();
-    const int layerCount = m_layers.size();
-    const int expected = w * h * 4 * layerCount;
-    if (snap.size() != expected || curBytes.size() != expected) return;
-    const quint8 *snapP = reinterpret_cast<const quint8 *>(snap.constData());
-    const quint8 *curP = reinterpret_cast<const quint8 *>(curBytes.constData());
-    QRect all;
-    for (int i = 0; i < layerCount; ++i) {
-        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
-        if (!dev) continue;
-        const QRect diff = layerDiffRect(curP, snapP, w, h);
-        if (!diff.isNull()) {
-            writeRegionToDevice(dev.data(), snapP, w, h, diff);
-            all = all.isNull() ? diff : all.united(diff);
-        }
-        curP += size_t(w) * h * 4;
-        snapP += size_t(w) * h * 4;
-    }
-    if (!all.isNull()) {
-        markRegionDirty(all);
-    }
-}
-
-void ReverieCore::snapshotForUndo()
-{
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || m_layers.isEmpty()) {
+    if (!m_document || !cmd) {
+        delete cmd;
         return;
     }
-    const int w = image->width();
-    const int h = image->height();
-    QByteArray bytes;
-    for (const LayerEntry &entry : m_layers) {
-        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
-        if (!dev) continue;
-        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
-        bytes.append(layerBytes);
-    }
-    m_undoStack.append(bytes);
-    // Cap the stack: 32 snapshots * layers * ~8MB each (1080x1920). This is
-    // heavy but acceptable for an MVP; a real implementation would use
-    // Krita's KisTransaction + KisSurrogateUndoStore.
-    if (m_undoStack.size() > 32) {
-        m_undoStack.removeFirst();
-    }
-    m_redoStack.clear();
+    // KisLegacyUndoAdapter::addCommand routes into our surrogate store
+    // (installed via KisImage::setUndoStore); KUndo2Stack::push executes
+    // the command's redo() (the change is already applied by the caller,
+    // so redo() is a no-op for most commands) and clears redo state.
+    m_document->undoAdapter()->addCommand(cmd);
+    m_redoCount = 0;
+}
+
+bool ReverieCore::canUndo() const
+{
+    return m_undoStore && m_undoStore->presentCommand() != nullptr;
 }
 
 void ReverieCore::undo()
 {
-    if (m_undoStack.isEmpty()) {
+    if (!m_undoStore || !m_document || !canUndo()) {
         return;
     }
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || m_layers.isEmpty()) {
-        return;
-    }
-    const int w = image->width();
-    const int h = image->height();
-    const int layerCount = m_layers.size();
-
-    // Snapshot current state into redo
-    QByteArray cur;
-    for (const LayerEntry &entry : m_layers) {
-        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
-        if (!dev) continue;
-        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
-        cur.append(layerBytes);
-    }
-    m_redoStack.append(cur);
-
-    // Restore the undo snapshot (must match layer count)
-    const QByteArray snap = m_undoStack.takeLast();
-    applySnapshot(snap, cur);
+    m_undoStore->undo();
+    ++m_redoCount;
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+    m_snapshotPending = false;
 }
 
 void ReverieCore::redo()
 {
-    if (m_redoStack.isEmpty()) {
+    if (!m_undoStore || !m_document || !canRedo()) {
         return;
     }
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || m_layers.isEmpty()) {
-        return;
-    }
-    const int w = image->width();
-    const int h = image->height();
-    const int layerCount = m_layers.size();
-
-    QByteArray cur;
-    for (const LayerEntry &entry : m_layers) {
-        KisPaintDeviceSP dev = layerPaintDeviceFor(entry);
-        if (!dev) continue;
-        QByteArray layerBytes(w * h * 4, Qt::Uninitialized);
-        dev->readBytes(reinterpret_cast<quint8 *>(layerBytes.data()), 0, 0, w, h);
-        cur.append(layerBytes);
-    }
-    m_undoStack.append(cur);
-
-    const QByteArray snap = m_redoStack.takeLast();
-    applySnapshot(snap, cur);
+    m_undoStore->redo();
+    --m_redoCount;
+    syncLayersFromImage();
+    recompositeProjection();
+    markDirty();
+    m_snapshotPending = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -2566,6 +2602,9 @@ void ReverieCore::floodFillAt(int x, int y)
     if (!device) {
         return;
     }
+    // Krita-native undo: wrap the fill in a transaction (initial tiles are
+    // snapshotted here, before any pixel changes)
+    KisTransaction txn(kundo2_i18n("Fill"), device);
     const KoColorSpace *cs = image->colorSpace();
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) {
@@ -2634,6 +2673,8 @@ void ReverieCore::floodFillAt(int x, int y)
         device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
         device->setDirty();
         markDirty();
+        txn.commit(image->undoAdapter());
+        m_redoCount = 0;
     }
 }
 
@@ -2711,6 +2752,8 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     if (!device) {
         return;
     }
+    // Krita-native undo: wrap the shape draw in a transaction
+    KisTransaction txn(kundo2_i18n("Shape"), device);
     const int w = image->width();
     const int h = image->height();
     // Bounds of the shape region
@@ -2769,6 +2812,8 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
@@ -2784,6 +2829,8 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     if (!device) {
         return;
     }
+    // Krita-native undo: wrap the polygon draw in a transaction
+    KisTransaction txn(kundo2_i18n("Shape"), device);
     QPainterPath path;
     path.moveTo(points.first());
     for (int i = 1; i < points.size(); ++i) {
@@ -2834,6 +2881,8 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
                        region.width(), region.height());
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
@@ -2851,6 +2900,8 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     if (QPoint(x1, y1) == QPoint(x2, y2)) {
         return;
     }
+    // Krita-native undo: wrap the gradient fill in a transaction
+    KisTransaction txn(kundo2_i18n("Gradient"), device);
     QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
@@ -2881,6 +2932,8 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
@@ -3091,6 +3144,8 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     }
     const int iw = image->width();
     const int ih = image->height();
+    // Krita-native undo: wrap the content move in a transaction
+    KisTransaction txn(kundo2_i18n("Move Content"), device);
     QImage src(iw, ih, QImage::Format_RGBA8888);
     {
         QVector<quint8> bytes(size_t(iw) * ih * 4);
@@ -3109,6 +3164,8 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     device->writeBytes(out.constBits(), 0, 0, iw, ih);
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
@@ -3134,6 +3191,8 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
     if (!device) {
         return;
     }
+    // Krita-native undo: wrap the text draw in a transaction
+    KisTransaction txn(kundo2_i18n("Text"), device);
     const int w = image->width();
     const int h = image->height();
 
@@ -3171,6 +3230,8 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
                        region.width(), region.height());
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 namespace {
@@ -3325,6 +3386,8 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
     }
     const int iw = image->width();
     const int ih = image->height();
+    // Krita-native undo: wrap the liquify displacement in a transaction
+    KisTransaction txn(kundo2_i18n("Liquify"), device);
 
     QImage layerImg(iw, ih, QImage::Format_RGBA8888);
     {
@@ -3363,6 +3426,8 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
     device->writeBytes(result.constBits(), 0, 0, iw, ih);
     device->setDirty();
     markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 bool ReverieCore::savePng(const QString &path)
@@ -3426,7 +3491,17 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     }
     const QRect ext = dev->exactBounds();
     if (ext.isEmpty()) {
-        return false;
+        // Empty layer: return a transparent thumbnail so the cache refreshes.
+        // Returning false here left stale index-keyed entries from before the
+        // layer was cleared, showing old content on a blank layer.
+        QImage out(w, h, QImage::Format_RGBA8888);
+        out.fill(Qt::transparent);
+        const int copyH = qMin(h, out.height());
+        for (int y = 0; y < copyH; ++y) {
+            memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+                   out.constScanLine(y), size_t(w) * 4);
+        }
+        return true;
     }
     QImage full = dev->convertToQImage(nullptr, ext.x(), ext.y(), ext.width(), ext.height());
     if (full.isNull()) {

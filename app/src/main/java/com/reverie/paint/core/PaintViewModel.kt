@@ -102,6 +102,27 @@ class PaintViewModel : ViewModel() {
     
     var colorPickerMode by mutableStateOf("SQUARE")
         private set
+
+    /** Immersive mode (fullscreen + hidden system bars), persisted in prefs.
+     *  The actual window changes are applied by MainActivity.applyImmersive. */
+    var immersiveMode by mutableStateOf(false)
+        private set
+
+    fun updateImmersiveMode(enable: Boolean) {
+        immersiveMode = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("immersiveMode", enable).apply()
+        }
+        com.reverie.paint.MainActivity.applyImmersive(enable)
+    }
+
+    fun syncImmersiveFromPrefs() {
+        if (::appContext.isInitialized) {
+            immersiveMode = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("immersiveMode", false)
+        }
+    }
         
     fun updateColorPickerMode(mode: String) {
         colorPickerMode = mode
@@ -976,7 +997,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun undo() {
-        runCore(after = { refreshLayerThumbs(force = true) }) {
+        runCore(after = ::notifyLayerChanged) {
             if (ReverieCoreBridge.canUndo()) {
                 ReverieCoreBridge.undo()
             }
@@ -984,7 +1005,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun redo() {
-        runCore(after = { refreshLayerThumbs(force = true) }) {
+        runCore(after = ::notifyLayerChanged) {
             if (ReverieCoreBridge.canRedo()) {
                 ReverieCoreBridge.redo()
             }
@@ -1207,13 +1228,25 @@ class PaintViewModel : ViewModel() {
     // the 400ms-throttled refresh lands. Names are stable across moves, so a
     // by-name lookup keeps thumbnails visible (this is the drag flicker fix)
     private val layerThumbByName = mutableStateMapOf<String, Bitmap>()
+    private val layerThumbIndexName = mutableStateMapOf<Int, String>()
 
     /** Layer thumbnails keyed by layer index (updated on the render thread). */
     val layerThumbs: Map<Int, Bitmap> = layerThumbStates
 
-    /** Thumbnail lookup that survives index shifts (fallback by layer name). */
-    fun thumbFor(layerIndex: Int, layerName: String): Bitmap? =
-        layerThumbStates[layerIndex] ?: layerThumbByName[layerName]
+    /**
+     * Thumbnail lookup with index+name double check: an index-keyed entry is
+     * only trusted when the layer name currently at that index matches the
+     * requested one (indexes shift after add/remove/move and stale entries
+     * would show another layer's thumbnail on a blank layer). Falls back to
+     * the name-keyed map, which also avoids the stale-index case.
+     */
+    fun thumbFor(layerIndex: Int, layerName: String): Bitmap? {
+        val idxName = layerThumbIndexName[layerIndex]
+        if (idxName != null && idxName == layerName) {
+            return layerThumbStates[layerIndex]
+        }
+        return layerThumbByName[layerName]
+    }
 
     private var lastThumbRefreshNs = 0L
 
@@ -1232,6 +1265,7 @@ class PaintViewModel : ViewModel() {
                     val name = ReverieCoreBridge.layerName(idx)
                     mainHandler.post {
                         layerThumbStates[idx] = bmp
+                        layerThumbIndexName[idx] = name
                         layerThumbByName[name] = bmp
                     }
                 }
@@ -1242,7 +1276,10 @@ class PaintViewModel : ViewModel() {
     private fun notifyLayerChanged() {
         syncLayersFromNative()
         layerRevision++
-        refreshLayerThumbs()
+        // Structural/attribute changes can shift layer indexes and invalidate
+        // index-keyed thumbnails, so force a fresh render (the 400ms throttle
+        // would otherwise skip it and show another layer's stale thumbnail)
+        refreshLayerThumbs(force = true)
         scheduleRender(immediate = true)
     }
 

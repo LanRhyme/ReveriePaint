@@ -56,6 +56,7 @@ set(KRITA_INCLUDES
     ${KRITA_SRC_DIR}/libs/flake/svg
     ${KRITA_SRC_DIR}/libs/flake/text
     ${KRITA_SRC_DIR}/libs/flake/tools
+    ${KRITA_SRC_DIR}/libs/image/commands
     ${KRITA_SRC_DIR}/libs/image/brushengine
     ${KRITA_SRC_DIR}/plugins/paintops/libpaintop
     ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops
