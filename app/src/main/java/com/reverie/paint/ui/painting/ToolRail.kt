@@ -233,7 +233,6 @@ fun toolIcon(tool: Tool): Int =
         Tool.SELECT_MAGNETIC -> R.drawable.ic_lock
         Tool.SELECT_SIMILAR -> R.drawable.ic_eye
         Tool.PATH -> R.drawable.ic_copy
-        Tool.DYNA -> R.drawable.ic_sliders
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's

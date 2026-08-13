@@ -57,7 +57,6 @@ enum class Tool(
     LIQUIFY("liquify", "液化", ToolGroup.OTHER),
     MEASURE("measure", "测量", ToolGroup.OTHER),
     PATH("path", "路径", ToolGroup.SHAPES),
-    DYNA("dyna", "动态笔刷", ToolGroup.BRUSH),
     ;
 
     companion object {

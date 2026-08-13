@@ -3178,7 +3178,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     QPen pen(qColor, penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(pen);
-    painter.setBrush(filled ? QBrush(qColor) : Qt::NoBrush);
+    painter.setBrush((filled || m_shapeFilled) ? QBrush(qColor) : Qt::NoBrush);
 
     const QPointF p1(x1 - region.x(), y1 - region.y());
     const QPointF p2(x2 - region.x(), y2 - region.y());
@@ -3634,7 +3634,7 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     applyTransform(1.0, 1.0, 0.0, 0.0, 0.0, dx, dy);
 }
 
-QRect ReverieCore::contentBounds() const
+QRect ReverieCore::contentBounds()
 {
     KisImageSP image = m_document;
     if (!image) {

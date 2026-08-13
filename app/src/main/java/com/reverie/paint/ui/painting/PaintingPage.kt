@@ -663,9 +663,9 @@ fun PaintingPage(vm: PaintViewModel) {
         // Text tool input dialog
         textDialogPos?.let { (tx, ty) ->
             TextInputDialog(
-                onConfirm = { txt ->
+                onConfirm = { txt, fontSize ->
                     if (txt.isNotBlank()) {
-                        vm.drawText(tx, ty, txt, 48.0)
+                        vm.drawText(tx, ty, txt, fontSize)
                     }
                     textDialogPos = null
                 },
@@ -678,31 +678,46 @@ fun PaintingPage(vm: PaintViewModel) {
 /** Text input dialog for the text tool (MVP). */
 @Composable
 fun TextInputDialog(
-    onConfirm: (String) -> Unit,
+    onConfirm: (String, Double) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
+    var fontSize by remember { mutableStateOf(48f) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("输入文字", color = Morandi.text) },
         text = {
-            androidx.compose.material3.OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                placeholder = { Text("在这里输入...", color = Morandi.subText) },
-                colors =
-                    androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Morandi.accent,
-                        unfocusedBorderColor = Morandi.border,
-                        focusedContainerColor = Morandi.panel,
-                        unfocusedContainerColor = Morandi.panel,
-                        cursorColor = Morandi.accent,
-                    ),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text("在这里输入...", color = Morandi.subText) },
+                    colors =
+                        androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Morandi.accent,
+                            unfocusedBorderColor = Morandi.border,
+                            focusedContainerColor = Morandi.panel,
+                            unfocusedContainerColor = Morandi.panel,
+                            cursorColor = Morandi.accent,
+                        ),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("字号", color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(40.dp))
+                    ReSlider(
+                        value = ((fontSize - 8f) / 192f).coerceIn(0f, 1f),
+                        onValue = { frac -> fontSize = 8f + frac * 192f },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${fontSize.roundToInt()}", color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                }
+            }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { onConfirm(text) }) {
+            androidx.compose.material3.TextButton(onClick = { onConfirm(text, fontSize.toDouble()) }) {
                 Text("确定", color = Morandi.accentHi)
             }
         },
