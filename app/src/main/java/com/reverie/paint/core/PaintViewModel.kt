@@ -35,6 +35,10 @@ class PaintViewModel : ViewModel() {
     var brushOpacity by mutableStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var brushPresetIndex by mutableStateOf(-1)
+    // User-defined brush groups: preset name -> group name; and the list of
+    // custom group names the user created (persisted in SharedPreferences)
+    var userBrushGroups by mutableStateOf<Map<String, String>>(emptyMap())
+    var customBrushGroups by mutableStateOf<List<String>>(emptyList())
     var brushFlow by mutableStateOf(1.0)
     var brushSpacing by mutableStateOf(0.1)
     var brushAngle by mutableStateOf(0.0)
@@ -381,6 +385,8 @@ class PaintViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("ReveriePaint", "brush copy failed", e)
         }
+        // Restore persisted user brush groups
+        loadBrushGroups()
         // Build the list on the render thread (JNI reads), but assign the
         // Compose state on the MAIN thread: mutableStateOf written from the
         // render HandlerThread is not reliably visible to composition.
@@ -396,15 +402,78 @@ class PaintViewModel : ViewModel() {
             android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
             list.clear()
             for (i in 0 until n) {
+                val nm = ReverieCoreBridge.brushPresetName(i)
                 list.add(
                     BrushPresetInfo(
                         index = i,
-                        name = ReverieCoreBridge.brushPresetName(i),
+                        name = nm,
                         thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+                        group = userBrushGroups[nm] ?: inferBrushGroup(nm),
                     )
                 )
             }
             android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
+        }
+    }
+
+    // ---- User-defined brush groups ----------------------------------
+    private fun prefs() =
+        appContext.getSharedPreferences("brush_groups", android.content.Context.MODE_PRIVATE)
+
+    private fun loadBrushGroups() {
+        val groupsJson = prefs().getString("user_groups", null)
+        val customsJson = prefs().getString("custom_groups", null)
+        userBrushGroups = if (groupsJson != null) {
+            runCatching {
+                val arr = org.json.JSONArray(groupsJson)
+                (0 until arr.length()).associate { i ->
+                    val o = arr.getJSONObject(i)
+                    o.getString("n") to o.getString("g")
+                }
+            }.getOrDefault(emptyMap())
+        } else emptyMap()
+        customBrushGroups = if (customsJson != null) {
+            runCatching {
+                val arr = org.json.JSONArray(customsJson)
+                (0 until arr.length()).map { arr.getString(it) }
+            }.getOrDefault(emptyList())
+        } else emptyList()
+    }
+
+    private fun saveBrushGroups() {
+        try {
+            val arr = org.json.JSONArray()
+            for ((n, g) in userBrushGroups) {
+                arr.put(org.json.JSONObject().put("n", n).put("g", g))
+            }
+            val cust = org.json.JSONArray()
+            for (g in customBrushGroups) cust.put(g)
+            prefs().edit()
+                .putString("user_groups", arr.toString())
+                .putString("custom_groups", cust.toString())
+                .apply()
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "saveBrushGroups failed", e)
+        }
+    }
+
+    /** Create a new user brush group. Returns false if the name exists. */
+    fun createBrushGroup(name: String): Boolean {
+        val n = name.trim()
+        if (n.isEmpty()) return false
+        if (customBrushGroups.contains(n) || n == "全部") return false
+        customBrushGroups = customBrushGroups + n
+        saveBrushGroups()
+        return true
+    }
+
+    /** Move a preset into a group (or back to its inferred group). */
+    fun moveBrushToGroup(presetName: String, group: String) {
+        userBrushGroups = userBrushGroups + (presetName to group)
+        saveBrushGroups()
+        // Refresh the displayed group of this preset
+        brushPresets = brushPresets.map {
+            if (it.name == presetName) it.copy(group = group) else it
         }
     }
 
@@ -843,9 +912,36 @@ class PaintViewModel : ViewModel() {
 enum class Page { HOME, CREATE, PAINTING }
 
 
+/** Krita-style brush grouping: the preset name prefix maps to a group. */
+fun inferBrushGroup(name: String): String = when {
+    name.startsWith("a)") -> "橡皮擦"
+    name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
+    name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
+    name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
+    name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
+    name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
+    name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
+    name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
+    name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
+    name.startsWith("j)") || name.startsWith("Water") -> "水彩"
+    name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
+    name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
+    name.startsWith("t)") || name.startsWith("Shape") -> "形状"
+    name.startsWith("u)") || name.contains("Pixel") -> "像素画"
+    name.startsWith("v)") -> "特效"
+    name.startsWith("w)") -> "纹理"
+    name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
+    name.startsWith("y)") -> "纹理"
+    name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
+    name.contains("Spray") -> "喷枪"
+    name.contains("Clone") || name.contains("Distort") -> "特效"
+    else -> "其他"
+}
+
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */
 data class BrushPresetInfo(
     val index: Int,
     val name: String,
     val thumbBytes: ByteArray,
+    val group: String = "",  // effective group (custom override or inferred)
 )

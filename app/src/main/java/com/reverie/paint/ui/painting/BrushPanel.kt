@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,32 +43,6 @@ import com.reverie.paint.ui.components.noRippleClickable
  * Main view = category rail + preset list. Tapping the already-selected
  * preset opens the second-level property page (size/opacity/flow).
  */
-/** Krita-style brush grouping: the preset name prefix maps to a group. */
-private fun brushGroupOf(name: String): String = when {
-    name.startsWith("a)") -> "橡皮擦"
-    name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
-    name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
-    name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
-    name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
-    name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
-    name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
-    name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
-    name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
-    name.startsWith("j)") || name.startsWith("Water") -> "水彩"
-    name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
-    name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
-    name.startsWith("t)") || name.startsWith("Shape") -> "形状"
-    name.startsWith("u)") || name.contains("Pixel") -> "像素画"
-    name.startsWith("v)") -> "特效"
-    name.startsWith("w)") -> "纹理"
-    name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
-    name.startsWith("y)") -> "纹理"
-    name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
-    name.contains("Spray") -> "喷枪"
-    name.contains("Clone") || name.contains("Distort") -> "特效"
-    else -> "其他"
-}
-
 @Composable
 fun BrushPanel(
     vm: PaintViewModel,
@@ -75,11 +50,17 @@ fun BrushPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
 ) {
-    // Real Krita-style categories, derived from the loaded presets
-    val categories = remember(vm.brushPresets) {
-        listOf("全部") + vm.brushPresets.map { brushGroupOf(it.name) }.distinct()
+    // Real Krita-style categories plus user-created groups
+    val categories = remember(vm.brushPresets, vm.customBrushGroups) {
+        listOf("全部") +
+            vm.brushPresets.map { it.group }.distinct() +
+            vm.customBrushGroups.filter { g -> vm.brushPresets.none { it.group == g } }
     }
     var selectedCategory by remember { mutableStateOf("全部") }
+    // new-group dialog state
+    var showNewGroupDialog by remember { mutableStateOf(false) }
+    // move-preset-to-group dialog state (preset name)
+    var movePresetName by remember { mutableStateOf<String?>(null) }
     // null = list view; non-null = second-level property page for that preset
     var detailIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -167,7 +148,7 @@ fun BrushPanel(
                                 val filtered = if (selectedCategory == "全部") {
                                     vm.brushPresets
                                 } else {
-                                    vm.brushPresets.filter { brushGroupOf(it.name) == selectedCategory }
+                                    vm.brushPresets.filter { it.group == selectedCategory }
                                 }
                                 items(filtered) { preset ->
                                     val isSelected = preset.index == vm.brushPresetIndex
@@ -182,11 +163,16 @@ fun BrushPanel(
                                                 color = if (isSelected) Morandi.accent else Color.Transparent,
                                                 shape = RoundedCornerShape(8.dp)
                                             )
-                                            .clickable {
-                                                // Tap selects; tap the selected one again -> property page
-                                                if (isSelected) detailIndex = preset.index
-                                                else vm.selectBrushPreset(preset.index)
-                                            }
+                                            .combinedClickable(
+                                                onClick = {
+                                                    // Tap selects; tap the selected one again -> property page
+                                                    if (isSelected) detailIndex = preset.index
+                                                    else vm.selectBrushPreset(preset.index)
+                                                },
+                                                onLongClick = {
+                                                    movePresetName = preset.name
+                                                },
+                                            )
                                             .padding(horizontal = 8.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -236,7 +222,7 @@ fun BrushPanel(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Spacer(Modifier.weight(1f))
-                        Icon(Icons.Default.Add, contentDescription = "Add", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                        Icon(Icons.Default.Add, contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
                         Spacer(Modifier.width(16.dp))
                         Icon(Icons.Default.Folder, contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
                         Spacer(Modifier.width(16.dp))
@@ -246,6 +232,113 @@ fun BrushPanel(
             }
         }
     }
+
+    // ---- dialogs -----------------------------------------------------
+    if (showNewGroupDialog) {
+        NewBrushGroupDialog(
+            existing = categories.filter { it != "全部" },
+            onDismiss = { showNewGroupDialog = false },
+            onCreate = { name ->
+                if (vm.createBrushGroup(name)) {
+                    selectedCategory = name
+                }
+                showNewGroupDialog = false
+            },
+        )
+    }
+    if (movePresetName != null) {
+        MoveBrushGroupDialog(
+            presetName = movePresetName!!,
+            groups = categories.filter { it != "全部" },
+            onDismiss = { movePresetName = null },
+            onMove = { g ->
+                vm.moveBrushToGroup(movePresetName!!, g)
+                selectedCategory = g
+                movePresetName = null
+            },
+        )
+    }
+}
+
+/** Dialog to create a new user brush group. */
+@Composable
+private fun NewBrushGroupDialog(
+    existing: List<String>,
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建笔刷组", color = Morandi.text) },
+        text = {
+            Column {
+                Text("输入组名称", color = Morandi.subText, fontSize = 13.sp)
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Morandi.text, fontSize = 15.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Morandi.panel, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                )
+                if (existing.contains(name.trim())) {
+                    Text("组已存在", color = Color(0xFFB05552), fontSize = 11.sp)
+                }
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = name.isNotBlank() && !existing.contains(name.trim()),
+                onClick = { onCreate(name.trim()) }
+            ) { Text("创建", color = Morandi.accent) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
+}
+
+/** Dialog to move a preset into a group. */
+@Composable
+private fun MoveBrushGroupDialog(
+    presetName: String,
+    groups: List<String>,
+    onDismiss: () -> Unit,
+    onMove: (String) -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("移动到组", color = Morandi.text) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text(presetName, color = Morandi.subText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(8.dp))
+                LazyColumn(Modifier.heightIn(max = 280.dp)) {
+                    items(groups) { g ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { onMove(g) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Text(g, color = Morandi.text, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
 }
 
 /** Second-level page: brush property sliders for the active preset. */
