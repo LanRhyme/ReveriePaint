@@ -484,7 +484,8 @@ static void applyGaussianLocal(KisPixelSelectionSP selection, const QRect &apply
 }
 
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
-                                        const QVector<quint8> &mask);
+                                        const QVector<quint8> &mask,
+                                        bool fullSelect = false);
 static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
                                  const QVector<quint8> &mask, int selMode);
 
@@ -3240,7 +3241,8 @@ static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
 }
 
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
-                                        const QVector<quint8> &mask)
+                                        const QVector<quint8> &mask,
+                                        bool fullSelect)
 {
     KisSelectionSP sel = new KisSelection(
         new KisSelectionDefaultBounds(image->projection()),
@@ -3248,6 +3250,13 @@ static KisSelectionSP selectionFromMask(const KisImageSP &image,
     KisPixelSelectionSP ps = sel->pixelSelection();
     const int iw = image->width();
     const int ih = image->height();
+    if (fullSelect) {
+        // Fast path: the whole document is selected (e.g. a magic-wand tap
+        // on a uniform background). One rect select instead of a per-row
+        // span scan over all 2M pixels.
+        ps->select(QRect(0, 0, iw, ih), OPACITY_OPAQUE_U8);
+        return sel;
+    }
     // Compact the mask into per-row spans to avoid per-pixel setPixel
     for (int y = 0; y < ih; ++y) {
         int x = 0;
@@ -3311,6 +3320,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     queue.reserve(iw * ih / 4);
     const int start = y * iw + x;
     mask[start] = 255;
+    size_t visited = 1;
     queue.append(start);
     size_t head = 0;
     while (head < queue.size()) {
@@ -3328,7 +3338,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (!mask[n]) {
                 const int o = (n * 4);
                 const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
             }
         }
         if (cx + 1 < iw) {
@@ -3336,7 +3346,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (!mask[n]) {
                 const int o = (n * 4);
                 const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
             }
         }
         if (cy > 0) {
@@ -3344,7 +3354,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (!mask[n]) {
                 const int o = (n * 4);
                 const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
             }
         }
         if (cy + 1 < ih) {
@@ -3352,9 +3362,15 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (!mask[n]) {
                 const int o = (n * 4);
                 const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
             }
         }
+    }
+    if (visited == size_t(iw) * ih) {
+        this->setSelection(selectionFromMask(image, mask, true));
+        pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
+        markDirty();
+        return;
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
@@ -3390,12 +3406,20 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
     // access avoids per-pixel qRgba/colorDistance overhead.
     QVector<quint8> mask(size_t(iw) * ih, 0);
     const size_t nPix = size_t(iw) * ih;
+    size_t matched = 0;
     for (size_t i = 0; i < nPix; ++i) {
         const int o = int(i * 4);
         const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
         if (dr * dr + dg * dg + db * db <= tolSq) {
             mask[i] = 255;
+            ++matched;
         }
+    }
+    if (matched == nPix) {
+        this->setSelection(selectionFromMask(image, mask, true));
+        pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
+        markDirty();
+        return;
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
