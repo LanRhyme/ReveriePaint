@@ -421,6 +421,19 @@ fun CanvasView(
                                             if (lassoPoints.lastOrNull() != imagePos) {
                                                 lassoPoints += imagePos
                                             }
+                                            // Live fill preview while dragging
+                                            // (throttled; the committed selection
+                                            // replaces it). SELECT_RECT/ELLIPSE
+                                            // only show the shape outline
+                                            if (tool == Tool.LASSO || tool == Tool.SELECT_POLYGON) {
+                                                val nowNs = System.nanoTime()
+                                                if (nowNs - lastLassoPreviewNs > 45_000_000L) {
+                                                    lastLassoPreviewNs = nowNs
+                                                    vm.previewLasso(
+                                                        lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                                    )
+                                                }
+                                            }
                                         }
 
                                         shapeTool || twoPointTool -> {

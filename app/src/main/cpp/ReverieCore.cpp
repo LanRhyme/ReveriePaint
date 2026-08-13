@@ -3283,13 +3283,24 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     // (projection), not a single layer's raw pixels
     KisPaintDeviceSP device = image->projection();
     image->waitForDone();
-    // Read the composite pixels (Krita RGBA byte order)
-    QVector<quint8> bytes(size_t(iw) * ih * 4);
-    device->readBytes(bytes.data(), 0, 0, iw, ih);
+    // Lazy row loading: a magic-wand BFS only visits the connected region, so
+    // a full-document projection read is wasteful (it also forces the whole
+    // projection to be recomposited). Rows are read on demand and cached -
+    // the equivalent of Krita reading only the tile the stroke touches
+    QVector<quint8> bytes(size_t(iw) * ih * 4, 0);
+    QVector<quint8> rowReady(size_t(ih), 0);
+    auto ensureRow = [&](int ry) {
+        if (ry < 0 || ry >= ih || rowReady[size_t(ry)]) {
+            return;
+        }
+        rowReady[size_t(ry)] = 1;
+        device->readBytes(bytes.data() + size_t(ry) * iw * 4, 0, ry, iw, 1);
+    };
+    ensureRow(y);
     const int tolSq = tolerance * tolerance;
 
     // Direct byte access (readBytes is B,G,R,A for the RGB8 space): avoids
-    // per-pixel qRgba/colorDistance call overhead on the 2M-pixel BFS
+    // per-pixel qRgba/colorDistance call overhead on the BFS
     const int sR = bytes[size_t(y * iw + x) * 4 + 2];
     const int sG = bytes[size_t(y * iw + x) * 4 + 1];
     const int sB = bytes[size_t(y * iw + x) * 4];
@@ -3306,6 +3317,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         const int cur = queue[head++];
         const int cx = cur % iw;
         const int cy = cur / iw;
+        ensureRow(cy);
         if (cx > 0) {
             const int n = cur - 1;
             if (!mask[n]) {
