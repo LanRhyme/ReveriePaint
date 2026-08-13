@@ -53,6 +53,10 @@
 #include <commands/kis_node_compositeop_command.h>
 #include <commands/KisNodeRenameCommand.h>
 #include <kis_painter.h>
+#include <layerstyles/kis_ls_utils.h>
+#include <kis_selection_filters.h>
+#include <kis_gaussian_kernel.h>
+#include <kis_convolution_painter.h>
 #include <KoColorSpaceRegistry.h>
 #include <KoColorSpace.h>
 #include <kis_paint_device.h>
@@ -383,6 +387,100 @@ private:
     bool m_newVisible;
     bool m_oldVisible;
 };
+
+/**
+ * Undo/redo for selection changes, mirroring how Krita's selection tools
+ * record edits: saves the previous selection object plus its pixel mask
+ * bytes, restores them on undo, and re-applies the new selection on redo.
+ */
+class ReverieSelectionCommand : public KUndo2Command
+{
+public:
+    ReverieSelectionCommand(ReverieCore *core, const KisSelectionSP &oldSel,
+                            const QVector<quint8> &oldMask, int iw, int ih,
+                            const KisSelectionSP &newSel)
+        : KUndo2Command(kundo2_i18n("Selection"))
+        , m_core(core)
+        , m_oldSel(oldSel)
+        , m_oldMask(oldMask)
+        , m_iw(iw)
+        , m_ih(ih)
+        , m_newSel(newSel)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_core) {
+            m_core->setSelection(m_newSel);
+        }
+    }
+
+    void undo() override
+    {
+        if (!m_core) {
+            return;
+        }
+        if (!m_oldSel) {
+            // No selection before this edit
+            m_core->setSelection(KisSelectionSP());
+            return;
+        }
+        KisPixelSelectionSP ps = m_oldSel->pixelSelection();
+        if (!m_oldMask.isEmpty()) {
+            ps->writeBytes(m_oldMask.constData(), 0, 0, m_iw, m_ih);
+        }
+        m_core->setSelection(m_oldSel);
+    }
+
+private:
+    ReverieCore *m_core;
+    KisSelectionSP m_oldSel;
+    QVector<quint8> m_oldMask;
+    int m_iw;
+    int m_ih;
+    KisSelectionSP m_newSel;
+};
+
+// Snapshot the current selection's pixel mask (empty when there is none)
+static QVector<quint8> readSelectionMaskBytes(const KisImageSP &image,
+                                              const KisSelectionSP &sel)
+{
+    QVector<quint8> bytes;
+    if (!image || !sel) {
+        return bytes;
+    }
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    const int iw = image->width();
+    const int ih = image->height();
+    bytes.resize(size_t(iw) * ih);
+    ps->readBytes(bytes.data(), 0, 0, iw, ih);
+    return bytes;
+}
+
+// Krita's KisLsUtils::growSelectionUniform / applyGaussianWithTransaction are
+// not exported from libkritaimage, but the filters they wrap are, so replicate
+// the exact same calls (the logic Krita's layer styles use).
+static QRect growSelectionUniformLocal(KisPixelSelectionSP selection, int growSize, const QRect &applyRect)
+{
+    QRect changeRect = applyRect;
+    if (growSize > 0) {
+        KisGrowSelectionFilter filter(growSize, growSize);
+        changeRect = filter.changeRect(applyRect, selection->defaultBounds());
+        filter.process(selection, applyRect);
+    } else if (growSize < 0) {
+        KisShrinkSelectionFilter filter(qAbs(growSize), qAbs(growSize), false);
+        changeRect = filter.changeRect(applyRect, selection->defaultBounds());
+        filter.process(selection, applyRect);
+    }
+    return changeRect;
+}
+
+static void applyGaussianLocal(KisPixelSelectionSP selection, const QRect &applyRect, qreal radius)
+{
+    KisGaussianKernel::applyGaussian(selection, applyRect, radius, radius,
+                                     QBitArray(), 0, true, BORDER_IGNORE);
+}
 
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
                                         const QVector<quint8> &mask);
@@ -1283,11 +1381,15 @@ bool ReverieCore::selectionFromLayer(int index)
     KisSelectionSP sel = new KisSelection(
         new KisSelectionDefaultBounds(image->projection()),
         toQShared(new KisImageResolutionProxy(image)));
-    KisPixelSelectionSP ps = sel->pixelSelection();
-    // Copy the layer's alpha channel into the selection (Krita mechanism:
-    // KisPixelSelection::copyAlphaFrom)
-    ps->copyAlphaFrom(dev, dev->extent());
+    // Krita mechanism: selectionFromAlphaChannel copies the layer alpha
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+    KisLsUtils::selectionFromAlphaChannel(
+        dev, sel, QRect(0, 0, image->width(), image->height()));
     setSelection(sel);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask,
+                                                image->width(), image->height(),
+                                                m_selection));
     return true;
 }
 
@@ -1298,7 +1400,16 @@ bool ReverieCore::hasSelection() const
 
 void ReverieCore::clearSelection()
 {
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     setSelection(nullptr);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask,
+                                                image->width(), image->height(),
+                                                m_selection));
 }
 
 void ReverieCore::selectAll()
@@ -1310,9 +1421,14 @@ void ReverieCore::selectAll()
     KisSelectionSP sel = new KisSelection(
         new KisSelectionDefaultBounds(image->projection()),
         toQShared(new KisImageResolutionProxy(image)));
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     sel->pixelSelection()->select(
         QRect(0, 0, image->width(), image->height()), OPACITY_OPAQUE_U8);
     setSelection(sel);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask,
+                                                image->width(), image->height(),
+                                                m_selection));
 }
 
 void ReverieCore::invertSelection()
@@ -1323,6 +1439,8 @@ void ReverieCore::invertSelection()
     }
     const int iw = image->width();
     const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     QVector<quint8> mask(size_t(iw) * ih, 0);
     if (m_selection) {
         KisPixelSelectionSP ps = m_selection->pixelSelection();
@@ -1338,6 +1456,7 @@ void ReverieCore::invertSelection()
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 
@@ -1366,11 +1485,13 @@ void ReverieCore::featherSelection(int radius)
     }
     const int iw = image->width();
     const int ih = image->height();
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    KisPixelSelectionSP ps = m_selection->pixelSelection();
-    ps->readBytes(mask.data(), 0, 0, iw, ih);
-    blurMask(mask, iw, ih, radius);
-    setSelection(selectionFromMask(image, mask));
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+    // Krita's own Gaussian feather (same path layer styles use)
+    applyGaussianLocal(
+        m_selection->pixelSelection(), QRect(0, 0, iw, ih), radius);
+    setSelection(m_selection);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
 void ReverieCore::expandSelection(int px)
@@ -1381,11 +1502,13 @@ void ReverieCore::expandSelection(int px)
     }
     const int iw = image->width();
     const int ih = image->height();
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    KisPixelSelectionSP ps = m_selection->pixelSelection();
-    ps->readBytes(mask.data(), 0, 0, iw, ih);
-    dilateMask(mask, iw, ih, px);
-    setSelection(selectionFromMask(image, mask));
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+    // Krita's grow filter (KisGrowSelectionFilter via KisLsUtils)
+    growSelectionUniformLocal(
+        m_selection->pixelSelection(), px, QRect(0, 0, iw, ih));
+    setSelection(m_selection);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
 void ReverieCore::contractSelection(int px)
@@ -1396,11 +1519,13 @@ void ReverieCore::contractSelection(int px)
     }
     const int iw = image->width();
     const int ih = image->height();
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    KisPixelSelectionSP ps = m_selection->pixelSelection();
-    ps->readBytes(mask.data(), 0, 0, iw, ih);
-    erodeMask(mask, iw, ih, px);
-    setSelection(selectionFromMask(image, mask));
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+    // Krita's shrink filter (KisShrinkSelectionFilter via KisLsUtils)
+    growSelectionUniformLocal(
+        m_selection->pixelSelection(), -px, QRect(0, 0, iw, ih));
+    setSelection(m_selection);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
 void ReverieCore::smoothSelection(int radius)
@@ -1411,13 +1536,16 @@ void ReverieCore::smoothSelection(int radius)
     }
     const int iw = image->width();
     const int ih = image->height();
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    KisPixelSelectionSP ps = m_selection->pixelSelection();
-    ps->readBytes(mask.data(), 0, 0, iw, ih);
-    // Close then open: erosion clears specks, dilation restores the bulk
-    erodeMask(mask, iw, ih, radius);
-    dilateMask(mask, iw, ih, radius);
-    setSelection(selectionFromMask(image, mask));
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+    // Morphological close via Krita's filters: shrink removes specks,
+    // growing back restores the bulk (KisShrink/GrowSelectionFilter)
+    growSelectionUniformLocal(
+        m_selection->pixelSelection(), -radius, QRect(0, 0, iw, ih));
+    growSelectionUniformLocal(
+        m_selection->pixelSelection(), radius, QRect(0, 0, iw, ih));
+    setSelection(m_selection);
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
 }
 
 QByteArray ReverieCore::selectionMask() const
@@ -2944,6 +3072,8 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
     }
     const int iw = image->width();
     const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     const int rx = qBound(0, qMin(x1, x2), iw - 1);
     const int ry = qBound(0, qMin(y1, y2), ih - 1);
     const int rw = qBound(1, qAbs(x2 - x1), iw - rx);
@@ -2974,6 +3104,7 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 
@@ -3044,6 +3175,8 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     }
     const int iw = image->width();
     const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
@@ -3092,6 +3225,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 
@@ -3103,6 +3237,8 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
     }
     const int iw = image->width();
     const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
@@ -3129,6 +3265,7 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 
@@ -3281,6 +3418,8 @@ void ReverieCore::lassoSelect(const QVector<QPoint> &points)
     }
     const int iw = image->width();
     const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
     QVector<quint8> selMask(size_t(iw) * ih, 0);
@@ -3292,6 +3431,7 @@ void ReverieCore::lassoSelect(const QVector<QPoint> &points)
         }
     }
     setSelectionFromMask(this, image, selMask, int(m_selectionMode));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 

@@ -997,7 +997,10 @@ class PaintViewModel : ViewModel() {
     }
 
     fun undo() {
-        runCore(after = ::notifyLayerChanged) {
+        runCore(after = {
+            notifyLayerChanged()
+            refreshSelection()
+        }) {
             if (ReverieCoreBridge.canUndo()) {
                 ReverieCoreBridge.undo()
             }
@@ -1005,7 +1008,10 @@ class PaintViewModel : ViewModel() {
     }
 
     fun redo() {
-        runCore(after = ::notifyLayerChanged) {
+        runCore(after = {
+            notifyLayerChanged()
+            refreshSelection()
+        }) {
             if (ReverieCoreBridge.canRedo()) {
                 ReverieCoreBridge.redo()
             }
