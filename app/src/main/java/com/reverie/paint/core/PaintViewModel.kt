@@ -1213,6 +1213,36 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    /** Synchronous magnetic-lasso segment: blocks the calling (main) thread
+     *  until the render thread computes the edge-snapped path (bounded wait),
+     *  so the preview path is continuous and the committed selection always
+     *  matches what the user saw - Krita's KisToolSelectMagnetic computes each
+     *  segment synchronously as the pointer moves. */
+    fun magneticLassoSync(
+        fx: Int,
+        fy: Int,
+        tx: Int,
+        ty: Int,
+        radius: Int = 40,
+    ): List<Pair<Int, Int>>? {
+        var result: IntArray? = null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        runCore(render = false, after = { latch.countDown() }) {
+            result = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
+        }
+        try {
+            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            return null
+        }
+        val arr = result ?: return null
+        val pts = ArrayList<Pair<Int, Int>>(arr.size / 2)
+        for (i in arr.indices step 2) {
+            pts.add(arr[i] to arr[i + 1])
+        }
+        return pts
+    }
+
     fun lassoSelect(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }

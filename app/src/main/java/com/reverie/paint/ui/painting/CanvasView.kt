@@ -331,6 +331,18 @@ fun CanvasView(
 
                                 GestureMode.STROKE -> {
                                     when {
+                                        // One-shot tools already ran on finger-
+                                        // down (Krita selects on primary action):
+                                        // any subsequent move/up of this gesture
+                                        // must do nothing - otherwise a small
+                                        // finger wiggle after a wand tap would
+                                        // fall into the painting branch and draw
+                                        // a brush dab over the fresh selection
+                                        tool == Tool.MAGICWAND ||
+                                            tool == Tool.SELECT_SIMILAR ||
+                                            tool == Tool.FILL -> {
+                                            // consumed below
+                                        }
                                         // Selection tools: live path preview in real
                                         // time (must come before the twoPointTool
                                         // branch because SELECT_RECT/ELLIPSE are
@@ -412,20 +424,29 @@ fun CanvasView(
                                             tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (tool == Tool.SELECT_MAGNETIC) {
                                                 // Magnetic lasso: snap each segment to the
-                                                // strongest nearby edge (Krita's KisMagneticWorker)
+                                                // strongest nearby edge. Krita computes each
+                                                // segment synchronously as the pointer moves
+                                                // (KisToolSelectMagnetic), so we do the same:
+                                                // the preview path stays continuous and the
+                                                // committed selection always matches what was
+                                                // shown (no late-async "change after done")
                                                 val prev = magneticPrev ?: firstImage
                                                 val cur = imagePos
                                                 val dd = (cur.x - prev.x) * (cur.x - prev.x) +
                                                     (cur.y - prev.y) * (cur.y - prev.y)
                                                 if (dd > 100f) { // ~10px step
                                                     magneticPrev = cur
-                                                    vm.magneticLassoAsync(
-                                                        prev.x.toInt(), prev.y.toInt(),
-                                                        cur.x.toInt(), cur.y.toInt(),
-                                                        40,
-                                                    ) { pts ->
-                                                        if (!gestureEnded && pts.isNotEmpty()) {
-                                                            for (p in pts) {
+                                                    val seg =
+                                                        vm.magneticLassoSync(
+                                                            prev.x.toInt(),
+                                                            prev.y.toInt(),
+                                                            cur.x.toInt(),
+                                                            cur.y.toInt(),
+                                                            40,
+                                                        )
+                                                    if (!gestureEnded) {
+                                                        if (seg != null && seg.isNotEmpty()) {
+                                                            for (p in seg) {
                                                                 if (lassoPoints.lastOrNull() !=
                                                                     Offset(p.first.toFloat(), p.second.toFloat())
                                                                 ) {
@@ -433,24 +454,27 @@ fun CanvasView(
                                                                         Offset(p.first.toFloat(), p.second.toFloat())
                                                                 }
                                                             }
-                                                            val docW = bmp?.width ?: 0
-                                                            val docH = bmp?.height ?: 0
-                                                            val np = androidx.compose.ui.graphics.Path()
-                                                            if (lassoPoints.isNotEmpty()) {
-                                                                np.moveTo(lassoPoints[0].x - docW / 2f, lassoPoints[0].y - docH / 2f)
-                                                                for (i in 1 until lassoPoints.size) {
-                                                                    np.lineTo(lassoPoints[i].x - docW / 2f, lassoPoints[i].y - docH / 2f)
-                                                                }
-                                                                np.close()
+                                                        } else if (lassoPoints.lastOrNull() != cur) {
+                                                            // Fallback: keep the path continuous
+                                                            lassoPoints += cur
+                                                        }
+                                                        val docW = bmp?.width ?: 0
+                                                        val docH = bmp?.height ?: 0
+                                                        val np = androidx.compose.ui.graphics.Path()
+                                                        if (lassoPoints.isNotEmpty()) {
+                                                            np.moveTo(lassoPoints[0].x - docW / 2f, lassoPoints[0].y - docH / 2f)
+                                                            for (i in 1 until lassoPoints.size) {
+                                                                np.lineTo(lassoPoints[i].x - docW / 2f, lassoPoints[i].y - docH / 2f)
                                                             }
-                                                            liveSelectionPath = np
-                                                            val nowNs = System.nanoTime()
-                                                            if (nowNs - lastLassoPreviewNs > 80_000_000L) {
-                                                                lastLassoPreviewNs = nowNs
-                                                                vm.previewLasso(
-                                                                    lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                                                )
-                                                            }
+                                                            np.close()
+                                                        }
+                                                        liveSelectionPath = np
+                                                        val nowNs = System.nanoTime()
+                                                        if (nowNs - lastLassoPreviewNs > 80_000_000L) {
+                                                            lastLassoPreviewNs = nowNs
+                                                            vm.previewLasso(
+                                                                lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                                            )
                                                         }
                                                     }
                                                 }
@@ -522,6 +546,11 @@ fun CanvasView(
                                 }
                             }
                             when {
+                                // One-shot tools already applied on finger-down
+                                tool == Tool.MAGICWAND ||
+                                    tool == Tool.SELECT_SIMILAR ||
+                                    tool == Tool.FILL -> Unit
+
                                 shapeTool -> {
                                     val kind =
                                         when (tool) {
