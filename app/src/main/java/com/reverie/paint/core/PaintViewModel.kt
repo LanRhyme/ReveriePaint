@@ -1243,6 +1243,34 @@ class PaintViewModel : ViewModel() {
         return pts
     }
 
+    /** Synchronous final lasso preview: on release, refresh the overlay to
+     *  the exact final path BEFORE the committed selection lands, so the
+     *  preview -> committed transition has no visible jump. Bounded wait. */
+    fun previewLassoSync(points: List<Pair<Int, Int>>) {
+        if (points.size < 3) return
+        val xs = IntArray(points.size) { points[it].first }
+        val ys = IntArray(points.size) { points[it].second }
+        val vw = maxOf(1, renderW)
+        val vh = maxOf(1, renderH)
+        var ov: android.graphics.Bitmap? = null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+            latch.countDown()
+        }) {
+            val px = ReverieCoreBridge.previewLassoOverlay(xs, ys, points.size, vw, vh)
+            if (px != null) {
+                ov = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
+                ov!!.setPixels(px, 0, vw, 0, 0, vw, vh)
+            }
+        }
+        try {
+            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+        }
+    }
+
     fun lassoSelect(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }

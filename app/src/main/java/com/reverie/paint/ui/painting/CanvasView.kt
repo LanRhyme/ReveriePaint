@@ -162,8 +162,10 @@ fun CanvasView(
                                 localZoom,
                                 latestFitScale,
                                 localRotation,
-                                docW,
-                                docH,
+                                image.width,
+                                image.height,
+                                vm.docWidth,
+                                vm.docHeight,
                             )
                         shapeEnd = firstImage
                         lassoPoints += firstImage
@@ -306,8 +308,10 @@ fun CanvasView(
                                     localZoom,
                                     latestFitScale,
                                     localRotation,
-                                    docW,
-                                    docH,
+                                    image.width,
+                                    image.height,
+                                    vm.docWidth,
+                                    vm.docHeight,
                                 )
 
                             when (mode) {
@@ -365,17 +369,28 @@ fun CanvasView(
                                                 replaceCleared = true
                                             }
                                             shapeEnd = imagePos
-                                            val docW = bmp?.width ?: 0
-                                            val docH = bmp?.height ?: 0
+                                            // The preview path is drawn in the
+                                            // canvas-bitmap space (origin at the
+                                            // bitmap centre); the gesture coords
+                                            // are full-document space, so they
+                                            // are scaled into bitmap space first
+                                            val bmpW = bmp?.width ?: 0
+                                            val bmpH = bmp?.height ?: 0
+                                            val docW = vm.docWidth
+                                            val docH = vm.docHeight
+                                            val scX = if (docW > 0) bmpW.toFloat() / docW else 1f
+                                            val scY = if (docH > 0) bmpH.toFloat() / docH else 1f
+                                            val bx = { v: Float -> v * scX - bmpW / 2f }
+                                            val by = { v: Float -> v * scY - bmpH / 2f }
                                             val pth = androidx.compose.ui.graphics.Path()
                                             when (tool) {
                                                 Tool.SELECT_RECT -> {
                                                     pth.addRect(
                                                         androidx.compose.ui.geometry.Rect(
-                                                            minOf(firstImage.x, imagePos.x) - docW / 2f,
-                                                            minOf(firstImage.y, imagePos.y) - docH / 2f,
-                                                            maxOf(firstImage.x, imagePos.x) - docW / 2f,
-                                                            maxOf(firstImage.y, imagePos.y) - docH / 2f,
+                                                            bx(minOf(firstImage.x, imagePos.x)),
+                                                            by(minOf(firstImage.y, imagePos.y)),
+                                                            bx(maxOf(firstImage.x, imagePos.x)),
+                                                            by(maxOf(firstImage.y, imagePos.y)),
                                                         )
                                                     )
                                                 }
@@ -383,10 +398,10 @@ fun CanvasView(
                                                 Tool.SELECT_ELLIPSE -> {
                                                     pth.addOval(
                                                         androidx.compose.ui.geometry.Rect(
-                                                            minOf(firstImage.x, imagePos.x) - docW / 2f,
-                                                            minOf(firstImage.y, imagePos.y) - docH / 2f,
-                                                            maxOf(firstImage.x, imagePos.x) - docW / 2f,
-                                                            maxOf(firstImage.y, imagePos.y) - docH / 2f,
+                                                            bx(minOf(firstImage.x, imagePos.x)),
+                                                            by(minOf(firstImage.y, imagePos.y)),
+                                                            bx(maxOf(firstImage.x, imagePos.x)),
+                                                            by(maxOf(firstImage.y, imagePos.y)),
                                                         )
                                                     )
                                                 }
@@ -394,9 +409,9 @@ fun CanvasView(
                                                 else -> {
                                                     val pts = lassoPoints + imagePos
                                                     if (pts.isNotEmpty()) {
-                                                        pth.moveTo(pts[0].x - docW / 2f, pts[0].y - docH / 2f)
+                                                        pth.moveTo(bx(pts[0].x), by(pts[0].y))
                                                         for (i in 1 until pts.size) {
-                                                            pth.lineTo(pts[i].x - docW / 2f, pts[i].y - docH / 2f)
+                                                            pth.lineTo(bx(pts[i].x), by(pts[i].y))
                                                         }
                                                         pth.close()
                                                     }
@@ -458,19 +473,23 @@ fun CanvasView(
                                                             // Fallback: keep the path continuous
                                                             lassoPoints += cur
                                                         }
-                                                        val docW = bmp?.width ?: 0
-                                                        val docH = bmp?.height ?: 0
+                                                        val bmpW2 = bmp?.width ?: 0
+                                                        val bmpH2 = bmp?.height ?: 0
+                                                        val dW2 = vm.docWidth
+                                                        val dH2 = vm.docHeight
+                                                        val sc2X = if (dW2 > 0) bmpW2.toFloat() / dW2 else 1f
+                                                        val sc2Y = if (dH2 > 0) bmpH2.toFloat() / dH2 else 1f
                                                         val np = androidx.compose.ui.graphics.Path()
                                                         if (lassoPoints.isNotEmpty()) {
-                                                            np.moveTo(lassoPoints[0].x - docW / 2f, lassoPoints[0].y - docH / 2f)
+                                                            np.moveTo(lassoPoints[0].x * sc2X - bmpW2 / 2f, lassoPoints[0].y * sc2Y - bmpH2 / 2f)
                                                             for (i in 1 until lassoPoints.size) {
-                                                                np.lineTo(lassoPoints[i].x - docW / 2f, lassoPoints[i].y - docH / 2f)
+                                                                np.lineTo(lassoPoints[i].x * sc2X - bmpW2 / 2f, lassoPoints[i].y * sc2Y - bmpH2 / 2f)
                                                             }
                                                             np.close()
                                                         }
                                                         liveSelectionPath = np
                                                         val nowNs = System.nanoTime()
-                                                        if (nowNs - lastLassoPreviewNs > 80_000_000L) {
+                                                        if (nowNs - lastLassoPreviewNs > 45_000_000L) {
                                                             lastLassoPreviewNs = nowNs
                                                             vm.previewLasso(
                                                                 lassoPoints.map { it.x.toInt() to it.y.toInt() }
@@ -485,7 +504,7 @@ fun CanvasView(
                                                 // finger moves (throttled); the
                                                 // committed selection replaces it
                                                 val nowNs = System.nanoTime()
-                                                if (nowNs - lastLassoPreviewNs > 80_000_000L) {
+                                                if (nowNs - lastLassoPreviewNs > 45_000_000L) {
                                                     lastLassoPreviewNs = nowNs
                                                     vm.previewLasso(
                                                         lassoPoints.map { it.x.toInt() to it.y.toInt() }
@@ -591,15 +610,18 @@ fun CanvasView(
                                 }
 
                                 trackSelectTool -> {
-                                    // Freeze the preview: late magnetic-lasso
-                                    // callbacks must not keep mutating the path
-                                    // after the selection has been committed
                                     gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
                                         if (tool == Tool.SELECT_POLYGON) {
+                                            // Freeze the preview at the exact final
+                                            // path before committing so the
+                                            // preview -> selection transition has
+                                            // no visible jump
+                                            vm.previewLassoSync(points)
                                             vm.selectPolygon(points)
                                         } else {
+                                            vm.previewLassoSync(points)
                                             vm.lassoSelect(points)
                                         }
                                     }
@@ -612,12 +634,10 @@ fun CanvasView(
                                 }
 
                                 tool == Tool.LASSO || tool == Tool.SELECT_MAGNETIC -> {
-                                    // Freeze the preview: late magnetic-lasso
-                                    // callbacks must not keep mutating the path
-                                    // after the selection has been committed
                                     gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                        vm.previewLassoSync(points)
                                         vm.selectPolygon(points)
                                     }
                                 }
@@ -829,6 +849,8 @@ fun widgetToImage(
     zoom: Float,
     fitScale: Float,
     rotation: Float,
+    bmpW: Int,
+    bmpH: Int,
     docW: Int,
     docH: Int,
 ): Offset {
@@ -840,5 +862,12 @@ fun widgetToImage(
     val sinR = sin(radians).toFloat()
     val unrotatedX = dx * cosR - dy * sinR
     val unrotatedY = dx * sinR + dy * cosR
-    return Offset(unrotatedX / scale + docW / 2f, unrotatedY / scale + docH / 2f)
+    // Bitmap (viewport) coordinates: the canvas bitmap is bmpW x bmpH and is
+    // drawn centred at the widget origin, so the inverse of the draw
+    // transform lands on bitmap pixels
+    val bx = unrotatedX / scale + bmpW / 2f
+    val by = unrotatedY / scale + bmpH / 2f
+    // Bitmap -> document space: the C++ core works in full document
+    // coordinates (1080x1920 etc.), while the render viewport is downscaled
+    return Offset(bx * (docW.toFloat() / bmpW), by * (docH.toFloat() / bmpH))
 }
