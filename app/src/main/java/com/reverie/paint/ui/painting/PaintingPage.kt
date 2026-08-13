@@ -104,6 +104,8 @@ fun PaintingPage(vm: PaintViewModel) {
     var selectionMenuOpen by remember { mutableStateOf(false) }
     var selectionPanelOpen by remember { mutableStateOf(false) }
     var selectionPropsOpen by remember { mutableStateOf(false) }
+    var selectionPanelOffsetX by remember { mutableFloatStateOf(0f) }
+    var selectionPanelOffsetY by remember { mutableFloatStateOf(0f) }
     val selectionTools =
         listOf(
             Tool.SELECT_RECT,
@@ -200,7 +202,7 @@ fun PaintingPage(vm: PaintViewModel) {
                             ),
                 ) {
                     Column {
-                        SelectionMenuItem("全选") { vm.selectAllAction() }
+                        SelectionMenuItem("选中图层") { vm.selectAllAction() }
                         SelectionMenuItem("反选") { vm.invertSelectionAction() }
                         SelectionMenuItem("清除选区", danger = true) { vm.clearSelectionAction() }
                         Box(
@@ -250,26 +252,36 @@ fun PaintingPage(vm: PaintViewModel) {
         // in from the canvas edge; draggable so it never blocks the work
         androidx.compose.animation.AnimatedVisibility(
             visible = tool in selectionTools,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset { IntOffset(selectionPanelOffsetX.roundToInt(), selectionPanelOffsetY.roundToInt()) }
+                .padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core.tween(180),
+                    androidx.compose.animation.core.tween(200),
                 ) +
-                    androidx.compose.animation.slideInHorizontally(
-                        androidx.compose.animation.core.tween(220),
-                        initialOffsetX = { it / 2 },
+                    androidx.compose.animation.slideInVertically(
+                        androidx.compose.animation.core.tween(200),
+                        initialOffsetY = { it },
                     ),
             exit =
                 androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core.tween(120),
-                ),
+                    androidx.compose.animation.core.tween(200),
+                ) +
+                    androidx.compose.animation.slideOutVertically(
+                        androidx.compose.animation.core.tween(200),
+                        targetOffsetY = { it },
+                    ),
         ) {
             SelectionFloatPanel(
-                modifier = Modifier.padding(bottom = 24.dp),
                 vm = vm,
                 tool = tool,
                 propsOpen = selectionPropsOpen,
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
+                onDrag = { dx, dy ->
+                    selectionPanelOffsetX += dx
+                    selectionPanelOffsetY += dy
+                }
             )
         }
 
@@ -436,6 +448,7 @@ private fun SelectionFloatPanel(
     tool: Tool,
     propsOpen: Boolean,
     onToggleProps: () -> Unit,
+    onDrag: (Float, Float) -> Unit,
 ) {
     val modes =
         listOf(
@@ -447,13 +460,19 @@ private fun SelectionFloatPanel(
     Column(
         modifier =
             modifier
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        onDrag(dragAmount.x, dragAmount.y)
+                    }
+                }
+                .padding(horizontal = 12.dp)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Morandi.panelHi.copy(alpha = 0.85f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
-                .padding(8.dp),
+                .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // Row 1: merge mode (all selection tools)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -462,15 +481,15 @@ private fun SelectionFloatPanel(
                 Box(
                     modifier =
                         Modifier
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(if (selected) Morandi.accent else Morandi.panel)
                             .noRippleClickable { vm.updateSelectionMode(mode) }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                 ) {
                     Text(
                         label,
                         color = if (selected) Morandi.onAccent else Morandi.text,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                     )
                 }
             }
@@ -486,22 +505,23 @@ private fun SelectionFloatPanel(
             )
         }
         // Common modifiers: feather / expand / contract / smooth
-        // (Krita's lasso tools have no tolerance but still support these)
         if (propsOpen) {
-            SelectionPropSlider("羽化", 0..32, 8) { vm.featherSelection(it) }
-            SelectionPropSlider("扩展", 0..64, 16) { vm.expandSelection(it) }
-            SelectionPropSlider("收缩", 0..64, 8) { vm.contractSelection(it) }
-            SelectionPropSlider("平滑", 1..16, 4) { vm.smoothSelection(it) }
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SelectionPropSlider("羽化", 0..32, 8) { vm.featherSelection(it) }
+                SelectionPropSlider("扩展", 0..64, 16) { vm.expandSelection(it) }
+                SelectionPropSlider("收缩", 0..64, 8) { vm.contractSelection(it) }
+                SelectionPropSlider("平滑", 1..16, 4) { vm.smoothSelection(it) }
+            }
         }
         // Row 3: quick actions
         Row(
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.padding(top = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            SelectionActionChip("全选") { vm.selectAllAction() }
+            SelectionActionChip("选中图层") { vm.selectAllAction() }
             SelectionActionChip("反选") { vm.invertSelectionAction() }
             SelectionActionChip("清除", danger = true) { vm.clearSelectionAction() }
-            SelectionActionChip(if (propsOpen) "收起属性" else "羽化/扩展") { onToggleProps() }
+            SelectionActionChip(if (propsOpen) "收起属性" else "高级属性") { onToggleProps() }
         }
     }
 }
@@ -515,15 +535,15 @@ private fun SelectionActionChip(
     Box(
         modifier =
             Modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(if (danger) Color(0x33B05552) else Morandi.panel)
                 .noRippleClickable { onClick() }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
             label,
             color = if (danger) Color(0xFFB05552) else Morandi.text,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
         )
     }
 }

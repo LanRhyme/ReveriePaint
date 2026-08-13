@@ -923,8 +923,9 @@ class PaintViewModel : ViewModel() {
     }
 
     fun selectAllAction() {
+        val layerIdx = currentLayerIndex
         runCore(after = { refreshSelection() }) {
-            ReverieCoreBridge.selectAll()
+            ReverieCoreBridge.selectionFromLayer(layerIdx)
             refreshDisplay()
         }
     }

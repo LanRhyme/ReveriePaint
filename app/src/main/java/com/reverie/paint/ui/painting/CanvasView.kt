@@ -516,28 +516,41 @@ fun CanvasView(
                 // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
 
-                // Active selection overlay: white alpha mask tinted with the
-                // theme accent (Krita-style marching-ants equivalent)
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
-                if (selBmp != null) {
-                    drawImage(
-                        selBmp,
-                        topLeft = Offset(-image.width / 2f, -image.height / 2f),
-                        colorFilter =
-                            androidx.compose.ui.graphics.ColorFilter.tint(
-                                Morandi.accent.copy(alpha = 0.35f),
-                            ),
+                if (selBmp != null || liveSelectionPath != null) {
+                    val paint = androidx.compose.ui.graphics.Paint().apply {
+                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+                            Morandi.accent.copy(alpha = 0.35f)
+                        )
+                    }
+                    val bounds = androidx.compose.ui.geometry.Rect(
+                        -image.width / 2f, -image.height / 2f,
+                        image.width / 2f, image.height / 2f
                     )
-                }
+                    drawContext.canvas.saveLayer(bounds, paint)
 
-                // Live selection preview while dragging a selection tool:
-                // the in-progress shape is tinted in real time before the
-                // finger lifts and the C++ selection is created
-                liveSelectionPath?.let { livePath ->
-                    drawPath(
-                        livePath,
-                        Morandi.accent.copy(alpha = 0.35f),
-                    )
+                    if (selBmp != null) {
+                        drawImage(
+                            image = selBmp,
+                            topLeft = Offset(-image.width / 2f, -image.height / 2f)
+                        )
+                    }
+
+                    liveSelectionPath?.let { livePath ->
+                        val pathBlendMode = when (vm.selectionMode) {
+                            1 -> androidx.compose.ui.graphics.BlendMode.SrcOver // 加
+                            2 -> androidx.compose.ui.graphics.BlendMode.DstOut // 减
+                            3 -> androidx.compose.ui.graphics.BlendMode.DstIn // 交
+                            else -> androidx.compose.ui.graphics.BlendMode.SrcOver // 替换
+                        }
+                        drawPath(
+                            path = livePath,
+                            color = Color.White,
+                            blendMode = pathBlendMode
+                        )
+                    }
+
+                    drawContext.canvas.restore()
                 }
             }
         }
