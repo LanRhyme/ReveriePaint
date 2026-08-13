@@ -1632,6 +1632,23 @@ QVector<quint32> ReverieCore::previewLassoOverlay(const QVector<QPoint> &points,
     const int ih = image->height();
     QVector<bool> mask;
     scanlineFillPolygon(points, iw, ih, mask);
+    // Merge the drawn polygon into the CURRENT selection exactly like the
+    // committed path does (setSelectionFromMask): otherwise the live fill
+    // (a bare polygon) visibly differs from the committed selection in the
+    // add / subtract / intersect modes, which is exactly what the user
+    // reported ("real-time preview fill vs final selection differ")
+    QVector<quint8> selMask(size_t(iw) * ih, 0);
+    for (size_t i = 0; i < mask.size(); ++i) {
+        selMask[i] = mask[i] ? 255 : 0;
+    }
+    if (m_selectionMode != SelReplace && m_selection) {
+        QVector<quint8> existing(size_t(iw) * ih, 0);
+        KisPixelSelectionSP ps = m_selection->pixelSelection();
+        if (ps) {
+            ps->readBytes(existing.data(), 0, 0, iw, ih);
+            selMask = combineSelectionMasks(existing, selMask, m_selectionMode);
+        }
+    }
     vw = qMax(1, vw);
     vh = qMax(1, vh);
     QVector<quint32> out(size_t(vw) * vh, 0);
@@ -1643,7 +1660,7 @@ QVector<quint32> ReverieCore::previewLassoOverlay(const QVector<QPoint> &points,
         const size_t dstOff = size_t(y) * vw;
         for (int x = 0; x < vw; ++x) {
             const int srcX = qMin(iw - 1, int(x * stepX));
-            if (mask[size_t(srcY) * iw + srcX]) {
+            if (selMask[size_t(srcY) * iw + srcX]) {
                 out[dstOff + x] = 0xFFFFFFFFu;
                 any = true;
             }

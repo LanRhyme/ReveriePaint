@@ -712,16 +712,20 @@ fun CanvasView(
                     }
 
                     liveSelectionPath?.let { livePath ->
-                        val pathBlendMode = when (vm.selectionMode) {
-                            1 -> androidx.compose.ui.graphics.BlendMode.SrcOver // 加
-                            2 -> androidx.compose.ui.graphics.BlendMode.DstOut // 减
-                            3 -> androidx.compose.ui.graphics.BlendMode.DstIn // 交
-                            else -> androidx.compose.ui.graphics.BlendMode.SrcOver // 替换
-                        }
+                        // The preview path is a pure visual outline: the live
+                        // fill overlay already reflects the merged result (the
+                        // C++ preview merge runs the same combine as the
+                        // committed path), so drawing the outline with a
+                        // subtract/intersect blend mode would carve a hole in
+                        // that merged fill and visibly differ from the final
+                        // selection - keep it SrcOver on top of the fill
                         drawPath(
                             path = livePath,
                             color = Color.White,
-                            blendMode = pathBlendMode
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 2.dp.toPx(),
+                            ),
+                            blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver
                         )
                     }
 
