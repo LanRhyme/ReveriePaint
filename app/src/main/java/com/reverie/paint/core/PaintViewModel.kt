@@ -46,6 +46,11 @@ class PaintViewModel : ViewModel() {
     var brushAngle by mutableStateOf(0.0)
     var brushScatter by mutableStateOf(0.0)
     var brushFade by mutableStateOf(0.0)
+    var brushSoftness by mutableStateOf(0.5)
+    var brushRatio by mutableStateOf(1.0)
+    var brushSharpness by mutableStateOf(0.0)
+    var brushRotation by mutableStateOf(0.0)
+    var brushCompositeOp by mutableStateOf("normal")
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
@@ -542,6 +547,31 @@ class PaintViewModel : ViewModel() {
     fun updateBrushFade(v: Double) {
         brushFade = v
         ReverieCoreBridge.setBrushFade(v)
+    }
+
+    fun updateBrushSoftness(v: Double) {
+        brushSoftness = v
+        ReverieCoreBridge.setBrushSoftness(v)
+    }
+
+    fun updateBrushRatio(v: Double) {
+        brushRatio = v
+        ReverieCoreBridge.setBrushRatio(v)
+    }
+
+    fun updateBrushSharpness(v: Double) {
+        brushSharpness = v
+        ReverieCoreBridge.setBrushSharpness(v)
+    }
+
+    fun updateBrushRotation(v: Double) {
+        brushRotation = v
+        ReverieCoreBridge.setBrushRotation(v)
+    }
+
+    fun updateBrushCompositeOp(op: String) {
+        brushCompositeOp = op
+        ReverieCoreBridge.setBrushCompositeOp(op)
     }
 
     fun selectBrushPreset(index: Int) {

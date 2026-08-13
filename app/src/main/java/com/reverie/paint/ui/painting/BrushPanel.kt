@@ -438,8 +438,46 @@ private fun BrushPropertyPage(
             BrushParamSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
             BrushParamSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
             BrushParamSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
+            BrushParamSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
             BrushParamSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
             BrushParamSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
+            BrushParamSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
+            BrushParamSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
+            BrushParamSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
+            Spacer(Modifier.height(6.dp))
+            Text("混合模式", color = Morandi.subText, fontSize = 12.sp)
+            Spacer(Modifier.height(4.dp))
+            // Composite op dropdown (Krita's standard blend modes)
+            LazyColumn(Modifier.heightIn(max = 160.dp)) {
+                items(
+                    listOf(
+                        "normal" to "正常",
+                        "multiply" to "正片叠底",
+                        "screen" to "滤色",
+                        "overlay" to "叠加",
+                        "darken" to "变暗",
+                        "lighten" to "变亮",
+                        "dodge" to "颜色减淡",
+                        "burn" to "颜色加深",
+                        "hard_light" to "强光",
+                        "soft_light" to "柔光",
+                        "difference" to "差值",
+                        "exclusion" to "排除",
+                    )
+                ) { (id, label) ->
+                    val sel = vm.brushCompositeOp == id
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (sel) Morandi.accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { vm.updateBrushCompositeOp(id) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                    ) {
+                        Text(label, color = if (sel) Morandi.accent else Morandi.text, fontSize = 13.sp)
+                    }
+                }
+            }
         }
     }
 }

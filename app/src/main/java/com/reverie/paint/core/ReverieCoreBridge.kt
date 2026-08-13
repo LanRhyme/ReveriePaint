@@ -152,6 +152,16 @@ object ReverieCoreBridge {
 
     external fun setBrushFade(v: Double)
 
+    external fun setBrushSoftness(v: Double)
+
+    external fun setBrushRatio(v: Double)
+
+    external fun setBrushSharpness(v: Double)
+
+    external fun setBrushRotation(v: Double)
+
+    external fun setBrushCompositeOp(op: String)
+
 
     external fun touchStrokeStart(
         x: Double,

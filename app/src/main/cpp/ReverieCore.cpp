@@ -1371,6 +1371,41 @@ void ReverieCore::setBrushFade(qreal v)
     }
 }
 
+void ReverieCore::setBrushSoftness(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setProperty("SoftnessValue", v);
+    }
+}
+
+void ReverieCore::setBrushRatio(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setProperty("RatioValue", v);
+    }
+}
+
+void ReverieCore::setBrushSharpness(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setProperty("SharpnessValue", v);
+    }
+}
+
+void ReverieCore::setBrushRotation(qreal v)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setProperty("RotationValue", v);
+    }
+}
+
+void ReverieCore::setBrushCompositeOp(const QString &op)
+{
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setPaintOpCompositeOp(op);
+    }
+}
+
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
 {
     if (!m_document) {
@@ -1564,8 +1599,18 @@ void ReverieCore::flushStrokeBatch()
         if (m_brushPreset && m_strokePainter) {
             m_strokePainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
             const int layerIndex = qBound(0, m_currentLayer, m_layers.size() - 1);
-            m_strokeOp = new KisBrushOp(m_brushPreset->settings(), m_strokePainter,
-                                        KisNodeSP(m_layers[layerIndex].node), image);
+            // Create the op through the registry so the preset's own paintop
+            // engine is used (paintbrush -> KisBrushOp, experimentbrush ->
+            // KisExperimentPaintOp, roundmarker -> KisRoundMarkerOp, ...).
+            // Hardcoding KisBrushOp made every preset render as a plain dab.
+            m_strokeOp = KisPaintOpRegistry::instance()->paintOp(
+                m_brushPreset, m_strokePainter,
+                KisNodeSP(m_layers[layerIndex].node), image);
+            if (!m_strokeOp) {
+                // Fall back to the classic brush op if the engine is missing
+                m_strokeOp = new KisBrushOp(m_brushPreset->settings(), m_strokePainter,
+                                            KisNodeSP(m_layers[layerIndex].node), image);
+            }
             const QPointF start =
                 m_strokeSamples.isEmpty() ? m_strokeStartImg : m_strokeSamples.first().imgPos;
             delete m_strokeDistance;

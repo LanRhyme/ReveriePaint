@@ -307,6 +307,38 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFade(JNIEnv *, jobject, jd
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSoftness(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushSoftness(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushRatio(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushRatio(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSharpness(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushSharpness(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushRotation(JNIEnv *, jobject, jdouble v)
+{
+    core()->setBrushRotation(v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushCompositeOp(JNIEnv *env, jobject, jstring op)
+{
+    const char *o = env->GetStringUTFChars(op, nullptr);
+    core()->setBrushCompositeOp(QString::fromUtf8(o));
+    env->ReleaseStringUTFChars(op, o);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {
     const char *c = env->GetStringUTFChars(color, nullptr);

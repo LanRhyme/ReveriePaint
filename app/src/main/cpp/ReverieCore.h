@@ -19,6 +19,7 @@
 #include <QString>
 
 #include <kis_types.h>
+#include <brushengine/kis_paintop.h>
 #include <KisResourcesInterface.h>
 #include <KisFakeRunnableStrokeJobsExecutor.h>
 
@@ -183,6 +184,11 @@ public:
     void setBrushAngle(qreal v);
     void setBrushScatter(qreal v);
     void setBrushFade(qreal v);
+    void setBrushSoftness(qreal v);
+    void setBrushRatio(qreal v);
+    void setBrushSharpness(qreal v);
+    void setBrushRotation(qreal v);
+    void setBrushCompositeOp(const QString &op);
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
