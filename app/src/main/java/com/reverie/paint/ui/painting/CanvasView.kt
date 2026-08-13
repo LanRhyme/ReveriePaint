@@ -107,18 +107,7 @@ fun CanvasView(
                         val docW = image.width
                         val docH = image.height
 
-                        // Replace mode: finger-down clears the previous
-                        // selection display immediately so the new selection
-                        // starts fresh (the C++ commit happens on release)
-                        val isSelTool =
-                            tool == Tool.SELECT_RECT ||
-                                tool == Tool.SELECT_ELLIPSE ||
-                                tool == Tool.SELECT_POLYGON ||
-                                tool == Tool.SELECT_MAGNETIC ||
-                                tool == Tool.LASSO
-                        if (isSelTool && vm.selectionMode == 0) {
-                            vm.clearSelectionOverlayLocal()
-                        }
+
                         var localZoom = latestZoom
                         var localRotation = latestRotation
                         var localPanX = latestPanX
@@ -147,6 +136,7 @@ fun CanvasView(
                         val stylus = down.type == PointerType.Stylus
                         var smoothedPressure = 0.8f
                         var shapeEnd = Offset.Zero
+                        var replaceCleared = false
                         val lassoPoints = mutableListOf<Offset>()
                         var liquifyPrevious = Offset.Zero
                         var previousSinglePoint = down.position
@@ -304,6 +294,15 @@ fun CanvasView(
                                             tool == Tool.SELECT_POLYGON ||
                                             tool == Tool.LASSO ||
                                             tool == Tool.SELECT_MAGNETIC -> {
+                                            // Replace mode: first real move
+                                            // clears the previous selection
+                                            // display (finger-down alone must
+                                            // not, or two-finger pan/zoom would
+                                            // wipe it too)
+                                            if (!replaceCleared && vm.selectionMode == 0) {
+                                                vm.clearSelectionOverlayLocal()
+                                                replaceCleared = true
+                                            }
                                             shapeEnd = imagePos
                                             val docW = bmp?.width ?: 0
                                             val docH = bmp?.height ?: 0
