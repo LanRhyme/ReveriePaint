@@ -142,6 +142,9 @@ public:
     void gradientFill(int x1, int y1, int x2, int y2);
     void selectShape(int kind, int x1, int y1, int x2, int y2);
     void selectPolygon(const QVector<QPoint> &points);
+    void lassoSelect(const QVector<QPoint> &points);
+    void selectContiguousAt(int x, int y, int tolerance = 24);
+    void selectSimilarAt(int x, int y, int tolerance = 24);
     void moveLayerContent(int dx, int dy);
     void cropCanvas(int x, int y, int w, int h);
 

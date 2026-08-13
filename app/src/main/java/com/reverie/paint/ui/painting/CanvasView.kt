@@ -91,16 +91,18 @@ fun CanvasView(
                         var localPanX = latestPanX
                         var localPanY = latestPanY
                         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
-                        val trackShapeTool = tool == Tool.POLYGON || tool == Tool.POLYLINE
+                        val trackShapeTool =
+                            tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH
                         val twoPointTool =
                             tool == Tool.GRADIENT || tool == Tool.SELECT_RECT ||
                                 tool == Tool.SELECT_ELLIPSE || tool == Tool.CROP
-                        val trackSelectTool = tool == Tool.SELECT_POLYGON
+                        val trackSelectTool =
+                            tool == Tool.SELECT_POLYGON || tool == Tool.SELECT_MAGNETIC
                         var mode =
                             when (tool) {
-                                Tool.HAND, Tool.ZOOM -> GestureMode.PAN
                                 Tool.MOVE -> GestureMode.MOVE
-                                Tool.PICKER, Tool.FILL, Tool.TEXT, Tool.MEASURE -> GestureMode.NONE
+                                Tool.PICKER, Tool.FILL, Tool.TEXT, Tool.MEASURE,
+                                Tool.MAGICWAND, Tool.SELECT_SIMILAR -> GestureMode.NONE
                                 else -> GestureMode.STROKE
                             }
                         var strokeStarted = false
@@ -137,6 +139,10 @@ fun CanvasView(
                             Tool.PICKER -> vm.pickColor(firstImage.x, firstImage.y)
                             Tool.FILL -> vm.floodFill(firstImage.x, firstImage.y)
                             Tool.TEXT -> onTextRequested(firstImage.x, firstImage.y)
+                            Tool.MAGICWAND ->
+                                vm.selectContiguous(firstImage.x.toInt(), firstImage.y.toInt())
+                            Tool.SELECT_SIMILAR ->
+                                vm.selectSimilar(firstImage.x.toInt(), firstImage.y.toInt())
                             else -> Unit
                         }
 
@@ -318,7 +324,9 @@ fun CanvasView(
                                 trackShapeTool -> {
                                     val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
                                     if (points.size >= 2) {
-                                        vm.drawPolygon(points, closed = tool == Tool.POLYGON)
+                                        val closed =
+                                            tool == Tool.POLYGON
+                                        vm.drawPolygon(points, closed = closed)
                                     }
                                 }
 
@@ -345,7 +353,14 @@ fun CanvasView(
                                 trackSelectTool -> {
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                        vm.selectPolygon(points)
+                                        if (tool == Tool.SELECT_POLYGON) {
+                                            vm.selectPolygon(points)
+                                        } else {
+                                            // Magnetic lasso (simplified: a
+                                            // freehand selection, edge snapping
+                                            // is a later refinement)
+                                            vm.lassoSelect(points)
+                                        }
                                     }
                                 }
 
@@ -355,10 +370,10 @@ fun CanvasView(
                                     if (dx != 0 || dy != 0) vm.moveLayerContent(dx, dy)
                                 }
 
-                                tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
+                                tool == Tool.LASSO -> {
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                        if (tool == Tool.LASSO) vm.lassoFill(points) else vm.lassoClear(points)
+                                        vm.lassoSelect(points)
                                     }
                                 }
 
@@ -374,15 +389,6 @@ fun CanvasView(
                                     vm.touchEnd()
                                 }
 
-                                // ZOOM tool: a tap zooms in one step
-                                tool == Tool.ZOOM -> {
-                                    onTransform(
-                                        (latestZoom * 1.25f).coerceAtMost(32f),
-                                        latestRotation,
-                                        latestPanX,
-                                        latestPanY,
-                                    )
-                                }
                             }
                         }
                     }

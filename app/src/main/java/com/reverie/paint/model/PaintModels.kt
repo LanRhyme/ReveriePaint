@@ -43,21 +43,21 @@ enum class Tool(
     SELECT_POLYGON("select_polygon", "多边形选择", ToolGroup.SELECTION),
     LASSO("lasso", "套索选择", ToolGroup.SELECTION),
     MAGICWAND("magicwand", "连续选择", ToolGroup.SELECTION),
+    SELECT_MAGNETIC("select_magnetic", "磁性套索", ToolGroup.SELECTION),
+    SELECT_SIMILAR("select_similar", "相似色选择", ToolGroup.SELECTION),
 
     // Transform tools
     TRANSFORM("transform", "变换", ToolGroup.TRANSFORM),
     MOVE("move", "移动", ToolGroup.TRANSFORM),
     CROP("crop", "裁剪", ToolGroup.TRANSFORM),
 
-    // View tools
-    HAND("hand", "平移", ToolGroup.VIEW),
-    ZOOM("zoom", "缩放", ToolGroup.VIEW),
-
     // Other tools
     PICKER("picker", "拾色", ToolGroup.OTHER),
     TEXT("text", "文本", ToolGroup.OTHER),
     LIQUIFY("liquify", "液化", ToolGroup.OTHER),
     MEASURE("measure", "测量", ToolGroup.OTHER),
+    PATH("path", "路径", ToolGroup.SHAPES),
+    DYNA("dyna", "动态笔刷", ToolGroup.BRUSH),
     ;
 
     companion object {

@@ -2485,6 +2485,138 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
     markDirty();
 }
 
+static int colorDistance(const QRgb &a, const QRgb &b)
+{
+    const int dr = qRed(a) - qRed(b);
+    const int dg = qGreen(a) - qGreen(b);
+    const int db = qBlue(a) - qBlue(b);
+    return dr * dr + dg * dg + db * db;
+}
+
+// Build a selection from a boolean mask (BFS / global scan results).
+static KisSelectionSP selectionFromMask(const KisImageSP &image,
+                                        const QVector<quint8> &mask)
+{
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    const int iw = image->width();
+    const int ih = image->height();
+    // Compact the mask into per-row spans to avoid per-pixel setPixel
+    for (int y = 0; y < ih; ++y) {
+        int x = 0;
+        while (x < iw) {
+            if (mask[size_t(y) * iw + x]) {
+                int x0 = x;
+                while (x < iw && mask[size_t(y) * iw + x]) {
+                    ++x;
+                }
+                ps->select(QRect(x0, y, x - x0, 1), OPACITY_OPAQUE_U8);
+            } else {
+                ++x;
+            }
+        }
+    }
+    return sel;
+}
+
+void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    if (x < 0 || y < 0 || x >= iw || y >= ih) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    // Read the layer pixels (Krita RGBA byte order)
+    QVector<quint8> bytes(size_t(iw) * ih * 4);
+    device->readBytes(bytes.data(), 0, 0, iw, ih);
+    const int tolSq = tolerance * tolerance;
+
+    const auto pxAt = [&](int px, int py) -> QRgb {
+        const int o = (py * iw + px) * 4;
+        return qRgba(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
+    };
+    const QRgb seed = pxAt(x, y);
+
+    // BFS flood fill with color tolerance (Krita's contiguous selection)
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    QVector<int> queue;
+    queue.reserve(iw * ih / 4);
+    const int start = y * iw + x;
+    mask[start] = 1;
+    queue.append(start);
+    size_t head = 0;
+    while (head < queue.size()) {
+        const int cur = queue[head++];
+        const int cx = cur % iw;
+        const int cy = cur / iw;
+        if (cx > 0) {
+            const int n = cur - 1;
+            if (!mask[n] && colorDistance(pxAt(cx - 1, cy), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+        }
+        if (cx + 1 < iw) {
+            const int n = cur + 1;
+            if (!mask[n] && colorDistance(pxAt(cx + 1, cy), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+        }
+        if (cy > 0) {
+            const int n = cur - iw;
+            if (!mask[n] && colorDistance(pxAt(cx, cy - 1), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+        }
+        if (cy + 1 < ih) {
+            const int n = cur + iw;
+            if (!mask[n] && colorDistance(pxAt(cx, cy + 1), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
+        }
+    }
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
+void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    if (x < 0 || y < 0 || x >= iw || y >= ih) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    QVector<quint8> bytes(size_t(iw) * ih * 4);
+    device->readBytes(bytes.data(), 0, 0, iw, ih);
+    const int tolSq = tolerance * tolerance;
+    const int o0 = (y * iw + x) * 4;
+    const QRgb seed = qRgba(bytes[o0], bytes[o0 + 1], bytes[o0 + 2], bytes[o0 + 3]);
+
+    // Global scan: every pixel whose color is within tolerance (Krita's
+    // similar-color selection, not connected-region limited)
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    for (int py = 0; py < ih; ++py) {
+        for (int px = 0; px < iw; ++px) {
+            const int o = (py * iw + px) * 4;
+            const QRgb c = qRgba(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
+            if (colorDistance(c, seed) <= tolSq) {
+                mask[size_t(py) * iw + px] = 1;
+            }
+        }
+    }
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
 void ReverieCore::moveLayerContent(int dx, int dy)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -2613,6 +2745,28 @@ void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool>
     }
 }
 } // namespace
+
+void ReverieCore::lassoSelect(const QVector<QPoint> &points)
+{
+    KisImageSP image = m_document;
+    if (!image || points.size() < 3) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<bool> mask;
+    scanlineFillPolygon(points, iw, ih, mask);
+    QVector<quint8> selMask(size_t(iw) * ih, 0);
+    for (int y = 0; y < ih; ++y) {
+        for (int x = 0; x < iw; ++x) {
+            if (mask[size_t(y) * iw + x]) {
+                selMask[size_t(y) * iw + x] = 1;
+            }
+        }
+    }
+    m_selection = selectionFromMask(image, selMask);
+    markDirty();
+}
 
 void ReverieCore::lassoFill(const QVector<QPoint> &points)
 {

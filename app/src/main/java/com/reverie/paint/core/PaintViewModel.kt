@@ -820,6 +820,21 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun lassoSelect(points: List<Pair<Int, Int>>) {
+        if (points.size < 3) return
+        val xs = IntArray(points.size) { points[it].first }
+        val ys = IntArray(points.size) { points[it].second }
+        runCore { ReverieCoreBridge.lassoSelect(xs, ys, points.size) }
+    }
+
+    fun selectContiguous(x: Int, y: Int) {
+        runCore { ReverieCoreBridge.selectContiguousAt(x, y) }
+    }
+
+    fun selectSimilar(x: Int, y: Int) {
+        runCore { ReverieCoreBridge.selectSimilarAt(x, y) }
+    }
+
     fun lassoFill(points: List<Pair<Int, Int>>) {
         val xs = points.map { it.first }.toIntArray()
         val ys = points.map { it.second }.toIntArray()

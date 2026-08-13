@@ -173,18 +173,6 @@ fun PaintingPage(vm: PaintViewModel) {
                 tool = it
                 vm.applyTool(it.id)
                 moreToolsOpen = false
-                // Brush-family tools reuse the brush panel; open it with the
-                // category matching the tool's function (eraser -> 橡皮擦,
-                // smudge -> 混合), so the matching presets show first.
-                if (it.group == ToolGroup.BRUSH && it != Tool.BRUSH) {
-                    brushPanelOpen = true
-                    vm.brushPanelSelectedCategory =
-                        when (it) {
-                            Tool.ERASER -> "橡皮擦"
-                            Tool.SMUDGE -> "混合"
-                            else -> "全部"
-                        }
-                }
             },
             moreToolsOpen = moreToolsOpen,
             onToggleMoreTools = { moreToolsOpen = !moreToolsOpen },

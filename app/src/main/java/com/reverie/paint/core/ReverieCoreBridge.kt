@@ -216,6 +216,12 @@ object ReverieCoreBridge {
         ty: Int,
     )
 
+    external fun lassoSelect(xs: IntArray, ys: IntArray, count: Int)
+
+    external fun selectContiguousAt(x: Int, y: Int)
+
+    external fun selectSimilarAt(x: Int, y: Int)
+
     external fun lassoFill(
         xs: IntArray,
         ys: IntArray,

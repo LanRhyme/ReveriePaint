@@ -252,6 +252,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_selectPolygon(JNIEnv *env, jobject
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectContiguousAt(JNIEnv *, jobject, jint x, jint y)
+{
+    core()->selectContiguousAt(x, y);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectSimilarAt(JNIEnv *, jobject, jint x, jint y)
+{
+    core()->selectSimilarAt(x, y);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject, jint dx, jint dy)
 {
     core()->moveLayerContent(dx, dy);
@@ -519,6 +531,19 @@ JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx, jint fy, jint tx, jint ty)
 {
     core()->liquify(fx, fy, tx, ty);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_lassoSelect(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count)
+{
+    if (count < 3) return;
+    jint *px = env->GetIntArrayElements(xs, nullptr);
+    jint *py = env->GetIntArrayElements(ys, nullptr);
+    QVector<QPoint> pts;
+    for (int i = 0; i < count; ++i) pts.append(QPoint(px[i], py[i]));
+    env->ReleaseIntArrayElements(xs, px, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, py, JNI_ABORT);
+    core()->lassoSelect(pts);
 }
 
 JNIEXPORT void JNICALL

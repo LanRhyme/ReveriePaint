@@ -72,7 +72,7 @@ fun ToolRail(
     // Krita-style: brush-family + fill + hand on the rail, the complete
     // tool set in the grouped more-tools panel
     val mainTools =
-        listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE, Tool.FILL, Tool.HAND)
+        listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE, Tool.FILL)
     val moreTools = Tool.entries.filter { it !in mainTools }
     val groupedTools = ToolGroup.entries.map { g -> g to moreTools.filter { it.group == g } }
         .filter { it.second.isNotEmpty() }
@@ -107,10 +107,23 @@ fun ToolRail(
                             toolIcon(t),
                             t.label,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
-                            onTap = { 
+                            onTap = {
                                 tooltipTool = t
-                                if (t == tool && t == Tool.BRUSH) onOpenBrush() 
-                                else onTool(t) 
+                                // Brush-family tools: tapping the ALREADY
+                                // selected tool opens the brush panel (with
+                                // the category matching the tool's function);
+                                // tapping an unselected tool only selects it.
+                                if (t == tool && t.group == ToolGroup.BRUSH) {
+                                    vm.brushPanelSelectedCategory =
+                                        when (t) {
+                                            Tool.ERASER -> "橡皮擦"
+                                            Tool.SMUDGE -> "混合"
+                                            else -> vm.brushPanelSelectedCategory
+                                        }
+                                    onOpenBrush()
+                                } else {
+                                    onTool(t)
+                                }
                             },
                             selected = t == tool
                         )
@@ -267,7 +280,6 @@ fun ToolRail(
 private fun toolIcon(tool: Tool): Int =
     when (tool) {
         Tool.BRUSH -> R.drawable.ic_brush
-        Tool.HAND -> R.drawable.ic_hand
         Tool.ERASER -> R.drawable.ic_eraser
         Tool.PICKER -> R.drawable.ic_picker
         Tool.FILL -> R.drawable.ic_fill
@@ -287,9 +299,12 @@ private fun toolIcon(tool: Tool): Int =
         Tool.SELECT_POLYGON -> R.drawable.ic_triangle
         Tool.MOVE -> R.drawable.ic_move
         Tool.CROP -> R.drawable.ic_crop
-        Tool.ZOOM -> R.drawable.ic_zoom_in
         Tool.MEASURE -> R.drawable.ic_polyline
         Tool.TRANSFORM -> R.drawable.ic_move
+        Tool.SELECT_MAGNETIC -> R.drawable.ic_magicwand
+        Tool.SELECT_SIMILAR -> R.drawable.ic_magicwand
+        Tool.PATH -> R.drawable.ic_lasso
+        Tool.DYNA -> R.drawable.ic_brush
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's
