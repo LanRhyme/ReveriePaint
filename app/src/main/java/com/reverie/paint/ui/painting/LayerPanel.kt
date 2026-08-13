@@ -91,7 +91,7 @@ import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val drawerWidth = 96.dp
+private val drawerWidth = 132.dp
 private val rowHeight = 48.dp
 
 private fun Boolean?.orFalse() = this ?: false
