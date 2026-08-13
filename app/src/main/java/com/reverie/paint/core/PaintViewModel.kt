@@ -1191,6 +1191,28 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    /** Live lasso preview: fill the current polygon into the overlay while
+     *  the finger moves (throttled from CanvasView), without committing.
+     *  The real selection replaces it on release. */
+    fun previewLasso(points: List<Pair<Int, Int>>) {
+        if (points.size < 3) return
+        val xs = IntArray(points.size) { points[it].first }
+        val ys = IntArray(points.size) { points[it].second }
+        val vw = maxOf(1, renderW)
+        val vh = maxOf(1, renderH)
+        var ov: android.graphics.Bitmap? = null
+        runCore(render = false, after = {
+            selectionOverlayBitmap = ov
+            hasSelection = ov != null
+        }) {
+            val px = ReverieCoreBridge.previewLassoOverlay(xs, ys, points.size, vw, vh)
+            if (px != null) {
+                ov = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
+                ov!!.setPixels(px, 0, vw, 0, 0, vw, vh)
+            }
+        }
+    }
+
     fun lassoSelect(points: List<Pair<Int, Int>>) {
         if (points.size < 3) return
         val xs = IntArray(points.size) { points[it].first }

@@ -332,6 +332,8 @@ object ReverieCoreBridge {
 
     external fun selectionOverlayScaled(vw: Int, vh: Int): IntArray?
 
+    external fun previewLassoOverlay(xs: IntArray, ys: IntArray, count: Int, vw: Int, vh: Int): IntArray?
+
     external fun selectAll()
 
     external fun invertSelection()

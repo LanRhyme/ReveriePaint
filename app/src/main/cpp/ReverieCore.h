@@ -120,6 +120,12 @@ public:
      *  per pixel), built on the render thread for the overlay. */
     QVector<quint32> selectionOverlayScaled(int vw, int vh) const;
 
+    /** Live lasso preview: scanline-fill the polygon into a mask and
+     *  downsample it to the viewport without touching the committed
+     *  selection (Krita's selection tools preview the growing selection
+     *  while the pointer moves). */
+    QVector<quint32> previewLassoOverlay(const QVector<QPoint> &points, int vw, int vh) const;
+
     // Tool mode: the complete Krita tool set. Brush-family modes drive the
     // stroke composite (eraser -> erase even with a plain brush preset);
     // the others are dispatched from Kotlin/Compose with their own logic.

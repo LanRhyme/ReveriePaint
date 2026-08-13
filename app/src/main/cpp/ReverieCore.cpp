@@ -1618,6 +1618,44 @@ QVector<quint32> ReverieCore::selectionOverlayScaled(int vw, int vh) const
     return out;
 }
 
+namespace {
+void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool> &mask);
+}
+
+QVector<quint32> ReverieCore::previewLassoOverlay(const QVector<QPoint> &points, int vw, int vh) const
+{
+    KisImageSP image = m_document;
+    if (!image || points.size() < 3) {
+        return {};
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<bool> mask;
+    scanlineFillPolygon(points, iw, ih, mask);
+    vw = qMax(1, vw);
+    vh = qMax(1, vh);
+    QVector<quint32> out(size_t(vw) * vh, 0);
+    const double stepX = double(iw) / vw;
+    const double stepY = double(ih) / vh;
+    bool any = false;
+    for (int y = 0; y < vh; ++y) {
+        const int srcY = qMin(ih - 1, int(y * stepY));
+        const size_t dstOff = size_t(y) * vw;
+        for (int x = 0; x < vw; ++x) {
+            const int srcX = qMin(iw - 1, int(x * stepX));
+            if (mask[size_t(srcY) * iw + srcX]) {
+                out[dstOff + x] = 0xFFFFFFFFu;
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        return {};
+    }
+    return out;
+}
+
+
 
 // ---------------------------------------------------------------------------
 // Painting

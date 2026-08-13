@@ -148,6 +148,7 @@ fun CanvasView(
                         val lassoPoints = mutableListOf<Offset>()
                         var magneticPrev: Offset? = null
                         var gestureEnded = false
+                        var lastLassoPreviewNs = 0L
                         var liquifyPrevious = Offset.Zero
                         var previousSinglePoint = down.position
 
@@ -443,11 +444,29 @@ fun CanvasView(
                                                                 np.close()
                                                             }
                                                             liveSelectionPath = np
+                                                            val nowNs = System.nanoTime()
+                                                            if (nowNs - lastLassoPreviewNs > 80_000_000L) {
+                                                                lastLassoPreviewNs = nowNs
+                                                                vm.previewLasso(
+                                                                    lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }
                                             } else if (lassoPoints.lastOrNull() != imagePos) {
                                                 lassoPoints += imagePos
+                                                // Live selection preview: fill the
+                                                // polygon into the overlay while the
+                                                // finger moves (throttled); the
+                                                // committed selection replaces it
+                                                val nowNs = System.nanoTime()
+                                                if (nowNs - lastLassoPreviewNs > 80_000_000L) {
+                                                    lastLassoPreviewNs = nowNs
+                                                    vm.previewLasso(
+                                                        lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                                    )
+                                                }
                                             }
                                         }
 

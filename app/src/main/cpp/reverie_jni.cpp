@@ -796,6 +796,34 @@ Java_com_reverie_paint_core_ReverieCoreBridge_selectionMask(JNIEnv *env, jobject
 }
 
 JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_previewLassoOverlay(JNIEnv *env, jobject, jintArray xs, jintArray ys, jint count, jint vw, jint vh)
+{
+    jsize n = env->GetArrayLength(xs);
+    if (n < 3 || n != env->GetArrayLength(ys)) {
+        return nullptr;
+    }
+    QVector<QPoint> pts;
+    pts.reserve(int(n));
+    jint *xbuf = env->GetIntArrayElements(xs, nullptr);
+    jint *ybuf = env->GetIntArrayElements(ys, nullptr);
+    for (int i = 0; i < int(qMin<jsize>(n, count)); ++i) {
+        pts.append(QPoint(xbuf[i], ybuf[i]));
+    }
+    env->ReleaseIntArrayElements(xs, xbuf, JNI_ABORT);
+    env->ReleaseIntArrayElements(ys, ybuf, JNI_ABORT);
+    const QVector<quint32> px = core()->previewLassoOverlay(pts, vw, vh);
+    if (px.isEmpty()) {
+        return nullptr;
+    }
+    jintArray arr = env->NewIntArray(px.size());
+    if (!arr) {
+        return nullptr;
+    }
+    env->SetIntArrayRegion(arr, 0, px.size(), reinterpret_cast<const jint *>(px.constData()));
+    return arr;
+}
+
+JNIEXPORT jintArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_selectionOverlayScaled(JNIEnv *env, jobject, jint vw, jint vh)
 {
     const QVector<quint32> px = core()->selectionOverlayScaled(vw, vh);
