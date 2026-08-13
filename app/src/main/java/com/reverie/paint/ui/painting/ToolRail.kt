@@ -290,57 +290,11 @@ private fun toolIcon(tool: Tool): Int =
         Tool.LIQUIFY -> R.drawable.ic_liquify
     }
 
-/** Step button: single tap steps once, hold repeats (Krita top-bar logic). */
-@Composable
-private fun StepBtn(
-    resId: Int,
-    enabled: Boolean = true,
-    onStep: () -> Unit,
-) {
-    var holding by remember { mutableStateOf(false) }
-    LaunchedEffect(holding) {
-        if (holding) {
-            delay(400) // initial long-press delay before auto-repeat
-            while (holding) {
-                onStep()
-                delay(70)
-            }
-        }
-    }
-    Box(
-        modifier =
-            Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (enabled) Morandi.panelHi else Morandi.panelHi.copy(alpha = 0.4f))
-                .pointerInput(enabled) {
-                    if (!enabled) return@pointerInput
-                    awaitPointerEventScope {
-                        while (true) {
-                            val ev = awaitPointerEvent()
-                            if (ev.changes.none { it.pressed }) continue
-                            holding = true
-                            onStep()
-                            while (true) {
-                                val up = awaitPointerEvent()
-                                if (up.changes.none { it.pressed }) break
-                            }
-                            holding = false
-                        }
-                    }
-                },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            painterResource(resId),
-            contentDescription = null,
-            tint = if (enabled) Morandi.icon else Morandi.subText,
-            modifier = Modifier.size(13.dp),
-        )
-    }
-}
-
-/** Vertical brush-size control: value, + slider -, like Krita's top bar. */
+/** Vertical brush-size control: value + logarithmic slider, like Krita's
+ * top bar. The slider is logarithmic (1..500), so small sizes get fine
+ * resolution and large sizes coarse resolution - exactly Krita's
+ * KisLogarithmicSliderSpinBox mapping: value = 500^fraction.
+ */
 @Composable
 private fun BrushSizeGroup(
     brushSize: Double,
@@ -355,18 +309,16 @@ private fun BrushSizeGroup(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 1.dp),
         )
-        StepBtn(R.drawable.ic_plus) { onBrushSize((brushSize + 1).coerceAtMost(500.0)) }
         ReVerticalSlider(
             label = "",
-            fraction = ((brushSize - 1) / 499.0).toFloat().coerceIn(0f, 1f),
-            onFraction = { onBrushSize(1.0 + it * 499.0) },
+            fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
+            onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
             trackHeight = 100,
         )
-        StepBtn(R.drawable.ic_minus) { onBrushSize((brushSize - 1).coerceAtLeast(1.0)) }
     }
 }
 
-/** Vertical opacity control: value, + slider -, like Krita's top bar. */
+/** Vertical opacity control: value + slider, 0..1 linear. */
 @Composable
 private fun OpacityGroup(
     opacity: Double,
@@ -381,13 +333,11 @@ private fun OpacityGroup(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 1.dp),
         )
-        StepBtn(R.drawable.ic_plus) { onOpacity((opacity + 0.01).coerceAtMost(1.0)) }
         ReVerticalSlider(
             label = "",
             fraction = opacity.toFloat(),
             onFraction = { onOpacity(it.toDouble()) },
             trackHeight = 100,
         )
-        StepBtn(R.drawable.ic_minus) { onOpacity((opacity - 0.01).coerceAtLeast(0.0)) }
     }
 }

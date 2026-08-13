@@ -1676,8 +1676,22 @@ void ReverieCore::flushStrokeBatch()
     // opacity/flow internally; the painter-level opacity covers the fallback
     // dab loop and the eraser.
     painter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
-    painter.setCompositeOpId(erasing ? QStringLiteral("erase")
-                                     : QStringLiteral("normal"));
+    // Composite op: the brush preset's own effective op wins (eraser presets
+    // are paintbrush presets carrying CompositeOp=erase), the eraser tool
+    // always erases, everything else uses normal. Previously this line
+    // unconditionally overwrote the preset's composite op back to 'normal',
+    // which is why eraser presets did not erase.
+    QString compositeOp;
+    if (m_brushPreset && m_brushPreset->settings()) {
+        compositeOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
+    }
+    if (erasing) {
+        compositeOp = QStringLiteral("erase");
+    }
+    if (compositeOp.isEmpty()) {
+        compositeOp = QStringLiteral("normal");
+    }
+    painter.setCompositeOpId(compositeOp);
 
     // Genuine tap only (no movement): paint a round dot. KisPainter::drawLine
     // with identical start/end returns immediately, so use paintEllipse
