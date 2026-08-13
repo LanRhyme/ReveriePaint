@@ -349,8 +349,11 @@ class PaintViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("ReveriePaint", "preset copy failed", e)
         }
+        android.util.Log.d("ReveriePaint", "loadBrushPresets files=" + (dir.list()?.size ?: -1))
         runCore {
+            android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
             val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
+            android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
             val list = (0 until n).map { i ->
                 BrushPresetInfo(
                     index = i,
@@ -358,6 +361,7 @@ class PaintViewModel : ViewModel() {
                     thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
                 )
             }
+            android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
             brushPresets = list
         }
     }

@@ -24,6 +24,12 @@
 #include <kis_brushop.h>
 
 #include <QDebug>
+#if defined(Q_OS_ANDROID)
+#include <android/log.h>
+#define RPC_LOG(...) __android_log_print(ANDROID_LOG_INFO, "ReverieCore", __VA_ARGS__)
+#else
+#define RPC_LOG(...) fprintf(stderr, __VA_ARGS__)
+#endif
 #include <algorithm>
 #include <QPainter>
 #include <QFont>
@@ -1154,6 +1160,7 @@ bool ReverieCore::loadBrushPreset(int index)
     KisPaintOpPresetSP preset(new KisPaintOpPreset(m_presets[index].first));
     const bool ok = preset->loadFromDevice(&f, ri);
     f.close();
+    RPC_LOG("RPC loadBrushPreset idx=%d path=%s ok=%d", index, path.toUtf8().constData(), ok);
     if (!ok) {
         return false;
     }
@@ -1488,6 +1495,9 @@ void ReverieCore::flushStrokeBatch()
     }
 
     QRect strokeDirty;
+    RPC_LOG("RPC flush samples=%d preset=%d op=%d hadMove=%d brushSize=%.1f",
+            m_strokeSamples.size(), m_brushPreset != nullptr, m_strokeOp != nullptr,
+            m_strokeHadMove, double(m_brushSize));
     if (m_brushPreset && m_strokeOp) {
         // ---- Real Krita brush engine ----
         // Continuous paintLine through the samples (the op interpolates dabs
@@ -1504,6 +1514,12 @@ void ReverieCore::flushStrokeBatch()
         }
         QVector<KisRunnableStrokeJobData *> jobs;
         m_strokeOp->doAsynchronousUpdate(jobs);
+        RPC_LOG("RPC update jobs=%d first=(%.0f,%.0f) last=(%.0f,%.0f)",
+                jobs.size(),
+                double(m_strokeSamples.first().imgPos.x()),
+                double(m_strokeSamples.first().imgPos.y()),
+                double(m_strokeSamples.last().imgPos.x()),
+                double(m_strokeSamples.last().imgPos.y()));
         for (auto *j : jobs) {
             j->run();
             delete j;
