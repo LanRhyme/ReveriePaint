@@ -3270,47 +3270,16 @@ static KisSelectionSP selectionFromMask(const KisImageSP &image,
         ps->select(QRect(0, 0, iw, ih), OPACITY_OPAQUE_U8);
         return sel;
     }
-    // Compact the mask into merged rects: adjacent rows whose x-range is
-    // identical merge into one rect. KisPixelSelection::select builds a
-    // KisFillPainter + KoColor and invalidates the thumbnail per call
-    // (~1.7ms measured), so a per-row span scan costs seconds on the phone;
-    // uniform regions collapse to a single rect select
-    QVector<QRect> rects;
-    rects.reserve(256);
-    int curY0 = 0, curY1 = -1, curX0 = 0, curX1 = -1;
-    bool have = false;
-    for (int y = 0; y < ih; ++y) {
-        int x = 0;
-        while (x < iw) {
-            if (mask[size_t(y) * iw + x]) {
-                const int x0 = x;
-                while (x < iw && mask[size_t(y) * iw + x]) {
-                    ++x;
-                }
-                const int x1 = x - 1;
-                if (have && y == curY1 + 1 && x0 == curX0 && x1 == curX1) {
-                    curY1 = y;
-                } else {
-                    if (have) {
-                        rects.append(QRect(curX0, curY0, curX1 - curX0 + 1, curY1 - curY0 + 1));
-                    }
-                    curY0 = y;
-                    curY1 = y;
-                    curX0 = x0;
-                    curX1 = x1;
-                    have = true;
-                }
-            } else {
-                ++x;
-            }
-        }
-    }
-    if (have) {
-        rects.append(QRect(curX0, curY0, curX1 - curX0 + 1, curY1 - curY0 + 1));
-    }
-    for (const QRect &r : rects) {
-        ps->select(r, OPACITY_OPAQUE_U8);
-    }
+    // Write the mask directly: KisPixelSelection's device is alpha8 (one
+    // byte per pixel), so the 0/255 mask is already in device format - one
+    // writeBytes replaces thousands of ps->select calls (~1.7ms each - they
+    // build a KisFillPainter and invalidate the thumbnail), which cost
+    // seconds on the phone for complex masks
+    QElapsedTimer st;
+    st.start();
+    ps->writeBytes(mask.constData(), 0, 0, iw, ih);
+    ps->setDirty(QRect(0, 0, iw, ih));
+    RPC_LOG("RPC selFromMask writeBytes time=%lldms", long(st.elapsed()));
     return sel;
 }
 
