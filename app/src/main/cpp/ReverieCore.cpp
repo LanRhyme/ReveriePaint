@@ -1255,7 +1255,7 @@ bool ReverieCore::loadBrushPreset(int index)
     // own values (they are stored per preset and would otherwise override)
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
-    setBrushFlow(1.0);
+    setBrushFlow(m_brushFlow);
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =
@@ -1275,6 +1275,37 @@ bool ReverieCore::loadBrushPreset(int index)
         RPC_LOG("RPC brushNOCAST");
     }
     return true;
+}
+
+QVector<double> ReverieCore::brushPresetDefaults(int index)
+{
+    if (index < 0 || index >= m_presets.size()) {
+        return {20.0, 1.0, 1.0};
+    }
+    registerPaintOps();
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
+    QFile f(m_presets[index].second);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return {20.0, 1.0, 1.0};
+    }
+    KisPaintOpPresetSP preset(new KisPaintOpPreset(m_presets[index].first));
+    const bool ok = preset->loadFromDevice(&f, m_brushResources);
+    f.close();
+    if (!ok) {
+        return {20.0, 1.0, 1.0};
+    }
+    double size = 20.0;
+    if (auto *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(preset->settings().data())) {
+        size = bs->paintOpSize();
+        if (!(size > 0.0) || size != size) {  // NaN / non-positive guard
+            size = 20.0;
+        }
+    }
+    const double opacity = preset->settings()->getDouble("OpacityValue", 1.0);
+    const double flow = preset->settings()->getDouble("FlowValue", 1.0);
+    return {size, opacity, flow};
 }
 
 int ReverieCore::brushPresetCount() const
@@ -1334,6 +1365,7 @@ void ReverieCore::setBrushOpacity(qreal v)
 
 void ReverieCore::setBrushFlow(qreal v)
 {
+    m_brushFlow = v;
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpFlow(v);
     }
@@ -1589,6 +1621,14 @@ void ReverieCore::flushStrokeBatch()
         m_strokePainter = new KisPainter(target);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        // Eraser presets erase via their CompositeOp parameter (a)_Eraser_*
+        // are paintbrush presets with CompositeOp=erase). Apply the preset's
+        // effective composite op to the painter so the dab bitBlt actually
+        // erases instead of painting over.
+        if (m_brushPreset && m_brushPreset->settings()) {
+            m_strokePainter->setCompositeOpId(
+                m_brushPreset->settings()->effectivePaintOpCompositeOp());
+        }
         // Constrain the whole stroke to the active selection (if any)
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
@@ -1616,6 +1656,12 @@ void ReverieCore::flushStrokeBatch()
             delete m_strokeDistance;
             m_strokeDistance = new KisDistanceInformation(start, 0.0);
         }
+    }
+    // Re-sync the composite op on every flush so mid-stroke parameter
+    // changes (blend-mode dropdown, eraser preset switch) take effect.
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_strokePainter->setCompositeOpId(
+            m_brushPreset->settings()->effectivePaintOpCompositeOp());
     }
     KisPainter &painter = *m_strokePainter;
     const KoColorSpace *cs = image->colorSpace();

@@ -245,6 +245,16 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPreset(JNIEnv *, jobject,
     return core()->loadBrushPreset(index);
 }
 
+JNIEXPORT jdoubleArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetDefaults(JNIEnv *env, jobject, jint index)
+{
+    const QVector<double> d = core()->brushPresetDefaults(index);
+    jdoubleArray arr = env->NewDoubleArray(3);
+    const jdouble tmp[3] = {d.value(0, 20.0), d.value(1, 1.0), d.value(2, 1.0)};
+    env->SetDoubleArrayRegion(arr, 0, 3, tmp);
+    return arr;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetCount(JNIEnv *, jobject)
 {

@@ -136,6 +136,8 @@ object ReverieCoreBridge {
 
     external fun brushPresetCount(): Int
 
+    external fun brushPresetDefaults(index: Int): DoubleArray
+
     external fun brushPresetName(index: Int): String
 
     external fun brushPresetThumbData(index: Int): ByteArray

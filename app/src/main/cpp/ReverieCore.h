@@ -176,6 +176,7 @@ public:
     int loadBrushResources(const QString &dirPath);
     bool loadBrushPreset(int index);
     int brushPresetCount() const;
+    QVector<double> brushPresetDefaults(int index);
     QString brushPresetName(int index) const;
     QString brushPresetPath(int index) const;
     QByteArray brushPresetThumbData(int index) const;
@@ -251,6 +252,7 @@ private:
     qreal m_brushSize = 20.0;
     QColor m_brushColor = Qt::black;
     qreal m_brushOpacity = 1.0;
+    qreal m_brushFlow = 1.0;
     ToolMode m_toolMode = ToolBrush;
 
     // Krita brush engine state

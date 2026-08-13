@@ -2,6 +2,9 @@ package com.reverie.paint.ui.painting
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -167,18 +170,16 @@ fun ToolRail(
                     )
                 }
                 Spacer(Modifier.height(12.dp))
-                ReVerticalSlider(
-                    label = "S",
-                    fraction = ((brushSize - 1) / 99.0).toFloat().coerceIn(0f, 1f),
-                    onFraction = { onBrushSize(1.0 + it * 99.0) },
-                    trackHeight = 160
+                // Brush size: Krita top-bar style - always-visible value,
+                // step buttons (+/-) that repeat while held, and the slider
+                BrushSizeGroup(
+                    brushSize = brushSize,
+                    onBrushSize = onBrushSize,
                 )
-                Spacer(Modifier.height(8.dp))
-                ReVerticalSlider(
-                    label = "O",
-                    fraction = brushOpacity.toFloat(),
-                    onFraction = { onOpacity(it.toDouble()) },
-                    trackHeight = 160
+                Spacer(Modifier.height(10.dp))
+                OpacityGroup(
+                    opacity = brushOpacity,
+                    onOpacity = onOpacity,
                 )
             }
         }
@@ -288,3 +289,105 @@ private fun toolIcon(tool: Tool): Int =
         Tool.SMUDGE -> R.drawable.ic_smudge
         Tool.LIQUIFY -> R.drawable.ic_liquify
     }
+
+/** Step button: single tap steps once, hold repeats (Krita top-bar logic). */
+@Composable
+private fun StepBtn(
+    resId: Int,
+    enabled: Boolean = true,
+    onStep: () -> Unit,
+) {
+    var holding by remember { mutableStateOf(false) }
+    LaunchedEffect(holding) {
+        if (holding) {
+            delay(400) // initial long-press delay before auto-repeat
+            while (holding) {
+                onStep()
+                delay(70)
+            }
+        }
+    }
+    Box(
+        modifier =
+            Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (enabled) Morandi.panelHi else Morandi.panelHi.copy(alpha = 0.4f))
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    awaitPointerEventScope {
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            if (ev.changes.none { it.pressed }) continue
+                            holding = true
+                            onStep()
+                            while (true) {
+                                val up = awaitPointerEvent()
+                                if (up.changes.none { it.pressed }) break
+                            }
+                            holding = false
+                        }
+                    }
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painterResource(resId),
+            contentDescription = null,
+            tint = if (enabled) Morandi.icon else Morandi.subText,
+            modifier = Modifier.size(13.dp),
+        )
+    }
+}
+
+/** Vertical brush-size control: value, + slider -, like Krita's top bar. */
+@Composable
+private fun BrushSizeGroup(
+    brushSize: Double,
+    onBrushSize: (Double) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("S", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = "${brushSize.roundToInt()}",
+            color = Morandi.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 1.dp),
+        )
+        StepBtn(R.drawable.ic_plus) { onBrushSize((brushSize + 1).coerceAtMost(500.0)) }
+        ReVerticalSlider(
+            label = "",
+            fraction = ((brushSize - 1) / 499.0).toFloat().coerceIn(0f, 1f),
+            onFraction = { onBrushSize(1.0 + it * 499.0) },
+            trackHeight = 100,
+        )
+        StepBtn(R.drawable.ic_minus) { onBrushSize((brushSize - 1).coerceAtLeast(1.0)) }
+    }
+}
+
+/** Vertical opacity control: value, + slider -, like Krita's top bar. */
+@Composable
+private fun OpacityGroup(
+    opacity: Double,
+    onOpacity: (Double) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("O", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = "${(opacity * 100).roundToInt()}%",
+            color = Morandi.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 1.dp),
+        )
+        StepBtn(R.drawable.ic_plus) { onOpacity((opacity + 0.01).coerceAtMost(1.0)) }
+        ReVerticalSlider(
+            label = "",
+            fraction = opacity.toFloat(),
+            onFraction = { onOpacity(it.toDouble()) },
+            trackHeight = 100,
+        )
+        StepBtn(R.drawable.ic_minus) { onOpacity((opacity - 0.01).coerceAtLeast(0.0)) }
+    }
+}

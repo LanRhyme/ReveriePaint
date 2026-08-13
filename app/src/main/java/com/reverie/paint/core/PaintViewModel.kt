@@ -52,6 +52,11 @@ class PaintViewModel : ViewModel() {
     var brushRotation by mutableStateOf(0.0)
     var brushCompositeOp by mutableStateOf("normal")
 
+    // Per-preset independent size/opacity/flow (persisted). Switching presets
+    // restores that brush's own values; adjusting a slider only affects the
+    // current brush.
+    private val brushParams: MutableMap<String, BrushParams> = mutableMapOf()
+
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
     // so referential equality would never notify Compose to repaint.
@@ -358,6 +363,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun loadBrushPresets() {
+        loadBrushParams()
         // Copy the bundled presets from assets to filesDir once
         val dir = java.io.File(appContext.filesDir, "paintoppresets")
         val assets = appContext.assets
@@ -526,6 +532,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateBrushFlow(v: Double) {
         brushFlow = v
+        saveBrushParam()
         ReverieCoreBridge.setBrushFlow(v)
     }
 
@@ -574,9 +581,67 @@ class PaintViewModel : ViewModel() {
         ReverieCoreBridge.setBrushCompositeOp(op)
     }
 
+    private fun saveBrushParam() {
+        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        brushParams[name] = BrushParams(brushSize, brushOpacity, brushFlow)
+        persistBrushParams()
+    }
+
+    private fun persistBrushParams() {
+        try {
+            val json = org.json.JSONArray()
+            for ((name, p) in brushParams) {
+                val o = org.json.JSONObject()
+                o.put("n", name)
+                o.put("s", p.size)
+                o.put("o", p.opacity)
+                o.put("f", p.flow)
+                json.put(o)
+            }
+            prefs().edit().putString("brush_params", json.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun loadBrushParams() {
+        try {
+            val raw = prefs().getString("brush_params", null) ?: return
+            val json = org.json.JSONArray(raw)
+            for (i in 0 until json.length()) {
+                val o = json.getJSONObject(i)
+                brushParams[o.getString("n")] =
+                    BrushParams(o.getDouble("s"), o.getDouble("o"), o.getDouble("f"))
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     fun selectBrushPreset(index: Int) {
         if (index == brushPresetIndex) return
-        runCore {
+        val preset = brushPresets.getOrNull(index) ?: return
+        val saved = brushParams[preset.name]
+        brushPresetIndex = index
+        runCore(after = {
+            if (saved != null) {
+                // User-adjusted values for this preset
+                brushSize = saved.size
+                brushOpacity = saved.opacity
+                brushFlow = saved.flow
+            } else {
+                // First use: the preset's own defaults
+                val d = ReverieCoreBridge.brushPresetDefaults(index)
+                if (d != null && d.size >= 3) {
+                    brushSize = d[0]
+                    brushOpacity = d[1].coerceIn(0.0, 1.0)
+                    brushFlow = d[2].coerceIn(0.0, 1.0)
+                }
+            }
+        }) {
+            if (saved != null) {
+                ReverieCoreBridge.setBrushSize(saved.size)
+                ReverieCoreBridge.setBrushOpacity(saved.opacity)
+                ReverieCoreBridge.setBrushFlow(saved.flow)
+            }
             if (ReverieCoreBridge.loadBrushPreset(index)) {
                 brushPresetIndex = index
             }
@@ -585,6 +650,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateBrushSize(v: Double) {
         brushSize = v
+        saveBrushParam()
         ReverieCoreBridge.setBrushSize(v)
     }
 
@@ -601,6 +667,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateBrushOpacity(v: Double) {
         brushOpacity = v
+        saveBrushParam()
         ReverieCoreBridge.setBrushOpacity(v)
     }
 
@@ -1009,6 +1076,13 @@ fun inferBrushGroup(name: String): String = when {
     name.contains("Clone") || name.contains("Distort") -> "特效"
     else -> "其他"
 }
+
+/** Per-preset independent brush parameters (size/opacity/flow). */
+data class BrushParams(
+    val size: Double,
+    val opacity: Double,
+    val flow: Double,
+)
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */
 data class BrushPresetInfo(
