@@ -80,7 +80,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - KF6 6.6.0 arm64 交叉编译库 + 各依赖 (见 scripts 与构建记录)
 
 ```bash
-./gradlew assembleDebug -PbuildNative
+./scripts/build_native.sh
+```
+
+构建脚本会先编译 C++ 再用预编译库补齐 AGP 未收集的间接依赖, 产物与预编译模式一致
+
+本机目录与默认约定不同时, 用 CMake 缓存变量覆盖 (CMakeLists.txt):
+
+```bash
+./gradlew assembleDebug -PbuildNative -PcmakeArgs="-DQT_ANDROID_DIR=/opt/Qt6/6.6.3/android_arm64_v8a -DKRITA_SRC_DIR=/path/to/krita-source"
 ```
 
 预编译模式与 buildNative 模式通过 gradle 属性切换 (app/build.gradle.kts)

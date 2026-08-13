@@ -8,12 +8,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # disable operator-name keywords like the rest of the Krita build does.
 add_compile_options(-fno-operator-names)
 
-# Qt for Android 6.6.3 (runtime libs for the Krita core)
-set(QT_ANDROID_DIR $ENV{HOME}/Qt6/6.6.3/android_arm64_v8a)
-# Krita cross-compiled arm64 libs
-set(KRITA_BIN_DIR $ENV{HOME}/Projects/krita-source/build-android)
-set(KRITA_SRC_DIR $ENV{HOME}/Projects/krita-source)
-set(DEPS_DIR $ENV{HOME}/ReveriePaint-android/deps)
+# Native build environment (developers only - the default prebuilt-jni build
+# does not compile C++). Paths default to $HOME conventions but can be
+# overridden per machine via -D, e.g.:
+#   ./gradlew assembleDebug -PbuildNative #     -PcmakeArgs=-DQT_ANDROID_DIR=/opt/Qt6/6.6.3/android_arm64_v8a
+set(QT_ANDROID_DIR "$ENV{HOME}/Qt6/6.6.3/android_arm64_v8a" CACHE PATH "Qt for Android install dir")
+set(KRITA_BIN_DIR "$ENV{HOME}/Projects/krita-source/build-android" CACHE PATH "Krita cross-compile build dir")
+set(KRITA_SRC_DIR "$ENV{HOME}/Projects/krita-source" CACHE PATH "Krita source tree")
+set(DEPS_DIR "$ENV{HOME}/ReveriePaint-android/deps" CACHE PATH "KF6/deps install prefix")
 
 # --- Krita core include dirs (same set the working APK build used) ---
 set(KRITA_INCLUDES

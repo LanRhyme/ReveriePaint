@@ -37,10 +37,17 @@ android {
                 cmake {
                     cppFlags += "-std=c++17"
                     arguments +=
-                        listOf(
-                            "-DANDROID_ABI=arm64-v8a",
-                            "-DCMAKE_BUILD_TYPE=Release",
-                        )
+                        buildList {
+                            add("-DANDROID_ABI=arm64-v8a")
+                            add("-DCMAKE_BUILD_TYPE=Release")
+                            // 追加自定义 CMake 参数, 例如:
+                            // ./gradlew assembleDebug -PbuildNative -PcmakeArgs="-DQT_ANDROID_DIR=/opt/Qt6"
+                            val cmakeArgs =
+                                (project.findProperty("cmakeArgs") as? String)
+                                    ?.split(" ")
+                                    ?.filter { it.isNotBlank() }
+                            if (cmakeArgs != null) addAll(cmakeArgs)
+                        }
                 }
             }
         }
@@ -61,9 +68,18 @@ android {
         }
     }
 
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    if (buildNative) {
+        // CMake 重新编译 libreverie_jni.so 并自动收集其 NEEDED 闭包,
+        // jniLibs 的预编译文件全部让位(指向空目录)避免 merge 重复
+        sourceSets.getByName("main") {
+            jniLibs.setSrcDirs(listOf("src/main/jniLibsNativeEmpty"))
+        }
     }
     kotlin {
         compilerOptions {
