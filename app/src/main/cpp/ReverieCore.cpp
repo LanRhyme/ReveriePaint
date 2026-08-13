@@ -1119,17 +1119,41 @@ KisPaintDeviceSP ReverieCore::currentPaintDevice()
 
 extern "C" void krita_register_default_paintops();
 extern "C" void krita_register_colorsmudge_paintop();
+extern "C" void krita_register_roundmarker_paintop();
+extern "C" void krita_register_spray_paintop();
+extern "C" void krita_register_sketch_paintop();
+extern "C" void krita_register_deform_paintop();
+extern "C" void krita_register_filter_paintop();
+extern "C" void krita_register_grid_paintop();
+extern "C" void krita_register_experiment_paintop();
+extern "C" void krita_register_particle_paintop();
+extern "C" void krita_register_curve_paintop();
+extern "C" void krita_register_tangentnormal_paintop();
+extern "C" void krita_register_hairy_paintop();
+extern "C" void krita_register_hatching_paintop();
 
 void ReverieCore::registerPaintOps()
 {
     static bool done = false;
     if (!done) {
-        // Implemented inside the cross-compiled kritadefaultpaintops_static
-        // library so the KisSimplePaintOpFactory vtable layout matches
-        // libkritaimage's view (instantiating the template in this module
-        // produced vtable misalignment and crashes).
+        // Implemented inside the cross-compiled paintop plugin libraries so
+        // the KisSimplePaintOpFactory vtable layout matches libkritaimage's
+        // view (instantiating the template in this module produced vtable
+        // misalignment and crashes).
         krita_register_default_paintops();
         krita_register_colorsmudge_paintop();
+        krita_register_roundmarker_paintop();
+        krita_register_spray_paintop();
+        krita_register_sketch_paintop();
+        krita_register_deform_paintop();
+        krita_register_filter_paintop();
+        krita_register_grid_paintop();
+        krita_register_experiment_paintop();
+        krita_register_particle_paintop();
+        krita_register_curve_paintop();
+        krita_register_tangentnormal_paintop();
+        krita_register_hairy_paintop();
+        krita_register_hatching_paintop();
         done = true;
     }
 }
@@ -1232,6 +1256,24 @@ bool ReverieCore::loadBrushPreset(int index)
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(1.0);
+    // Diagnostics: is the preset's brush resolved to a real brush resource
+    // or did it fall back to the default auto_brush (circle)?
+    KisBrushBasedPaintOpSettings *bs =
+        dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
+    if (bs) {
+        KisBrushSP b = bs->brush();
+        if (b) {
+            const QImage tip = b->brushTipImage();
+            RPC_LOG("RPC brushRESOLVED file=%s tip=%dx%d valid=%d spacing=%.3f",
+                    b->filename().toUtf8().constData(),
+                    tip.width(), tip.height(), b->valid() ? 1 : 0,
+                    (double)b->spacing());
+        } else {
+            RPC_LOG("RPC brushNULL");
+        }
+    } else {
+        RPC_LOG("RPC brushNOCAST");
+    }
     return true;
 }
 

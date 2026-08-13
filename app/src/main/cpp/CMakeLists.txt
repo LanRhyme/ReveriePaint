@@ -61,6 +61,18 @@ set(KRITA_INCLUDES
     ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops
     ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops/brush
     ${KRITA_SRC_DIR}/plugins/paintops/defaultpaintops/duplicate
+    ${KRITA_SRC_DIR}/plugins/paintops/roundmarker
+    ${KRITA_SRC_DIR}/plugins/paintops/spray
+    ${KRITA_SRC_DIR}/plugins/paintops/sketch
+    ${KRITA_SRC_DIR}/plugins/paintops/deform
+    ${KRITA_SRC_DIR}/plugins/paintops/filterop
+    ${KRITA_SRC_DIR}/plugins/paintops/gridbrush
+    ${KRITA_SRC_DIR}/plugins/paintops/experiment
+    ${KRITA_SRC_DIR}/plugins/paintops/particle
+    ${KRITA_SRC_DIR}/plugins/paintops/curvebrush
+    ${KRITA_SRC_DIR}/plugins/paintops/tangentnormal
+    ${KRITA_SRC_DIR}/plugins/paintops/hairy
+    ${KRITA_SRC_DIR}/plugins/paintops/hatching
     ${KRITA_BIN_DIR}/plugins/paintops/libpaintop
     ${KRITA_BIN_DIR}/plugins/paintops/defaultpaintops
     ${KRITA_SRC_DIR}/libs/image/filter
@@ -141,6 +153,18 @@ set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritalibpaintop.so
     ${KRITA_BIN_DIR}/lib/libkritadefaultpaintops_static.a
     ${KRITA_BIN_DIR}/lib/libkritacolorsmudgepaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritaroundmarkerpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritaspraypaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritasketchpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritadeformpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritafilterop.so
+    ${KRITA_BIN_DIR}/lib/libkritagridpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritaexperimentpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritaparticlepaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritacurvepaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritatangentnormalpaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritahairypaintop.so
+    ${KRITA_BIN_DIR}/lib/libkritahatchingpaintop.so
 )
 
 add_library(reverie_jni SHARED
