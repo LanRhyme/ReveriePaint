@@ -147,6 +147,27 @@ class PaintViewModel : ViewModel() {
     private var coreW = 1080
     private var coreH = 1920
 
+    // Viewport render size: the Android bitmap is rendered at the on-screen
+    // size (document aspect ratio preserved) instead of the full document
+    // resolution. Full-document rendering made large brushes lag because
+    // every frame composited a huge region (35-60ms+ on device).
+    private var renderW = 540
+    private var renderH = 960
+
+    /** Report the visible canvas size (device px); recompute the viewport
+     * render size at the document aspect ratio. */
+    fun setRenderViewport(viewW: Int, viewH: Int) {
+        if (viewW <= 0 || viewH <= 0) return
+        val scale = minOf(viewW.toFloat() / coreW, viewH.toFloat() / coreH)
+        val nw = maxOf(1, (coreW * scale).toInt())
+        val nh = maxOf(1, (coreH * scale).toInt())
+        if (nw != renderW || nh != renderH) {
+            renderW = nw
+            renderH = nh
+            scheduleRender(immediate = true)
+        }
+    }
+
     private var renderThread: HandlerThread? = null
     private var renderHandler: Handler? = null
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -201,19 +222,37 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    private val RENDER_TOKEN = Any()
+
     private fun scheduleRender(immediate: Boolean = false) {
         val h = renderHandler ?: return
-        if (renderScheduled && !immediate) return
+        if (immediate) {
+            // touchEnd / undo / structural changes: render right away and
+            // drop any pending throttled render
+            h.removeCallbacksAndMessages(RENDER_TOKEN)
+            renderScheduled = false
+            h.post { doRender() }
+            return
+        }
+        // Throttle to ~60fps: during fast strokes several touchMove events
+        // arrive per frame; rendering each one separately (waitForDone +
+        // projection recomposite + bitmap copy) saturates the render thread
+        // and made large brushes lag badly.
+        if (renderScheduled) return
         renderScheduled = true
-        val run = { doRender() }
-        if (immediate) h.removeCallbacksAndMessages(null) // drop pending delayed renders
-        h.post(run)
+        h.postDelayed(
+            {
+                renderScheduled = false
+                doRender()
+            },
+            16,
+        )
     }
 
     private fun doRender() {
         renderScheduled = false
-        val w = coreW
-        val h = coreH
+        val w = renderW
+        val h = renderH
         if (w <= 0 || h <= 0) return
         val rb = renderBmp
         if (rb == null || rb.width != w || rb.height != h) {
@@ -1023,18 +1062,32 @@ class PaintViewModel : ViewModel() {
                     mask.size == docW * docH &&
                     mask.any { it.toInt() != 0 }
                 ) {
+                    // Render the overlay at the viewport size so it matches
+                    // the (downscaled) canvas bitmap 1:1; the full-document
+                    // mask is downsampled on the render thread
+                    val vw = maxOf(1, renderW)
+                    val vh = maxOf(1, renderH)
                     val bmp =
                         android.graphics.Bitmap.createBitmap(
-                            docW,
-                            docH,
+                            vw,
+                            vh,
                             android.graphics.Bitmap.Config.ARGB_8888,
                         )
                     // White alpha mask; CanvasView tints it with the theme accent
-                    val px = IntArray(mask.size)
-                    for (i in mask.indices) {
-                        px[i] = if (mask[i].toInt() != 0) 0xFFFFFFFF.toInt() else 0
+                    val px = IntArray(vw * vh)
+                    val stepX = docW.toFloat() / vw
+                    val stepY = docH.toFloat() / vh
+                    for (y in 0 until vh) {
+                        val srcY = minOf(docH - 1, (y * stepY).toInt())
+                        val rowOff = srcY * docW
+                        val dstOff = y * vw
+                        for (x in 0 until vw) {
+                            val srcX = minOf(docW - 1, (x * stepX).toInt())
+                            px[dstOff + x] =
+                                if (mask[rowOff + srcX].toInt() != 0) 0xFFFFFFFF.toInt() else 0
+                        }
                     }
-                    bmp.setPixels(px, 0, docW, 0, 0, docW, docH)
+                    bmp.setPixels(px, 0, vw, 0, 0, vw, vh)
                     bmp
                 } else {
                     null

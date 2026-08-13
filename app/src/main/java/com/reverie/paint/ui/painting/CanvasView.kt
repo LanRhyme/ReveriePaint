@@ -58,6 +58,7 @@ fun CanvasView(
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
+    val viewportReported by remember { mutableStateOf(false) }
     val bmp = vm.displayBitmap
     val imageBitmap = bmp?.asImageBitmap()
     val latestZoom by rememberUpdatedState(zoom)
@@ -102,6 +103,7 @@ fun CanvasView(
                 .onSizeChanged {
                     viewW = it.width
                     viewH = it.height
+                    vm.setRenderViewport(it.width, it.height)
                 }.background(Morandi.canvasBg)
                 // Only stable document/tool identity belongs in the key
                 .pointerInput(tool, bmp?.width, bmp?.height) {
@@ -551,9 +553,11 @@ fun CanvasView(
                     drawContext.canvas.saveLayer(bounds, paint)
 
                     if (selBmp != null) {
+                        // The selection overlay is full-document resolution;
+                        // scale it into the (viewport-sized) canvas image
                         drawImage(
                             image = selBmp,
-                            topLeft = Offset(-image.width / 2f, -image.height / 2f)
+                            topLeft = Offset(-image.width / 2f, -image.height / 2f),
                         )
                     }
 

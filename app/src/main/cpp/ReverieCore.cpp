@@ -1804,7 +1804,15 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
     s.imgPos = imgPos;
     s.pressure = pressure;
     m_strokeSamples.append(s);
-    flushStrokeBatch();
+    // Time-throttled flushing: one flush per touch-move saturates the render
+    // thread with large brushes (big dabs + big dirty regions). Batch the
+    // samples for ~8ms and flush once per batch; touchStrokeEnd always
+    // flushes the remainder, so nothing is lost on pen-up.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_lastFlushMs >= 8 || m_strokeSamples.size() >= 64) {
+        m_lastFlushMs = now;
+        flushStrokeBatch();
+    }
 }
 
 // Centripetal Catmull-Rom spline point: evaluates the curve through
@@ -2080,13 +2088,19 @@ void ReverieCore::flushStrokeBatch()
         for (const QRect &r : exactDirty) {
             strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
         }
-        // Conservative fallback: the samples' neighbourhood, for engines that
-        // paint outside the painter's dirty accounting.
-        for (const StrokeSample &sm : m_strokeSamples) {
-            const int w = int(m_brushSize) + 2;
-            const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
-                          2 * w, 2 * w);
-            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+        // Conservative fallback: the samples' neighbourhood, only for
+        // engines that write the device directly (roundmarker's
+        // KisMarkerPainter etc.) and never accumulate dirty rects in the
+        // painter - for paintbrush/duplicate the exactDirty above is the
+        // true changed area, and adding a 2*brushSize margin around every
+        // sample inflates the projection recomposite region for big brushes.
+        if (engineBypassesSelection || exactDirty.isEmpty()) {
+            for (const StrokeSample &sm : m_strokeSamples) {
+                const int w = int(m_brushSize) + 2;
+                const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
+                              2 * w, 2 * w);
+                strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+            }
         }
     } else {
         // ---- Fallback: classic round-dab loop (no preset loaded) ----
@@ -2419,7 +2433,11 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     if (!image || !buffer) {
         return false;
     }
+    const qint64 tWfd = QDateTime::currentMSecsSinceEpoch();
     image->waitForDone();
+    const qint64 wfdMs = QDateTime::currentMSecsSinceEpoch() - tWfd;
+    const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
+    qint64 convMs = -1;
     const int iw = image->width();
     const int ih = image->height();
     static int s_lastIw = -1;
@@ -2430,12 +2448,20 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
         s_lastIw = iw;
         s_lastIh = ih;
     }
-    if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
-        // New document (or resized): full redraw
-        m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);
+    // The Android bitmap is the VIEWPORT size (kept at the document aspect
+    // ratio), not the full document size. Rendering a 1080x1920 document at
+    // 1:1 made every frame a ~35-60ms full-region convertToQImage (measured
+    // on desktop; ~3x slower on the phone), which large brushes turn into
+    // obvious lag. The dirty document region is composited by Krita, then
+    // downscaled once into the viewport buffer.
+    if (m_displayImage.isNull() || m_displayImage.size() != QSize(w, h)) {
+        // New document (or viewport resize): full redraw
+        m_displayImage = QImage(w, h, QImage::Format_RGBA8888);
         m_dirtyRect = QRect(0, 0, iw, ih);
         m_bitmapInited = false;
     }
+    const qreal sx = qreal(w) / iw;
+    const qreal sy = qreal(h) / ih;
 
     // Re-composite only the dirty region. Krita's projection recomputes
     // exactly the tiles that changed, so a stroke costs a small convertToQImage
@@ -2444,15 +2470,57 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     if (!m_dirtyRect.isEmpty()) {
         const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
         if (!r.isEmpty()) {
-            const QImage comp = image->convertToQImage(r.x(), r.y(), r.width(), r.height(), nullptr);
-            if (!comp.isNull()) {
-                const QImage conv = comp.convertToFormat(QImage::Format_RGBA8888);
-                for (int y = 0; y < conv.height() && (r.y() + y) < ih; ++y) {
-                    memcpy(m_displayImage.scanLine(r.y() + y) + r.x() * 4,
-                           conv.constScanLine(y), size_t(conv.width()) * 4);
+            const qint64 tConv = QDateTime::currentMSecsSinceEpoch();
+            QImage comp;
+            {
+                // Fast path: an RGB8 projection readBytes returns plain
+                // R,G,B,A bytes, which can be wrapped directly into an
+                // RGBA8888 QImage - convertToQImage's per-pixel colour
+                // conversion costs ~30-40ms for a big dirty region and is
+                // the real bottleneck (the projection recomposite itself is
+                // <5ms). Fall back to convertToQImage for other colour
+                // spaces (16-bit, CMYK, ...).
+                KisPaintDeviceSP proj = image->projection();
+                const KoColorSpace *pcs = proj->colorSpace();
+                if (pcs && pcs->pixelSize() == 4 && pcs->channels().size() == 4) {
+                    QByteArray raw;
+                    raw.resize(r.width() * r.height() * 4);
+                    proj->readBytes(reinterpret_cast<quint8 *>(raw.data()),
+                                    r.x(), r.y(), r.width(), r.height());
+                    // RGB8 readBytes returns B,G,R,A premultiplied bytes;
+                    // wrap as ARGB32_Premultiplied (same memory layout) and
+                    // let Qt's SIMD convertToFormat do the unpremultiply +
+                    // byte-order fix - far cheaper than Krita's per-pixel
+                    // colour conversion, which was the render bottleneck.
+                    QImage wrapped(reinterpret_cast<uchar *>(raw.data()),
+                                   r.width(), r.height(), r.width() * 4,
+                                   QImage::Format_ARGB32_Premultiplied);
+                    comp = wrapped.copy().convertToFormat(QImage::Format_RGBA8888);
+                } else {
+                    comp = image->convertToQImage(r.x(), r.y(), r.width(), r.height(), nullptr);
                 }
             }
-            m_lastDirty = r;
+            convMs = QDateTime::currentMSecsSinceEpoch() - tConv;
+            if (!comp.isNull()) {
+                const QImage conv = comp.convertToFormat(QImage::Format_RGBA8888);
+                const int vw = qMax(1, qRound(r.width() * sx));
+                const int vh = qMax(1, qRound(r.height() * sy));
+                // Fast downscale for the real-time preview; full resolution is
+                // used for PNG export (savePng) and layer thumbnails.
+                const QImage scaled = (conv.width() != vw || conv.height() != vh)
+                        ? conv.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::FastTransformation)
+                        : conv;
+                const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
+                const QRect clip = vp.intersected(QRect(0, 0, w, h));
+                if (!clip.isEmpty()) {
+                    for (int y = clip.top(); y <= clip.bottom(); ++y) {
+                        memcpy(m_displayImage.scanLine(y) + clip.left() * 4,
+                               scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
+                               size_t(clip.width()) * 4);
+                    }
+                    m_lastDirty = clip;
+                }
+            }
         }
         m_dirtyRect = QRect();
     }
@@ -2461,25 +2529,26 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     // the projection recomposite below already reflects them in real time.
 
     // Copy into the Android bitmap buffer: full on the first render (or a
-    // resize), then only the rows of the region that actually changed. The
-    // compositing was already done regionally above, so this avoids a
-    // full ~8MB memcpy on every frame.
-    if (w == iw && h == ih) {
-        if (!m_bitmapInited) {
-            memcpy(buffer, m_displayImage.constBits(), size_t(iw) * ih * 4);
-            m_bitmapInited = true;
-        } else if (!m_lastDirty.isEmpty()) {
-            const QRect r = m_lastDirty.intersected(QRect(0, 0, iw, ih));
-            for (int y = r.top(); y <= r.bottom(); ++y) {
-                memcpy(buffer + size_t(y) * w * 4 + size_t(r.left()) * 4,
-                       m_displayImage.constScanLine(y) + r.left() * 4,
-                       size_t(r.width()) * 4);
-            }
-        }
-    } else {
-        const QImage scaled = m_displayImage.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        memcpy(buffer, scaled.constBits(), size_t(w) * h * 4);
+    // resize), then only the rows of the region that actually changed.
+    if (!m_bitmapInited) {
+        memcpy(buffer, m_displayImage.constBits(), size_t(w) * h * 4);
         m_bitmapInited = true;
+    } else if (!m_lastDirty.isEmpty()) {
+        const QRect r = m_lastDirty.intersected(QRect(0, 0, w, h));
+        for (int y = r.top(); y <= r.bottom(); ++y) {
+            memcpy(buffer + size_t(y) * w * 4 + size_t(r.left()) * 4,
+                   m_displayImage.constScanLine(y) + r.left() * 4,
+                   size_t(r.width()) * 4);
+        }
+    }
+    {
+        const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - t0;
+        if (elapsed >= 30) {
+            RPC_LOG("RPC renderSlow %lldms wfd=%lldms conv=%lldms dirty=%dx%d+%d+%d",
+                    elapsed, wfdMs, convMs,
+                    m_lastDirty.width(), m_lastDirty.height(),
+                    m_lastDirty.x(), m_lastDirty.y());
+        }
     }
     return true;
 }
@@ -3331,14 +3400,16 @@ bool ReverieCore::loadPng(const QString &path)
         return false;
     }
     const KoColorSpace *cs = image->colorSpace();
-    const QImage conv = img.convertToFormat(QImage::Format_ARGB32);
-    for (int y = 0; y < conv.height(); ++y) {
-        for (int x = 0; x < conv.width(); ++x) {
-            const QRgb px = conv.pixel(x, y);
-            KoColor kc(QColor(qRed(px), qGreen(px), qBlue(px), qAlpha(px)), cs);
-            dev->setPixel(x, y, kc);
-        }
-    }
+    // Bulk blit: the layer device is RGB8 (KoBgrU8Traits, BGRA premultiplied
+    // memory layout), which matches QImage::Format_ARGB32_Premultiplied
+    // exactly - one writeBytes instead of a per-pixel setPixel loop (the
+    // old loop took seconds on a phone for a 1080x1920 project)
+    const QImage conv = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    const int iw = conv.width();
+    const int ih = conv.height();
+    QVector<quint8> bytes(size_t(iw) * ih * 4);
+    memcpy(bytes.data(), conv.constBits(), size_t(iw) * ih * 4);
+    dev->writeBytes(reinterpret_cast<const quint8 *>(bytes.constData()), 0, 0, iw, ih);
     dev->setDirty();
     markDirty();
     return true;

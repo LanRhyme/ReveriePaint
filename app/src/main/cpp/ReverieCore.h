@@ -315,6 +315,7 @@ private:
     // flush is only a dot when this is false (a genuine tap). Trailing
     // samples of a real stroke must never render as dots.
     bool m_strokeHadMove = false;
+    qint64 m_lastFlushMs = 0;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;
     // Temporary device holding the in-progress stroke at full strength.
