@@ -69,6 +69,17 @@ fun CanvasView(
 
     // Live selection preview path (updated while dragging a selection tool)
     var liveSelectionPath by remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
+
+    // Instant feedback ring at a magic-wand / similar-color tap: the
+    // selection computation runs on the render thread (~20-60ms), so a small
+    // flash at the tap point tells the user the tap registered immediately
+    var wandFlash by remember { mutableStateOf<Offset?>(null) }
+    LaunchedEffect(wandFlash) {
+        if (wandFlash != null) {
+            kotlinx.coroutines.delay(450)
+            wandFlash = null
+        }
+    }
     var pickerActive by remember { mutableStateOf(false) }
     var pickerScreenPos by remember { mutableStateOf(Offset.Zero) }
     var pickerInitialColor by remember { mutableStateOf(Color.White) }
@@ -190,10 +201,12 @@ fun CanvasView(
                                 pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
                             }
                             Tool.MAGICWAND -> {
+                                wandFlash = firstImage
                                 vm.selectContiguous(firstImage.x.toInt(), firstImage.y.toInt())
                                 tapReverted = true
                             }
                             Tool.SELECT_SIMILAR -> {
+                                wandFlash = firstImage
                                 vm.selectSimilar(firstImage.x.toInt(), firstImage.y.toInt())
                                 tapReverted = true
                             }
@@ -701,6 +714,19 @@ fun CanvasView(
                 
                 // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
+
+                // Magic-wand tap flash: instant feedback ring in document
+                // space (scaled into bitmap space like the preview path)
+                wandFlash?.let { wf ->
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.85f),
+                        radius = 6.dp.toPx(),
+                        center = Offset(wf.x * scX - image.width / 2f, wf.y * scY - image.height / 2f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
+                    )
+                }
 
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null || liveSelectionPath != null) {

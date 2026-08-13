@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QBuffer>
+#include <QElapsedTimer>
 
 #include <brushengine/kis_paintop_preset.h>
 #include <brushengine/kis_paintop_registry.h>
@@ -3303,12 +3304,15 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     // Krita magic-wand semantics: match against the visible composite
     // (projection), not a single layer's raw pixels
     KisPaintDeviceSP device = image->projection();
+    QElapsedTimer wt;
+    wt.start();
     image->waitForDone();
     // Tile-chunk projection read: KisPaintDevice is internally tiled
     // (256x256 tiles) and Krita's fill jobs read at tile granularity too.
     // Reading the projection in 256-row chunks is one readBytes call per
     // chunk (8 calls on 1080x1920) instead of per row (1920 calls), which
     // dominated the magic-wand cost on full-document selections
+    const qint64 tWaitMs = wt.elapsed();
     QVector<quint8> bytes(size_t(iw) * ih * 4, 0);
     const int chunkH = 256;
     QVector<quint8> chunkReady(size_t((ih + chunkH - 1) / chunkH), 0);
@@ -3326,6 +3330,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         device->readBytes(bytes.data() + size_t(ty) * iw * 4, 0, ty, iw, h);
     };
     ensureChunk(y);
+    const qint64 tReadMs = wt.elapsed();
     const int tolSq = tolerance * tolerance;
 
     // Direct byte access (readBytes is B,G,R,A for the RGB8 space): avoids
@@ -3343,6 +3348,8 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     const int start = y * iw + x;
     mask[start] = 255;
     size_t visited = 1;
+    const qint64 tFillStart = wt.elapsed();
+    RPC_LOG("RPC wandT wait=%lldms read=%lldms", long(tWaitMs), long(tFillStart - tReadMs));
     auto rowMatch = [&](int ry, int rx) -> bool {
         const int o = (ry * iw + rx) * 4;
         const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
@@ -3400,15 +3407,18 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             }
         }
     }
+    const qint64 tFillMs = wt.elapsed();
     if (visited == size_t(iw) * ih) {
         this->setSelection(selectionFromMask(image, mask, true));
         pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
         markDirty();
+        RPC_LOG("RPC wandT fill=%lldms fullSel", long(tFillMs));
         return;
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
+    RPC_LOG("RPC wandT fill=%lldms visited=%zu", long(tFillMs), visited);
 }
 
 void ReverieCore::selectSimilarAt(int x, int y, int tolerance)

@@ -1295,7 +1295,12 @@ class PaintViewModel : ViewModel() {
     fun selectContiguous(x: Int, y: Int) {
         val tol = selectionTolerance
         var ov: android.graphics.Bitmap? = null
+        val t0 = System.nanoTime()
         runCore(render = false, after = {
+            android.util.Log.d(
+                "ReverieSel",
+                "wand total=${(System.nanoTime() - t0) / 1_000_000}ms (queued=${hQueued()})",
+            )
             selectionOverlayBitmap = ov
             hasSelection = ov != null
         }) {
@@ -1307,7 +1312,12 @@ class PaintViewModel : ViewModel() {
     fun selectSimilar(x: Int, y: Int) {
         val tol = selectionTolerance
         var ov: android.graphics.Bitmap? = null
+        val t0 = System.nanoTime()
         runCore(render = false, after = {
+            android.util.Log.d(
+                "ReverieSel",
+                "similar total=${(System.nanoTime() - t0) / 1_000_000}ms",
+            )
             selectionOverlayBitmap = ov
             hasSelection = ov != null
         }) {
@@ -1315,6 +1325,9 @@ class PaintViewModel : ViewModel() {
             ov = buildSelectionOverlayLocked()
         }
     }
+
+    /** Approximate backlog of the render thread (diagnostics). */
+    private fun hQueued(): Int = if (renderHandler?.hasMessages(0) == true) 1 else 0
 
     fun lassoFill(points: List<Pair<Int, Int>>) {
         val xs = points.map { it.first }.toIntArray()
