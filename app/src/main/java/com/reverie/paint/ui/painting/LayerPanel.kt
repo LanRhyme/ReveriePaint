@@ -800,7 +800,6 @@ private fun LayerRow(
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         animateColorAsState(
                             targetValue =
@@ -892,7 +891,7 @@ private fun LayerRowContent(
         Box(
             modifier =
                 Modifier
-                    .size(28.dp)
+                    .size(24.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.7f))
                     .noRippleClickable { vm.toggleLayerVisible(index) },
