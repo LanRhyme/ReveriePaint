@@ -3314,55 +3314,69 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     const int sG = bytes[size_t(y * iw + x) * 4 + 1];
     const int sB = bytes[size_t(y * iw + x) * 4];
 
-    // BFS flood fill with color tolerance (Krita's contiguous selection)
+    // Scanline flood fill with color tolerance (Krita's contiguous
+    // selection): process whole contiguous row segments per visit instead of
+    // per-pixel 4-direction expansion - dramatically fewer comparisons on
+    // uniform regions (e.g. a wand tap on a white background selects the
+    // entire document in ~one pass per row)
     QVector<quint8> mask(size_t(iw) * ih, 0);
-    QVector<int> queue;
-    queue.reserve(iw * ih / 4);
     const int start = y * iw + x;
     mask[start] = 255;
     size_t visited = 1;
-    queue.append(start);
-    size_t head = 0;
-    while (head < queue.size()) {
-        const int cur = queue[head++];
-        const int cx = cur % iw;
-        const int cy = cur / iw;
-        // Neighbours can live on the row above/below, so those rows must be
-        // loaded before their pixels are compared - otherwise unloaded rows
-        // read back as zeros and the BFS cannot expand vertically
-        ensureRow(cy);
-        ensureRow(cy - 1);
-        ensureRow(cy + 1);
-        if (cx > 0) {
-            const int n = cur - 1;
-            if (!mask[n]) {
-                const int o = (n * 4);
-                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
+    auto rowMatch = [&](int ry, int rx) -> bool {
+        const int o = (ry * iw + rx) * 4;
+        const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+        return dr * dr + dg * dg + db * db <= tolSq;
+    };
+    QVector<QPoint> segStack;
+    segStack.reserve(1024);
+    segStack.append(QPoint(x, y));
+    while (!segStack.isEmpty()) {
+        const QPoint seg = segStack.takeLast();
+        const int sy = seg.y();
+        ensureRow(sy);
+        int xl = seg.x();
+        while (xl > 0 && !mask[size_t(sy) * iw + xl - 1] && rowMatch(sy, xl - 1)) {
+            --xl;
+        }
+        int xr = seg.x();
+        while (xr + 1 < iw && !mask[size_t(sy) * iw + xr + 1] && rowMatch(sy, xr + 1)) {
+            ++xr;
+        }
+        for (int i = xl; i <= xr; ++i) {
+            const size_t idx = size_t(sy) * iw + i;
+            if (!mask[idx]) {
+                mask[idx] = 255;
+                ++visited;
             }
         }
-        if (cx + 1 < iw) {
-            const int n = cur + 1;
-            if (!mask[n]) {
-                const int o = (n * 4);
-                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
+        // Expand up/down: push the left edge of each unvisited matching
+        // segment overlapping [xl, xr] (segments may extend beyond xr)
+        for (int d = -1; d <= 1; d += 2) {
+            const int ny = sy + d;
+            if (ny < 0 || ny >= ih) {
+                continue;
             }
-        }
-        if (cy > 0) {
-            const int n = cur - iw;
-            if (!mask[n]) {
-                const int o = (n * 4);
-                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
-            }
-        }
-        if (cy + 1 < ih) {
-            const int n = cur + iw;
-            if (!mask[n]) {
-                const int o = (n * 4);
-                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); ++visited; }
+            ensureRow(ny);
+            int i = xl;
+            while (i <= xr) {
+                while (i <= xr &&
+                       (mask[size_t(ny) * iw + i] || !rowMatch(ny, i))) {
+                    ++i;
+                }
+                if (i > xr) {
+                    break;
+                }
+                int sx = i;
+                while (sx > 0 &&
+                       !mask[size_t(ny) * iw + sx - 1] &&
+                       rowMatch(ny, sx - 1)) {
+                    --sx;
+                }
+                segStack.append(QPoint(sx, ny));
+                while (i < iw && !mask[size_t(ny) * iw + i] && rowMatch(ny, i)) {
+                    ++i;
+                }
             }
         }
     }
