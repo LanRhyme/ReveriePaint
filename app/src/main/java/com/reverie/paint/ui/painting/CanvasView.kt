@@ -64,6 +64,9 @@ fun CanvasView(
     val latestPanY by rememberUpdatedState(panY)
     val latestFitScale by rememberUpdatedState(fitScale)
 
+    // Live selection preview path (updated while dragging a selection tool)
+    var liveSelectionPath by remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
+
     LaunchedEffect(bmp?.width, bmp?.height, viewW, viewH) {
         if (bmp != null && viewW > 0 && viewH > 0) {
             onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height) * 0.88f)
@@ -263,6 +266,53 @@ fun CanvasView(
                                             shapeEnd = imagePos
                                         }
 
+                                        // Selection tools: live path preview
+                                        tool == Tool.SELECT_RECT ||
+                                            tool == Tool.SELECT_ELLIPSE ||
+                                            tool == Tool.SELECT_POLYGON ||
+                                            tool == Tool.LASSO ||
+                                            tool == Tool.SELECT_MAGNETIC -> {
+                                            val pth = androidx.compose.ui.graphics.Path()
+                                            when (tool) {
+                                                Tool.SELECT_RECT -> {
+                                                    pth.addRect(
+                                                        androidx.compose.ui.geometry.Rect(
+                                                            minOf(firstImage.x, imagePos.x),
+                                                            minOf(firstImage.y, imagePos.y),
+                                                            maxOf(firstImage.x, imagePos.x),
+                                                            maxOf(firstImage.y, imagePos.y),
+                                                        )
+                                                    )
+                                                }
+
+                                                Tool.SELECT_ELLIPSE -> {
+                                                    pth.addOval(
+                                                        androidx.compose.ui.geometry.Rect(
+                                                            minOf(firstImage.x, imagePos.x),
+                                                            minOf(firstImage.y, imagePos.y),
+                                                            maxOf(firstImage.x, imagePos.x),
+                                                            maxOf(firstImage.y, imagePos.y),
+                                                        )
+                                                    )
+                                                }
+
+                                                else -> {
+                                                    val pts = lassoPoints + imagePos
+                                                    if (pts.isNotEmpty()) {
+                                                        pth.moveTo(pts[0].x, pts[0].y)
+                                                        for (i in 1 until pts.size) {
+                                                            pth.lineTo(pts[i].x, pts[i].y)
+                                                        }
+                                                        pth.close()
+                                                    }
+                                                }
+                                            }
+                                            liveSelectionPath = pth
+                                            if (lassoPoints.lastOrNull() != imagePos) {
+                                                lassoPoints += imagePos
+                                            }
+                                        }
+
                                         trackShapeTool || trackSelectTool ||
                                             tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (lassoPoints.lastOrNull() != imagePos) lassoPoints += imagePos
@@ -309,6 +359,7 @@ fun CanvasView(
                             }
                         }
 
+                        liveSelectionPath = null
                         if (!transformStarted) {
                             when {
                                 shapeTool -> {
@@ -424,13 +475,27 @@ fun CanvasView(
                 // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
 
-                // Active selection overlay (semi-transparent tint so the user
-                // sees exactly which pixels are selected)
+                // Active selection overlay: white alpha mask tinted with the
+                // theme accent (Krita-style marching-ants equivalent)
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null) {
                     drawImage(
                         selBmp,
                         topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                        colorFilter =
+                            androidx.compose.ui.graphics.ColorFilter.tint(
+                                Morandi.accent.copy(alpha = 0.35f),
+                            ),
+                    )
+                }
+
+                // Live selection preview while dragging a selection tool:
+                // the in-progress shape is tinted in real time before the
+                // finger lifts and the C++ selection is created
+                liveSelectionPath?.let { livePath ->
+                    drawPath(
+                        livePath,
+                        Morandi.accent.copy(alpha = 0.35f),
                     )
                 }
             }

@@ -327,6 +327,109 @@ KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
                                         const QVector<quint8> &mask);
+static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
+                                 const QVector<quint8> &mask, int selMode);
+
+// Morphological dilation: selected pixels spread out by 'radius' pixels
+static void dilateMask(QVector<quint8> &mask, int w, int h, int radius)
+{
+    QVector<quint8> out = mask;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (mask[size_t(y) * w + x]) {
+                const int x0 = qMax(0, x - radius), x1 = qMin(w - 1, x + radius);
+                const int y0 = qMax(0, y - radius), y1 = qMin(h - 1, y + radius);
+                for (int yy = y0; yy <= y1; ++yy) {
+                    for (int xx = x0; xx <= x1; ++xx) {
+                        out[size_t(yy) * w + xx] = 255;
+                    }
+                }
+            }
+        }
+    }
+    mask = out;
+}
+
+// Morphological erosion: deselect pixels within 'radius' of an unselected pixel
+static void erodeMask(QVector<quint8> &mask, int w, int h, int radius)
+{
+    QVector<quint8> out = mask;
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (!mask[size_t(y) * w + x]) {
+                const int x0 = qMax(0, x - radius), x1 = qMin(w - 1, x + radius);
+                const int y0 = qMax(0, y - radius), y1 = qMin(h - 1, y + radius);
+                for (int yy = y0; yy <= y1; ++yy) {
+                    for (int xx = x0; xx <= x1; ++xx) {
+                        out[size_t(yy) * w + xx] = 0;
+                    }
+                }
+            }
+        }
+    }
+    mask = out;
+}
+
+// Approximate Gaussian feather via repeated box blurs (radius iterations)
+static void blurMask(QVector<quint8> &mask, int w, int h, int radius)
+{
+    QVector<quint8> tmp = mask;
+    for (int pass = 0; pass < qMax(1, radius); ++pass) {
+        // horizontal blur
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int sum = 0, cnt = 0;
+                for (int xx = qMax(0, x - 1); xx <= qMin(w - 1, x + 1); ++xx) {
+                    sum += mask[size_t(y) * w + xx];
+                    ++cnt;
+                }
+                tmp[size_t(y) * w + x] = quint8(sum / cnt);
+            }
+        }
+        mask = tmp;
+        // vertical blur
+        for (int x = 0; x < w; ++x) {
+            for (int y = 0; y < h; ++y) {
+                int sum = 0, cnt = 0;
+                for (int yy = qMax(0, y - 1); yy <= qMin(h - 1, y + 1); ++yy) {
+                    sum += mask[size_t(yy) * w + x];
+                    ++cnt;
+                }
+                tmp[size_t(y) * w + x] = quint8(sum / cnt);
+            }
+        }
+        mask = tmp;
+    }
+}
+
+// Merge a freshly created selection mask into the existing one according to
+// the selection mode (replace / add / subtract / intersect)
+static QVector<quint8> combineSelectionMasks(const QVector<quint8> &existing,
+                                             const QVector<quint8> &added,
+                                             int mode)
+{
+    const int n = existing.size();
+    QVector<quint8> out(n, 0);
+    for (int i = 0; i < n; ++i) {
+        const bool a = existing[i] > 127;
+        const bool b = added[i] > 127;
+        switch (mode) {
+        case ReverieCore::SelAdd:
+            out[i] = (a || b) ? 255 : 0;
+            break;
+        case ReverieCore::SelSubtract:
+            out[i] = (a && !b) ? 255 : 0;
+            break;
+        case ReverieCore::SelIntersect:
+            out[i] = (a && b) ? 255 : 0;
+            break;
+        default:
+            out[i] = added[i];
+            break;
+        }
+    }
+    return out;
+}
 
 static QString defaultPaintLayerName(const QVector<ReverieCore::LayerEntry> &layers)
 {
@@ -1134,6 +1237,83 @@ void ReverieCore::invertSelection()
             mask[i] = 1;
         }
     }
+    setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    markDirty();
+}
+
+KisPixelSelectionSP ReverieCore::currentSelectionPixelSelection() const
+{
+    return m_selection ? m_selection->pixelSelection() : KisPixelSelectionSP();
+}
+
+void ReverieCore::setSelection(KisSelectionSP sel)
+{
+    m_selection = sel;
+    markDirty();
+}
+
+void ReverieCore::featherSelection(int radius)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || radius <= 0) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    ps->readBytes(mask.data(), 0, 0, iw, ih);
+    blurMask(mask, iw, ih, radius);
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
+void ReverieCore::expandSelection(int px)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || px <= 0) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    ps->readBytes(mask.data(), 0, 0, iw, ih);
+    dilateMask(mask, iw, ih, px);
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
+void ReverieCore::contractSelection(int px)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || px <= 0) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    ps->readBytes(mask.data(), 0, 0, iw, ih);
+    erodeMask(mask, iw, ih, px);
+    m_selection = selectionFromMask(image, mask);
+    markDirty();
+}
+
+void ReverieCore::smoothSelection(int radius)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || radius <= 0) {
+        return;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    QVector<quint8> mask(size_t(iw) * ih, 0);
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    ps->readBytes(mask.data(), 0, 0, iw, ih);
+    // Close then open: erosion clears specks, dilation restores the bulk
+    erodeMask(mask, iw, ih, radius);
+    dilateMask(mask, iw, ih, radius);
     m_selection = selectionFromMask(image, mask);
     markDirty();
 }
@@ -2610,6 +2790,28 @@ static int colorDistance(const QRgb &a, const QRgb &b)
 }
 
 // Build a selection from a boolean mask (BFS / global scan results).
+// Install a new selection from a mask, honouring the current merge mode
+static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
+                                 const QVector<quint8> &mask,
+                                 int selMode)
+{
+    QVector<quint8> finalMask = mask;
+    if (selMode != ReverieCore::SelReplace && core->hasSelection()) {
+        QVector<quint8> existing(size_t(image->width()) * image->height(), 0);
+        KisPixelSelectionSP ps = core->currentSelectionPixelSelection();
+        if (ps) {
+            ps->readBytes(existing.data(), 0, 0, image->width(), image->height());
+        }
+        finalMask = combineSelectionMasks(existing, mask, selMode);
+    }
+    KisSelectionSP sel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    KisPixelSelectionSP nps = sel->pixelSelection();
+    nps->writeBytes(finalMask.constData(), 0, 0, image->width(), image->height());
+    core->setSelection(sel);
+}
+
 static KisSelectionSP selectionFromMask(const KisImageSP &image,
                                         const QVector<quint8> &mask)
 {
@@ -2692,7 +2894,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (!mask[n] && colorDistance(pxAt(cx, cy + 1), seed) <= tolSq) { mask[n] = 1; queue.append(n); }
         }
     }
-    m_selection = selectionFromMask(image, mask);
+    setSelectionFromMask(this, image, mask, int(m_selectionMode));
     markDirty();
 }
 
@@ -2729,7 +2931,7 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
             }
         }
     }
-    m_selection = selectionFromMask(image, mask);
+    setSelectionFromMask(this, image, mask, int(m_selectionMode));
     markDirty();
 }
 
@@ -2883,7 +3085,7 @@ void ReverieCore::lassoSelect(const QVector<QPoint> &points)
             }
         }
     }
-    m_selection = selectionFromMask(image, selMask);
+    setSelectionFromMask(this, image, selMask, int(m_selectionMode));
     markDirty();
 }
 

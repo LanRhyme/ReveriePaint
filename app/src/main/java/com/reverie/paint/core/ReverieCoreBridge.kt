@@ -331,5 +331,17 @@ object ReverieCoreBridge {
 
     external fun invertSelection()
 
+    external fun setSelectionMode(mode: Int)
+
+    external fun selectionMode(): Int
+
+    external fun featherSelection(radius: Int)
+
+    external fun expandSelection(px: Int)
+
+    external fun contractSelection(px: Int)
+
+    external fun smoothSelection(radius: Int)
+
     external fun clearSelection()
 }

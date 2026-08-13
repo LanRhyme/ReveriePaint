@@ -98,6 +98,17 @@ public:
     void clearSelection();
     void selectAll();
     void invertSelection();
+    // Selection merge mode: 0=replace, 1=add, 2=subtract, 3=intersect
+    enum SelMode { SelReplace, SelAdd, SelSubtract, SelIntersect };
+    void setSelectionMode(int mode) { m_selectionMode = SelMode(mode); }
+    int selectionMode() const { return int(m_selectionMode); }
+    void featherSelection(int radius);
+    void expandSelection(int px);
+    void contractSelection(int px);
+    void smoothSelection(int radius);
+    // Internal helpers used by file-scope selection functions
+    KisPixelSelectionSP currentSelectionPixelSelection() const;
+    void setSelection(KisSelectionSP sel);
     // Export the selection mask (1 byte per pixel, 0/255) for the UI overlay
     QByteArray selectionMask() const;
 
@@ -275,6 +286,7 @@ private:
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
+    SelMode m_selectionMode = SelReplace;
     int m_soloedLayer = -1;          // currently soloed layer, -1 if none
 
     // Brush state

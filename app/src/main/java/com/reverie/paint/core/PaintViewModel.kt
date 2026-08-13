@@ -844,10 +844,10 @@ class PaintViewModel : ViewModel() {
                 val bmp = android.graphics.Bitmap.createBitmap(
                     docW, docH, android.graphics.Bitmap.Config.ARGB_8888
                 )
+                // White alpha mask; CanvasView tints it with the theme accent
                 val px = IntArray(mask.size)
-                val selColor = 0x4D1E88E5.toInt()  // ~30% blue (marching-ants tint)
                 for (i in mask.indices) {
-                    px[i] = if (mask[i].toInt() != 0) selColor else 0
+                    px[i] = if (mask[i].toInt() != 0) 0xFFFFFFFF.toInt() else 0
                 }
                 bmp.setPixels(px, 0, docW, 0, 0, docW, docH)
                 selectionOverlayBitmap = bmp
@@ -857,6 +857,38 @@ class PaintViewModel : ViewModel() {
         }) {
             // read on the render thread
             ReverieCoreBridge.selectionMask()
+        }
+    }
+
+    // ---- Selection mode (replace/add/subtract/intersect) ----
+    var selectionMode by mutableStateOf(0)
+
+    fun updateSelectionMode(mode: Int) {
+        selectionMode = mode
+        runCore { ReverieCoreBridge.setSelectionMode(mode) }
+    }
+
+    fun featherSelection(radius: Int) {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.featherSelection(radius)
+        }
+    }
+
+    fun expandSelection(px: Int) {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.expandSelection(px)
+        }
+    }
+
+    fun contractSelection(px: Int) {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.contractSelection(px)
+        }
+    }
+
+    fun smoothSelection(radius: Int) {
+        runCore(after = { refreshSelection() }) {
+            ReverieCoreBridge.smoothSelection(radius)
         }
     }
 

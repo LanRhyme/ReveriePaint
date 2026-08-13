@@ -787,6 +787,42 @@ Java_com_reverie_paint_core_ReverieCoreBridge_invertSelection(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setSelectionMode(JNIEnv *, jobject, jint mode)
+{
+    core()->setSelectionMode(mode);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectionMode(JNIEnv *, jobject)
+{
+    return core()->selectionMode();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_featherSelection(JNIEnv *, jobject, jint radius)
+{
+    core()->featherSelection(radius);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_expandSelection(JNIEnv *, jobject, jint px)
+{
+    core()->expandSelection(px);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_contractSelection(JNIEnv *, jobject, jint px)
+{
+    core()->contractSelection(px);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_smoothSelection(JNIEnv *, jobject, jint radius)
+{
+    core()->smoothSelection(radius);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_clearSelection(JNIEnv *, jobject)
 {
     core()->clearSelection();

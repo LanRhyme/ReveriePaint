@@ -11,11 +11,14 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import com.reverie.paint.ui.components.ReSlider
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -97,6 +100,8 @@ fun PaintingPage(vm: PaintViewModel) {
     var tool by remember { mutableStateOf(Tool.BRUSH) }
     var moreToolsOpen by remember { mutableStateOf(false) }
     var selectionMenuOpen by remember { mutableStateOf(false) }
+    var selectionPanelOpen by remember { mutableStateOf(false) }
+    var selectionPropsOpen by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
@@ -225,6 +230,20 @@ fun PaintingPage(vm: PaintViewModel) {
             onOpenBrush = { brushPanelOpen = true },
             onOpenColor = { colorPanelOpen = true },
         )
+
+        // ---- Floating selection panel (Procreate / Krita style) ----
+        // Shown when a selection exists or a selection tool is active
+        if (selectionPanelOpen || vm.hasSelection) {
+            SelectionFloatPanel(
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 100.dp),
+                vm = vm,
+                propsOpen = selectionPropsOpen,
+                onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
+            )
+        }
 
         // ---- Transform indicator (bottom-center, 画世界 Pro style) ----
         if (showIndicator) {
@@ -373,5 +392,117 @@ private fun SelectionMenuItem(
             color = if (danger) Color(0xFFB05552) else Morandi.text,
             fontSize = 13.sp,
         )
+    }
+}
+
+// Floating selection panel: merge mode, quick actions and advanced props.
+// Mirrors Krita's selection tool options and Procreate's selection menu.
+@Composable
+private fun SelectionFloatPanel(
+    modifier: Modifier = Modifier,
+    vm: PaintViewModel,
+    propsOpen: Boolean,
+    onToggleProps: () -> Unit,
+) {
+    val modes =
+        listOf(
+            0 to "替换",
+            1 to "加",
+            2 to "减",
+            3 to "相交",
+        )
+    Column(
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Morandi.panelHi.copy(alpha = 0.94f))
+                .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Row 1: merge mode selector
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            modes.forEach { (mode, label) ->
+                val selected = vm.selectionMode == mode
+                Box(
+                    modifier =
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) Morandi.accent else Morandi.panel)
+                            .noRippleClickable { vm.updateSelectionMode(mode) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        label,
+                        color = if (selected) Morandi.onAccent else Morandi.text,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+        // Row 2: quick actions
+        Row(
+            modifier = Modifier.padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            SelectionActionChip("全选") { vm.selectAllAction() }
+            SelectionActionChip("反选") { vm.invertSelectionAction() }
+            SelectionActionChip("清除", danger = true) { vm.clearSelectionAction() }
+            SelectionActionChip(if (propsOpen) "收起" else "属性") { onToggleProps() }
+        }
+        // Row 3: advanced props (feather / expand / contract / smooth)
+        if (propsOpen) {
+            SelectionPropSlider("羽化", 0..32) { vm.featherSelection(it) }
+            SelectionPropSlider("扩展", 0..64) { vm.expandSelection(it) }
+            SelectionPropSlider("收缩", 0..64) { vm.contractSelection(it) }
+            SelectionPropSlider("平滑", 1..16) { vm.smoothSelection(it) }
+        }
+    }
+}
+
+@Composable
+private fun SelectionActionChip(
+    label: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (danger) Color(0x33B05552) else Morandi.panel)
+                .noRippleClickable { onClick() }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            label,
+            color = if (danger) Color(0xFFB05552) else Morandi.text,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun SelectionPropSlider(
+    label: String,
+    range: IntRange,
+    onApply: (Int) -> Unit,
+) {
+    var value by remember { mutableStateOf(range.last / 2) }
+    Row(
+        modifier = Modifier.padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(label, color = Morandi.subText, fontSize = 11.sp)
+        ReSlider(
+            value = (value - range.first).toFloat() / (range.last - range.first),
+            onValue = {
+                value = range.first + (it * (range.last - range.first)).toInt()
+            },
+            modifier = Modifier.width(110.dp),
+        )
+        Text("${value}px", color = Morandi.text, fontSize = 11.sp)
+        SelectionActionChip("应用") { onApply(value) }
     }
 }
