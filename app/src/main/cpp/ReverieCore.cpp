@@ -1874,6 +1874,14 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     image->waitForDone();
     const int iw = image->width();
     const int ih = image->height();
+    static int s_lastIw = -1;
+    static int s_lastIh = -1;
+    if (iw != s_lastIw || ih != s_lastIh) {
+        RPC_LOG("RPC renderToBuffer doc=%dx%d buf=%dx%d (size changed %dx%d -> %dx%d)",
+                iw, ih, w, h, s_lastIw, s_lastIh, iw, ih);
+        s_lastIw = iw;
+        s_lastIh = ih;
+    }
     if (m_displayImage.isNull() || m_displayImage.size() != QSize(iw, ih)) {
         // New document (or resized): full redraw
         m_displayImage = QImage(iw, ih, QImage::Format_RGBA8888);
@@ -1907,6 +1915,8 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     // convertToQImage handles the color-space/byte-order conversion.
     if (m_drawing && m_strokeBuffer) {
         const QRect ext = m_strokeBuffer->exactBounds();
+        RPC_LOG("RPC preview ext=(%d,%d %dx%d) iw=%d ih=%d",
+                ext.x(), ext.y(), ext.width(), ext.height(), iw, ih);
         if (!ext.isEmpty()) {
             const QRect cr = ext.intersected(QRect(0, 0, iw, ih));
             if (!cr.isEmpty()) {

@@ -112,8 +112,16 @@ fun PaintingPage(vm: PaintViewModel) {
                 panX = panX,
                 panY = panY,
                 fitScale = fitScale,
-                onFitScale = { fitScale = it },
+                onFitScale = {
+                    if (it != fitScale) {
+                        android.util.Log.d("ReveriePaint", "fitScale $fitScale -> $it")
+                    }
+                    fitScale = it
+                },
                 onTransform = { z, r, px, py ->
+                    if (z != zoom) {
+                        android.util.Log.d("ReveriePaint", "zoom $zoom -> $z")
+                    }
                     zoom = z
                     rotation = r
                     panX = px

@@ -179,11 +179,21 @@ class PaintViewModel : ViewModel() {
             ReverieCoreBridge.renderToBuffer(src)
         }
         mainHandler.post {
+            // Publish buffers must also resize when the document size
+            // changes (canvas preset switch / project load): a stale-sized
+            // buffer made displayBitmap mismatch the document and the canvas
+            // visibly changed size.
             val pub: Bitmap =
                 if (publishFlip) {
-                    publishA ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { publishA = it }
+                    if (publishA == null || publishA!!.width != w || publishA!!.height != h) {
+                        publishA = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    }
+                    publishA!!
                 } else {
-                    publishB ?: Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { publishB = it }
+                    if (publishB == null || publishB!!.width != w || publishB!!.height != h) {
+                        publishB = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    }
+                    publishB!!
                 }
             publishFlip = !publishFlip
             synchronized(renderLock) {
@@ -350,19 +360,28 @@ class PaintViewModel : ViewModel() {
             android.util.Log.e("ReveriePaint", "preset copy failed", e)
         }
         android.util.Log.d("ReveriePaint", "loadBrushPresets files=" + (dir.list()?.size ?: -1))
-        runCore {
+        // Build the list on the render thread (JNI reads), but assign the
+        // Compose state on the MAIN thread: mutableStateOf written from the
+        // render HandlerThread is not reliably visible to composition.
+        val list = ArrayList<BrushPresetInfo>()
+        runCore(after = {
+            android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
+            brushPresets = list.toList()
+        }) {
             android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
             val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
             android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
-            val list = (0 until n).map { i ->
-                BrushPresetInfo(
-                    index = i,
-                    name = ReverieCoreBridge.brushPresetName(i),
-                    thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+            list.clear()
+            for (i in 0 until n) {
+                list.add(
+                    BrushPresetInfo(
+                        index = i,
+                        name = ReverieCoreBridge.brushPresetName(i),
+                        thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+                    )
                 )
             }
             android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
-            brushPresets = list
         }
     }
 
