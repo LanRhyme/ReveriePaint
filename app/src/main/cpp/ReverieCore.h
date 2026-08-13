@@ -116,6 +116,10 @@ public:
     // Export the selection mask (1 byte per pixel, 0/255) for the UI overlay
     QByteArray selectionMask() const;
 
+    /** Selection mask downsampled to the viewport (ARGB 0xFFFFFFFF / 0
+     *  per pixel), built on the render thread for the overlay. */
+    QVector<quint32> selectionOverlayScaled(int vw, int vh) const;
+
     // Tool mode: the complete Krita tool set. Brush-family modes drive the
     // stroke composite (eraser -> erase even with a plain brush preset);
     // the others are dispatched from Kotlin/Compose with their own logic.

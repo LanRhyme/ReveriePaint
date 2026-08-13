@@ -330,6 +330,8 @@ object ReverieCoreBridge {
 
     external fun selectionMask(): ByteArray
 
+    external fun selectionOverlayScaled(vw: Int, vh: Int): IntArray?
+
     external fun selectAll()
 
     external fun invertSelection()

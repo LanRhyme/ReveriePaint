@@ -1104,36 +1104,13 @@ class PaintViewModel : ViewModel() {
      *  called inside a runCore op). The full-document mask is downsampled to
      *  the viewport size so it matches the canvas bitmap 1:1. */
     private fun buildSelectionOverlayLocked(): android.graphics.Bitmap? {
-        val mask = ReverieCoreBridge.selectionMask()
-        val docW = coreW
-        val docH = coreH
-        if (mask == null || docW <= 0 || docH <= 0 || mask.size != docW * docH) {
-            return null
-        }
-        var any = false
-        for (i in mask.indices) {
-            if (mask[i].toInt() != 0) {
-                any = true
-                break
-            }
-        }
-        if (!any) return null
-        // White alpha mask; CanvasView tints it with the theme accent
+        // The C++ side samples the selection mask at the viewport stride and
+        // returns the ARGB overlay pixels directly - one JNI round trip
+        // instead of a full-document mask readBytes plus a 2M-pixel scan here
         val vw = maxOf(1, renderW)
         val vh = maxOf(1, renderH)
+        val px = ReverieCoreBridge.selectionOverlayScaled(vw, vh) ?: return null
         val bmp = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
-        val px = IntArray(vw * vh)
-        val stepX = docW.toFloat() / vw
-        val stepY = docH.toFloat() / vh
-        for (y in 0 until vh) {
-            val srcY = minOf(docH - 1, (y * stepY).toInt())
-            val rowOff = srcY * docW
-            val dstOff = y * vw
-            for (x in 0 until vw) {
-                val srcX = minOf(docW - 1, (x * stepX).toInt())
-                px[dstOff + x] = if (mask[rowOff + srcX].toInt() != 0) 0xFFFFFFFF.toInt() else 0
-            }
-        }
         bmp.setPixels(px, 0, vw, 0, 0, vw, vh)
         return bmp
     }

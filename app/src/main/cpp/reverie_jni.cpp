@@ -795,6 +795,21 @@ Java_com_reverie_paint_core_ReverieCoreBridge_selectionMask(JNIEnv *env, jobject
     return arr;
 }
 
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectionOverlayScaled(JNIEnv *env, jobject, jint vw, jint vh)
+{
+    const QVector<quint32> px = core()->selectionOverlayScaled(vw, vh);
+    if (px.isEmpty()) {
+        return nullptr;
+    }
+    jintArray arr = env->NewIntArray(px.size());
+    if (!arr) {
+        return nullptr;
+    }
+    env->SetIntArrayRegion(arr, 0, px.size(), reinterpret_cast<const jint *>(px.constData()));
+    return arr;
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_selectAll(JNIEnv *, jobject)
 {

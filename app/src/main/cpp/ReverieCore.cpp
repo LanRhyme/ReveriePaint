@@ -1576,6 +1576,49 @@ QByteArray ReverieCore::selectionMask() const
     return mask;
 }
 
+QVector<quint32> ReverieCore::selectionOverlayScaled(int vw, int vh) const
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection) {
+        return {};
+    }
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    if (!ps) {
+        return {};
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    vw = qMax(1, vw);
+    vh = qMax(1, vh);
+    // Sample the selection mask at the viewport stride: reading only the
+    // needed rows/columns avoids the full-document mask readBytes that made
+    // the overlay refresh slow (Krita renders the selection outline on the
+    // canvas device at the current zoom; this is the equivalent here)
+    QVector<quint32> out(size_t(vw) * vh, 0);
+    QVector<quint8> row;
+    row.resize(int(iw));
+    const double stepY = double(ih) / vh;
+    const double stepX = double(iw) / vw;
+    bool any = false;
+    for (int y = 0; y < vh; ++y) {
+        const int srcY = qMin(ih - 1, int(y * stepY));
+        ps->readBytes(row.data(), 0, srcY, iw, 1);
+        const size_t dstOff = size_t(y) * vw;
+        for (int x = 0; x < vw; ++x) {
+            const int srcX = qMin(iw - 1, int(x * stepX));
+            if (row[size_t(srcX)] != 0) {
+                out[dstOff + x] = 0xFFFFFFFFu;
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        return {};
+    }
+    return out;
+}
+
+
 // ---------------------------------------------------------------------------
 // Painting
 // ---------------------------------------------------------------------------
@@ -3190,11 +3233,11 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     device->readBytes(bytes.data(), 0, 0, iw, ih);
     const int tolSq = tolerance * tolerance;
 
-    const auto pxAt = [&](int px, int py) -> QRgb {
-        const int o = (py * iw + px) * 4;
-        return qRgba(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
-    };
-    const QRgb seed = pxAt(x, y);
+    // Direct byte access (readBytes is B,G,R,A for the RGB8 space): avoids
+    // per-pixel qRgba/colorDistance call overhead on the 2M-pixel BFS
+    const int sR = bytes[size_t(y * iw + x) * 4 + 2];
+    const int sG = bytes[size_t(y * iw + x) * 4 + 1];
+    const int sB = bytes[size_t(y * iw + x) * 4];
 
     // BFS flood fill with color tolerance (Krita's contiguous selection)
     QVector<quint8> mask(size_t(iw) * ih, 0);
@@ -3210,19 +3253,35 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         const int cy = cur / iw;
         if (cx > 0) {
             const int n = cur - 1;
-            if (!mask[n] && colorDistance(pxAt(cx - 1, cy), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
+            if (!mask[n]) {
+                const int o = (n * 4);
+                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+            }
         }
         if (cx + 1 < iw) {
             const int n = cur + 1;
-            if (!mask[n] && colorDistance(pxAt(cx + 1, cy), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
+            if (!mask[n]) {
+                const int o = (n * 4);
+                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+            }
         }
         if (cy > 0) {
             const int n = cur - iw;
-            if (!mask[n] && colorDistance(pxAt(cx, cy - 1), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
+            if (!mask[n]) {
+                const int o = (n * 4);
+                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+            }
         }
         if (cy + 1 < ih) {
             const int n = cur + iw;
-            if (!mask[n] && colorDistance(pxAt(cx, cy + 1), seed) <= tolSq) { mask[n] = 255; queue.append(n); }
+            if (!mask[n]) {
+                const int o = (n * 4);
+                const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+                if (dr * dr + dg * dg + db * db <= tolSq) { mask[n] = 255; queue.append(n); }
+            }
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
@@ -3250,18 +3309,20 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
     device->readBytes(bytes.data(), 0, 0, iw, ih);
     const int tolSq = tolerance * tolerance;
     const int o0 = (y * iw + x) * 4;
-    const QRgb seed = qRgba(bytes[o0], bytes[o0 + 1], bytes[o0 + 2], bytes[o0 + 3]);
+    const int sR = bytes[o0 + 2];
+    const int sG = bytes[o0 + 1];
+    const int sB = bytes[o0];
 
     // Global scan: every pixel whose color is within tolerance (Krita's
-    // similar-color selection, not connected-region limited)
+    // similar-color selection, not connected-region limited). Direct byte
+    // access avoids per-pixel qRgba/colorDistance overhead.
     QVector<quint8> mask(size_t(iw) * ih, 0);
-    for (int py = 0; py < ih; ++py) {
-        for (int px = 0; px < iw; ++px) {
-            const int o = (py * iw + px) * 4;
-            const QRgb c = qRgba(bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]);
-            if (colorDistance(c, seed) <= tolSq) {
-                mask[size_t(py) * iw + px] = 255;
-            }
+    const size_t nPix = size_t(iw) * ih;
+    for (size_t i = 0; i < nPix; ++i) {
+        const int o = int(i * 4);
+        const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
+        if (dr * dr + dg * dg + db * db <= tolSq) {
+            mask[i] = 255;
         }
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
