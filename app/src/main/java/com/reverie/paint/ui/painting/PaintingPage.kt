@@ -120,6 +120,7 @@ fun PaintingPage(vm: PaintViewModel) {
             Tool.SELECT_MAGNETIC,
             Tool.LASSO,
             Tool.MAGICWAND,
+            Tool.SELECT_SIMILAR,
         )
 
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {

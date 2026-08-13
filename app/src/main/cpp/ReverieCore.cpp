@@ -3428,13 +3428,6 @@ QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to,
     if (rw < 3 || rh < 3) {
         return {from, to};
     }
-    const QPoint start(from - region.topLeft());
-    const QPoint goal(to - region.topLeft());
-    const int sIdx = start.y() * rw + start.x();
-    const int gIdx = goal.y() * rw + goal.x();
-    if (sIdx < 0 || gIdx < 0 || sIdx >= rw * rh || gIdx >= rw * rh) {
-        return {from, to};
-    }
 
     // Composite the current projection so the edges match what the user sees
     image->waitForDone();
@@ -3471,6 +3464,57 @@ QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to,
         for (int i = 0; i < rw * rh; ++i) {
             edge[i] = quint8(int(edge[i]) * 255 / gmax);
         }
+    }
+    // Widen the edge band with a 3x3 maximum filter so the path snaps onto
+    // edges even when the finger drifts a couple of pixels off them
+    QVector<quint8> edgeDil = edge;
+    for (int y = 1; y < rh - 1; ++y) {
+        for (int x = 1; x < rw - 1; ++x) {
+            quint8 mx = 0;
+            for (int dy = -1; dy <= 1; ++dy) {
+                for (int dx = -1; dx <= 1; ++dx) {
+                    mx = qMax(mx, edge[(y + dy) * rw + x + dx]);
+                }
+            }
+            edgeDil[y * rw + x] = mx;
+        }
+    }
+    edge = edgeDil;
+
+    // Snap the endpoints onto the nearest strong edge so the path hugs the
+    // edge band instead of wandering through uniform areas (Krita's worker
+    // effectively does the same: its graph only covers filtered edge tiles)
+    const auto snapToEdge = [&](QPoint pt) -> QPoint {
+        QPoint best = pt;
+        int bestD = std::numeric_limits<int>::max();
+        const int px = pt.x() - region.x();
+        const int py = pt.y() - region.y();
+        for (int dy = -r; dy <= r; ++dy) {
+            for (int dx = -r; dx <= r; ++dx) {
+                const int x = px + dx;
+                const int y = py + dy;
+                if (x < 0 || y < 0 || x >= rw || y >= rh) {
+                    continue;
+                }
+                if (edge[y * rw + x] > 128) {
+                    const int d = dx * dx + dy * dy;
+                    if (d < bestD) {
+                        bestD = d;
+                        best = QPoint(x + region.x(), y + region.y());
+                    }
+                }
+            }
+        }
+        return best;
+    };
+    const QPoint fromSnap = snapToEdge(from);
+    const QPoint toSnap = snapToEdge(to);
+    const QPoint start(fromSnap - region.topLeft());
+    const QPoint goal(toSnap - region.topLeft());
+    const int sIdx = start.y() * rw + start.x();
+    const int gIdx = goal.y() * rw + goal.x();
+    if (sIdx < 0 || gIdx < 0 || sIdx >= rw * rh || gIdx >= rw * rh) {
+        return {from, to};
     }
 
     // Dijkstra over the 8-neighbour graph; edge weight follows Krita:
@@ -3526,6 +3570,14 @@ QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to,
     }
     if (path.isEmpty()) {
         return {from, to};
+    }
+    // Keep the original finger position as the segment start (the snapped
+    // endpoint is inside the path); the next segment starts there too
+    if (fromSnap != from) {
+        path.prepend(from);
+    }
+    if (toSnap != to && !path.isEmpty() && path.last() != to) {
+        path.append(to);
     }
     return path;
 }

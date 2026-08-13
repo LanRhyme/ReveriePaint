@@ -168,21 +168,24 @@ fun CanvasView(
                         magneticPrev = null
                         liquifyPrevious = firstImage
 
+                        // One-shot tap tools (magic wand, similar, fill, text,
+                        // picker) must NOT fire on finger-down: a two-finger
+                        // zoom/pan starts with the first finger down, so firing
+                        // here would select/fill/eyedrop mid-transform. They
+                        // run on release (up) only when the gesture was a
+                        // genuine single-finger tap.
+                        var pendingTap: Offset? = null
                         when (tool) {
                             Tool.PICKER -> {
                                 pickerActive = true
                                 pickerScreenPos = down.position
                                 val refHex = vm.brushColor
                                 pickerInitialColor = parseColor(refHex)
-                                val hex = vm.pickColor(firstImage.x, firstImage.y)
-                                pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
+                                pendingTap = firstImage
                             }
-                            Tool.FILL -> vm.floodFill(firstImage.x, firstImage.y)
-                            Tool.TEXT -> onTextRequested(firstImage.x, firstImage.y)
-                            Tool.MAGICWAND ->
-                                vm.selectContiguous(firstImage.x.toInt(), firstImage.y.toInt())
-                            Tool.SELECT_SIMILAR ->
-                                vm.selectSimilar(firstImage.x.toInt(), firstImage.y.toInt())
+                            Tool.FILL, Tool.TEXT, Tool.MAGICWAND, Tool.SELECT_SIMILAR -> {
+                                pendingTap = firstImage
+                            }
                             else -> Unit
                         }
 
@@ -206,6 +209,7 @@ fun CanvasView(
                                 val angle = angleDegrees(a, b)
 
                                 if (!transformStarted) {
+                                    pendingTap = null
                                     if (strokeStarted) {
                                         vm.touchCancel()
                                         strokeStarted = false
@@ -264,6 +268,10 @@ fun CanvasView(
                             val point = pressed.first()
                             val delta = point.position - previousSinglePoint
                             previousSinglePoint = point.position
+                            // A real drag (not a tap) must not fire the tap tool
+                            if (pendingTap != null && hypot(delta.x, delta.y) > 8f) {
+                                pendingTap = null
+                            }
                             val imagePos =
                                 widgetToImage(
                                     point.position,
@@ -390,7 +398,7 @@ fun CanvasView(
                                                     vm.magneticLassoAsync(
                                                         prev.x.toInt(), prev.y.toInt(),
                                                         cur.x.toInt(), cur.y.toInt(),
-                                                        24,
+                                                        40,
                                                     ) { pts ->
                                                         if (pts.isNotEmpty()) {
                                                             for (p in pts) {
@@ -466,6 +474,22 @@ fun CanvasView(
                         // ready, so there is no blink between the preview and
                         // the committed selection
                         if (!transformStarted) {
+                            pendingTap?.let { tap ->
+                                when (tool) {
+                                    Tool.MAGICWAND ->
+                                        vm.selectContiguous(tap.x.toInt(), tap.y.toInt())
+                                    Tool.SELECT_SIMILAR ->
+                                        vm.selectSimilar(tap.x.toInt(), tap.y.toInt())
+                                    Tool.FILL -> vm.floodFill(tap.x, tap.y)
+                                    Tool.PICKER -> {
+                                        val hex = vm.pickColor(tap.x, tap.y)
+                                        pickerCurrentColor =
+                                            hex?.let { parseColor(it) } ?: pickerInitialColor
+                                    }
+                                    Tool.TEXT -> onTextRequested(tap.x, tap.y)
+                                    else -> Unit
+                                }
+                            }
                             when {
                                 shapeTool -> {
                                     val kind =
