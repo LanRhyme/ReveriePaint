@@ -252,13 +252,11 @@ object ReverieCoreBridge {
         fontSize: Double,
     )
 
-    external fun drawShape(
-        kind: Int,
-        x1: Int,
-        y1: Int,
-        x2: Int,
-        y2: Int,
-    )
+    external fun setShapeStrokeWidth(w: Double)
+
+    external fun setShapeFilled(f: Boolean)
+
+external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Boolean)
 
     external fun savePng(path: String): Boolean
 

@@ -56,6 +56,8 @@ fun CanvasView(
     onTextRequested: (x: Float, y: Float) -> Unit = { _, _ -> },
     tool: Tool,
     tfState: TransformState,
+    polyPoints: List<Offset> = emptyList(),
+    onPolyPoint: (Offset) -> Unit = {},
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -277,6 +279,11 @@ fun CanvasView(
                                     tfState.startTx = tfState.tx
                                     tfState.startTy = tfState.ty
                                 }
+                            }
+
+                            Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON -> {
+                                // Point-click: add a vertex on each tap
+                                onPolyPoint(firstImage)
                             }
 
                             Tool.PICKER -> {
@@ -548,7 +555,9 @@ fun CanvasView(
                                             }
                                         }
 
-                                        trackShapeTool || trackSelectTool ||
+                                        (trackShapeTool && tool != Tool.POLYGON &&
+                                            tool != Tool.POLYLINE && tool != Tool.PATH) ||
+                                            (trackSelectTool && tool != Tool.SELECT_POLYGON) ||
                                             tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (tool == Tool.SELECT_MAGNETIC) {
                                                 // Magnetic lasso: snap each segment to the
@@ -731,6 +740,12 @@ fun CanvasView(
                                     vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
                                 }
 
+                                // Point-click tools commit via the panel's
+                                // 完成 button (Krita polygon interaction)
+                                tool == Tool.POLYGON ||
+                                    tool == Tool.POLYLINE ||
+                                    tool == Tool.SELECT_POLYGON -> Unit
+
                                 trackShapeTool -> {
                                     val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
                                     if (points.size >= 2) {
@@ -851,6 +866,38 @@ fun CanvasView(
                         center = Offset(wf.x * scX - image.width / 2f, wf.y * scY - image.height / 2f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
                     )
+                }
+
+                // Point-click shape preview (polygon/polyline/select)
+                if (polyPoints.isNotEmpty() && (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON)) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val pth = androidx.compose.ui.graphics.Path()
+                    pth.moveTo(
+                        polyPoints[0].x * scX - image.width / 2f,
+                        polyPoints[0].y * scY - image.height / 2f,
+                    )
+                    for (i in 1 until polyPoints.size) {
+                        pth.lineTo(
+                            polyPoints[i].x * scX - image.width / 2f,
+                            polyPoints[i].y * scY - image.height / 2f,
+                        )
+                    }
+                    if (tool == Tool.POLYGON) {
+                        pth.close()
+                    }
+                    drawPath(
+                        pth,
+                        color = Color.White,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                    )
+                    polyPoints.forEach { pt ->
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.dp.toPx(),
+                            center = Offset(pt.x * scX - image.width / 2f, pt.y * scY - image.height / 2f),
+                        )
+                    }
                 }
 
                 // Transform tool rubber band (bitmap space, origin at the

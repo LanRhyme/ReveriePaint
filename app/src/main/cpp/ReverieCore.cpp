@@ -3128,7 +3128,7 @@ static void clipEditToSelection(QImage &edited, const QImage &original,
     }
 }
 
-void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
+void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool filled)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -3170,7 +3170,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
         qColor = Qt::black;
     }
     qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    const qreal penWidth = qMax<qreal>(1.0, m_brushSize);
+    const qreal penWidth = qMax<qreal>(1.0, m_shapeStrokeWidth > 0 ? m_shapeStrokeWidth : m_brushSize);
 
     const QImage originalImg = layerImg.copy();  // pre-edit copy for selection clip
     QPainter painter(&layerImg);
@@ -3178,7 +3178,7 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2)
     painter.setCompositionMode(QPainter::CompositionMode_Source);
     QPen pen(qColor, penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
+    painter.setBrush(filled ? QBrush(qColor) : Qt::NoBrush);
 
     const QPointF p1(x1 - region.x(), y1 - region.y());
     const QPointF p2(x2 - region.x(), y2 - region.y());
@@ -3252,10 +3252,10 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     QPainter painter(&layerImg);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    QPen pen(qColor, qMax<qreal>(1.0, m_brushSize),
+    QPen pen(qColor, qMax<qreal>(1.0, m_shapeStrokeWidth > 0 ? m_shapeStrokeWidth : m_brushSize),
              Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
     painter.setPen(pen);
-    painter.setBrush(Qt::NoBrush);
+    painter.setBrush(m_shapeFilled ? QBrush(qColor) : Qt::NoBrush);
     painter.translate(-region.topLeft());
     painter.drawPath(path);
     painter.end();

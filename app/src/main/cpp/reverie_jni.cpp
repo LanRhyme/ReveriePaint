@@ -629,9 +629,21 @@ Java_com_reverie_paint_core_ReverieCoreBridge_drawText(JNIEnv *env, jobject, jin
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2)
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setShapeStrokeWidth(JNIEnv *, jobject, jdouble w)
 {
-    core()->drawShape(kind, x1, y1, x2, y2);
+    core()->setShapeStrokeWidth(w);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setShapeFilled(JNIEnv *, jobject, jboolean f)
+{
+    core()->setShapeFilled(f == JNI_TRUE);
+}
+
+Java_com_reverie_paint_core_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2, jboolean filled)
+{
+    core()->drawShape(kind, x1, y1, x2, y2, filled == JNI_TRUE);
 }
 
 // ---- Full layer system ----

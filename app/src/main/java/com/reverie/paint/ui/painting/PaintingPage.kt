@@ -124,6 +124,15 @@ fun PaintingPage(vm: PaintViewModel) {
         )
 
     val tfState = remember { TransformState() }
+    // Point-click shape tools share the canvas vertex list
+    var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var shapeStrokeWidth by remember { mutableStateOf(4f) }
+    var shapeFilled by remember { mutableStateOf(false) }
+    val shapeTools =
+        listOf(
+            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE,
+            Tool.SELECT_POLYGON, Tool.PATH,
+        )
 
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
@@ -165,6 +174,8 @@ fun PaintingPage(vm: PaintViewModel) {
                 onTextRequested = { x, y -> textDialogPos = x to y },
                 tool = tool,
                 tfState = tfState,
+                polyPoints = polyPoints,
+                onPolyPoint = { polyPoints = polyPoints + it },
             )
         }
 
@@ -319,6 +330,40 @@ fun PaintingPage(vm: PaintViewModel) {
                     tfState.active = false
                 },
                 onCancel = { tfState.active = false },
+            )
+        }
+
+        // ---- Shape tools options panel (Krita tool-options style) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool in shapeTools,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            ShapeToolPanel(
+                vm = vm,
+                tool = tool,
+                vertexCount = polyPoints.size,
+                strokeWidth = shapeStrokeWidth,
+                filled = shapeFilled,
+                onStrokeWidth = { shapeStrokeWidth = it; vm.setShapeStrokeWidth(it.toDouble()) },
+                onFilled = { shapeFilled = it; vm.setShapeFilled(it) },
+                onFinish = {
+                    if (polyPoints.isNotEmpty()) {
+                        val pts = polyPoints.map { it.x.toInt() to it.y.toInt() }
+                        when (tool) {
+                            Tool.POLYGON -> vm.drawPolygon(pts, closed = true)
+                            Tool.POLYLINE -> vm.drawPolygon(pts, closed = false)
+                            Tool.SELECT_POLYGON -> vm.selectPolygon(pts)
+                            else -> Unit
+                        }
+                        polyPoints = emptyList()
+                    }
+                },
+                onCancel = { polyPoints = emptyList() },
             )
         }
 

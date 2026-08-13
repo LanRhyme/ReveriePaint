@@ -1009,6 +1009,14 @@ class PaintViewModel : ViewModel() {
 
     fun contentBounds(): IntArray? = ReverieCoreBridge.contentBounds()
 
+    fun setShapeStrokeWidth(w: Double) {
+        runCore { ReverieCoreBridge.setShapeStrokeWidth(w) }
+    }
+
+    fun setShapeFilled(f: Boolean) {
+        runCore { ReverieCoreBridge.setShapeFilled(f) }
+    }
+
     fun applyTransform(
         xscale: Double, yscale: Double,
         xshear: Double, yshear: Double,
@@ -1374,9 +1382,10 @@ class PaintViewModel : ViewModel() {
         y1: Float,
         x2: Float,
         y2: Float,
+        filled: Boolean = false,
     ) {
         runCore {
-            ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt())
+            ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), filled)
         }
     }
 

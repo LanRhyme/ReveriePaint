@@ -165,7 +165,11 @@ public:
     void floodFillAt(int x, int y);
 
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
-    void drawShape(int kind, int x1, int y1, int x2, int y2);
+    void drawShape(int kind, int x1, int y1, int x2, int y2, bool filled = false);
+    void setShapeStrokeWidth(qreal w) { m_shapeStrokeWidth = w; }
+    qreal shapeStrokeWidth() const { return m_shapeStrokeWidth; }
+    void setShapeFilled(bool f) { m_shapeFilled = f; }
+    bool shapeFilled() const { return m_shapeFilled; }
     // kind 0=line, 1=rect, 2=ellipse, 3=closed polygon, 4=polyline
     void drawPolygon(const QVector<QPoint> &points, bool closed);
     void gradientFill(int x1, int y1, int x2, int y2);
@@ -318,6 +322,8 @@ private:
 
     // Brush state
     qreal m_brushSize = 20.0;
+    qreal m_shapeStrokeWidth = 4.0;   // shape tools independent stroke width
+    bool m_shapeFilled = false;       // shape tools fill with the brush color
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;
