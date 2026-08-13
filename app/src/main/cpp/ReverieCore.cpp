@@ -3317,7 +3317,12 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         const int cur = queue[head++];
         const int cx = cur % iw;
         const int cy = cur / iw;
+        // Neighbours can live on the row above/below, so those rows must be
+        // loaded before their pixels are compared - otherwise unloaded rows
+        // read back as zeros and the BFS cannot expand vertically
         ensureRow(cy);
+        ensureRow(cy - 1);
+        ensureRow(cy + 1);
         if (cx > 0) {
             const int n = cur - 1;
             if (!mask[n]) {
