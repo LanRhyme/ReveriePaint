@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -244,14 +246,26 @@ fun PaintingPage(vm: PaintViewModel) {
         )
 
         // ---- Floating selection panel (Krita tool-options style) ----
-        // Shown only while a selection tool is active, exactly like Krita's
-        // context-sensitive tool options; switching tools hides it
-        if (tool in selectionTools) {
+        // Context-sensitive: shown while a selection tool is active, sliding
+        // in from the canvas edge; draggable so it never blocks the work
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool in selectionTools,
+            modifier = Modifier.align(Alignment.CenterEnd),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(180),
+                ) +
+                    androidx.compose.animation.slideInHorizontally(
+                        androidx.compose.animation.core.tween(220),
+                        initialOffsetX = { it / 2 },
+                    ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core.tween(120),
+                ),
+        ) {
             SelectionFloatPanel(
-                modifier =
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp),
+                modifier = Modifier.padding(end = 8.dp),
                 vm = vm,
                 propsOpen = selectionPropsOpen,
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
@@ -409,8 +423,8 @@ private fun SelectionMenuItem(
 }
 
 // Floating selection panel in Krita's tool-options style: a compact
-// context panel shown while a selection tool is active. Small buttons,
-// minimal chrome, docked to the canvas edge so it never covers the work.
+// semi-transparent panel docked to the canvas edge, draggable like Krita's
+// floating tool options (OSD opacity 0.85, rounded corners).
 @Composable
 private fun SelectionFloatPanel(
     modifier: Modifier = Modifier,
@@ -418,6 +432,7 @@ private fun SelectionFloatPanel(
     propsOpen: Boolean,
     onToggleProps: () -> Unit,
 ) {
+    var panelOffset by remember { mutableStateOf(Offset.Zero) }
     val modes =
         listOf(
             0 to "替换",
@@ -428,14 +443,32 @@ private fun SelectionFloatPanel(
     Column(
         modifier =
             modifier
+                .offset { IntOffset(panelOffset.x.roundToInt(), panelOffset.y.roundToInt()) }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, drag ->
+                        change.consume()
+                        panelOffset += drag
+                    }
+                }
                 .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.95f))
+                .background(Morandi.panelHi.copy(alpha = 0.85f))
                 .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                 .padding(6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Drag hint: thin grab bar so users know the panel floats
+        Box(
+            Modifier
+                .width(24.dp)
+                .height(3.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Morandi.border),
+        )
         // Mode row: replace / add / subtract / intersect
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(
+            modifier = Modifier.padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             modes.forEach { (mode, label) ->
                 val selected = vm.selectionMode == mode
                 Box(
