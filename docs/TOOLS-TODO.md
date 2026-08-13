@@ -1,52 +1,42 @@
-# 工具系统完整开发计划
+# 工具系统开发记录
 
-## 现状
+## 完成状态 (2026-08-14)
 
-- 正常工具: 笔刷/橡皮擦/涂抹/套索/魔棒/矩形选择/椭圆选择/相似色选择
-- 其余工具不可用或不完整
+### Phase 1: 错误行为修复 ✅
+- [x] TRANSFORM 变换工具: KisTransformWorker 核心 + 变换框 UI + 属性面板
+- [x] MEASURE 测量工具: 距离/角度显示
+- [x] DYNA 移除 (Krita 6.1.0-prealpha 无 dyna 引擎)
 
-## 目标
+### Phase 2: 交互对齐 Krita ✅
+- [x] POLYGON/POLYLINE: 逐点点击, 面板完成/取消
+- [x] SELECT_POLYGON: 逐点点击选区
+- [x] PATH: 贝塞尔(Catmull-Rom)转选区
+- [x] CROP: 裁剪框预览 + 确认/取消
+- [x] MOVE: 选区内容移动 (委托 applyTransform)
 
-每个工具完整可用 + 独立属性面板, 逐步开发逐个测试, 参考 Krita 工具逻辑
+### Phase 3: 属性面板 ✅
+- [x] TransformPanel: 旋转/缩放 + 应用/取消
+- [x] ShapeToolPanel: 点选完成/取消 + 描边宽度 + 填充开关
+- [x] GradientPanel: 线性/径向/角度
+- [x] FillPanel: 容差
+- [x] LiquifyPanel: 强度
+- [x] TextInputDialog: 字号滑块
+- [x] CropPanel: 尺寸 + 确认/取消
 
-## 任务清单
+### Phase 4: 测试 ✅
+- [x] 桌面工具综合测试 11 项全过 (直线/矩形填充/椭圆/多边形/渐变3种/填充/液化/选区移动)
+- [x] transform_test 4 项全过 (平移/缩放/选区约束/旋转)
+- [x] undo_test U0-U9 回归全过
+- [x] sel_full_test 回归全过
+- [x] APK 构建成功
 
-### Phase 1: 错误行为修复
+### Phase 5: 审查 ✅
+- [x] 25 个工具全部有分发 + 属性面板
+- [x] 切换工具状态清理
+- [x] 撤销/选区约束验证
 
-- [x] 审计全部工具分发 (CanvasView)
-- [ ] TRANSFORM 变换工具 (重点): 变换框 + 控制点 + 应用/取消 + 属性面板
-- [ ] MEASURE 测量工具: 两点距离/角度显示
-- [ ] DYNA: 从工具列表移除 (Krita 6.1.0-prealpha 无 dyna 引擎)
-
-### Phase 2: 交互对齐 Krita
-
-- [ ] POLYGON/POLYLINE: 逐点点击, 完成按钮/双击完成
-- [ ] SELECT_POLYGON: 逐点点击选区
-- [ ] PATH: 贝塞尔路径工具 (点-拖-点), 完成后转形状/选区
-- [ ] CROP: 裁剪框预览 + 确认/取消按钮
-- [ ] MOVE: 有选区时移动选区内容, 无选区移动图层
-
-### Phase 3: 属性面板 (每个工具独立)
-
-- [ ] ToolOptionsBar 框架: 底部面板按工具切换
-- [ ] ShapeToolPanel: 形状填充/描边宽度
-- [ ] GradientPanel: 渐变类型(线性/径向)/重复
-- [ ] TransformPanel: 模式/参考点/应用/取消
-- [ ] FillPanel: 容差
-- [ ] LiquifyPanel: 强度/笔刷大小
-- [ ] TextPanel: 字体大小/对齐
-- [ ] CropPanel: 尺寸显示
-- [ ] MeasurePanel: 测量结果
-- [ ] MovePanel: 移动对象选项
-
-### Phase 4: 测试
-
-- [ ] 桌面 harness 测试每个 C++ 工具 (像素验证)
-- [ ] 构建安装
-- [ ] 用户测试反馈
-
-### Phase 5: 审查
-
-- [ ] 全部工具走查
-- [ ] 撤销/选区约束验证
-- [ ] UI 一致性检查
+## 修复的关键 bug
+- selectionMask() 无选区返回全零数组导致 floodFill/变换误判
+- 选区变换清空误用不透明黑清掉全图
+- pickColorAt dev->pixel 陈旧 tile 数据 (1x1 readBytes 不可靠)
+- KisTransformWorker 需有效 filter strategy

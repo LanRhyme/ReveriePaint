@@ -130,6 +130,14 @@ fun PaintingPage(vm: PaintViewModel) {
     var liquifyStrength by remember { mutableStateOf(0.9f) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    // Clear transient tool state when switching tools
+    androidx.compose.runtime.LaunchedEffect(tool) {
+        if (tool != Tool.TRANSFORM) tfState.active = false
+        if (tool != Tool.CROP) cropRect = null
+        if (tool != Tool.POLYGON && tool != Tool.POLYLINE && tool != Tool.PATH && tool != Tool.SELECT_POLYGON) {
+            polyPoints = emptyList()
+        }
+    }
     var shapeStrokeWidth by remember { mutableStateOf(4f) }
     var shapeFilled by remember { mutableStateOf(false) }
     val shapeTools =
