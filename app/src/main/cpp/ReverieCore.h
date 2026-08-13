@@ -162,7 +162,7 @@ public:
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
-    void floodFillAt(int x, int y);
+    void floodFillAt(int x, int y, int tolerance = 24);
 
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
     void drawShape(int kind, int x1, int y1, int x2, int y2, bool filled = false);
@@ -172,7 +172,7 @@ public:
     bool shapeFilled() const { return m_shapeFilled; }
     // kind 0=line, 1=rect, 2=ellipse, 3=closed polygon, 4=polyline
     void drawPolygon(const QVector<QPoint> &points, bool closed);
-    void gradientFill(int x1, int y1, int x2, int y2);
+    void gradientFill(int x1, int y1, int x2, int y2, int type = 0);
     void selectShape(int kind, int x1, int y1, int x2, int y2);
     void selectPolygon(const QVector<QPoint> &points);
     void lassoSelect(const QVector<QPoint> &points);
@@ -202,7 +202,7 @@ public:
     void lassoClear(const QVector<QPoint> &points);
 
     // Liquify: push pixels within the brush radius from (fx,fy) to (tx,ty)
-    void liquify(int fx, int fy, int tx, int ty);
+    void liquify(int fx, int fy, int tx, int ty, qreal strength = 0.9);
 
     // Brush
     void setBrushSize(qreal size);

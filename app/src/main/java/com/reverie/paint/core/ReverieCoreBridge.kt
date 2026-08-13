@@ -118,7 +118,7 @@ object ReverieCoreBridge {
     external fun setToolMode(mode: Int)
     external fun drawPolygon(xs: IntArray, ys: IntArray, count: Int, closed: Boolean)
 
-    external fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int)
+    external fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int, type: Int)
 
     external fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int)
 
@@ -138,10 +138,7 @@ object ReverieCoreBridge {
     ): Boolean
     external fun setBrushSecondaryColor(color: String)
 
-    external fun floodFillAt(
-        x: Int,
-        y: Int,
-    )
+    external fun floodFillAt(x: Int, y: Int, tolerance: Int)
 
     external fun setBrushSize(size: Double)
 
@@ -218,12 +215,7 @@ object ReverieCoreBridge {
 
     external fun canRedo(): Boolean
 
-    external fun liquify(
-        fx: Int,
-        fy: Int,
-        tx: Int,
-        ty: Int,
-    )
+    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int, strength: Double)
 
     external fun lassoSelect(xs: IntArray, ys: IntArray, count: Int)
 

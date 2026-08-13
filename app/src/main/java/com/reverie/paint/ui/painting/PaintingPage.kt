@@ -125,6 +125,9 @@ fun PaintingPage(vm: PaintViewModel) {
 
     val tfState = remember { TransformState() }
     var cropRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    var gradientType by remember { mutableStateOf(0) }
+    var fillTolerance by remember { mutableStateOf(24) }
+    var liquifyStrength by remember { mutableStateOf(0.9f) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var shapeStrokeWidth by remember { mutableStateOf(4f) }
@@ -179,6 +182,9 @@ fun PaintingPage(vm: PaintViewModel) {
                 onPolyPoint = { polyPoints = polyPoints + it },
                 cropRect = cropRect,
                 onCropRect = { cropRect = it },
+                fillTolerance = fillTolerance,
+                gradientType = gradientType,
+                liquifyStrength = liquifyStrength,
             )
         }
 
@@ -402,6 +408,32 @@ fun PaintingPage(vm: PaintViewModel) {
                     onCancel = { cropRect = null },
                 )
             }
+        }
+
+        // ---- Gradient / Fill / Liquify tool options ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.GRADIENT,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it })
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.FILL,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            FillPanel(vm = vm, tolerance = fillTolerance, onTolerance = { fillTolerance = it })
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.LIQUIFY,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            LiquifyPanel(vm = vm, strength = liquifyStrength, onStrength = { liquifyStrength = it })
         }
 
         // ---- Floating selection panel (Krita tool-options style) ----

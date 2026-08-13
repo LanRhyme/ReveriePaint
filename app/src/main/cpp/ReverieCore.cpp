@@ -2968,7 +2968,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     return true;
 }
 
-void ReverieCore::floodFillAt(int x, int y)
+void ReverieCore::floodFillAt(int x, int y, int tolerance)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -3006,7 +3006,7 @@ void ReverieCore::floodFillAt(int x, int y)
 
     const QRgb seed = layerImg.pixel(qBound(0, x, iw - 1), qBound(0, y, ih - 1));
     const int r0 = qRed(seed), g0 = qGreen(seed), b0 = qBlue(seed);
-    const int tol = 24; // color tolerance
+    const int tol = qBound(1, tolerance, 255); // color tolerance
 
     const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
 
@@ -3271,7 +3271,7 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     m_redoCount = 0;
 }
 
-void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
+void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -3307,10 +3307,26 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2)
     const QImage originalImg = layerImg.copy();
     QPainter painter(&layerImg);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    QLinearGradient grad(x1, y1, x2, y2);
-    grad.setColorAt(0.0, c1);
-    grad.setColorAt(1.0, c2);
-    painter.fillRect(0, 0, iw, ih, grad);
+    if (type == 1) {
+        // Radial: from the start point outward to the end point radius
+        const qreal rad = qMax<qreal>(1.0, hypot(x2 - x1, y2 - y1));
+        QRadialGradient grad(x1, y1, rad);
+        grad.setColorAt(0.0, c1);
+        grad.setColorAt(1.0, c2);
+        painter.fillRect(0, 0, iw, ih, grad);
+    } else if (type == 2) {
+        // Conical (angle): sweep around the start point, end point sets angle
+        const qreal ang = atan2(y2 - y1, x2 - x1) * 180.0 / M_PI;
+        QConicalGradient grad(x1, y1, ang);
+        grad.setColorAt(0.0, c1);
+        grad.setColorAt(1.0, c2);
+        painter.fillRect(0, 0, iw, ih, grad);
+    } else {
+        QLinearGradient grad(x1, y1, x2, y2);
+        grad.setColorAt(0.0, c1);
+        grad.setColorAt(1.0, c2);
+        painter.fillRect(0, 0, iw, ih, grad);
+    }
     painter.end();
     if (m_selection) {
         clipEditToSelection(layerImg, originalImg, selectionMask(), 0, 0);
@@ -3612,38 +3628,10 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
 
 void ReverieCore::moveLayerContent(int dx, int dy)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || (dx == 0 && dy == 0)) {
-        return;
-    }
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    const int iw = image->width();
-    const int ih = image->height();
-    // Krita-native undo: wrap the content move in a transaction
-    KisTransaction txn(kundo2_i18n("Move Content"), device);
-    QImage src(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(src.bits(), bytes.constData(), size_t(iw) * ih * 4);
-    }
-    QImage out(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    out.fill(0);
-    QPainter p(&out);
-    p.setCompositionMode(QPainter::CompositionMode_Source);
-    p.drawImage(dx, dy, src);
-    p.end();
-    if (m_selection) {
-        clipEditToSelection(out, src, selectionMask(), 0, 0);
-    }
-    device->writeBytes(out.constBits(), 0, 0, iw, ih);
-    device->setDirty();
-    markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    // Delegate to the transform core: a pure translation. With an active
+    // selection only the selected pixels move (Krita's move tool semantics),
+    // otherwise the whole layer shifts via KisTransformWorker
+    applyTransform(1.0, 1.0, 0.0, 0.0, 0.0, dx, dy);
 }
 
 QRect ReverieCore::contentBounds() const
@@ -4166,7 +4154,7 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     }
 }
 
-void ReverieCore::liquify(int fx, int fy, int tx, int ty)
+void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -4208,7 +4196,7 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty)
             }
             // Falloff: strongest at center, zero at edge
             const qreal falloff = 1.0 - qSqrt(r2 / radius2);
-            const qreal strength = falloff * 0.9;
+            const qreal strength = falloff * qBound<qreal>(0.05, strength, 2.0);
             const int sx = qBound(0, x - int(dx * strength), iw - 1);
             const int sy = qBound(0, y - int(dy * strength), ih - 1);
             result.setPixel(x, y, layerImg.pixel(sx, sy));

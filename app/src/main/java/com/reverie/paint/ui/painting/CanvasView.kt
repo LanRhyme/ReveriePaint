@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
@@ -60,6 +61,9 @@ fun CanvasView(
     onPolyPoint: (Offset) -> Unit = {},
     cropRect: androidx.compose.ui.geometry.Rect? = null,
     onCropRect: (androidx.compose.ui.geometry.Rect?) -> Unit = {},
+    fillTolerance: Int = 24,
+    gradientType: Int = 0,
+    liquifyStrength: Float = 0.9f,
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -85,6 +89,10 @@ fun CanvasView(
             wandFlash = null
         }
     }
+    // Measure tool: start/end points (document coords), live distance shown
+    var measureStart by remember { mutableStateOf<Offset?>(null) }
+    var measureEnd by remember { mutableStateOf<Offset?>(null) }
+
     var pickerActive by remember { mutableStateOf(false) }
     var pickerScreenPos by remember { mutableStateOf(Offset.Zero) }
     var pickerInitialColor by remember { mutableStateOf(Color.White) }
@@ -288,6 +296,11 @@ fun CanvasView(
                                 onPolyPoint(firstImage)
                             }
 
+                            Tool.MEASURE -> {
+                                measureStart = firstImage
+                                measureEnd = firstImage
+                            }
+
                             Tool.PICKER -> {
                                 pickerActive = true
                                 pickerScreenPos = down.position
@@ -307,7 +320,7 @@ fun CanvasView(
                                 tapReverted = true
                             }
                             Tool.FILL -> {
-                                vm.floodFill(firstImage.x, firstImage.y)
+                                vm.floodFill(firstImage.x, firstImage.y, fillTolerance)
                                 tapReverted = true
                             }
                             Tool.TEXT -> {
@@ -649,6 +662,10 @@ fun CanvasView(
                                             }
                                         }
 
+                                        tool == Tool.MEASURE -> {
+                                            measureEnd = imagePos
+                                        }
+
                                         tool == Tool.TRANSFORM && tfState.active && tfState.handle >= 0 -> {
                                             // Transform tool: drag handles scale
                                             // (centre-anchored), drag inside moves,
@@ -688,7 +705,7 @@ fun CanvasView(
                                                 vm.touchStart(imagePos.x, imagePos.y)
                                                 strokeStarted = true
                                             }
-                                            vm.liquify(liquifyPrevious.x, liquifyPrevious.y, imagePos.x, imagePos.y)
+                                            vm.liquify(liquifyPrevious.x, liquifyPrevious.y, imagePos.x, imagePos.y, liquifyStrength.toDouble())
                                             liquifyPrevious = imagePos
                                         }
 
@@ -746,6 +763,8 @@ fun CanvasView(
 
                                 tool == Tool.CROP -> Unit
 
+                                tool == Tool.MEASURE -> Unit
+
                                 shapeTool -> {
                                     val kind =
                                         when (tool) {
@@ -778,7 +797,7 @@ fun CanvasView(
                                     val x2 = shapeEnd.x.toInt()
                                     val y2 = shapeEnd.y.toInt()
                                     when (tool) {
-                                        Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2)
+                                        Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
                                         Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
                                         Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
                                         else -> Unit
@@ -908,6 +927,33 @@ fun CanvasView(
                             center = Offset(pt.x * scX - image.width / 2f, pt.y * scY - image.height / 2f),
                         )
                     }
+                }
+
+                // Measure tool: white line + distance/angle text
+                if (tool == Tool.MEASURE && measureStart != null && measureEnd != null) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val s = measureStart!!
+                    val e = measureEnd!!
+                    val p1 = Offset(s.x * scX - image.width / 2f, s.y * scY - image.height / 2f)
+                    val p2 = Offset(e.x * scX - image.width / 2f, e.y * scY - image.height / 2f)
+                    drawLine(Color.White, p1, p2, strokeWidth = 2.dp.toPx())
+                    drawCircle(Color.White, radius = 3.dp.toPx(), center = p1)
+                    drawCircle(Color.White, radius = 3.dp.toPx(), center = p2)
+                    val dist = hypot(e.x - s.x, e.y - s.y)
+                    val ang = Math.toDegrees(atan2((e.y - s.y).toDouble(), (e.x - s.x).toDouble())).toFloat()
+                    val label =
+                        "%.0f px  %.1f°".format(dist, ang)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        label,
+                        (p2.x + 8.dp.toPx()),
+                        (p2.y - 8.dp.toPx()),
+                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.WHITE
+                            textSize = 13.dp.toPx()
+                            isFakeBoldText = true
+                        },
+                    )
                 }
 
                 // Crop tool preview: dim the outside, white frame

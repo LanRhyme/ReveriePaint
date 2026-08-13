@@ -961,8 +961,8 @@ class PaintViewModel : ViewModel() {
 
     // ---- New Krita tool actions --------------------------------------
 
-    fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int) {
-        runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2) }
+    fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int, type: Int = 0) {
+        runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type) }
     }
 
     fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int) {
@@ -1058,9 +1058,10 @@ class PaintViewModel : ViewModel() {
         fy: Float,
         tx: Float,
         ty: Float,
+        strength: Double = 0.9,
     ) {
         runCore {
-            ReverieCoreBridge.liquify(fx.toInt(), fy.toInt(), tx.toInt(), ty.toInt())
+            ReverieCoreBridge.liquify(fx.toInt(), fy.toInt(), tx.toInt(), ty.toInt(), strength)
         }
     }
 
@@ -1392,8 +1393,9 @@ class PaintViewModel : ViewModel() {
     fun floodFill(
         x: Float,
         y: Float,
+        tolerance: Int = 24,
     ) {
-        runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt()) }
+        runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance) }
     }
 
     private val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
