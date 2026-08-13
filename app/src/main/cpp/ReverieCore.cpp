@@ -1596,18 +1596,30 @@ QVector<quint32> ReverieCore::selectionOverlayScaled(int vw, int vh) const
     // the overlay refresh slow (Krita renders the selection outline on the
     // canvas device at the current zoom; this is the equivalent here)
     QVector<quint32> out(size_t(vw) * vh, 0);
-    QVector<quint8> row;
-    row.resize(int(iw));
+    // Read the selection mask in 256-row chunks (Krita's tile size) and
+    // sample rows out of the cached chunk: the old per-row readBytes made
+    // one call per sampled row (~960 on 1080x1920 at viewport height)
+    QVector<quint8> chunk;
+    int chunkBase = -1;
+    const int chunkH = 256;
     const double stepY = double(ih) / vh;
     const double stepX = double(iw) / vw;
     bool any = false;
     for (int y = 0; y < vh; ++y) {
         const int srcY = qMin(ih - 1, int(y * stepY));
-        ps->readBytes(row.data(), 0, srcY, iw, 1);
+        const int b = srcY / chunkH;
+        if (b != chunkBase) {
+            chunkBase = b;
+            chunk.resize(size_t(iw) * chunkH);
+            const int ty = b * chunkH;
+            const int h = qMin(chunkH, ih - ty);
+            ps->readBytes(chunk.data(), 0, ty, iw, h);
+        }
+        const int rowOff = (srcY - chunkBase * chunkH) * iw;
         const size_t dstOff = size_t(y) * vw;
         for (int x = 0; x < vw; ++x) {
             const int srcX = qMin(iw - 1, int(x * stepX));
-            if (row[size_t(srcX)] != 0) {
+            if (chunk[size_t(rowOff) + srcX] != 0) {
                 out[dstOff + x] = 0xFFFFFFFFu;
                 any = true;
             }
@@ -3292,20 +3304,28 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     // (projection), not a single layer's raw pixels
     KisPaintDeviceSP device = image->projection();
     image->waitForDone();
-    // Lazy row loading: a magic-wand BFS only visits the connected region, so
-    // a full-document projection read is wasteful (it also forces the whole
-    // projection to be recomposited). Rows are read on demand and cached -
-    // the equivalent of Krita reading only the tile the stroke touches
+    // Tile-chunk projection read: KisPaintDevice is internally tiled
+    // (256x256 tiles) and Krita's fill jobs read at tile granularity too.
+    // Reading the projection in 256-row chunks is one readBytes call per
+    // chunk (8 calls on 1080x1920) instead of per row (1920 calls), which
+    // dominated the magic-wand cost on full-document selections
     QVector<quint8> bytes(size_t(iw) * ih * 4, 0);
-    QVector<quint8> rowReady(size_t(ih), 0);
-    auto ensureRow = [&](int ry) {
-        if (ry < 0 || ry >= ih || rowReady[size_t(ry)]) {
+    const int chunkH = 256;
+    QVector<quint8> chunkReady(size_t((ih + chunkH - 1) / chunkH), 0);
+    auto ensureChunk = [&](int ry) {
+        if (ry < 0 || ry >= ih) {
             return;
         }
-        rowReady[size_t(ry)] = 1;
-        device->readBytes(bytes.data() + size_t(ry) * iw * 4, 0, ry, iw, 1);
+        const int b = ry / chunkH;
+        if (chunkReady[size_t(b)]) {
+            return;
+        }
+        chunkReady[size_t(b)] = 1;
+        const int ty = b * chunkH;
+        const int h = qMin(chunkH, ih - ty);
+        device->readBytes(bytes.data() + size_t(ty) * iw * 4, 0, ty, iw, h);
     };
-    ensureRow(y);
+    ensureChunk(y);
     const int tolSq = tolerance * tolerance;
 
     // Direct byte access (readBytes is B,G,R,A for the RGB8 space): avoids
@@ -3334,7 +3354,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     while (!segStack.isEmpty()) {
         const QPoint seg = segStack.takeLast();
         const int sy = seg.y();
-        ensureRow(sy);
+        ensureChunk(sy);
         int xl = seg.x();
         while (xl > 0 && !mask[size_t(sy) * iw + xl - 1] && rowMatch(sy, xl - 1)) {
             --xl;
@@ -3357,7 +3377,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
             if (ny < 0 || ny >= ih) {
                 continue;
             }
-            ensureRow(ny);
+            ensureChunk(ny);
             int i = xl;
             while (i <= xr) {
                 while (i <= xr &&
