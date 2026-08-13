@@ -1251,13 +1251,8 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_lastPressure = pressure;
     m_strokeColor = m_brushColor;
     m_strokeOpacity = m_brushOpacity;
-    // The stroke is painted at full strength into a temporary buffer; the
-    // opacity is applied once at commit (see commitStrokeToLayer).
-    if (!m_strokeBuffer) {
-        m_strokeBuffer = new KisPaintDevice(m_document->colorSpace());
-    } else {
-        m_strokeBuffer->clear();
-    }
+    // The stroke paints straight onto the layer device with per-dab opacity
+    // (Krita-native); no temporary buffer is used.
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
     m_strokeHadMove = false;
@@ -1295,9 +1290,6 @@ void ReverieCore::touchStrokeEnd()
             m_strokeSamples.append(s);
         }
         flushStrokeBatch();
-        if (m_toolMode != ToolEraser) {
-            commitStrokeToLayer();
-        }
         endStrokeBatch();
         m_strokeBatchOpen = false;
     }
@@ -1318,9 +1310,6 @@ void ReverieCore::touchStrokeCancel()
     // snapshot without touching the redo stack.
     m_strokeSamples.clear();
     endStrokeBatch();
-    if (m_strokeBuffer) {
-        m_strokeBuffer->clear();
-    }
     m_strokeBatchOpen = false;
     m_drawing = false;
 
@@ -1414,12 +1403,11 @@ void ReverieCore::flushStrokeBatch()
     }
     const bool erasing = (m_toolMode == ToolEraser);
 
-    // The eraser paints DIRECTLY onto the layer with the erase composite op:
-    // a temporary buffer would hold transparent pixels and erasing with a
-    // transparent source clears nothing (gemini's buffer did exactly that).
-    // Brush/smudge paint at full strength into the temporary buffer and the
-    // stroke opacity is applied once at commit.
-    KisPaintDeviceSP target = erasing ? currentPaintDevice() : m_strokeBuffer;
+    // Krita-native: every stroke paints DIRECTLY onto the current layer
+    // device. The projection then recomposites in real time, so brush
+    // opacity/flow, layer opacity and blend mode are all applied live
+    // (matching Krita) instead of only at pen-up via a temporary buffer.
+    KisPaintDeviceSP target = currentPaintDevice();
     if (!target) {
         m_strokeSamples.clear();
         return;
@@ -1459,9 +1447,10 @@ void ReverieCore::flushStrokeBatch()
     KoColor koColor(qColor, cs);
     painter.setPaintColor(koColor);
     painter.setBackgroundColor(koColor);
-    // Eraser opacity is applied per dab (like Krita); brush/smudge apply
-    // it once at commit.
-    painter.setOpacityF(erasing ? qBound<qreal>(0.0, m_strokeOpacity, 1.0) : 1.0);
+    // Per-dab opacity (Krita behaviour): the brush op reads the preset's
+    // opacity/flow internally; the painter-level opacity covers the fallback
+    // dab loop and the eraser.
+    painter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
     painter.setCompositeOpId(erasing ? QStringLiteral("erase")
                                      : QStringLiteral("normal"));
 
@@ -1490,6 +1479,11 @@ void ReverieCore::flushStrokeBatch()
             w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
             painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         }
+        // Propagate the tap dot to the projection immediately
+        const int tw = int(m_brushSize) + 2;
+        const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        target->setDirty(tr);
+        markRegionDirty(tr);
         m_strokeSamples.clear();
         return;
     }
@@ -1586,19 +1580,11 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.append(t);
     }
 
-    if (erasing) {
-        // Eraser painted straight onto the layer: propagate the dirty region
-        // so the projection recomposites it immediately.
-        if (!strokeDirty.isNull()) {
-            target->setDirty(strokeDirty);
-            markRegionDirty(strokeDirty);
-        }
-    } else {
-        // Nothing is composited here: the stroke lives in the temporary
-        // buffer and is displayed by renderToBuffer while drawing. The
-        // layer device is marked dirty once, in commitStrokeToLayer, when
-        // the stroke is placed with its final opacity.
-        (void)strokeDirty;
+    // All strokes now paint straight onto the layer: propagate the dirty
+    // region so Krita's projection recomposites it immediately.
+    if (!strokeDirty.isNull()) {
+        target->setDirty(strokeDirty);
+        markRegionDirty(strokeDirty);
     }
 }
 
@@ -1909,31 +1895,8 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
         m_dirtyRect = QRect();
     }
 
-    // Live stroke preview: while drawing, composite the in-progress stroke
-    // buffer over the document projection (with the stroke opacity applied,
-    // so what the user sees is what gets committed). KisPaintDevice's own
-    // convertToQImage handles the color-space/byte-order conversion.
-    if (m_drawing && m_strokeBuffer) {
-        const QRect ext = m_strokeBuffer->exactBounds();
-        RPC_LOG("RPC preview ext=(%d,%d %dx%d) iw=%d ih=%d",
-                ext.x(), ext.y(), ext.width(), ext.height(), iw, ih);
-        if (!ext.isEmpty()) {
-            const QRect cr = ext.intersected(QRect(0, 0, iw, ih));
-            if (!cr.isEmpty()) {
-                const QImage bufImg = m_strokeBuffer->convertToQImage(
-                    nullptr, cr.x(), cr.y(), cr.width(), cr.height());
-                if (!bufImg.isNull()) {
-                    const QImage conv = bufImg.convertToFormat(QImage::Format_RGBA8888);
-                    QPainter p(&m_displayImage);
-                    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-                    p.setOpacity(m_strokeOpacity);
-                    p.drawImage(cr.topLeft(), conv);
-                    p.end();
-                }
-                m_lastDirty = m_lastDirty.isNull() ? cr : m_lastDirty.united(cr);
-            }
-        }
-    }
+    // No separate stroke preview: strokes paint straight onto the layer, so
+    // the projection recomposite below already reflects them in real time.
 
     // Copy into the Android bitmap buffer: full on the first render (or a
     // resize), then only the rows of the region that actually changed. The
