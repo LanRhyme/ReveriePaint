@@ -58,7 +58,7 @@ Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/
 ```bash
 # 1 准备 Krita 原生库 (二选一)
 #    已有本地交叉编译: 直接执行
-#    没有: 脚本自动从 GitHub Release 下载预编译包, 无需编译 Krita
+#    没有: 使用仓库内置的预编译库 (third_party/krita-android-libs, 免编译 Krita)
 ./scripts/copy_jni_libs.sh
 # 2 构建 APK
 ./gradlew assembleDebug
@@ -66,7 +66,7 @@ Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-预编译 Krita 动态库发布在 [Releases](https://github.com/LanRhyme/ReveriePaint/releases) (v1.0.0-prebuilt-libs, 含 57 个 Krita 核心库与 13 个笔刷引擎插件)
+预编译 Krita 动态库已提交到仓库 third_party/krita-android-libs (57 个核心库 + 13 个笔刷引擎插件, arm64-v8a, 已 strip)
 
 ## 许可
 
