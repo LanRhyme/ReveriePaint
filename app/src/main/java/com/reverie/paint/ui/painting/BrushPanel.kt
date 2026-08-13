@@ -61,6 +61,8 @@ fun BrushPanel(
     var showNewGroupDialog by remember { mutableStateOf(false) }
     // move-preset-to-group dialog state (preset name)
     var movePresetName by remember { mutableStateOf<String?>(null) }
+    // reorder menu state (preset name)
+    var reorderPresetName by remember { mutableStateOf<String?>(null) }
     // null = list view; non-null = second-level property page for that preset
     var detailIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -170,7 +172,7 @@ fun BrushPanel(
                                                     else vm.selectBrushPreset(preset.index)
                                                 },
                                                 onLongClick = {
-                                                    movePresetName = preset.name
+                                                    reorderPresetName = preset.name
                                                 },
                                             )
                                             .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -246,6 +248,16 @@ fun BrushPanel(
             },
         )
     }
+    if (reorderPresetName != null) {
+        val rp = reorderPresetName!!
+        ReorderBrushMenu(
+            presetName = rp,
+            onDismiss = { reorderPresetName = null },
+            onUp = { vm.moveBrushUp(rp) },
+            onDown = { vm.moveBrushDown(rp) },
+            onMoveGroup = { movePresetName = rp },
+        )
+    }
     if (movePresetName != null) {
         MoveBrushGroupDialog(
             presetName = movePresetName!!,
@@ -258,6 +270,44 @@ fun BrushPanel(
             },
         )
     }
+}
+
+/** Long-press menu: move up/down within the list, or move to a group. */
+@Composable
+private fun ReorderBrushMenu(
+    presetName: String,
+    onDismiss: () -> Unit,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    onMoveGroup: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(presetName, color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                listOf("上移" to onUp, "下移" to onDown, "移动到组..." to onMoveGroup).forEach { (label, act) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onDismiss()
+                                act()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                    ) {
+                        Text(label, color = Morandi.text, fontSize = 14.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
 }
 
 /** Dialog to create a new user brush group. */

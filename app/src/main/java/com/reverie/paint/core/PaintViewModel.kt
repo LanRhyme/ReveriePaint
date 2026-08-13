@@ -39,6 +39,8 @@ class PaintViewModel : ViewModel() {
     // custom group names the user created (persisted in SharedPreferences)
     var userBrushGroups by mutableStateOf<Map<String, String>>(emptyMap())
     var customBrushGroups by mutableStateOf<List<String>>(emptyList())
+    // Custom display order of presets (persisted); empty = default (sorted)
+    var brushOrder by mutableStateOf<List<String>>(emptyList())
     var brushFlow by mutableStateOf(1.0)
     var brushSpacing by mutableStateOf(0.1)
     var brushAngle by mutableStateOf(0.0)
@@ -385,8 +387,15 @@ class PaintViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("ReveriePaint", "brush copy failed", e)
         }
-        // Restore persisted user brush groups
+        // Restore persisted user brush groups and custom order
         loadBrushGroups()
+        val orderJson = prefs().getString("brush_order", null)
+        brushOrder = if (orderJson != null) {
+            runCatching {
+                val arr = org.json.JSONArray(orderJson)
+                (0 until arr.length()).map { arr.getString(it) }
+            }.getOrDefault(emptyList())
+        } else emptyList()
         // Build the list on the render thread (JNI reads), but assign the
         // Compose state on the MAIN thread: mutableStateOf written from the
         // render HandlerThread is not reliably visible to composition.
@@ -475,6 +484,39 @@ class PaintViewModel : ViewModel() {
         brushPresets = brushPresets.map {
             if (it.name == presetName) it.copy(group = group) else it
         }
+    }
+
+    private fun saveBrushOrder() {
+        try {
+            val arr = org.json.JSONArray()
+            for (n in brushOrder) arr.put(n)
+            prefs().edit().putString("brush_order", arr.toString()).apply()
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "saveBrushOrder failed", e)
+        }
+    }
+
+    /** Move a preset up/down within its current list position. */
+    fun moveBrushUp(presetName: String) {
+        reorderBrush(presetName, -1)
+    }
+
+    fun moveBrushDown(presetName: String) {
+        reorderBrush(presetName, 1)
+    }
+
+    private fun reorderBrush(presetName: String, delta: Int) {
+        val cur = brushPresets
+        val idx = cur.indexOfFirst { it.name == presetName }
+        val to = idx + delta
+        if (idx < 0 || to < 0 || to >= cur.size) return
+        val newList = cur.toMutableList()
+        val t = newList[idx]
+        newList[idx] = newList[to]
+        newList[to] = t
+        brushPresets = newList
+        brushOrder = newList.map { it.name }
+        saveBrushOrder()
     }
 
     fun updateBrushFlow(v: Double) {
