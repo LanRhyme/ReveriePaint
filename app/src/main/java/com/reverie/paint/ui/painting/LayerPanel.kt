@@ -446,7 +446,7 @@ private fun LayerListView(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -770,8 +770,7 @@ private fun LayerRow(
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .width(drawerWidth)
-                    .zIndex(2f)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .zIndex(2f),
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
@@ -823,7 +822,7 @@ private fun LayerRow(
                     // while dragging: dim the in-list row (the floating copy in
                     // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 4.dp),
         )
     }
 }
