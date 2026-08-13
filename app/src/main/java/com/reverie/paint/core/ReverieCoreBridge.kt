@@ -128,6 +128,8 @@ object ReverieCoreBridge {
 
     external fun cropCanvas(x: Int, y: Int, w: Int, h: Int)
 
+    external fun contentBounds(): IntArray?
+
     external fun applyTransform(
         xscale: Double, yscale: Double,
         xshear: Double, yshear: Double,

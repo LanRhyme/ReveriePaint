@@ -55,6 +55,7 @@ fun CanvasView(
     onTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit,
     onTextRequested: (x: Float, y: Float) -> Unit = { _, _ -> },
     tool: Tool,
+    tfState: TransformState,
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -84,6 +85,36 @@ fun CanvasView(
     var pickerScreenPos by remember { mutableStateOf(Offset.Zero) }
     var pickerInitialColor by remember { mutableStateOf(Color.White) }
     var pickerCurrentColor by remember { mutableStateOf(Color.White) }
+
+    // ---- Transform tool state (document coords, lifted for the panel) ----
+    // Transformed corner points of the rubber band: 0-3 corners (TL,TR,BR,BL),
+    // 4-7 edge midpoints
+    fun tfTransform(p: Offset): Offset {
+        val c = tfState.bounds.center
+        val dx = p.x - c.x
+        val dy = p.y - c.y
+        val sx = dx * tfState.scaleX
+        val sy = dy * tfState.scaleY
+        val rad = Math.toRadians(tfState.rotation.toDouble())
+        val cos = kotlin.math.cos(rad).toFloat()
+        val sin = kotlin.math.sin(rad).toFloat()
+        val rx = sx * cos - sy * sin
+        val ry = sx * sin + sy * cos
+        return Offset(rx + c.x + tfState.tx, ry + c.y + tfState.ty)
+    }
+
+    fun tfHandles(): List<Offset> {
+        val r = tfState.bounds
+        val corners = listOf(r.topLeft, r.topRight, r.bottomRight, r.bottomLeft)
+        val mids =
+            listOf(
+                Offset((r.left + r.right) / 2f, r.top),
+                Offset(r.right, (r.top + r.bottom) / 2f),
+                Offset((r.left + r.right) / 2f, r.bottom),
+                Offset(r.left, (r.top + r.bottom) / 2f),
+            )
+        return corners.map { tfTransform(it) } + mids.map { tfTransform(it) }
+    }
 
     // Clear the preview once the committed overlay is ready (no blink), and
     // whenever the active tool is no longer a selection tool
@@ -144,7 +175,7 @@ fun CanvasView(
                                 Tool.MOVE -> GestureMode.MOVE
                                 Tool.PICKER, Tool.FILL, Tool.TEXT,
                                 Tool.MAGICWAND, Tool.SELECT_SIMILAR -> GestureMode.NONE
-                                else -> GestureMode.STROKE // Includes MEASURE, TRANSFORM, DYNA, etc.
+                                else -> GestureMode.STROKE // Includes DYNA, etc.
                             }
                         var strokeStarted = false
                         var transformStarted = false
@@ -192,6 +223,62 @@ fun CanvasView(
                         var pendingTap: Offset? = null
                         var tapReverted = false
                         when (tool) {
+                            Tool.TRANSFORM -> {
+                                if (!tfState.active) {
+                                    val b = vm.contentBounds()
+                                    if (b != null && b[2] > 0 && b[3] > 0) {
+                                        tfState.reset(
+                                            androidx.compose.ui.geometry.Rect(
+                                                b[0].toFloat(),
+                                                b[1].toFloat(),
+                                                (b[0] + b[2]).toFloat(),
+                                                (b[1] + b[3]).toFloat(),
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    // Hit test: 8 handles, then inside (move),
+                                    // then outside (rotate)
+                                    val handles = tfHandles()
+                                    var best = -1
+                                    var bestD = 32f
+                                    for (i in handles.indices) {
+                                        val d =
+                                            hypot(
+                                                handles[i].x - firstImage.x,
+                                                handles[i].y - firstImage.y,
+                                            )
+                                        if (d < bestD) {
+                                            bestD = d
+                                            best = i
+                                        }
+                                    }
+                                    // Point-in-transformed-box test: transform
+                                    // the finger back through the inverse
+                                    // (scale/rotate/translate) and compare
+                                    val c = tfState.bounds.center
+                                    val dx = firstImage.x - c.x - tfState.tx
+                                    val dy = firstImage.y - c.y - tfState.ty
+                                    val rad = Math.toRadians(-tfState.rotation.toDouble())
+                                    val cosR = cos(rad).toFloat()
+                                    val sinR = sin(rad).toFloat()
+                                    val ux = (dx * cosR - dy * sinR) / tfState.scaleX
+                                    val uy = (dx * sinR + dy * cosR) / tfState.scaleY
+                                    val inBox =
+                                        ux >= -tfState.bounds.width / 2f &&
+                                            ux <= tfState.bounds.width / 2f &&
+                                            uy >= -tfState.bounds.height / 2f &&
+                                            uy <= tfState.bounds.height / 2f
+                                    tfState.handle = if (best >= 0) best else if (inBox) 8 else 9
+                                    tfState.dragStart = firstImage
+                                    tfState.startScaleX = tfState.scaleX
+                                    tfState.startScaleY = tfState.scaleY
+                                    tfState.startRotation = tfState.rotation
+                                    tfState.startTx = tfState.tx
+                                    tfState.startTy = tfState.ty
+                                }
+                            }
+
                             Tool.PICKER -> {
                                 pickerActive = true
                                 pickerScreenPos = down.position
@@ -539,6 +626,40 @@ fun CanvasView(
                                             }
                                         }
 
+                                        tool == Tool.TRANSFORM && tfState.active && tfState.handle >= 0 -> {
+                                            // Transform tool: drag handles scale
+                                            // (centre-anchored), drag inside moves,
+                                            // drag outside rotates
+                                            val c = tfState.bounds.center
+                                            when {
+                                                tfState.handle in 0..7 -> {
+                                                    val curD =
+                                                        hypot(imagePos.x - c.x, imagePos.y - c.y)
+                                                    val startD =
+                                                        hypot(tfState.dragStart.x - c.x, tfState.dragStart.y - c.y)
+                                                    if (startD > 1f) {
+                                                        val k = curD / startD
+                                                        tfState.scaleX = tfState.startScaleX * k
+                                                        tfState.scaleY = tfState.startScaleY * k
+                                                    }
+                                                }
+
+                                                tfState.handle == 8 -> {
+                                                    tfState.tx = tfState.startTx + (imagePos.x - tfState.dragStart.x)
+                                                    tfState.ty = tfState.startTy + (imagePos.y - tfState.dragStart.y)
+                                                }
+
+                                                tfState.handle == 9 -> {
+                                                    val a1 =
+                                                        atan2(tfState.dragStart.y - c.y, tfState.dragStart.x - c.x)
+                                                    val a2 = atan2(imagePos.y - c.y, imagePos.x - c.x)
+                                                    val d =
+                                                        Math.toDegrees((a2 - a1).toDouble()).toFloat()
+                                                    tfState.rotation = tfState.startRotation + d
+                                                }
+                                            }
+                                        }
+
                                         tool == Tool.LIQUIFY -> {
                                             if (!strokeStarted) {
                                                 vm.touchStart(imagePos.x, imagePos.y)
@@ -595,6 +716,10 @@ fun CanvasView(
                                 tool == Tool.MAGICWAND ||
                                     tool == Tool.SELECT_SIMILAR ||
                                     tool == Tool.FILL -> Unit
+
+                                tool == Tool.TRANSFORM -> {
+                                    tfState.handle = -1
+                                }
 
                                 shapeTool -> {
                                     val kind =
@@ -726,6 +851,36 @@ fun CanvasView(
                         center = Offset(wf.x * scX - image.width / 2f, wf.y * scY - image.height / 2f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
                     )
+                }
+
+                // Transform tool rubber band (bitmap space, origin at the
+                // image centre): white frame + 8 square handles
+                if (tool == Tool.TRANSFORM && tfState.active) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val handles = tfHandles().map { bx(it) }
+                    val frame = androidx.compose.ui.graphics.Path()
+                    if (handles.size >= 4) {
+                        frame.moveTo(handles[0].x, handles[0].y)
+                        for (i in 1..3) {
+                            frame.lineTo(handles[i].x, handles[i].y)
+                        }
+                        frame.close()
+                        drawPath(
+                            frame,
+                            color = Color.White,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                        )
+                        val hs = 4.dp.toPx()
+                        handles.forEach { h ->
+                            drawRect(
+                                color = Color.White,
+                                topLeft = Offset(h.x - hs / 2f, h.y - hs / 2f),
+                                size = androidx.compose.ui.geometry.Size(hs, hs),
+                            )
+                        }
+                    }
                 }
 
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()

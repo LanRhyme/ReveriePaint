@@ -123,6 +123,8 @@ fun PaintingPage(vm: PaintViewModel) {
             Tool.SELECT_SIMILAR,
         )
 
+    val tfState = remember { TransformState() }
+
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
         Box(
@@ -162,6 +164,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 },
                 onTextRequested = { x, y -> textDialogPos = x to y },
                 tool = tool,
+                tfState = tfState,
             )
         }
 
@@ -283,6 +286,41 @@ fun PaintingPage(vm: PaintViewModel) {
                 moreToolsOpen = false
             },
         )
+
+        // ---- Transform tool options panel ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.TRANSFORM && tfState.active,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 90.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+        ) {
+            TransformPanel(
+                vm = vm,
+                rotationDeg = tfState.rotation,
+                scaleX = tfState.scaleX,
+                scaleY = tfState.scaleY,
+                onRotation = { tfState.rotation = it },
+                onScaleX = { tfState.scaleX = it },
+                onScaleY = { tfState.scaleY = it },
+                onApply = {
+                    val rad = Math.toRadians(tfState.rotation.toDouble())
+                    vm.applyTransform(
+                        tfState.scaleX.toDouble(),
+                        tfState.scaleY.toDouble(),
+                        0.0,
+                        0.0,
+                        rad,
+                        tfState.tx.toDouble(),
+                        tfState.ty.toDouble(),
+                    )
+                    tfState.active = false
+                },
+                onCancel = { tfState.active = false },
+            )
+        }
 
         // ---- Floating selection panel (Krita tool-options style) ----
         // Context-sensitive: shown while a selection tool is active, sliding

@@ -270,6 +270,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
 }
 
 JNIEXPORT void JNICALL
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_contentBounds(JNIEnv *env, jobject)
+{
+    const QRect b = core()->contentBounds();
+    jintArray arr = env->NewIntArray(4);
+    if (arr) {
+        jint v[4] = {b.x(), b.y(), b.width(), b.height()};
+        env->SetIntArrayRegion(arr, 0, 4, v);
+    }
+    return arr;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_applyTransform(JNIEnv *env, jobject,
                                                              jdouble xscale, jdouble yscale,

@@ -1007,6 +1007,8 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun contentBounds(): IntArray? = ReverieCoreBridge.contentBounds()
+
     fun applyTransform(
         xscale: Double, yscale: Double,
         xshear: Double, yshear: Double,

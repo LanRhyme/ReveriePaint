@@ -185,6 +185,9 @@ public:
     bool applyTransform(double xscale, double yscale, double xshear,
                         double yshear, double rotationRad,
                         double xtranslate, double ytranslate);
+    // Content bounding box of the current layer in document coords (for the
+    // transform tool's rubber band). Empty (w<=0) when the layer is empty.
+    QRect contentBounds() const;
     void cropCanvas(int x, int y, int w, int h);
 
     // Draw text at (x, y) with the current brush color/size

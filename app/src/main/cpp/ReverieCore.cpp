@@ -3646,6 +3646,20 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     m_redoCount = 0;
 }
 
+QRect ReverieCore::contentBounds() const
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return QRect();
+    }
+    KisPaintDeviceSP dev = currentPaintDevice();
+    if (!dev) {
+        return QRect();
+    }
+    QRect b = dev->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
+    return b;
+}
+
 bool ReverieCore::applyTransform(double xscale, double yscale,
                                  double xshear, double yshear,
                                  double rotationRad,
