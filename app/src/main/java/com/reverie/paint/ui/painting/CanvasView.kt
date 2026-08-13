@@ -67,6 +67,23 @@ fun CanvasView(
     // Live selection preview path (updated while dragging a selection tool)
     var liveSelectionPath by remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
 
+    // Clear the preview once the committed overlay is ready (no blink), and
+    // whenever the active tool is no longer a selection tool
+    LaunchedEffect(tool, vm.selectionOverlayBitmap) {
+        val selTools =
+            setOf(
+                Tool.SELECT_RECT,
+                Tool.SELECT_ELLIPSE,
+                Tool.SELECT_POLYGON,
+                Tool.SELECT_MAGNETIC,
+                Tool.LASSO,
+                Tool.MAGICWAND,
+            )
+        if (tool !in selTools || vm.selectionOverlayBitmap != null) {
+            liveSelectionPath = null
+        }
+    }
+
     LaunchedEffect(bmp?.width, bmp?.height, viewW, viewH) {
         if (bmp != null && viewW > 0 && viewH > 0) {
             onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height) * 0.88f)
@@ -368,7 +385,10 @@ fun CanvasView(
                             }
                         }
 
-                        liveSelectionPath = null
+                        // NOTE: the live preview stays visible after release;
+                        // it is cleared only once the C++ selection overlay is
+                        // ready, so there is no blink between the preview and
+                        // the committed selection
                         if (!transformStarted) {
                             when {
                                 shapeTool -> {
