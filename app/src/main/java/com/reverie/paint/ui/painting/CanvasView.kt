@@ -357,8 +357,14 @@ fun CanvasView(
                                     vm.docWidth,
                                     vm.docHeight,
                                 )
-                                val hex = vm.pickColor(sampleImage.x, sampleImage.y)
-                                pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
+                                val ix = sampleImage.x.toInt()
+                                val iy = sampleImage.y.toInt()
+                                if (ix in 0 until image.width && iy in 0 until image.height) {
+                                    val pixel = image.getPixel(ix, iy)
+                                    if (android.graphics.Color.alpha(pixel) > 0) {
+                                        pickerCurrentColor = Color(pixel)
+                                    }
+                                }
                             }
                             Tool.MAGICWAND -> {
                                 wandFlash = firstImage
@@ -644,9 +650,13 @@ fun CanvasView(
                                                 vm.docWidth,
                                                 vm.docHeight,
                                             )
-                                            val hex = vm.pickColor(sampleImage.x, sampleImage.y)
-                                            if (hex != null) {
-                                                pickerCurrentColor = parseColor(hex)
+                                            val ix = sampleImage.x.toInt()
+                                            val iy = sampleImage.y.toInt()
+                                            if (ix in 0 until image.width && iy in 0 until image.height) {
+                                                val pixel = image.getPixel(ix, iy)
+                                                if (android.graphics.Color.alpha(pixel) > 0) {
+                                                    pickerCurrentColor = Color(pixel)
+                                                }
                                             }
                                         }
 

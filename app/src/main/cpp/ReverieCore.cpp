@@ -3023,37 +3023,16 @@ QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) {
         return QString();
     }
-    if (currentLayerOnly) {
-        KisPaintDeviceSP dev = currentPaintDevice();
-        if (!dev) return QString();
-        // readBytes is authoritative: dev->pixel's NG iterator read stale
-        // tile data after a writeBytes+readBytes round-trip on some tiles
-        // (observed in the transform desktop harness - pixel said transparent
-        // while readBytes returned the written red). The RGB8 (KoBgrU8Traits)
-        // device stores B,G,R,A, so byte0/1/2 are B,G,R.
-        // 1x1 readBytes is unreliable on some tiles (observed after a
-        // writeBytes round-trip), so read the whole row and pick the pixel -
-        // full-row reads traverse the tiles exactly like the full-document
-        // read that proved correct in the transform harness
-        const int dw = image->width();
-        QVector<quint8> row(size_t(dw) * 4);
-        dev->readBytes(row.data(), 0, y, dw, 1);
-        const size_t o = size_t(x) * 4;
-        if (row[o + 3] == 0) return QString(); // transparent
-        return QStringLiteral("#%1%2%3")
-                .arg(row[o + 2], 2, 16, QLatin1Char('0'))
-                .arg(row[o + 1], 2, 16, QLatin1Char('0'))
-                .arg(row[o], 2, 16, QLatin1Char('0'));
-    }
-    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
-    if (img.isNull() || x >= img.width() || y >= img.height()) {
-        return QString();
-    }
-    const QRgb c = img.pixel(x, y);
+    KisPaintDeviceSP dev = currentLayerOnly ? currentPaintDevice() : image->projection();
+    if (!dev) return QString();
+    quint8 pixel[4] = {0, 0, 0, 0};
+    dev->readBytes(pixel, x, y, 1, 1);
+    if (pixel[3] == 0) return QString(); // transparent
+    // KoBgrU8Traits: pixel[0]=B, pixel[1]=G, pixel[2]=R, pixel[3]=A
     return QStringLiteral("#%1%2%3")
-            .arg(qRed(c), 2, 16, QLatin1Char('0'))
-            .arg(qGreen(c), 2, 16, QLatin1Char('0'))
-            .arg(qBlue(c), 2, 16, QLatin1Char('0'));
+            .arg(pixel[2], 2, 16, QLatin1Char('0'))
+            .arg(pixel[1], 2, 16, QLatin1Char('0'))
+            .arg(pixel[0], 2, 16, QLatin1Char('0'));
 }
 
 // Restore pixels outside the active selection after a QImage-based edit
