@@ -164,35 +164,46 @@ fun PaintingPage(vm: PaintViewModel) {
         } else {
             if (tfState.active) {
                 // Real-time auto-commit on tool switch
-                if (tfState.mode in listOf(TransformMode.PERSPECTIVE, TransformMode.DISTORT)) {
-                    val corners = tfState.quadCorners
-                    if (corners.size == 4) {
-                        vm.applyPerspectiveTransform(
-                            corners[0].x.toDouble(), corners[0].y.toDouble(),
-                            corners[1].x.toDouble(), corners[1].y.toDouble(),
-                            corners[2].x.toDouble(), corners[2].y.toDouble(),
-                            corners[3].x.toDouble(), corners[3].y.toDouble(),
+                when (tfState.mode) {
+                    TransformMode.PERSPECTIVE -> {
+                        val corners = tfState.quadCorners
+                        if (corners.size == 4) {
+                            vm.applyPerspectiveTransform(
+                                corners[0].x.toDouble(), corners[0].y.toDouble(),
+                                corners[1].x.toDouble(), corners[1].y.toDouble(),
+                                corners[2].x.toDouble(), corners[2].y.toDouble(),
+                                corners[3].x.toDouble(), corners[3].y.toDouble(),
+                                tfState.bounds.left.toDouble(), tfState.bounds.top.toDouble(),
+                                tfState.bounds.width.toDouble(), tfState.bounds.height.toDouble(),
+                            )
+                        }
+                    }
+                    TransformMode.DISTORT -> {
+                        vm.applyWarpMeshTransform(
+                            tfState.origMeshPoints,
+                            tfState.meshPoints,
                             tfState.bounds.left.toDouble(), tfState.bounds.top.toDouble(),
                             tfState.bounds.width.toDouble(), tfState.bounds.height.toDouble(),
                         )
                     }
-                } else {
-                    val rad = Math.toRadians(tfState.rotation.toDouble())
-                    val c = tfState.bounds.center
-                    if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f || tfState.ty != 0f) {
-                        vm.applyTransform(
-                            tfState.scaleX.toDouble(),
-                            tfState.scaleY.toDouble(),
-                            0.0,
-                            0.0,
-                            rad,
-                            tfState.tx.toDouble(),
-                            tfState.ty.toDouble(),
-                            c.x.toDouble(),
-                            c.y.toDouble(),
-                        )
-                    } else {
-                        vm.cancelTransformPreview()
+                    else -> {
+                        val rad = Math.toRadians(tfState.rotation.toDouble())
+                        val c = tfState.bounds.center
+                        if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f || tfState.ty != 0f) {
+                            vm.applyTransform(
+                                tfState.scaleX.toDouble(),
+                                tfState.scaleY.toDouble(),
+                                0.0,
+                                0.0,
+                                rad,
+                                tfState.tx.toDouble(),
+                                tfState.ty.toDouble(),
+                                c.x.toDouble(),
+                                c.y.toDouble(),
+                            )
+                        } else {
+                            vm.cancelTransformPreview()
+                        }
                     }
                 }
             }

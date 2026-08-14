@@ -862,105 +862,65 @@ fun CanvasView(
 
                                  tool == Tool.TRANSFORM -> {
                                      tfState.handle = -1
-                                     when (tfState.mode) {
-                                         TransformMode.PERSPECTIVE -> {
-                                             val c = tfState.quadCorners
-                                             val b = tfState.bounds
-                                             vm.applyPerspectiveTransform(
-                                                 c[0].x.toDouble(), c[0].y.toDouble(),
-                                                 c[1].x.toDouble(), c[1].y.toDouble(),
-                                                 c[2].x.toDouble(), c[2].y.toDouble(),
-                                                 c[3].x.toDouble(), c[3].y.toDouble(),
-                                                 b.left.toDouble(), b.top.toDouble(),
-                                                 b.width.toDouble(), b.height.toDouble(),
-                                             )
-                                             val newB = vm.contentBounds()
-                                             if (newB != null && newB[2] > 0 && newB[3] > 0) {
-                                                 tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
-                                             }
-                                             vm.startTransformPreview()
+                                 }
+
+                                 tool == Tool.CROP -> Unit
+
+                                 tool == Tool.MEASURE -> Unit
+
+                                 shapeTool -> {
+                                     val kind =
+                                         when (tool) {
+                                             Tool.RECT -> 1
+                                             Tool.ELLIPSE -> 2
+                                             else -> 0
                                          }
-                                         TransformMode.DISTORT -> {
-                                             val b = tfState.bounds
-                                             vm.applyWarpMeshTransform(
-                                                 tfState.origMeshPoints,
-                                                 tfState.meshPoints,
-                                                 b.left.toDouble(), b.top.toDouble(),
-                                                 b.width.toDouble(), b.height.toDouble(),
-                                             )
-                                             val newB = vm.contentBounds()
-                                             if (newB != null && newB[2] > 0 && newB[3] > 0) {
-                                                 tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
-                                             }
-                                             vm.startTransformPreview()
-                                         }
-                                         else -> {
-                                             if (tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.rotation != 0f || tfState.tx != 0f || tfState.ty != 0f) {
-                                                 val c = tfState.bounds.center
-                                                 val rotRad = Math.toRadians(tfState.rotation.toDouble())
-                                                 vm.applyTransform(
-                                                     tfState.scaleX.toDouble(), tfState.scaleY.toDouble(),
-                                                     0.0, 0.0, rotRad,
-                                                     tfState.tx.toDouble(), tfState.ty.toDouble(),
-                                                     c.x.toDouble(), c.y.toDouble(),
+                                     vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
+                                 }
+
+                                 pointClickTool -> Unit
+
+                                 twoPointTool -> {
+                                     val x1 = firstImage.x.toInt()
+                                     val y1 = firstImage.y.toInt()
+                                     val x2 = shapeEnd.x.toInt()
+                                     val y2 = shapeEnd.y.toInt()
+                                     when (tool) {
+                                         Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
+                                         Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
+                                         Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
+                                         else -> Unit
+                                     }
+                                 }
+
+                                 trackSelectTool -> {
+                                     gestureEnded = true
+                                     if (lassoPoints.size >= 3) {
+                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                         vm.previewLassoSync(points)
+                                         vm.lassoSelect(points)
+                                     }
+                                 }
+
+                                 tool == Tool.MOVE -> {
+                                     val dx = tfState.tx.toInt()
+                                     val dy = tfState.ty.toInt()
+                                     if (dx != 0 || dy != 0) {
+                                         vm.moveLayerContent(dx, dy, restartPreview = true) {
+                                             tfState.tx = 0f
+                                             tfState.ty = 0f
+                                             val b = vm.contentBounds()
+                                             if (b != null && b[2] > 0 && b[3] > 0) {
+                                                 tfState.bounds = androidx.compose.ui.geometry.Rect(
+                                                     b[0].toFloat(),
+                                                     b[1].toFloat(),
+                                                     (b[0] + b[2]).toFloat(),
+                                                     (b[1] + b[3]).toFloat(),
                                                  )
-                                                 val newB = vm.contentBounds()
-                                                 if (newB != null && newB[2] > 0 && newB[3] > 0) {
-                                                     tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
-                                                 }
-                                                 vm.startTransformPreview()
                                              }
                                          }
                                      }
                                  }
-
-                                tool == Tool.CROP -> Unit
-
-                                tool == Tool.MEASURE -> Unit
-
-                                shapeTool -> {
-                                    val kind =
-                                        when (tool) {
-                                            Tool.RECT -> 1
-                                            Tool.ELLIPSE -> 2
-                                            else -> 0
-                                        }
-                                    vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
-                                }
-
-                                pointClickTool -> Unit
-
-                                twoPointTool -> {
-                                    val x1 = firstImage.x.toInt()
-                                    val y1 = firstImage.y.toInt()
-                                    val x2 = shapeEnd.x.toInt()
-                                    val y2 = shapeEnd.y.toInt()
-                                    when (tool) {
-                                        Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
-                                        Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
-                                        Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
-                                        else -> Unit
-                                    }
-                                }
-
-                                trackSelectTool -> {
-                                    gestureEnded = true
-                                    if (lassoPoints.size >= 3) {
-                                        val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                        vm.previewLassoSync(points)
-                                        vm.lassoSelect(points)
-                                    }
-                                }
-
-                                tool == Tool.MOVE -> {
-                                    val dx = tfState.tx.toInt()
-                                    val dy = tfState.ty.toInt()
-                                    tfState.tx = 0f
-                                    tfState.ty = 0f
-                                    if (dx != 0 || dy != 0) {
-                                        vm.moveLayerContent(dx, dy, restartPreview = true)
-                                    }
-                                }
 
                                 tool == Tool.LASSO -> {
                                     gestureEnded = true

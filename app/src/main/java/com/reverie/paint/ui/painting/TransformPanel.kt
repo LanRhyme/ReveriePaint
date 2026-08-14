@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -153,7 +154,23 @@ fun TransformPanel(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (isSel) Morandi.accent else Color.Transparent)
                                 .pointerInput(modeVal) {
-                                    detectTapGestures { tfState.mode = modeVal }
+                                    detectTapGestures {
+                                        if (tfState.mode != modeVal) {
+                                            tfState.mode = modeVal
+                                            val b = tfState.bounds
+                                            val mList = List(16) { idx ->
+                                                val r = idx / 4
+                                                val c = idx % 4
+                                                Offset(
+                                                    b.left + b.width * (c / 3f),
+                                                    b.top + b.height * (r / 3f),
+                                                )
+                                            }
+                                            tfState.meshPoints = mList
+                                            tfState.origMeshPoints = mList
+                                            tfState.quadCorners = listOf(b.topLeft, b.topRight, b.bottomRight, b.bottomLeft)
+                                        }
+                                    }
                                 }
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center,
@@ -183,6 +200,9 @@ fun TransformPanel(
                             tfState.quadCorners = tfState.quadCorners.map {
                                 it.copy(x = c.x - (it.x - c.x))
                             }
+                            tfState.meshPoints = tfState.meshPoints.map {
+                                it.copy(x = c.x - (it.x - c.x))
+                            }
                         },
                     )
 
@@ -194,6 +214,9 @@ fun TransformPanel(
                             tfState.scaleY *= -1f
                             val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
                             tfState.quadCorners = tfState.quadCorners.map {
+                                it.copy(y = c.y - (it.y - c.y))
+                            }
+                            tfState.meshPoints = tfState.meshPoints.map {
                                 it.copy(y = c.y - (it.y - c.y))
                             }
                         },
@@ -234,7 +257,8 @@ fun TransformPanel(
                         iconRes = R.drawable.ic_refresh,
                         label = "重置",
                         onClick = {
-                            tfState.reset(tfState.bounds)
+                            val b = tfState.bounds
+                            tfState.reset(b)
                             onReset()
                         },
                     )
