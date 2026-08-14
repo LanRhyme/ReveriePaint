@@ -21,9 +21,9 @@ class MainActivity : ComponentActivity() {
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
          *  system bars (status bar + navigation bar); a swipe shows them
-         *  temporarily. Controlled from the settings panel.
+         *  temporarily. Optionally extends into display cutout/notch area.
          */
-        fun applyImmersive(enable: Boolean) {
+        fun applyImmersive(enable: Boolean, extendToCutout: Boolean = true) {
             val act = activityInstance ?: return
             act.runOnUiThread {
                 val w = act.window
@@ -33,9 +33,24 @@ class MainActivity : ComponentActivity() {
                     controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
                     controller.systemBarsBehavior =
                         androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        val lp = w.attributes
+                        lp.layoutInDisplayCutoutMode = if (extendToCutout) {
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                        } else {
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                        }
+                        w.attributes = lp
+                    }
                 } else {
                     androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, true)
                     controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        val lp = w.attributes
+                        lp.layoutInDisplayCutoutMode =
+                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                        w.attributes = lp
+                    }
                 }
             }
         }
@@ -56,9 +71,9 @@ class MainActivity : ComponentActivity() {
             val vm: PaintViewModel = viewModel()
             vm.appContext = applicationContext
             vm.updateColorPickerMode(applicationContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).getString("colorPickerMode", "SQUARE") ?: "SQUARE")
-            // Restore the persisted immersive-mode preference and apply it
-            vm.syncImmersiveFromPrefs()
-            applyImmersive(vm.immersiveMode)
+            // Restore all persisted settings (accent color, opacities, immersive, cutout)
+            vm.syncSettingsFromPrefs()
+            applyImmersive(vm.immersiveMode, vm.extendToCutout)
             vm.refreshProjects()
             vm.loadBrushPresets()
             ReverieApp(vm)

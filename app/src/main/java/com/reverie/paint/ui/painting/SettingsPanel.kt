@@ -134,7 +134,7 @@ fun SettingsPanel(
                 when (tab) {
                     SettingsTab.CANVAS -> CanvasTabPage(vm = vm, onClose = onClose)
                     SettingsTab.EXPORT -> ExportTabPage(vm = vm, onClose = onClose)
-                    SettingsTab.SETTINGS -> SettingsTabPage(vm = vm)
+                    SettingsTab.SETTINGS -> SettingsTabPage(vm = vm, onClose = onClose)
                 }
             }
         }
@@ -311,17 +311,19 @@ private fun ExportTabPage(
 }
 
 @Composable
-private fun SettingsTabPage(vm: PaintViewModel) {
+private fun SettingsTabPage(
+    vm: PaintViewModel,
+    onClose: () -> Unit
+) {
     var isRightHanded by remember { mutableStateOf(false) }
-    var stabilizer by remember { mutableFloatStateOf(0f) }
+    var stabilizer by remember { mutableFloatStateOf(0.15f) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .verticalScroll(rememberScrollState())
     ) {
-        // 1. 界面主题
+        // 1. 深浅主题切换 (Morandi Palette)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -329,14 +331,14 @@ private fun SettingsTabPage(vm: PaintViewModel) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("界面主题", color = Morandi.text, fontSize = 13.sp)
+            Text("主题模式", color = Morandi.text, fontSize = 13.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Light theme swatch
                 Box(
                     modifier = Modifier
                         .size(24.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFFF5F5F7))
+                        .background(Color(0xFFE5E5E5))
                         .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
                 )
                 // Dark theme swatch (Active)
@@ -365,29 +367,21 @@ private fun SettingsTabPage(vm: PaintViewModel) {
             )
         }
 
-        // Immersive mode: fullscreen edge-to-edge + hidden system bars
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("沉浸模式", color = Morandi.text, fontSize = 13.sp)
-            ReSwitch(
-                checked = vm.immersiveMode,
-                onChecked = { vm.updateImmersiveMode(it) }
-            )
-        }
-
         Spacer(Modifier.height(6.dp))
 
-        // 3-7. List item links with chevron
+        // List item links with chevron
         SettingNavRow("视图显示") {}
         SettingNavRow("手势") {}
         SettingNavRow("手写笔设置") {}
         SettingNavRow("快捷键设置") {}
         SettingNavRow("颜色设置") {}
+
+        // 更多设置 -> 跳转到设置页面
+        SettingNavRow("更多设置") {
+            vm.homeSelectedTab = 1
+            vm.goHome()
+            onClose()
+        }
 
         Spacer(Modifier.height(4.dp))
 

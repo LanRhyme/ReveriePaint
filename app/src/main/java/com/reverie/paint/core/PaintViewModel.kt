@@ -97,9 +97,12 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         private set
         
-    // UI Settings
+    // UI Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
+    var accentColorHex by mutableStateOf("#5E8BA8")
+    var extendToCutout by mutableStateOf(true)
+    var homeSelectedTab by mutableStateOf(0)
     
     var colorPickerMode by mutableStateOf("SQUARE")
         private set
@@ -109,19 +112,68 @@ class PaintViewModel : ViewModel() {
     var immersiveMode by mutableStateOf(false)
         private set
 
+    fun updateUiOpacity(v: Float) {
+        uiOpacity = v
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putFloat("uiOpacity", v).apply()
+        }
+    }
+
+    fun updatePopupPanelOpacity(v: Float) {
+        popupPanelOpacity = v
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putFloat("popupPanelOpacity", v).apply()
+        }
+    }
+
+    fun updateAccentColor(hex: String) {
+        accentColorHex = hex
+        val color = com.reverie.paint.ui.theme.parseColor(hex)
+        com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
+            accent = color,
+            accentHi = color
+        )
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("accentColor", hex).apply()
+        }
+    }
+
     fun updateImmersiveMode(enable: Boolean) {
         immersiveMode = enable
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("immersiveMode", enable).apply()
         }
-        com.reverie.paint.MainActivity.applyImmersive(enable)
+        com.reverie.paint.MainActivity.applyImmersive(enable, extendToCutout)
     }
 
-    fun syncImmersiveFromPrefs() {
+    fun updateExtendToCutout(extend: Boolean) {
+        extendToCutout = extend
         if (::appContext.isInitialized) {
-            immersiveMode = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .getBoolean("immersiveMode", false)
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("extendToCutout", extend).apply()
+        }
+        if (immersiveMode) {
+            com.reverie.paint.MainActivity.applyImmersive(true, extend)
+        }
+    }
+
+    fun syncSettingsFromPrefs() {
+        if (::appContext.isInitialized) {
+            val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
+            popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
+            accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
+            immersiveMode = prefs.getBoolean("immersiveMode", false)
+            extendToCutout = prefs.getBoolean("extendToCutout", true)
+            val parsedColor = com.reverie.paint.ui.theme.parseColor(accentColorHex)
+            com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
+                accent = parsedColor,
+                accentHi = parsedColor
+            )
         }
     }
         

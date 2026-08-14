@@ -49,7 +49,7 @@ import com.reverie.paint.ui.theme.Theme
 @Composable
 fun HomePage(vm: PaintViewModel) {
     val colors = Theme.current
-    var selectedTab by remember { androidx.compose.runtime.mutableStateOf(0) }
+    val selectedTab = vm.homeSelectedTab
     Column(
         modifier =
             Modifier
@@ -139,7 +139,7 @@ fun HomePage(vm: PaintViewModel) {
             
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable { selectedTab = 0 }
+                modifier = Modifier.clickable { vm.homeSelectedTab = 0 }
             ) {
                 Icon(Icons.Rounded.Brush, contentDescription = "创作", tint = if (isGallery) colors.accent else colors.subText, modifier = Modifier.size(24.dp))
                 Text("创作", color = if (isGallery) colors.accent else colors.subText, fontSize = 10.sp)
@@ -156,7 +156,7 @@ fun HomePage(vm: PaintViewModel) {
             }
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.clickable { selectedTab = 1 }
+                modifier = Modifier.clickable { vm.homeSelectedTab = 1 }
             ) {
                 Icon(Icons.Rounded.Settings, contentDescription = "设置", tint = if (isSettings) colors.accent else colors.subText, modifier = Modifier.size(24.dp))
                 Text("设置", color = if (isSettings) colors.accent else colors.subText, fontSize = 10.sp)
