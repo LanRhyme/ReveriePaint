@@ -995,16 +995,11 @@ class PaintViewModel : ViewModel() {
         runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
     }
 
-    fun moveLayerContent(dx: Int, dy: Int, restartPreview: Boolean = false, onComplete: (() -> Unit)? = null) {
+    fun moveLayerContent(dx: Int, dy: Int) {
         runCore(render = true, after = {
             notifyLayerChanged()
             refreshSelection()
-            if (restartPreview) {
-                startTransformPreview()
-            } else {
-                transformPreviewBitmap = null
-            }
-            onComplete?.invoke()
+            startTransformPreview()
         }) {
             ReverieCoreBridge.cancelTransformPreview()
             ReverieCoreBridge.moveLayerContent(dx, dy)

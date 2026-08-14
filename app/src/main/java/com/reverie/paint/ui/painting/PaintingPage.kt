@@ -139,7 +139,7 @@ fun PaintingPage(vm: PaintViewModel) {
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     // Clear transient tool state when switching tools, and activate tool states
     androidx.compose.runtime.LaunchedEffect(tool) {
-        if (tool == Tool.TRANSFORM) {
+        if (tool == Tool.TRANSFORM || tool == Tool.MOVE) {
             val b = vm.contentBounds()
             if (b != null && b[2] > 0 && b[3] > 0) {
                 tfState.reset(
