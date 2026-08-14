@@ -15,15 +15,18 @@ import com.reverie.paint.ui.components.ReButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
+import dev.chrisbanes.haze.HazeState
+
 /** Gradient tool options: type (linear / radial / conical) */
 @Composable
 fun GradientPanel(
     vm: PaintViewModel,
     type: Int,
     onType: (Int) -> Unit,
+    hazeState: HazeState? = null,
 ) {
     val types = listOf(0 to "线性", 1 to "径向", 2 to "角度")
-    ToolFloatPanel(modifier = Modifier) {
+    ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             types.forEach { (t, label) ->
                 ToolFloatChip(label, selected = type == t, onClick = { onType(t) })
@@ -38,8 +41,9 @@ fun FillPanel(
     vm: PaintViewModel,
     tolerance: Int,
     onTolerance: (Int) -> Unit,
+    hazeState: HazeState? = null,
 ) {
-    ToolFloatPanel(modifier = Modifier) {
+    ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Box(modifier = Modifier.width(200.dp)) {
             ToolFloatSlider(
                 label = "容差",

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
+import dev.chrisbanes.haze.HazeState
 
 /**
  * Professional Transform Tool Panel matching Krita & Huashijie Pro.
@@ -49,6 +50,7 @@ fun TransformPanel(
     vm: PaintViewModel,
     tfState: TransformState,
     onReset: () -> Unit = {},
+    hazeState: HazeState? = null,
 ) {
     var showDpad by remember { mutableStateOf(false) }
 
@@ -127,7 +129,7 @@ fun TransformPanel(
         }
 
         // Main Bottom Floating Panel
-        ToolFloatPanel(modifier = Modifier) {
+        ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

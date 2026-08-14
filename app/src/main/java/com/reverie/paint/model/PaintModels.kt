@@ -70,11 +70,22 @@ data class BrushPreset(
     val size: Double,
 )
 
-/** A saved project entry */
+/** A saved project or stack (画集) entry */
 data class Project(
     val name: String,
-    val width: Int,
-    val height: Int,
+    val width: Int = 0,
+    val height: Int = 0,
+    val filePath: String = "",
+    val previewPath: String = "",
+    val strokeCount: Int = 0,
+    val elapsedSeconds: Long = 0L,
+    val lastModified: Long = 0L,
+    val layerCount: Int = 1,
+    val colorMode: String = "RGB 8-bit",
+    val fileSize: Long = 0L,
+    val isFolder: Boolean = false,
+    val folderPath: String = "",
+    val items: List<Project> = emptyList()
 )
 
 /** A canvas size preset for the create page */
@@ -83,3 +94,4 @@ data class CanvasPreset(
     val width: Int,
     val height: Int,
 )
+

@@ -52,11 +52,16 @@ import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.core.PaintViewModel
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 
 @Composable
 fun ToolRail(
     modifier: Modifier = Modifier,
     vm: PaintViewModel,
+    hazeState: HazeState? = null,
     tool: Tool,
     onTool: (Tool) -> Unit,
     moreToolsOpen: Boolean = false,
@@ -86,6 +91,9 @@ fun ToolRail(
         }
     }
 
+    val upperShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+    val lowerShape = RoundedCornerShape(topEnd = 16.dp)
+
     Box(modifier = modifier.pointerHoverIcon(PointerIcon.Default).fillMaxHeight().width(36.dp)) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -96,8 +104,22 @@ fun ToolRail(
                 modifier = Modifier
                     .width(36.dp)
                     .weight(1f, fill = false)
-                    .clip(RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp))
-                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                    .clip(upperShape)
+                    .then(
+                        if (vm.blurBackground && hazeState != null) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f)),
+                                    tint = HazeTint(Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f))),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.05f
+                                )
+                            )
+                        } else {
+                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                        }
+                    )
                     .padding(vertical = 4.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -110,24 +132,13 @@ fun ToolRail(
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
                                 tooltipTool = t
-                                // Brush-family tools: tapping the ALREADY
-                                // selected tool opens the brush panel (with
-                                // the category matching the tool's function);
-                                // tapping an unselected tool only selects it.
-                                if (t == tool && t.group == ToolGroup.BRUSH) {
-                                    vm.updateBrushPanelCategory(
-                                        when (t) {
-                                            Tool.ERASER -> "橡皮擦"
-                                            Tool.SMUDGE -> "混合"
-                                            else -> vm.brushPanelSelectedCategory
-                                        }
-                                    )
+                                if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
                                     onOpenBrush()
                                 } else {
                                     onTool(t)
                                 }
                             },
-                            selected = t == tool
+                            selected = tool == t,
                         )
                         if (tooltipTool == t) {
                             Popup(alignment = Alignment.CenterEnd, offset = IntOffset(110, 0)) {
@@ -170,8 +181,22 @@ fun ToolRail(
             Column(
                 modifier = Modifier
                     .width(36.dp)
-                    .clip(RoundedCornerShape(topEnd = 16.dp)) // no bottom-right corner
-                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                    .clip(lowerShape)
+                    .then(
+                        if (vm.blurBackground && hazeState != null) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f)),
+                                    tint = HazeTint(Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f))),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.05f
+                                )
+                            )
+                        } else {
+                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                        }
+                    )
                     .padding(top = 4.dp, bottom = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {

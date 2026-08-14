@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.noRippleClickable
@@ -40,6 +44,7 @@ fun AllToolsPanel(
     onClose: () -> Unit,
     opacity: Float = 0.94f,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
     var showCustomizeDialog by remember { mutableStateOf(false) }
     val groupedTools = remember(vm.pinnedTools) {
@@ -48,6 +53,8 @@ fun AllToolsPanel(
         ToolGroup.entries.map { g -> g to moreTools.filter { it.group == g } }
             .filter { it.second.isNotEmpty() }
     }
+
+    val panelShape = RoundedCornerShape(14.dp)
 
     Box(
         modifier = modifier
@@ -61,9 +68,23 @@ fun AllToolsPanel(
                 .align(Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(200.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Morandi.panel.copy(alpha = opacity))
-                .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                .clip(panelShape)
+                .then(
+                    if (vm.blurBackground && hazeState != null) {
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
+                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
+                                blurRadius = 24.dp,
+                                noiseFactor = 0.05f
+                            )
+                        )
+                    } else {
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                    }
+                )
+                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
                 .padding(12.dp)
         ) {
             Column {

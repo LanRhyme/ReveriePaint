@@ -61,6 +61,10 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -74,6 +78,7 @@ fun ColorPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     opacity: Float = 1.0f,
+    hazeState: HazeState? = null,
 ) {
     var hue by remember { mutableFloatStateOf(0f) }
     var sat by remember { mutableFloatStateOf(1f) }
@@ -94,6 +99,7 @@ fun ColorPanel(
         vm.updateBrushColor(hex)
     }
 
+    // Sync from vm.brushColor on open / external change
     LaunchedEffect(vm.brushColor) {
         if (isInteracting) return@LaunchedEffect
         try {
@@ -115,6 +121,8 @@ fun ColorPanel(
         } catch (e: Exception) { }
     }
 
+    val panelShape = RoundedCornerShape(14.dp)
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -127,8 +135,23 @@ fun ColorPanel(
                 .align(Alignment.BottomStart)
                 .padding(start = 44.dp, bottom = 16.dp)
                 .width(270.dp)
-                .background(Morandi.panel.copy(alpha = opacity), RoundedCornerShape(14.dp))
-                .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                .clip(panelShape)
+                .then(
+                    if (vm.blurBackground && hazeState != null) {
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
+                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
+                                blurRadius = 24.dp,
+                                noiseFactor = 0.05f
+                            )
+                        )
+                    } else {
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                    }
+                )
+                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

@@ -17,6 +17,11 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import androidx.compose.ui.graphics.Color
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReIconButton
@@ -30,6 +35,7 @@ fun TopBar(
     modifier: Modifier = Modifier,
     opacity: Float = 1.0f,
     vm: PaintViewModel,
+    hazeState: HazeState? = null,
     onBack: () -> Unit,
     onRotateCw: () -> Unit,
     onRotateCcw: () -> Unit,
@@ -40,12 +46,27 @@ fun TopBar(
     onUndo: () -> Unit = { vm.undo() },
     onRedo: () -> Unit = { vm.redo() },
 ) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp)
     Row(
         modifier =
             modifier
                 .pointerHoverIcon(androidx.compose.ui.input.pointer.PointerIcon.Default)
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp))
-                .background(Morandi.panel.copy(alpha = opacity))
+                .clip(shape)
+                .then(
+                    if (vm.blurBackground && hazeState != null) {
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
+                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
+                                blurRadius = 24.dp,
+                                noiseFactor = 0.05f
+                            )
+                        )
+                    } else {
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                    }
+                )
                 .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),

@@ -52,6 +52,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
@@ -75,6 +79,7 @@ fun BrushPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
+    hazeState: HazeState? = null,
 ) {
     val categories = remember(vm.brushPresets, vm.customBrushGroups) {
         listOf("全部") +
@@ -83,27 +88,32 @@ fun BrushPanel(
     }
     var selectedCategory by remember { mutableStateOf(vm.brushPanelSelectedCategory) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
+    var editingCategoryName by remember { mutableStateOf<String?>(null) }
+    var groupPendingDelete by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var movePresetName by remember { mutableStateOf<String?>(null) }
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
-    
-    var view by remember { mutableStateOf<BrushView>(if (vm.brushPanelDetailIndex != null) BrushView.Detail(vm.brushPanelDetailIndex!!) else BrushView.List) }
+
+    var view by remember {
+        mutableStateOf<BrushView>(
+            vm.brushPanelDetailIndex?.let { BrushView.Detail(it) } ?: BrushView.List
+        )
+    }
 
     val categoryScrollState = rememberLazyListState(
         initialFirstVisibleItemIndex = vm.brushCategoryScrollIndex,
         initialFirstVisibleItemScrollOffset = vm.brushCategoryScrollOffset
     )
+
     val presetScrollState = rememberLazyListState(
         initialFirstVisibleItemIndex = vm.brushPresetScrollIndex,
         initialFirstVisibleItemScrollOffset = vm.brushPresetScrollOffset
     )
 
-    LaunchedEffect(selectedCategory) {
-        vm.updateBrushPanelCategory(selectedCategory)
-        vm.brushPanelDetailIndex = null
-    }
-
-    DisposableEffect(Unit) {
+    // Save state on dispose / change
+    DisposableEffect(selectedCategory, view) {
         onDispose {
+            vm.brushPanelSelectedCategory = selectedCategory
             vm.brushCategoryScrollIndex = categoryScrollState.firstVisibleItemIndex
             vm.brushCategoryScrollOffset = categoryScrollState.firstVisibleItemScrollOffset
             vm.brushPresetScrollIndex = presetScrollState.firstVisibleItemIndex
@@ -111,6 +121,8 @@ fun BrushPanel(
             vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
         }
     }
+
+    val panelShape = RoundedCornerShape(12.dp)
 
     Box(
         modifier = modifier
@@ -124,9 +136,23 @@ fun BrushPanel(
                 .align(Alignment.CenterStart)
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Morandi.panel.copy(alpha = opacity))
-                .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(12.dp))
+                .clip(panelShape)
+                .then(
+                    if (vm.blurBackground && hazeState != null) {
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
+                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
+                                blurRadius = 24.dp,
+                                noiseFactor = 0.05f
+                            )
+                        )
+                    } else {
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                    }
+                )
+                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
                 .clickable(enabled = false) {}
         ) {
             AnimatedContent(

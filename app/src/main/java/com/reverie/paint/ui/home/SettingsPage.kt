@@ -103,6 +103,10 @@ fun SettingsPageContent(vm: PaintViewModel) {
         }
     }
 
+    androidx.activity.compose.BackHandler(enabled = subPage != SettingsSubPage.MAIN) {
+        subPage = SettingsSubPage.MAIN
+    }
+
     AnimatedContent(
         targetState = subPage,
         transitionSpec = {
@@ -332,8 +336,17 @@ private fun ThemeSettingsSubPage(
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.4f)))
         Spacer(Modifier.height(16.dp))
 
-        // Section: 显示与沉浸
-        SettingCategoryHeader("显示")
+        // Section: 显示与效果
+        SettingCategoryHeader("显示与效果")
+
+        SettingSwitchRow(
+            title = "背景毛玻璃效果",
+            summary = "为所有面板与工具栏启用半透明背景高斯模糊",
+            checked = vm.blurBackground,
+            onCheckedChange = { vm.updateBlurBackground(it) }
+        )
+
+        Spacer(Modifier.height(8.dp))
 
         SettingSwitchRow(
             title = "沉浸模式",

@@ -9,6 +9,8 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReButton
 import kotlin.math.roundToInt
 
+import dev.chrisbanes.haze.HazeState
+
 /**
  * Liquify tool options - floating capsule with Krita's liquify modes:
  * push/pull, bloat, pucker, rotate CW, rotate CCW plus brush size and
@@ -23,9 +25,10 @@ fun LiquifyPanel(
     onMode: (Int) -> Unit,
     brushSize: Float,
     onBrushSize: (Float) -> Unit,
+    hazeState: HazeState? = null,
 ) {
     val modes = listOf(0 to "推拉", 1 to "膨胀", 2 to "收缩", 3 to "顺时针", 4 to "逆时针")
-    ToolFloatPanel(modifier = Modifier) {
+    ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 modes.forEach { (m, label) ->

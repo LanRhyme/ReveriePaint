@@ -17,6 +17,8 @@ import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
+import dev.chrisbanes.haze.HazeState
+
 /**
  * Shape tools options panel - Krita tool-options floating capsule (same as
  * the selection panel): it never covers the canvas, only a compact capsule
@@ -33,10 +35,11 @@ fun ShapeToolPanel(
     onFilled: (Boolean) -> Unit,
     onFinish: () -> Unit,
     onCancel: () -> Unit,
+    hazeState: HazeState? = null,
 ) {
     if (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON || tool == Tool.PATH) {
         // Point-click tools: vertex count + finish/cancel
-        ToolFloatPanel(modifier = Modifier) {
+        ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ToolFloatChip(label = "完成", selected = true, onClick = onFinish)
                 ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
@@ -49,7 +52,7 @@ fun ShapeToolPanel(
         }
     } else {
         // line / rect / ellipse: stroke width + fill
-        ToolFloatPanel(modifier = Modifier) {
+        ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ToolFloatChip(label = "填充", selected = filled, onClick = { onFilled(!filled) })
                 Box(modifier = Modifier.width(180.dp)) {

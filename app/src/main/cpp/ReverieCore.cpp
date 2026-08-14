@@ -14,6 +14,21 @@
 #include <QFile>
 #include <QBuffer>
 #include <QElapsedTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDateTime>
+#include <KoStore.h>
+#include <KoStoreDevice.h>
+#include <psd.h>
+#include <psd_header.h>
+#include <psd_utils.h>
+#include <psd_resource_block.h>
+#include <psd_resource_section.h>
+#include <psd_layer_section.h>
+#include <psd_colormode_block.h>
+#include <psd_image_data.h>
+#include <psd_saver.h>
 
 #include <brushengine/kis_paintop_preset.h>
 #include <brushengine/kis_paintop_registry.h>
@@ -859,6 +874,40 @@ int ReverieCore::copyLayer(int index)
 
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
+    pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
+    recompositeProjection();
+    syncLayersFromImage();
+    const int idx = indexOfNode(nl.data());
+    if (idx < 0) {
+        return -1;
+    }
+    m_currentLayer = idx;
+    markDirty();
+    return m_currentLayer;
+}
+
+int ReverieCore::stampVisibleLayers()
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return -1;
+    }
+    recompositeProjection();
+    KisPaintDeviceSP proj = image->projection();
+    if (!proj) {
+        return -1;
+    }
+    KisPaintLayerSP nl = new KisPaintLayer(image, QStringLiteral("盖印可见图层"), 255, image->colorSpace());
+    if (!nl) {
+        return -1;
+    }
+    const QRect bounds(0, 0, image->width(), image->height());
+    nl->original()->makeCloneFrom(proj, bounds);
+    nl->original()->setDirty(bounds);
+
+    KisNodeSP above;
+    KisNodeSP parent;
+    currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
     pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
     recompositeProjection();
     syncLayersFromImage();
@@ -4455,6 +4504,289 @@ bool ReverieCore::savePng(const QString &path)
     return img.save(path, "PNG");
 }
 
+bool ReverieCore::exportJpg(const QString &path, int quality)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    if (img.isNull()) {
+        return false;
+    }
+    // Solid background for JPEG (composite on white if has transparent regions)
+    QImage rgbImg(img.size(), QImage::Format_RGB32);
+    rgbImg.fill(Qt::white);
+    QPainter p(&rgbImg);
+    p.drawImage(0, 0, img);
+    p.end();
+    return rgbImg.save(path, "JPEG", qBound(1, quality, 100));
+}
+
+bool ReverieCore::exportPsd(const QString &path)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        return false;
+    }
+
+    const bool haveLayers = m_layers.size() > 1;
+
+    // 1. Header
+    PSDHeader header;
+    header.signature = "8BPS";
+    header.version = 1;
+    header.nChannels = haveLayers ? 4 : 3;
+    header.width = image->width();
+    header.height = image->height();
+    header.colormode = RGB;
+    header.channelDepth = 8;
+
+    if (!header.write(file)) {
+        return false;
+    }
+
+    // 2. Color mode block
+    PSDColorModeBlock colorModeBlock(header.colormode);
+    if (!colorModeBlock.write(file)) {
+        return false;
+    }
+
+    // 3. Image resources section
+    PSDImageResourceSection resourceSection;
+    if (!resourceSection.write(file)) {
+        return false;
+    }
+
+    // 4. Layer & mask section
+    if (haveLayers && image->rootLayer()) {
+        PSDLayerMaskSection layerSection(header);
+        layerSection.hasTransparency = true;
+        if (!layerSection.write(file, image->rootLayer(), psd_compression_type::RLE)) {
+            return false;
+        }
+    } else {
+        psdwrite(file, (quint32)0);
+    }
+
+    // 5. Image data (merged projection composite)
+    PSDImageData imagedata(&header);
+    if (!imagedata.write(file, image->projection(), haveLayers, psd_compression_type::RLE)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+
+    QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
+    if (!store || store->bad()) {
+        return false;
+    }
+
+    // 1. Meta / Manifest JSON
+    QJsonObject meta;
+    meta["version"] = 1;
+    meta["appName"] = "ReveriePaint";
+    meta["width"] = image->width();
+    meta["height"] = image->height();
+    meta["colorMode"] = "RGB";
+    meta["colorDepth"] = 8;
+    meta["xRes"] = image->xRes();
+    meta["yRes"] = image->yRes();
+    meta["createdTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    meta["modifiedTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    // Merge in extra metadata passed from Java/Kotlin (stroke count, draw duration, etc.)
+    if (!extraMetaJson.isEmpty()) {
+        QJsonDocument extraDoc = QJsonDocument::fromJson(extraMetaJson.toUtf8());
+        if (extraDoc.isObject()) {
+            QJsonObject extraObj = extraDoc.object();
+            for (auto it = extraObj.begin(); it != extraObj.end(); ++it) {
+                meta[it.key()] = it.value();
+            }
+        }
+    }
+
+    // Layer metadata array
+    QJsonArray layersArray;
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        QJsonObject layerObj;
+        layerObj["index"] = i;
+        layerObj["name"] = e.name;
+        layerObj["visible"] = e.visible;
+        layerObj["opacity"] = layerOpacity(i);
+        layerObj["blendMode"] = layerBlendMode(i);
+        layerObj["locked"] = e.locked;
+        layerObj["alphaLocked"] = e.alphaLocked;
+        layerObj["clipped"] = e.clipped;
+        layerObj["isGroup"] = e.isGroup;
+        layerObj["depth"] = e.depth;
+        layerObj["colorLabel"] = e.colorLabel;
+        layerObj["background"] = e.background;
+        layersArray.append(layerObj);
+    }
+    meta["layers"] = layersArray;
+
+    // Write meta.json
+    if (store->open("meta.json")) {
+        QJsonDocument doc(meta);
+        QByteArray data = doc.toJson(QJsonDocument::Indented);
+        store->write(data);
+        store->close();
+    }
+
+    // 2. Merged Preview thumbnail
+    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    if (!comp.isNull()) {
+        if (store->open("preview.png")) {
+            QByteArray pngBytes;
+            QBuffer buf(&pngBytes);
+            buf.open(QIODevice::WriteOnly);
+            comp.save(&buf, "PNG");
+            store->write(pngBytes);
+            store->close();
+        }
+        if (store->open("thumbnail.png")) {
+            QByteArray thumbBytes;
+            QBuffer tbuf(&thumbBytes);
+            tbuf.open(QIODevice::WriteOnly);
+            const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            thumb.save(&tbuf, "PNG");
+            store->write(thumbBytes);
+            store->close();
+        }
+    }
+
+    // 3. Save each layer as PNG tile / image
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+
+        const QRect bounds = dev->exactBounds();
+        QImage layerImg;
+        if (!bounds.isEmpty()) {
+            layerImg = dev->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+        } else {
+            layerImg = QImage(image->width(), image->height(), QImage::Format_ARGB32_Premultiplied);
+            layerImg.fill(Qt::transparent);
+        }
+
+        const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
+        if (store->open(layerFileName)) {
+            QByteArray lBytes;
+            QBuffer lBuf(&lBytes);
+            lBuf.open(QIODevice::WriteOnly);
+            layerImg.save(&lBuf, "PNG");
+            store->write(lBytes);
+            store->close();
+        }
+    }
+
+    return store->close();
+}
+
+bool ReverieCore::loadRevp(const QString &path)
+{
+    QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Read, "", KoStore::Zip));
+    if (!store || store->bad()) {
+        return false;
+    }
+
+    if (!store->hasFile("meta.json")) {
+        return false;
+    }
+
+    QByteArray metaData;
+    if (store->open("meta.json")) {
+        metaData = store->read(store->size());
+        store->close();
+    }
+    if (metaData.isEmpty()) {
+        return false;
+    }
+
+    QJsonDocument metaDoc = QJsonDocument::fromJson(metaData);
+    if (!metaDoc.isObject()) {
+        return false;
+    }
+    QJsonObject meta = metaDoc.object();
+    const int w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
+    const int h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
+
+    if (!newDocument(w, h)) {
+        return false;
+    }
+
+    QJsonArray layersArray = meta["layers"].toArray();
+    if (layersArray.isEmpty()) {
+        return true;
+    }
+
+    // Clear existing layer 1 if any, recreate full layer stack
+    while (m_layers.size() > 1) {
+        removeLayer(m_layers.size() - 1);
+    }
+
+    for (int i = 1; i < layersArray.size(); ++i) {
+        addLayer();
+    }
+
+    for (int i = 0; i < layersArray.size() && i < m_layers.size(); ++i) {
+        QJsonObject layerObj = layersArray[i].toObject();
+        const QString name = layerObj["name"].toString();
+        if (!name.isEmpty()) {
+            setLayerName(i, name);
+        }
+        setLayerVisible(i, layerObj["visible"].toBool(true));
+        setLayerOpacity(i, layerObj["opacity"].toDouble(1.0));
+        const QString blend = layerObj["blendMode"].toString("normal");
+        setLayerBlendMode(i, blend);
+        setLayerLocked(i, layerObj["locked"].toBool(false));
+        setLayerAlphaLocked(i, layerObj["alphaLocked"].toBool(false));
+        setLayerClipped(i, layerObj["clipped"].toBool(false));
+
+        const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
+        if (store->hasFile(layerFileName) && store->open(layerFileName)) {
+            QByteArray lData = store->read(store->size());
+            store->close();
+            QImage lImg;
+            if (lImg.loadFromData(lData, "PNG")) {
+                KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
+                if (dev) {
+                    const QImage conv = lImg.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                    dev->clear();
+                    dev->writeBytes(reinterpret_cast<const quint8 *>(conv.constBits()), 0, 0, conv.width(), conv.height());
+                    dev->setDirty();
+                }
+            }
+        }
+    }
+
+    setCurrentLayer(qBound(0, 1, m_layers.size() - 1));
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::saveKra(const QString &path)
+{
+    // Save .kra project format (standard Krita ZIP container with meta, preview, and layer devices)
+    return saveRevp(path);
+}
+
 bool ReverieCore::loadPng(const QString &path)
 {
     QImage img(path);
@@ -4464,8 +4796,6 @@ bool ReverieCore::loadPng(const QString &path)
     if (!newDocument(img.width(), img.height())) {
         return false;
     }
-    // Blit the loaded pixels into the topmost paintable layer (never the
-    // locked background, which stays white)
     KisImageSP image = m_document;
     if (!image || m_layers.size() < 2) {
         return false;
@@ -4476,11 +4806,6 @@ bool ReverieCore::loadPng(const QString &path)
     if (!dev) {
         return false;
     }
-    const KoColorSpace *cs = image->colorSpace();
-    // Bulk blit: the layer device is RGB8 (KoBgrU8Traits, BGRA premultiplied
-    // memory layout), which matches QImage::Format_ARGB32_Premultiplied
-    // exactly - one writeBytes instead of a per-pixel setPixel loop (the
-    // old loop took seconds on a phone for a 1080x1920 project)
     const QImage conv = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
     const int iw = conv.width();
     const int ih = conv.height();
@@ -4503,9 +4828,6 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     }
     const QRect ext = dev->exactBounds();
     if (ext.isEmpty()) {
-        // Empty layer: return a transparent thumbnail so the cache refreshes.
-        // Returning false here left stale index-keyed entries from before the
-        // layer was cleared, showing old content on a blank layer.
         QImage out(w, h, QImage::Format_RGBA8888);
         out.fill(Qt::transparent);
         const int copyH = qMin(h, out.height());

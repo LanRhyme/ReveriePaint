@@ -3,6 +3,7 @@ package com.reverie.paint
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -83,17 +84,39 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ReverieApp(vm: PaintViewModel = viewModel()) {
-    when (vm.currentPage) {
-        Page.HOME -> {
-            HomePage(vm)
-        }
+    androidx.compose.animation.AnimatedContent(
+        targetState = vm.currentPage,
+        transitionSpec = {
+            if (targetState == Page.PAINTING || initialState == Page.PAINTING) {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.scaleIn(initialScale = 0.96f, animationSpec = androidx.compose.animation.core.tween(240)))
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) +
+                                androidx.compose.animation.scaleOut(targetScale = 1.02f, animationSpec = androidx.compose.animation.core.tween(180))
+                    )
+            } else {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(200)) { if (targetState == Page.CREATE) it / 3 else -it / 3 })
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)) +
+                                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(160)) { if (targetState == Page.CREATE) -it / 3 else it / 3 }
+                    )
+            }
+        },
+        label = "AppPageTransition"
+    ) { page ->
+        when (page) {
+            Page.HOME -> {
+                HomePage(vm)
+            }
 
-        Page.CREATE -> {
-            CreatePage(vm)
-        }
+            Page.CREATE -> {
+                CreatePage(vm)
+            }
 
-        Page.PAINTING -> {
-            PaintingPage(vm)
+            Page.PAINTING -> {
+                PaintingPage(vm)
+            }
         }
     }
 }

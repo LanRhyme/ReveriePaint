@@ -52,6 +52,7 @@ public:
     int addGroupLayer(const QString &name = QString());  // returns new index
     void removeLayer(int index);
     int copyLayer(int index);                            // returns new index
+    int stampVisibleLayers();                            // returns new layer index
     void clearLayer(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
@@ -286,8 +287,13 @@ public:
     // returns "#rrggbb" or empty if outside the document.
     QString pickColorAt(int x, int y, bool currentLayerOnly = false);
 
-    // Export the composited document to a PNG file. Returns true on success.
+    // Export functions
     bool savePng(const QString &path);
+    bool exportJpg(const QString &path, int quality = 90);
+    bool exportPsd(const QString &path);
+    bool saveRevp(const QString &path, const QString &extraMetaJson = QString());
+    bool loadRevp(const QString &path);
+    bool saveKra(const QString &path);
 
     // Render a single layer's content into an RGBA buffer (w*h*4 bytes,
     // row stride dstStride) as a thumbnail: transparent background, keep

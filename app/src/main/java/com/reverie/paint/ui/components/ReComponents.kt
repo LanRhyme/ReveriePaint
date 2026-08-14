@@ -480,26 +480,36 @@ fun ReMenuItem(
     iconColor: Color = Theme.current.icon,
     textColor: Color = Theme.current.text,
 ) {
+    val colors = Theme.current
+    var isPressed by remember { mutableStateOf(false) }
+    val cardBg = if (isPressed) colors.accent.copy(alpha = 0.15f) else colors.panelHi.copy(alpha = 0.6f)
+    val cardBorder = if (isPressed) colors.accent.copy(alpha = 0.4f) else colors.border.copy(alpha = 0.4f)
+
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(cardBg)
+            .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
             .clickable { onTap() }
-            .padding(4.dp),
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
             painter = painterResource(icon),
             contentDescription = label,
-            tint = iconColor,
-            modifier = Modifier.size(24.dp)
+            tint = if (isPressed) colors.accent else iconColor,
+            modifier = Modifier.size(22.dp)
         )
         Spacer(Modifier.height(6.dp))
         Text(
             label,
-            color = textColor,
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center
+            color = if (isPressed) colors.accent else textColor,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 1
         )
     }
 }
+

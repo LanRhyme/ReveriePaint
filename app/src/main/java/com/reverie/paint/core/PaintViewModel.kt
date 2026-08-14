@@ -11,6 +11,10 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
+import java.io.File
+import java.util.zip.ZipFile
+import org.json.JSONObject
+import org.json.JSONArray
 
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
@@ -28,6 +32,11 @@ class PaintViewModel : ViewModel() {
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
     var docName by mutableStateOf("Untitled")
+    var totalStrokes by mutableStateOf(0)
+    var elapsedSeconds by mutableStateOf(0L)
+    var canvasCreatedTime by mutableStateOf(System.currentTimeMillis())
+    var colorMode by mutableStateOf("RGB 8位 (sRGB)")
+    private var sessionStartTime = System.currentTimeMillis()
 
     // Brush state
     var brushSize by mutableStateOf(20.0)
@@ -100,6 +109,7 @@ class PaintViewModel : ViewModel() {
     // UI Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
+    var blurBackground by mutableStateOf(false) // 背景毛玻璃效果，默认关闭
     var accentColorHex by mutableStateOf("#5E8BA8")
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
@@ -293,11 +303,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateBlurBackground(enable: Boolean) {
+        blurBackground = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("blurBackground", enable).apply()
+        }
+    }
+
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
+            blurBackground = prefs.getBoolean("blurBackground", false)
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
@@ -325,12 +344,8 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    // Recent projects (name -> {w, h})
-    data class Project(
-        val name: String,
-        val w: Int,
-        val h: Int,
-    )
+    // Recent projects list
+    var projects by mutableStateOf<List<com.reverie.paint.model.Project>>(emptyList())
 
     /** Snapshot of one layer's native state, mirrored from C++ on every
      * structure change. The UI reads this Compose state instead of calling
@@ -350,9 +365,6 @@ class PaintViewModel : ViewModel() {
         val opacity: Double,
         val blendMode: String,
     )
-
-    var projects by mutableStateOf(listOf<Project>())
-        private set
 
     // ---- async render plumbing ----
     // Document size as known by the C++ core (written on the render thread,
@@ -537,53 +549,309 @@ class PaintViewModel : ViewModel() {
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
     }
 
-    fun saveProject(name: String) {
+    fun projectDir(): java.io.File {
+        val extDir = appContext.getExternalFilesDir("projects")
+        if (extDir != null) {
+            if (!extDir.exists()) extDir.mkdirs()
+            return extDir
+        }
+        val intDir = java.io.File(appContext.filesDir, "projects")
+        if (!intDir.exists()) intDir.mkdirs()
+        return intDir
+    }
+
+    var currentProjectFile by mutableStateOf<String?>(null)
+
+    fun saveProject(name: String, onComplete: (() -> Unit)? = null) {
+        val now = System.currentTimeMillis()
+        if (now > sessionStartTime) {
+            elapsedSeconds += (now - sessionStartTime) / 1000L
+            sessionStartTime = now
+        }
         runCore(
             after = {
                 docName = name
                 refreshProjects()
+                onComplete?.invoke()
             },
         ) {
-            val dir = java.io.File(appContext.filesDir, "projects")
-            dir.mkdirs()
-            val file = java.io.File(dir, "$name.png")
-            ReverieCoreBridge.savePng(file.absolutePath)
+            val fileToSave = currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true }
+                ?: File(projectDir(), "$name.revp")
+            
+            // If the name changed and we had a path, adjust destination file
+            val finalFile = if (fileToSave.nameWithoutExtension != name) {
+                File(fileToSave.parentFile, "$name.revp")
+            } else {
+                fileToSave
+            }
+            currentProjectFile = finalFile.absolutePath
+
+            val extraJson = """
+                {
+                    "strokeCount": $totalStrokes,
+                    "elapsedSeconds": $elapsedSeconds,
+                    "createdTime": $canvasCreatedTime,
+                    "colorMode": "$colorMode",
+                    "layerCount": ${layers.size}
+                }
+            """.trimIndent()
+            ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson)
         }
     }
 
-    fun loadProject(name: String) {
+    fun loadProject(p: com.reverie.paint.model.Project) {
         runCore(
             after = {
                 docWidth = coreW
                 docHeight = coreH
-                docName = name
+                docName = p.name
+                currentProjectFile = p.filePath
+                totalStrokes = p.strokeCount
+                elapsedSeconds = p.elapsedSeconds
+                canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
+                sessionStartTime = System.currentTimeMillis()
+                colorMode = p.colorMode
                 currentPage = Page.PAINTING
             },
         ) {
-            val file = java.io.File(projectDir(), "$name.png")
-            if (file.exists() && ReverieCoreBridge.loadPng(file.absolutePath)) {
-                coreW = ReverieCoreBridge.docWidth()
-                coreH = ReverieCoreBridge.docHeight()
-                syncLayersFromNative()
+            val file = java.io.File(p.filePath)
+            if (file.exists()) {
+                val ok = if (file.extension.equals("revp", ignoreCase = true) || file.extension.equals("kra", ignoreCase = true)) {
+                    ReverieCoreBridge.loadRevp(file.absolutePath)
+                } else {
+                    ReverieCoreBridge.loadPng(file.absolutePath)
+                }
+                if (ok) {
+                    coreW = ReverieCoreBridge.docWidth()
+                    coreH = ReverieCoreBridge.docHeight()
+                    syncLayersFromNative()
+                }
             }
         }
     }
 
+    // Current folder stack navigation: null means Root, otherwise the folder Project
+    var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
+    var searchQuery by mutableStateOf("")
+
+    fun createFolder(name: String) {
+        val root = projectDir()
+        val folder = File(root, name.trim())
+        if (!folder.exists()) {
+            folder.mkdirs()
+        }
+        refreshProjects()
+    }
+
+    fun moveProjectToFolder(p: com.reverie.paint.model.Project, targetFolderName: String?) {
+        val srcFile = File(p.filePath)
+        if (!srcFile.exists()) return
+        val root = projectDir()
+        val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
+        if (!destDir.exists()) destDir.mkdirs()
+        val destFile = File(destDir, srcFile.name)
+        srcFile.renameTo(destFile)
+        refreshProjects()
+    }
+
+    fun deleteProject(p: com.reverie.paint.model.Project) {
+        if (p.isFolder) {
+            val dir = File(p.filePath)
+            if (dir.exists() && dir.isDirectory) {
+                dir.deleteRecursively()
+            }
+        } else {
+            val file = File(p.filePath)
+            if (file.exists()) file.delete()
+        }
+        refreshProjects()
+    }
+
+    fun renameProject(p: com.reverie.paint.model.Project, newName: String) {
+        val file = File(p.filePath)
+        if (file.exists()) {
+            val target = if (p.isFolder) {
+                File(file.parentFile, newName.trim())
+            } else {
+                File(file.parentFile, "${newName.trim()}.${file.extension}")
+            }
+            file.renameTo(target)
+        }
+        refreshProjects()
+    }
+
+    private fun parseProjectFromFile(f: File): com.reverie.paint.model.Project {
+        var w = 1080
+        var h = 1920
+        var strokes = 0
+        var elapsed = 0L
+        var layerCount = 1
+        var colorModeStr = "RGB 8位"
+        var previewPath = ""
+
+        val ext = f.extension.lowercase()
+        if (ext == "revp" || ext == "kra") {
+            try {
+                val zip = ZipFile(f)
+                try {
+                    val metaEntry = zip.getEntry("meta.json")
+                    if (metaEntry != null) {
+                        val stream = zip.getInputStream(metaEntry)
+                        val text = stream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(text)
+                        w = json.optInt("width", 1080)
+                        h = json.optInt("height", 1920)
+                        strokes = json.optInt("strokeCount", 0)
+                        elapsed = json.optLong("elapsedSeconds", 0L)
+                        colorModeStr = json.optString("colorMode", "RGB 8位")
+                        layerCount = json.optJSONArray("layers")?.length() ?: 1
+                    }
+                    val prevEntry = zip.getEntry("thumbnail.png") ?: zip.getEntry("preview.png")
+                    if (prevEntry != null) {
+                        val cacheThumb = File(appContext.cacheDir, "${f.nameWithoutExtension}_thumb.png")
+                        if (!cacheThumb.exists() || cacheThumb.lastModified() < f.lastModified()) {
+                            zip.getInputStream(prevEntry).use { input ->
+                                cacheThumb.outputStream().use { output -> input.copyTo(output) }
+                            }
+                        }
+                        previewPath = cacheThumb.absolutePath
+                    }
+                } finally {
+                    zip.close()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "Failed to parse revp metadata: ${f.name}", e)
+            }
+        } else if (ext == "png") {
+            previewPath = f.absolutePath
+        }
+
+        return com.reverie.paint.model.Project(
+            name = f.nameWithoutExtension,
+            width = w,
+            height = h,
+            filePath = f.absolutePath,
+            previewPath = previewPath,
+            strokeCount = strokes,
+            elapsedSeconds = elapsed,
+            lastModified = f.lastModified(),
+            layerCount = layerCount,
+            colorMode = colorModeStr,
+            fileSize = f.length(),
+            isFolder = false
+        )
+    }
+
     fun refreshProjects() {
-        val dir = projectDir()
-        if (!dir.exists()) {
+        val rootDir = projectDir()
+        if (!rootDir.exists()) {
             projects = emptyList()
             return
         }
-        projects =
-            dir
-                .listFiles { f -> f.extension == "png" }
-                ?.sortedByDescending { it.lastModified() }
-                ?.map { Project(it.nameWithoutExtension, 0, 0) }
-                ?: emptyList()
+
+        // If currently inside a folder, read projects inside that subfolder
+        val folder = currentFolder
+        if (folder != null && folder.isFolder) {
+            val dir = File(folder.filePath)
+            if (!dir.exists()) {
+                currentFolder = null
+                refreshProjects()
+                return
+            }
+            val files: Array<File> = dir.listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
+                ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
+
+            val list = files.map { parseProjectFromFile(it) }
+            projects = list
+            return
+        }
+
+        // Root level: read both standalone files and folders (画集)
+        val list = mutableListOf<com.reverie.paint.model.Project>()
+        val allEntries: Array<File> = rootDir.listFiles()
+            ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
+
+        for (entry in allEntries) {
+            if (entry.isDirectory) {
+                // Folder / Stack (画集)
+                val subFiles: Array<File> = entry.listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
+                    ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
+
+                val subProjects = subFiles.map { parseProjectFromFile(it) }
+                val topThumb = subProjects.firstOrNull()?.previewPath ?: ""
+                val topModified = maxOf(entry.lastModified(), subProjects.maxOfOrNull { it.lastModified } ?: 0L)
+
+                list.add(
+                    com.reverie.paint.model.Project(
+                        name = entry.name,
+                        filePath = entry.absolutePath,
+                        previewPath = topThumb,
+                        lastModified = topModified,
+                        isFolder = true,
+                        folderPath = entry.absolutePath,
+                        items = subProjects
+                    )
+                )
+            } else if (entry.isFile && entry.extension.lowercase() in listOf("revp", "kra", "png")) {
+                list.add(parseProjectFromFile(entry))
+            }
+        }
+        projects = list
     }
 
-    fun projectDir(): java.io.File = java.io.File(appContext.filesDir, "projects")
+    /**
+     * Export the current artwork into various formats:
+     * PNG, JPG, PSD, TIFF, KRA, REVP
+     */
+    fun exportDocument(
+        format: String,
+        targetFile: java.io.File,
+        onSuccess: (java.io.File) -> Unit,
+        onError: (String) -> Unit = {}
+    ) {
+        val fmt = format.lowercase()
+        runCore(render = false) {
+            val ok = when (fmt) {
+                "png" -> ReverieCoreBridge.savePng(targetFile.absolutePath)
+                "jpg", "jpeg" -> ReverieCoreBridge.exportJpg(targetFile.absolutePath, 95)
+                "psd" -> ReverieCoreBridge.exportPsd(targetFile.absolutePath)
+                "kra" -> ReverieCoreBridge.saveKra(targetFile.absolutePath)
+                "revp" -> {
+                    val extraJson = """
+                        {
+                            "strokeCount": $totalStrokes,
+                            "elapsedSeconds": $elapsedSeconds,
+                            "createdTime": $canvasCreatedTime,
+                            "colorMode": "$colorMode",
+                            "layerCount": ${layers.size}
+                        }
+                    """.trimIndent()
+                    ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson)
+                }
+                "tiff", "tif" -> {
+                    // Export TIFF via bitmap compression or lossless PNG container fallback
+                    val tempPng = java.io.File(appContext.cacheDir, "temp_tiff.png")
+                    if (ReverieCoreBridge.savePng(tempPng.absolutePath)) {
+                        val bmp = android.graphics.BitmapFactory.decodeFile(tempPng.absolutePath)
+                        if (bmp != null) {
+                            targetFile.outputStream().use { out ->
+                                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            true
+                        } else false
+                    } else false
+                }
+                else -> ReverieCoreBridge.savePng(targetFile.absolutePath)
+            }
+            mainHandler.post {
+                if (ok && targetFile.exists() && targetFile.length() > 0) {
+                    onSuccess(targetFile)
+                } else {
+                    onError("导出 $format 失败")
+                }
+            }
+        }
+    }
 
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
@@ -596,16 +864,36 @@ class PaintViewModel : ViewModel() {
         currentPage = Page.CREATE
     }
 
+    fun generateNextProjectName(): String {
+        val root = projectDir()
+        val existingFiles = (root.listFiles() ?: emptyArray()).map { it.nameWithoutExtension.lowercase() }.toSet()
+        var index = 1
+        var candidate = "未命名作品"
+        if (!existingFiles.contains(candidate.lowercase())) {
+            return candidate
+        }
+        while (existingFiles.contains("未命名作品 $index".lowercase())) {
+            index++
+        }
+        return "未命名作品 $index"
+    }
+
     fun startPainting(
         w: Int,
         h: Int,
-        name: String = "Untitled",
+        name: String? = null,
     ) {
+        val actualName = name?.ifBlank { null } ?: generateNextProjectName()
+        currentProjectFile = null // Reset so new artwork won't overwrite previous project file
+        totalStrokes = 0
+        elapsedSeconds = 0L
+        canvasCreatedTime = System.currentTimeMillis()
+        sessionStartTime = System.currentTimeMillis()
         runCore(
             after = {
                 docWidth = w
                 docHeight = h
-                docName = name
+                docName = actualName
                 currentPage = Page.PAINTING
             },
         ) {
@@ -617,21 +905,8 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun openProject(p: Project) {
-        runCore(
-            after = {
-                docWidth = p.w
-                docHeight = p.h
-                docName = p.name
-                currentPage = Page.PAINTING
-            },
-        ) {
-            if (ReverieCoreBridge.newDocument(p.w, p.h)) {
-                coreW = p.w
-                coreH = p.h
-                syncLayersFromNative()
-            }
-        }
+    fun openProject(p: com.reverie.paint.model.Project) {
+        loadProject(p)
     }
 
     fun refreshDisplay() {
@@ -1082,6 +1357,12 @@ class PaintViewModel : ViewModel() {
     }
 
     fun touchEnd() {
+        totalStrokes++
+        val now = System.currentTimeMillis()
+        if (now > sessionStartTime) {
+            elapsedSeconds += (now - sessionStartTime) / 1000L
+            sessionStartTime = now
+        }
         runCore(after = {
             scheduleRender(immediate = true)
             refreshLayerThumbs()
@@ -1938,6 +2219,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun stampVisibleLayers() {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.stampVisibleLayers()
+        }
+    }
+
     fun moveLayer(from: Int, to: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.moveLayer(from, to)
@@ -1985,6 +2272,12 @@ class PaintViewModel : ViewModel() {
     fun clearSelection() {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.clearSelection()
+        }
+    }
+
+    fun recompositeProjection() {
+        runCore(after = ::notifyLayerChanged) {
+            // runCore triggers rendering and syncs projection
         }
     }
 }

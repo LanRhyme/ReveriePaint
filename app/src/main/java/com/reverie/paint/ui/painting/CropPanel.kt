@@ -12,14 +12,19 @@ import com.reverie.paint.ui.components.ReButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
+import dev.chrisbanes.haze.HazeState
+import com.reverie.paint.core.PaintViewModel
+
 /** Crop tool options: shows the pending crop size and commits / cancels */
 @Composable
 fun CropPanel(
     rect: Rect,
     onApply: () -> Unit,
     onCancel: () -> Unit,
+    vm: PaintViewModel? = null,
+    hazeState: HazeState? = null,
 ) {
-    ToolFloatPanel(modifier = Modifier) {
+    ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         androidx.compose.foundation.layout.Row(
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically

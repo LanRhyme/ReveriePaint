@@ -42,15 +42,24 @@ import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.core.PaintViewModel
+
 /**
  * Premium glassmorphism-style floating capsule with entry animations and drag support.
  */
 @Composable
 fun ToolFloatPanel(
     modifier: Modifier = Modifier,
+    vm: PaintViewModel? = null,
+    hazeState: HazeState? = null,
     content: @Composable () -> Unit,
 ) {
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    val capsuleShape = RoundedCornerShape(18.dp)
 
     AnimatedVisibility(
         visible = true,
@@ -67,11 +76,27 @@ fun ToolFloatPanel(
                     }
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .shadow(16.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.2f))
+                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.2f))
                 .pointerHoverIcon(PointerIcon.Default)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panel.copy(alpha = 0.94f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                .clip(capsuleShape)
+                .then(
+                    if (vm?.blurBackground == true && hazeState != null) {
+                        val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = HazeStyle(
+                                backgroundColor = Morandi.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f)),
+                                tint = HazeTint(Morandi.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f))),
+                                blurRadius = 24.dp,
+                                noiseFactor = 0.05f
+                            )
+                        )
+                    } else {
+                        val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
+                        Modifier.background(Morandi.panel.copy(alpha = popupAlpha))
+                    }
+                )
+                .border(1.dp, Morandi.border, capsuleShape)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

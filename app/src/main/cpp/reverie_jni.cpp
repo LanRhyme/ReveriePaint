@@ -571,6 +571,53 @@ Java_com_reverie_paint_core_ReverieCoreBridge_savePng(JNIEnv *env, jobject, jstr
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_exportJpg(JNIEnv *env, jobject, jstring path, jint quality)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->exportJpg(QString::fromUtf8(c), quality);
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_exportPsd(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->exportPsd(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_saveRevp(JNIEnv *env, jobject, jstring path, jstring extraMetaJson)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const char *metaStr = extraMetaJson ? env->GetStringUTFChars(extraMetaJson, nullptr) : nullptr;
+    const bool ok = core()->saveRevp(QString::fromUtf8(c), metaStr ? QString::fromUtf8(metaStr) : QString());
+    if (metaStr) env->ReleaseStringUTFChars(extraMetaJson, metaStr);
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadRevp(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->loadRevp(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_saveKra(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->saveKra(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_loadPng(JNIEnv *env, jobject, jstring path)
 {
     const char *c = env->GetStringUTFChars(path, nullptr);
@@ -845,6 +892,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject
 JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
 {
     return core()->mergeDown(index);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_stampVisibleLayers(JNIEnv *, jobject)
+{
+    return core()->stampVisibleLayers();
 }
 
 extern "C" JNIEXPORT void JNICALL

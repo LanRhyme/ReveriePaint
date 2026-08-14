@@ -14,6 +14,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.Canvas
@@ -133,6 +137,7 @@ fun LayerPanel(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
+    hazeState: HazeState? = null,
 ) {
     var view by remember { mutableStateOf<LayerView>(LayerView.List) }
     var renameRequest by remember { mutableStateOf<String?>(null) }
@@ -140,6 +145,8 @@ fun LayerPanel(
     LaunchedEffect(Unit) {
         vm.refreshLayerThumbs(force = true)
     }
+
+    val panelShape = RoundedCornerShape(14.dp)
 
     Box(
         modifier =
@@ -156,9 +163,23 @@ fun LayerPanel(
                     .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panel.copy(alpha = opacity))
-                    .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                    .clip(panelShape)
+                    .then(
+                        if (vm.blurBackground && hazeState != null) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
+                                    tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.05f
+                                )
+                            )
+                        } else {
+                            Modifier.background(Morandi.panel.copy(alpha = opacity))
+                        }
+                    )
+                    .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,

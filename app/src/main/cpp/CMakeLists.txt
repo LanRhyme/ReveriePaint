@@ -119,6 +119,9 @@ set(KRITA_INCLUDES
     ${DEPS_DIR}/include/freetype2
     ${DEPS_DIR}/include/libunibreak
     ${DEPS_DIR}/include/eigen3
+    ${KRITA_SRC_DIR}/libs/psd
+    ${KRITA_SRC_DIR}/plugins/impex/psd
+    ${KRITA_BIN_DIR}/plugins/impex/psd
 )
 
 # Qt modules needed by the Krita core
@@ -126,6 +129,8 @@ set(QT_LIBS
     ${QT_ANDROID_DIR}/lib/libQt6Core_arm64-v8a.so
     ${QT_ANDROID_DIR}/lib/libQt6Gui_arm64-v8a.so
     ${QT_ANDROID_DIR}/lib/libQt6Widgets_arm64-v8a.so
+    ${QT_ANDROID_DIR}/lib/libQt6Svg_arm64-v8a.so
+    ${QT_ANDROID_DIR}/lib/libQt6OpenGL_arm64-v8a.so
     ${QT_ANDROID_DIR}/lib/libQt6Network_arm64-v8a.so
     ${QT_ANDROID_DIR}/lib/libQt6Concurrent_arm64-v8a.so
     ${QT_ANDROID_DIR}/lib/libQt6Xml_arm64-v8a.so
@@ -146,6 +151,7 @@ set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritaresources.so
     ${KRITA_BIN_DIR}/lib/libkritamultiarch.so
     ${KRITA_BIN_DIR}/lib/libkritapsdutils.so
+    ${KRITA_BIN_DIR}/lib/libkritapsd.so
     ${KRITA_BIN_DIR}/lib/libkritametadata.so
     ${KRITA_BIN_DIR}/lib/libkritawidgetutils.so
     ${KRITA_BIN_DIR}/lib/libkritawidgets.so
@@ -173,6 +179,8 @@ set(KRITA_LIBS
 add_library(reverie_jni SHARED
     reverie_jni.cpp
     ReverieCore.cpp
+    ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
+    ${KRITA_SRC_DIR}/plugins/impex/psd/psd_image_data.cpp
 )
 
 target_include_directories(reverie_jni PRIVATE

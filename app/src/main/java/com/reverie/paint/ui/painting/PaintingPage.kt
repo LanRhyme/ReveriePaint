@@ -45,6 +45,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.painterResource
 import com.reverie.paint.R
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -225,12 +230,17 @@ fun PaintingPage(vm: PaintViewModel) {
             Tool.SELECT_POLYGON, Tool.PATH,
         )
 
+    val hazeState = remember { HazeState() }
+
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Transparent)
+                .then(
+                    if (vm.blurBackground) Modifier.haze(hazeState) else Modifier
+                )
         ) {
             CanvasView(
                 vm = vm,
@@ -276,12 +286,89 @@ fun PaintingPage(vm: PaintViewModel) {
             )
         }
 
+        var showExitSaveDialog by remember { mutableStateOf(false) }
+
+        if (showExitSaveDialog) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showExitSaveDialog = false }) {
+                Box(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Morandi.panel)
+                        .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                        .padding(20.dp)
+                ) {
+                    Column {
+                        Text(
+                            text = "保存工程",
+                            color = Morandi.text,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "是否在退出绘画之前保存当前工程 (${vm.docName}.revp)？",
+                            color = Morandi.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(Modifier.height(20.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.TextButton(onClick = { showExitSaveDialog = false }) {
+                                Text("取消", color = Morandi.subText, fontSize = 13.sp)
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            androidx.compose.material3.TextButton(onClick = {
+                                showExitSaveDialog = false
+                                vm.goHome()
+                            }) {
+                                Text("不保存", color = Color(0xFFFF5252), fontSize = 13.sp)
+                            }
+                            Spacer(Modifier.width(4.dp))
+                            androidx.compose.material3.TextButton(onClick = {
+                                vm.saveProject(vm.docName) {
+                                    android.widget.Toast.makeText(context, "工程已保存", android.widget.Toast.LENGTH_SHORT).show()
+                                    showExitSaveDialog = false
+                                    vm.goHome()
+                                }
+                            }) {
+                                Text("保存并退出", color = Morandi.accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // BackHandler for Android system back button/gesture: close active panels first, then exit dialog
+        androidx.activity.compose.BackHandler {
+            when {
+                showExitSaveDialog -> showExitSaveDialog = false
+                brushPanelOpen -> brushPanelOpen = false
+                layerPanelOpen -> layerPanelOpen = false
+                colorPanelOpen -> colorPanelOpen = false
+                settingsPanelOpen -> settingsPanelOpen = false
+                moreToolsOpen -> moreToolsOpen = false
+                selectionMenuOpen -> selectionMenuOpen = false
+                selectionPanelOpen -> selectionPanelOpen = false
+                selectionPropsOpen -> selectionPropsOpen = false
+                tool != Tool.BRUSH -> tool = Tool.BRUSH
+                else -> showExitSaveDialog = true
+            }
+        }
+
         // ---- Top bar ----
         TopBar(
             modifier = Modifier.align(Alignment.TopEnd),
             vm = vm,
             opacity = vm.uiOpacity,
-            onBack = { vm.goHome() },
+            hazeState = hazeState,
+            onBack = { showExitSaveDialog = true },
             onRotateCw = {
                 rotation = (rotation + 90) % 360
                 flashIndicator()
@@ -355,6 +442,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 .padding(top = 48.dp) // Gap from top bar
                 .fillMaxHeight(),
             vm = vm,
+            hazeState = hazeState,
             opacity = vm.uiOpacity.toDouble(),
             tool = tool,
             onTool = {
@@ -409,6 +497,7 @@ fun PaintingPage(vm: PaintViewModel) {
             TransformPanel(
                 vm = vm,
                 tfState = tfState,
+                hazeState = hazeState,
                 onReset = {
                     vm.cancelTransformPreview()
                     val b = vm.contentBounds()
@@ -443,6 +532,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vertexCount = polyPoints.size,
                 strokeWidth = shapeStrokeWidth,
                 filled = shapeFilled,
+                hazeState = hazeState,
                 onStrokeWidth = { shapeStrokeWidth = it; vm.setShapeStrokeWidth(it.toDouble()) },
                 onFilled = { shapeFilled = it; vm.setShapeFilled(it) },
                 onFinish = {
@@ -481,6 +571,8 @@ fun PaintingPage(vm: PaintViewModel) {
             cropRect?.let { cr ->
                 CropPanel(
                     rect = cr,
+                    vm = vm,
+                    hazeState = hazeState,
                     onApply = {
                         vm.cropCanvas(
                             cr.left.toInt(),
@@ -502,7 +594,7 @@ fun PaintingPage(vm: PaintViewModel) {
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
-            GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it })
+            GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it }, hazeState = hazeState)
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.FILL,
@@ -510,7 +602,7 @@ fun PaintingPage(vm: PaintViewModel) {
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
-            FillPanel(vm = vm, tolerance = fillTolerance, onTolerance = { fillTolerance = it })
+            FillPanel(vm = vm, tolerance = fillTolerance, onTolerance = { fillTolerance = it }, hazeState = hazeState)
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.LIQUIFY,
@@ -525,6 +617,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 mode = liquifyMode,
                 onMode = { liquifyMode = it },
                 brushSize = liquifyBrushSize,
+                hazeState = hazeState,
                 onBrushSize = {
                     liquifyBrushSize = it
                     vm.setLiquifyBrushSize(it.toDouble())
@@ -562,6 +655,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 tool = tool,
                 propsOpen = selectionPropsOpen,
+                hazeState = hazeState,
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
                 onDrag = { dx, dy ->
                     selectionPanelOffsetX += dx
@@ -593,11 +687,26 @@ fun PaintingPage(vm: PaintViewModel) {
                         targetOffsetY = { it / 2 }
                     )
         ) {
+            val pickerShape = RoundedCornerShape(14.dp)
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panel.copy(alpha = 0.94f))
-                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                    .clip(pickerShape)
+                    .then(
+                        if (vm.blurBackground) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = Morandi.panel.copy(alpha = 0.70f),
+                                    tint = HazeTint(Morandi.panel.copy(alpha = 0.70f)),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.05f
+                                )
+                            )
+                        } else {
+                            Modifier.background(Morandi.panel.copy(alpha = 0.94f))
+                        }
+                    )
+                    .border(1.dp, Morandi.border, pickerShape)
                     .padding(6.dp)
             ) {
                 Row(
@@ -718,6 +827,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 onClose = { brushPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
+                hazeState = hazeState,
             )
         }
         AnimatedVisibility(
@@ -730,6 +840,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 onClose = { layerPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
+                hazeState = hazeState,
             )
         }
         AnimatedVisibility(
@@ -742,6 +853,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 onClose = { settingsPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
+                hazeState = hazeState,
             )
         }
         AnimatedVisibility(
@@ -754,6 +866,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 onClose = { colorPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
+                hazeState = hazeState,
             )
         }
         AnimatedVisibility(
@@ -779,6 +892,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 },
                 onClose = { moreToolsOpen = false },
                 opacity = vm.popupPanelOpacity,
+                hazeState = hazeState,
             )
         }
 
@@ -890,8 +1004,9 @@ private fun SelectionFloatPanel(
     propsOpen: Boolean,
     onToggleProps: () -> Unit,
     onDrag: (Float, Float) -> Unit,
+    hazeState: HazeState? = null,
 ) {
-    ToolFloatPanel(modifier = modifier) {
+    ToolFloatPanel(modifier = modifier, vm = vm, hazeState = hazeState) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),

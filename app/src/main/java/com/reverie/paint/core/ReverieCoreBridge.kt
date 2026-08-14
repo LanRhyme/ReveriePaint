@@ -270,6 +270,11 @@ object ReverieCoreBridge {
 external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Boolean)
 
     external fun savePng(path: String): Boolean
+    external fun exportJpg(path: String, quality: Int = 90): Boolean
+    external fun exportPsd(path: String): Boolean
+    external fun saveRevp(path: String, extraMetaJson: String = ""): Boolean
+    external fun loadRevp(path: String): Boolean
+    external fun saveKra(path: String): Boolean
 
     external fun loadPng(path: String): Boolean
 
@@ -321,6 +326,8 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
     external fun flipLayerHorizontal(index: Int)
 
     external fun flipLayerVertical(index: Int)
+
+    external fun stampVisibleLayers(): Int
 
     external fun moveLayer(
         from: Int,
