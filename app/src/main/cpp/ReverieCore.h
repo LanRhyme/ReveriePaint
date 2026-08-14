@@ -202,7 +202,9 @@ public:
     void lassoClear(const QVector<QPoint> &points);
 
     // Liquify: push pixels within the brush radius from (fx,fy) to (tx,ty)
-    void liquify(int fx, int fy, int tx, int ty, qreal strength = 0.9);
+    void liquify(int fx, int fy, int tx, int ty, qreal strength = 0.9, int mode = 0);
+    void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
+    qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
     // Brush
     void setBrushSize(qreal size);
@@ -324,6 +326,7 @@ private:
     qreal m_brushSize = 20.0;
     qreal m_shapeStrokeWidth = 4.0;   // shape tools independent stroke width
     bool m_shapeFilled = false;       // shape tools fill with the brush color
+    qreal m_liquifyBrushSize = 60.0;   // liquify independent brush size
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;

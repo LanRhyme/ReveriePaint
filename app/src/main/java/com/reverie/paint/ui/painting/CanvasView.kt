@@ -64,6 +64,7 @@ fun CanvasView(
     fillTolerance: Int = 24,
     gradientType: Int = 0,
     liquifyStrength: Float = 0.9f,
+    liquifyMode: Int = 0,
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -148,6 +149,14 @@ fun CanvasView(
     LaunchedEffect(bmp?.width, bmp?.height, viewW, viewH) {
         if (bmp != null && viewW > 0 && viewH > 0) {
             onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height) * 0.88f)
+        }
+    }
+
+    // Document size changes (crop / preset switch) must recompute the
+    // viewport render size or the canvas renders at stale dimensions
+    LaunchedEffect(vm.docWidth, vm.docHeight) {
+        if (viewW > 0 && viewH > 0) {
+            vm.setRenderViewport(viewW, viewH)
         }
     }
 
@@ -709,7 +718,14 @@ fun CanvasView(
                                                 vm.touchStart(imagePos.x, imagePos.y)
                                                 strokeStarted = true
                                             }
-                                            vm.liquify(liquifyPrevious.x, liquifyPrevious.y, imagePos.x, imagePos.y, liquifyStrength.toDouble())
+                                            vm.liquify(
+                                                liquifyPrevious.x,
+                                                liquifyPrevious.y,
+                                                imagePos.x,
+                                                imagePos.y,
+                                                liquifyMode,
+                                                liquifyStrength.toDouble(),
+                                            )
                                             liquifyPrevious = imagePos
                                         }
 

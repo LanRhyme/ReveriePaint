@@ -215,7 +215,8 @@ object ReverieCoreBridge {
 
     external fun canRedo(): Boolean
 
-    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int, strength: Double)
+    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int, strength: Double, mode: Int)
+    external fun setLiquifyBrushSize(size: Double)
 
     external fun lassoSelect(xs: IntArray, ys: IntArray, count: Int)
 

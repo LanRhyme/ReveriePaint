@@ -128,6 +128,8 @@ fun PaintingPage(vm: PaintViewModel) {
     var gradientType by remember { mutableStateOf(0) }
     var fillTolerance by remember { mutableStateOf(24) }
     var liquifyStrength by remember { mutableStateOf(0.9f) }
+    var liquifyMode by remember { mutableStateOf(0) }
+    var liquifyBrushSize by remember { mutableStateOf(60f) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
     // Clear transient tool state when switching tools
@@ -193,6 +195,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 fillTolerance = fillTolerance,
                 gradientType = gradientType,
                 liquifyStrength = liquifyStrength,
+                liquifyMode = liquifyMode,
             )
         }
 
@@ -441,7 +444,18 @@ fun PaintingPage(vm: PaintViewModel) {
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
-            LiquifyPanel(vm = vm, strength = liquifyStrength, onStrength = { liquifyStrength = it })
+            LiquifyPanel(
+                vm = vm,
+                strength = liquifyStrength,
+                onStrength = { liquifyStrength = it },
+                mode = liquifyMode,
+                onMode = { liquifyMode = it },
+                brushSize = liquifyBrushSize,
+                onBrushSize = {
+                    liquifyBrushSize = it
+                    vm.setLiquifyBrushSize(it.toDouble())
+                },
+            )
         }
 
         // ---- Floating selection panel (Krita tool-options style) ----

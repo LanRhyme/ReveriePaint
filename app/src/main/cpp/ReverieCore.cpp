@@ -3632,6 +3632,46 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     // selection only the selected pixels move (Krita's move tool semantics),
     // otherwise the whole layer shifts via KisTransformWorker
     applyTransform(1.0, 1.0, 0.0, 0.0, 0.0, dx, dy);
+    // Krita's move tool carries the selection along with the content - the
+    // marquee follows the moved pixels so the user sees exactly what moved
+    if (m_selection && (dx != 0 || dy != 0)) {
+        KisPixelSelectionSP ps = m_selection->pixelSelection();
+        if (ps) {
+            const QRect oldExt = ps->selectedExactRect();
+            if (!oldExt.isEmpty()) {
+                QByteArray mask;
+                const QRect b = oldExt.adjusted(-1, -1, 1, 1)
+                                    .intersected(QRect(0, 0, m_docWidth, m_docHeight));
+                mask.resize(b.width() * b.height());
+                ps->readBytes(reinterpret_cast<quint8 *>(mask.data()), b.x(), b.y(),
+                              b.width(), b.height());
+                // clear old area, write back shifted
+                QByteArray cleared(mask.size(), char(0));
+                ps->writeBytes(reinterpret_cast<const quint8 *>(cleared.constData()),
+                               b.x(), b.y(), b.width(), b.height());
+                const QRect nb = b.translated(dx, dy).intersected(
+                    QRect(0, 0, m_docWidth, m_docHeight));
+                if (!nb.isEmpty()) {
+                    QByteArray shifted(nb.width() * nb.height(), char(0));
+                    // copy overlapping region from the shifted mask
+                    for (int yy = 0; yy < nb.height(); ++yy) {
+                        const int sy = nb.y() + yy - dy;
+                        for (int xx = 0; xx < nb.width(); ++xx) {
+                            const int sx = nb.x() + xx - dx;
+                            if (sx >= b.x() && sx < b.x() + b.width() &&
+                                sy >= b.y() && sy < b.y() + b.height()) {
+                                shifted[yy * nb.width() + xx] =
+                                    mask[(sy - b.y()) * b.width() + (sx - b.x())];
+                            }
+                        }
+                    }
+                    ps->writeBytes(reinterpret_cast<const quint8 *>(shifted.constData()),
+                                   nb.x(), nb.y(), nb.width(), nb.height());
+                }
+                ps->setDirty(QRect(0, 0, m_docWidth, m_docHeight));
+            }
+        }
+    }
 }
 
 QRect ReverieCore::contentBounds()
@@ -3780,7 +3820,19 @@ void ReverieCore::cropCanvas(int x, int y, int w, int h)
     }
     const QRect crop(qMax(0, x), qMax(0, y), w, h);
     image->resizeImage(crop);
+    // resizeImage goes through KisProcessingApplicator (async stroke) - the
+    // document size changes only after the stroke lands, so wait or the
+    // size mirrors below read stale values (crop crash / wrong viewport)
+    image->waitForDone();
     syncLayersFromImage();
+    // Document size changed: keep the viewport/cache mirrors in sync or the
+    // render pipeline reads stale dimensions (the crop crash)
+    m_docWidth = image->width();
+    m_docHeight = image->height();
+    m_displayImage = QImage();
+    m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
+    m_bitmapInited = false;
+    m_lastDirty = QRect();
     recompositeProjection();
     markDirty();
 }
@@ -4154,7 +4206,7 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     }
 }
 
-void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength)
+void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mode)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {

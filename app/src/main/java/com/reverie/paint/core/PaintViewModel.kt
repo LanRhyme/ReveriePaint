@@ -167,6 +167,7 @@ class PaintViewModel : ViewModel() {
     // the main handler after document creation).
     private var coreW = 1080
     private var coreH = 1920
+    private var viewResizeSignal = 0
 
     // Viewport render size: the Android bitmap is rendered at the on-screen
     // size (document aspect ratio preserved) instead of the full document
@@ -1002,12 +1003,39 @@ class PaintViewModel : ViewModel() {
     }
 
     fun cropCanvas(x: Int, y: Int, w: Int, h: Int) {
-        runCore {
+        runCore(after = {
+            // The document size changed in C++ - keep coreW/coreH in sync or
+            // the viewport render reads stale dimensions (crop crash)
+            coreW = ReverieCoreBridge.docWidth()
+            coreH = ReverieCoreBridge.docHeight()
+            // Force a viewport resize: renderW/renderH were computed for the
+            // old document size, so recompute + full redraw
+            renderW = -1
+            renderH = -1
+            viewResizeSignal++
+            syncLayersFromNative()
+            notifyLayerChanged()
+        }) {
             ReverieCoreBridge.cropCanvas(x, y, w, h)
         }
     }
 
-    fun contentBounds(): IntArray? = ReverieCoreBridge.contentBounds()
+    fun contentBounds(): IntArray? {
+        // Must run on the render thread - direct UI-thread JNI here raced
+        // with the render thread (m_layers vector mutation during
+        // syncLayersFromImage) and crashed the transform tool on first use
+        var result: IntArray? = null
+        val latch = java.util.concurrent.CountDownLatch(1)
+        runCore(render = false, after = { latch.countDown() }) {
+            result = ReverieCoreBridge.contentBounds()
+        }
+        try {
+            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            return null
+        }
+        return result
+    }
 
     fun setShapeStrokeWidth(w: Double) {
         runCore { ReverieCoreBridge.setShapeStrokeWidth(w) }
@@ -1053,15 +1081,27 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun setLiquifyBrushSize(size: Double) {
+        runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
+    }
+
     fun liquify(
         fx: Float,
         fy: Float,
         tx: Float,
         ty: Float,
+        mode: Int,
         strength: Double = 0.9,
     ) {
         runCore {
-            ReverieCoreBridge.liquify(fx.toInt(), fy.toInt(), tx.toInt(), ty.toInt(), strength)
+            ReverieCoreBridge.liquify(
+                fx.toInt(),
+                fy.toInt(),
+                tx.toInt(),
+                ty.toInt(),
+                strength,
+                mode,
+            )
         }
     }
 

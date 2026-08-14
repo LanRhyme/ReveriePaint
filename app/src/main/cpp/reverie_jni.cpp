@@ -553,9 +553,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx, jint fy, jint tx, jint ty, jdouble strength)
+Java_com_reverie_paint_core_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx, jint fy, jint tx, jint ty, jdouble strength, jint mode)
 {
-    core()->liquify(fx, fy, tx, ty, strength);
+    core()->liquify(fx, fy, tx, ty, strength, mode);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyBrushSize(JNIEnv *, jobject, jdouble size)
+{
+    core()->setLiquifyBrushSize(size);
 }
 
 JNIEXPORT void JNICALL
