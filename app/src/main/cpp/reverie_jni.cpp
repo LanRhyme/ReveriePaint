@@ -269,7 +269,6 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
     core()->moveLayerContent(dx, dy);
 }
 
-JNIEXPORT void JNICALL
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_contentBounds(JNIEnv *env, jobject)
 {
@@ -295,6 +294,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyTransform(JNIEnv *env, jobjec
         : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_cropCanvas(JNIEnv *, jobject, jint x, jint y, jint w, jint h)
 {
     core()->cropCanvas(x, y, w, h);
@@ -634,7 +634,6 @@ Java_com_reverie_paint_core_ReverieCoreBridge_drawText(JNIEnv *env, jobject, jin
     env->ReleaseStringUTFChars(text, c);
 }
 
-JNIEXPORT void JNICALL
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setShapeStrokeWidth(JNIEnv *, jobject, jdouble w)
 {
@@ -647,6 +646,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setShapeFilled(JNIEnv *, jobject, 
     core()->setShapeFilled(f == JNI_TRUE);
 }
 
+extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint kind, jint x1, jint y1, jint x2, jint y2, jboolean filled)
 {
     core()->drawShape(kind, x1, y1, x2, y2, filled == JNI_TRUE);
