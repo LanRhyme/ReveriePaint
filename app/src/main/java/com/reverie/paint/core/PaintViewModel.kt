@@ -103,9 +103,132 @@ class PaintViewModel : ViewModel() {
     var accentColorHex by mutableStateOf("#5E8BA8")
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
+
+    // Stylus Settings (画世界 Pro & Krita style, persisted)
+    var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，仅缩放旋转)
+    var brushCursorMode by mutableStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
+    var eraserCursorMode by mutableStateOf(3)
+    var cursorStyleMode by mutableStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无
+    var quickShapeEnabled by mutableStateOf(true) // 驻停线条成形
+    var pressureCurvePreset by mutableStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
+    var pressureControlPoints by mutableStateOf(
+        listOf(
+            androidx.compose.ui.geometry.Offset(0f, 0f),
+            androidx.compose.ui.geometry.Offset(0.33f, 0.33f),
+            androidx.compose.ui.geometry.Offset(0.66f, 0.66f),
+            androidx.compose.ui.geometry.Offset(1f, 1f)
+        )
+    )
     
     var colorPickerMode by mutableStateOf("SQUARE")
         private set
+
+    /** Evaluate mapped pressure from raw input pressure using the active curve */
+    fun evaluatePressure(raw: Float): Float {
+        if (pressureCurvePreset == 0) return raw.coerceIn(0f, 1f)
+        val p0 = pressureControlPoints.getOrElse(0) { androidx.compose.ui.geometry.Offset(0f, 0f) }
+        val p1 = pressureControlPoints.getOrElse(1) { androidx.compose.ui.geometry.Offset(0.33f, 0.33f) }
+        val p2 = pressureControlPoints.getOrElse(2) { androidx.compose.ui.geometry.Offset(0.66f, 0.66f) }
+        val p3 = pressureControlPoints.getOrElse(3) { androidx.compose.ui.geometry.Offset(1f, 1f) }
+
+        val targetX = raw.coerceIn(0f, 1f)
+        var tLow = 0f
+        var tHigh = 1f
+        var t = targetX
+        for (i in 0 until 8) {
+            val omt = 1f - t
+            val bx = omt * omt * omt * p0.x + 3f * omt * omt * t * p1.x + 3f * omt * t * t * p2.x + t * t * t * p3.x
+            if (bx < targetX) {
+                tLow = t
+            } else {
+                tHigh = t
+            }
+            t = (tLow + tHigh) * 0.5f
+        }
+        val omt = 1f - t
+        val by = omt * omt * omt * p0.y + 3f * omt * omt * t * p1.y + 3f * omt * t * t * p2.y + t * t * t * p3.y
+        return by.coerceIn(0.01f, 1f)
+    }
+
+    fun updatePenOnlyMode(enable: Boolean) {
+        penOnlyMode = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("penOnlyMode", enable).apply()
+        }
+    }
+
+    fun updateBrushCursorMode(mode: Int) {
+        brushCursorMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("brushCursorMode", mode).apply()
+        }
+    }
+
+    fun updateEraserCursorMode(mode: Int) {
+        eraserCursorMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("eraserCursorMode", mode).apply()
+        }
+    }
+
+    fun updateCursorStyleMode(mode: Int) {
+        cursorStyleMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("cursorStyleMode", mode).apply()
+        }
+    }
+
+    fun updateQuickShapeEnabled(enable: Boolean) {
+        quickShapeEnabled = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeEnabled", enable).apply()
+        }
+    }
+
+    fun updatePressureCurvePreset(preset: Int) {
+        pressureCurvePreset = preset
+        when (preset) {
+            0 -> pressureControlPoints = listOf(
+                androidx.compose.ui.geometry.Offset(0f, 0f),
+                androidx.compose.ui.geometry.Offset(0.33f, 0.33f),
+                androidx.compose.ui.geometry.Offset(0.66f, 0.66f),
+                androidx.compose.ui.geometry.Offset(1f, 1f)
+            )
+            1 -> pressureControlPoints = listOf( // Soft / Convex (Huawei sensitive)
+                androidx.compose.ui.geometry.Offset(0f, 0f),
+                androidx.compose.ui.geometry.Offset(0.15f, 0.65f),
+                androidx.compose.ui.geometry.Offset(0.45f, 0.90f),
+                androidx.compose.ui.geometry.Offset(1f, 1f)
+            )
+            2 -> pressureControlPoints = listOf( // Hard / Concave
+                androidx.compose.ui.geometry.Offset(0f, 0f),
+                androidx.compose.ui.geometry.Offset(0.55f, 0.10f),
+                androidx.compose.ui.geometry.Offset(0.85f, 0.35f),
+                androidx.compose.ui.geometry.Offset(1f, 1f)
+            )
+            3 -> pressureControlPoints = listOf( // S-Curve
+                androidx.compose.ui.geometry.Offset(0f, 0f),
+                androidx.compose.ui.geometry.Offset(0.40f, 0.10f),
+                androidx.compose.ui.geometry.Offset(0.60f, 0.90f),
+                androidx.compose.ui.geometry.Offset(1f, 1f)
+            )
+            4 -> pressureControlPoints = listOf( // Extreme
+                androidx.compose.ui.geometry.Offset(0f, 0f),
+                androidx.compose.ui.geometry.Offset(0.10f, 0.85f),
+                androidx.compose.ui.geometry.Offset(0.90f, 0.95f),
+                androidx.compose.ui.geometry.Offset(1f, 1f)
+            )
+        }
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("pressureCurvePreset", preset).apply()
+        }
+    }
 
     /** Immersive mode (fullscreen + hidden system bars), persisted in prefs.
      *  The actual window changes are applied by MainActivity.applyImmersive. */
@@ -169,6 +292,14 @@ class PaintViewModel : ViewModel() {
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
+            penOnlyMode = prefs.getBoolean("penOnlyMode", false)
+            brushCursorMode = prefs.getInt("brushCursorMode", 0)
+            eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
+            cursorStyleMode = prefs.getInt("cursorStyleMode", 0)
+            quickShapeEnabled = prefs.getBoolean("quickShapeEnabled", true)
+            val savedPreset = prefs.getInt("pressureCurvePreset", 0)
+            updatePressureCurvePreset(savedPreset)
+
             val parsedColor = com.reverie.paint.ui.theme.parseColor(accentColorHex)
             com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
                 accent = parsedColor,

@@ -200,17 +200,18 @@ fun CanvasView(
                                 tool == Tool.SELECT_ELLIPSE
                         val trackSelectTool =
                             tool == Tool.SELECT_MAGNETIC
+                        val stylus = down.type == androidx.compose.ui.input.pointer.PointerType.Stylus || down.type == androidx.compose.ui.input.pointer.PointerType.Eraser
                         var mode =
-                            when (tool) {
-                                Tool.FILL, Tool.TEXT,
-                                Tool.MAGICWAND, Tool.SELECT_SIMILAR,
-                                Tool.POLYGON, Tool.POLYLINE, Tool.PATH, Tool.SELECT_POLYGON -> GestureMode.NONE
-                                Tool.MOVE -> GestureMode.STROKE // Use STROKE for MOVE to go through the unified pointer handling
+                            when {
+                                vm.penOnlyMode && !stylus && (tool == Tool.BRUSH || tool == Tool.ERASER) -> GestureMode.PAN
+                                tool == Tool.FILL || tool == Tool.TEXT ||
+                                    tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR ||
+                                    tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH || tool == Tool.SELECT_POLYGON -> GestureMode.NONE
+                                tool == Tool.MOVE -> GestureMode.STROKE
                                 else -> GestureMode.STROKE
                             }
                         var strokeStarted = false
                         var transformStarted = false
-                        val stylus = down.type == PointerType.Stylus
                         var smoothedPressure = 0.8f
                         var shapeEnd = Offset.Zero
                         var replaceCleared = false
@@ -860,8 +861,9 @@ fun CanvasView(
 
                                         else -> {
                                             if (!strokeStarted) {
-                                                val downP = down.pressure.coerceIn(0f, 1f)
-                                                smoothedPressure = if (stylus && downP > 0f) downP else 0.8f
+                                                val downRaw = down.pressure.coerceIn(0f, 1f)
+                                                val downP = if (stylus && downRaw > 0f) vm.evaluatePressure(downRaw) else 0.8f
+                                                smoothedPressure = downP
                                                 val startP = if (stylus) smoothedPressure.toDouble() else 1.0
                                                 vm.touchStart(firstImage.x, firstImage.y, startP)
                                                 strokeStarted = true
@@ -870,7 +872,8 @@ fun CanvasView(
                                                 if (stylus) {
                                                     val rawP = point.pressure.coerceIn(0f, 1f)
                                                     if (rawP > 0f) {
-                                                        smoothedPressure = smoothedPressure * 0.6f + rawP * 0.4f
+                                                        val mappedP = vm.evaluatePressure(rawP)
+                                                        smoothedPressure = smoothedPressure * 0.6f + mappedP * 0.4f
                                                     }
                                                     vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
                                                 } else {
