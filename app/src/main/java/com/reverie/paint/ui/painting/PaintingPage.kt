@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.layout.height
@@ -656,24 +657,50 @@ fun PaintingPage(vm: PaintViewModel) {
             }
         }
 
-        // ---- Transform indicator (bottom-center, 画世界 Pro style) ----
-        if (showIndicator) {
+        // ---- Transform indicator (top-center, animated pill) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showIndicator,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
+                    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250)) +
+                    androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(250)) { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 56.dp)
+                .zIndex(20f)
+        ) {
             val zoomPct = (zoom * fitScale * 100).toInt()
             val rotDeg = ((rotation % 360 + 360) % 360).toInt()
             Box(
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panelHi.copy(alpha = 0.92f))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Morandi.panelHi.copy(alpha = 0.94f))
+                    .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "缩放 $zoomPct%  旋转 $rotDeg°",
-                    color = Morandi.text,
-                    fontSize = 12.sp,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "缩放 ${zoomPct}%",
+                        color = Morandi.text,
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    )
+                    Box(
+                        Modifier
+                            .size(3.dp)
+                            .background(Morandi.border, CircleShape)
+                    )
+                    Text(
+                        "旋转 ${rotDeg}°",
+                        color = Morandi.text,
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    )
+                }
             }
         }
 

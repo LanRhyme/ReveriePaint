@@ -202,7 +202,7 @@ fun CanvasView(
                             tool == Tool.SELECT_MAGNETIC
                         var mode =
                             when (tool) {
-                                Tool.PICKER, Tool.FILL, Tool.TEXT,
+                                Tool.FILL, Tool.TEXT,
                                 Tool.MAGICWAND, Tool.SELECT_SIMILAR,
                                 Tool.POLYGON, Tool.POLYLINE, Tool.PATH, Tool.SELECT_POLYGON -> GestureMode.NONE
                                 Tool.MOVE -> GestureMode.STROKE // Use STROKE for MOVE to go through the unified pointer handling
@@ -338,10 +338,26 @@ fun CanvasView(
 
                             Tool.PICKER -> {
                                 pickerActive = true
-                                pickerScreenPos = down.position
+                                val targetOffset = Offset(-48.dp.toPx(), -48.dp.toPx())
+                                val sampleScreenPos = down.position + targetOffset
+                                pickerScreenPos = sampleScreenPos
                                 val refHex = vm.brushColor
                                 pickerInitialColor = parseColor(refHex)
-                                val hex = vm.pickColor(firstImage.x, firstImage.y)
+                                val sampleImage = widgetToImage(
+                                    sampleScreenPos,
+                                    viewW,
+                                    viewH,
+                                    localPanX,
+                                    localPanY,
+                                    localZoom,
+                                    latestFitScale,
+                                    localRotation,
+                                    image.width,
+                                    image.height,
+                                    vm.docWidth,
+                                    vm.docHeight,
+                                )
+                                val hex = vm.pickColor(sampleImage.x, sampleImage.y)
                                 pickerCurrentColor = hex?.let { parseColor(it) } ?: pickerInitialColor
                             }
                             Tool.MAGICWAND -> {
@@ -611,8 +627,24 @@ fun CanvasView(
                                         }
 
                                         tool == Tool.PICKER -> {
-                                            pickerScreenPos = point.position
-                                            val hex = vm.pickColor(imagePos.x, imagePos.y)
+                                            val targetOffset = Offset(-48.dp.toPx(), -48.dp.toPx())
+                                            val sampleScreenPos = point.position + targetOffset
+                                            pickerScreenPos = sampleScreenPos
+                                            val sampleImage = widgetToImage(
+                                                sampleScreenPos,
+                                                viewW,
+                                                viewH,
+                                                localPanX,
+                                                localPanY,
+                                                localZoom,
+                                                latestFitScale,
+                                                localRotation,
+                                                image.width,
+                                                image.height,
+                                                vm.docWidth,
+                                                vm.docHeight,
+                                            )
+                                            val hex = vm.pickColor(sampleImage.x, sampleImage.y)
                                             if (hex != null) {
                                                 pickerCurrentColor = parseColor(hex)
                                             }
@@ -931,6 +963,14 @@ fun CanvasView(
                                         vm.previewLassoSync(points)
                                         vm.selectPolygon(points)
                                     }
+                                }
+
+                                tool == Tool.PICKER -> {
+                                    val r = (pickerCurrentColor.red * 255).toInt().coerceIn(0, 255)
+                                    val g = (pickerCurrentColor.green * 255).toInt().coerceIn(0, 255)
+                                    val b = (pickerCurrentColor.blue * 255).toInt().coerceIn(0, 255)
+                                    val hex = String.format("#%02X%02X%02X", r, g, b)
+                                    vm.brushColor = hex
                                 }
 
                                 strokeStarted -> {
