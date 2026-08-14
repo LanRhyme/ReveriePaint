@@ -110,6 +110,7 @@ fun CanvasView(
     var cursorScreenPos by remember { mutableStateOf<Offset?>(null) }
     var isCursorHovering by remember { mutableStateOf(false) }
     var isCursorTouching by remember { mutableStateOf(false) }
+    var livePressure by remember { mutableStateOf(1f) }
 
     // ---- Transform tool state (document coords, lifted for the panel) ----
     // Transformed corner points of the rubber band: 0-3 corners (TL,TR,BR,BL),
@@ -179,11 +180,21 @@ fun CanvasView(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val view = androidx.compose.ui.platform.LocalView.current
     val customPointerIcon = remember(context) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            PointerIcon(android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_NULL))
+            val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            val nullIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
+            PointerIcon(nullIcon)
         } else {
             PointerIcon.Default
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            view.pointerIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
         }
     }
 
@@ -207,19 +218,29 @@ fun CanvasView(
                                     PointerEventType.Enter, PointerEventType.Move -> {
                                         isCursorHovering = !change.pressed
                                         isCursorTouching = change.pressed
+                                        if (change.pressed && change.pressure > 0f) {
+                                            livePressure = vm.evaluatePressure(change.pressure)
+                                        } else if (!change.pressed) {
+                                            livePressure = 1f
+                                        }
                                     }
                                     PointerEventType.Exit -> {
                                         isCursorHovering = false
                                         isCursorTouching = false
                                         cursorScreenPos = null
+                                        livePressure = 1f
                                     }
                                     PointerEventType.Press -> {
                                         isCursorTouching = true
                                         isCursorHovering = false
+                                        if (change.pressure > 0f) {
+                                            livePressure = vm.evaluatePressure(change.pressure)
+                                        }
                                     }
                                     PointerEventType.Release -> {
                                         isCursorTouching = false
                                         isCursorHovering = true
+                                        livePressure = 1f
                                     }
                                 }
                             }
@@ -913,6 +934,7 @@ fun CanvasView(
                                                 val downRaw = down.pressure.coerceIn(0f, 1f)
                                                 val downP = if (stylus && downRaw > 0f) vm.evaluatePressure(downRaw) else 0.8f
                                                 smoothedPressure = downP
+                                                livePressure = smoothedPressure
                                                 val startP = if (stylus) smoothedPressure.toDouble() else 1.0
                                                 vm.touchStart(firstImage.x, firstImage.y, startP)
                                                 strokeStarted = true
@@ -924,8 +946,10 @@ fun CanvasView(
                                                         val mappedP = vm.evaluatePressure(rawP)
                                                         smoothedPressure = smoothedPressure * 0.6f + mappedP * 0.4f
                                                     }
+                                                    livePressure = smoothedPressure
                                                     vm.touchMove(imagePos.x, imagePos.y, smoothedPressure.toDouble())
                                                 } else {
+                                                    livePressure = 1f
                                                     vm.touchMove(imagePos.x, imagePos.y, 1.0)
                                                 }
                                             }
@@ -1691,7 +1715,8 @@ fun CanvasView(
             }
             if (shouldShow && cursorScreenPos != null && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
                 val curPos = cursorScreenPos!!
-                val brushRadiusScreen = (vm.brushSize * scale * 0.5f).toFloat().coerceAtLeast(2f)
+                val pressureScale = if (isCursorTouching) livePressure.coerceIn(0.08f, 1f) else 1f
+                val brushRadiusScreen = (vm.brushSize * scale * 0.5f * pressureScale).toFloat().coerceAtLeast(2f)
 
                 when (vm.cursorStyleMode) {
                     0 -> { // 圆形 (Brush Outline Ring - Krita dual-contrast circle)
