@@ -222,3 +222,9 @@ target_link_libraries(reverie_jni
     -lz -lpng16 -lexpat
 )
 
+add_custom_command(TARGET reverie_jni POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:reverie_jni>
+        ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/arm64-v8a/libreverie_jni.so
+)
+

@@ -9,6 +9,7 @@
 
 #include "ReverieCore.h"
 
+
 #include <QDir>
 #include <QFile>
 #include <QBuffer>
@@ -37,6 +38,13 @@
 #endif
 #include <algorithm>
 #include <queue>
+#include <kis_fill_painter.h>
+#include <kis_gradient_painter.h>
+#include <kis_transform_worker.h>
+#include <kis_warptransform_worker.h>
+#include <kis_perspectivetransform_worker.h>
+#include <kis_default_bounds.h>
+#include <KoColor.h>
 #include <QPainter>
 #include <QFont>
 #include <QFontMetrics>
@@ -1527,7 +1535,7 @@ bool ReverieCore::selectionFromLayer(int index)
 
 bool ReverieCore::hasSelection() const
 {
-    return bool(m_selection);
+    return m_selection && !m_selection->selectedRect().isEmpty() && !m_selection->selectedExactRect().isEmpty();
 }
 
 void ReverieCore::clearSelection()
@@ -2971,91 +2979,40 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
 void ReverieCore::floodFillAt(int x, int y, int tolerance)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return;
-    }
-    if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) {
-        return;
-    }
+    if (!image) return;
+    if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) return;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    // Krita-native undo: wrap the fill in a transaction (initial tiles are
-    // snapshotted here, before any pixel changes)
+    if (!device) return;
+
     KisTransaction txn(kundo2_i18n("Fill"), device);
-    const KoColorSpace *cs = image->colorSpace();
+    
+    KisFillPainter painter(device);
+    painter.setFillThreshold(tolerance);
+    if (m_selection) {
+        painter.setSelection(m_selection);
+    }
+    
     QColor qColor(m_brushColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
-    }
-    KoColor koColor(qColor, cs);
-
-    // Connected-region flood fill: read the current layer, BFS over pixels
-    // similar to the seed color (within a tolerance), replace them with the
-    // brush color. This mirrors the fill tool behaviour without needing
-    // KisFillTool (which lives in kritaui).
-    const int iw = image->width();
-    const int ih = image->height();
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    if (!qColor.isValid()) qColor = Qt::black;
+    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    KoColor koColor(qColor, image->colorSpace());
+    painter.setPaintColor(koColor);
+    painter.setOpacityF(m_brushOpacity);
+    if (m_brushPreset && m_brushPreset->settings()) {
+        painter.setCompositeOpId(m_brushPreset->settings()->effectivePaintOpCompositeOp());
+    } else {
+        painter.setCompositeOpId(COMPOSITE_OVER);
     }
 
-    const QRgb seed = layerImg.pixel(qBound(0, x, iw - 1), qBound(0, y, ih - 1));
-    const int r0 = qRed(seed), g0 = qGreen(seed), b0 = qBlue(seed);
-    const int tol = qBound(1, tolerance, 255); // color tolerance
+    // fillColor will flood fill starting from x, y
+    painter.fillColor(x, y, device);
 
-    const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
-
-    // Active selection constrains the fill (Krita behaviour): the seed must
-    // be inside the selection and only selected pixels are repainted.
-    const QByteArray selMask = selectionMask();
-    if (!selMask.isEmpty() && !selMask[size_t(y) * iw + x]) {
-        return;
-    }
-
-    // BFS
-    QVector<QPoint> stack;
-    QVector<bool> visited(size_t(iw) * ih, false);
-    stack.append(QPoint(x, y));
-    visited[size_t(y) * iw + x] = true;
-    int touched = 0;
-    while (!stack.isEmpty()) {
-        const QPoint p = stack.takeLast();
-        const int px = p.x(), py = p.y();
-        if (px < 0 || px >= iw || py < 0 || py >= ih) continue;
-        if (!selMask.isEmpty() && !selMask[size_t(py) * iw + px]) {
-            continue;
-        }
-        const QRgb c = layerImg.pixel(px, py);
-        if (qAbs(qRed(c) - r0) > tol || qAbs(qGreen(c) - g0) > tol || qAbs(qBlue(c) - b0) > tol) {
-            continue;
-        }
-        layerImg.setPixel(px, py, fill);
-        ++touched;
-        const QPoint neighbors[] = { QPoint(px + 1, py), QPoint(px - 1, py),
-                                     QPoint(px, py + 1), QPoint(px, py - 1) };
-        for (const QPoint &n : neighbors) {
-            if (n.x() < 0 || n.x() >= iw || n.y() < 0 || n.y() >= ih) continue;
-            const size_t idx = size_t(n.y()) * iw + n.x();
-            if (!visited[idx]) {
-                visited[idx] = true;
-                stack.append(n);
-            }
-        }
-    }
-
-    if (touched > 0) {
-        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
-        device->setDirty();
-        markDirty();
-        txn.commit(image->undoAdapter());
-        m_redoCount = 0;
-    }
+    device->setDirty();
+    markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
+
 
 QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
 {
@@ -3131,71 +3088,55 @@ static void clipEditToSelection(QImage &edited, const QImage &original,
 void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool filled)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return;
-    }
+    if (!image) return;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    // Krita-native undo: wrap the shape draw in a transaction
+    if (!device) return;
+
     KisTransaction txn(kundo2_i18n("Shape"), device);
-    const int w = image->width();
-    const int h = image->height();
-    // Bounds of the shape region
-    QRect region(QPoint(qMin(x1, x2), qMin(y1, y2)), QPoint(qMax(x1, x2), qMax(y1, y2)));
-    region = region.adjusted(-int(m_brushSize), -int(m_brushSize),
-                             int(m_brushSize), int(m_brushSize))
-                 .intersected(QRect(0, 0, w, h));
-    if (region.isEmpty()) {
-        return;
-    }
+    KisPainter painter(device);
 
-    // Read the current layer content into a QImage, draw the shape with
-    // QPainter (supports line/rect/ellipse), then write it back.
-    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
-    {
-        const qint32 rw = region.width();
-        const qint32 rh = region.height();
-        QVector<quint8> bytes(size_t(rw) * rh * 4);
-        device->readBytes(bytes.data(), region.x(), region.y(), rw, rh);
-        // Copy bytes (Krita RGBA order) into QImage; QImage ARGB32 is
-        // byte-order RGBA on little-endian, so a straight memcpy works.
-        memcpy(layerImg.bits(), bytes.constData(), size_t(rw) * rh * 4);
-    }
-
-    const KoColorSpace *cs = image->colorSpace();
-    QColor qColor(m_brushColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
-    }
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    const qreal penWidth = qMax<qreal>(1.0, m_shapeStrokeWidth > 0 ? m_shapeStrokeWidth : m_brushSize);
-
-    const QImage originalImg = layerImg.copy();  // pre-edit copy for selection clip
-    QPainter painter(&layerImg);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    QPen pen(qColor, penWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    painter.setPen(pen);
-    painter.setBrush((filled || m_shapeFilled) ? QBrush(qColor) : Qt::NoBrush);
-
-    const QPointF p1(x1 - region.x(), y1 - region.y());
-    const QPointF p2(x2 - region.x(), y2 - region.y());
-    const QRectF r(QRectF(p1, p2).normalized());
-    switch (kind) {
-    case 1: painter.drawRect(r); break;            // rectangle
-    case 2: painter.drawEllipse(r); break;         // ellipse
-    default: painter.drawLine(p1, p2); break;      // line
-    }
-    painter.end();
-
+    KoColor paintColor(QColor(m_brushColor), image->colorSpace());
+    painter.setPaintColor(paintColor);
+    painter.setBackgroundColor(paintColor);
+    painter.setOpacityF(m_brushOpacity);
+    
+    painter.setStrokeStyle(KisPainter::StrokeStyleBrush);
+    painter.setFillStyle((filled || m_shapeFilled) ? KisPainter::FillStyleForegroundColor : KisPainter::FillStyleNone);
+    
     if (m_selection) {
-        clipEditToSelection(layerImg, originalImg, selectionMask(), region.x(), region.y());
+        painter.setSelection(m_selection);
     }
-    const qint32 rw = region.width();
-    const qint32 rh = region.height();
-    device->writeBytes(layerImg.constBits(), region.x(), region.y(), rw, rh);
+    
+    const int layerIndex = qBound(0, m_currentLayer, (int)m_layers.size() - 1);
+    if (m_brushPreset) {
+        painter.setPaintOpPreset(m_brushPreset, KisNodeSP(m_layers[layerIndex].node), image);
+        if (m_brushPreset->settings()) {
+            painter.setCompositeOpId(m_brushPreset->settings()->effectivePaintOpCompositeOp());
+        }
+    }
+    
+    // We must run paint operations inside Krita's thread-safe executor logic if it uses stroke jobs
+    // but for simple single-frame shapes, KisPainter handles it synchronously if we don't set a RunnableStrokeJobsInterface.
+    // Wait, Krita's KisPainter requires a fake executor if we use paint ops asynchronously?
+    // In Krita, KisToolShape uses KisPainter normally.
+    painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
+    
+    QRectF r(QPointF(x1, y1), QPointF(x2, y2));
+    r = r.normalized();
+
+    switch (kind) {
+    case 1: 
+        painter.paintRect(r); 
+        break;
+    case 2: 
+        painter.paintEllipse(r); 
+        break;
+    default: 
+        // KisPainter::paintLine takes KisPaintInformation.
+        painter.paintLine(KisPaintInformation(QPointF(x1, y1)), KisPaintInformation(QPointF(x2, y2)), nullptr);
+        break;
+    }
+
     device->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());
@@ -3204,67 +3145,48 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
 
 void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
 {
-    if (points.size() < 2) {
-        return;
-    }
+    if (points.size() < 2) return;
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return;
-    }
+    if (!image) return;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    // Krita-native undo: wrap the polygon draw in a transaction
+    if (!device) return;
+
     KisTransaction txn(kundo2_i18n("Shape"), device);
-    QPainterPath path;
-    path.moveTo(points.first());
-    for (int i = 1; i < points.size(); ++i) {
-        path.lineTo(points[i]);
+    KisPainter painter(device);
+    
+    KoColor paintColor(QColor(m_brushColor), image->colorSpace());
+    painter.setPaintColor(paintColor);
+    painter.setBackgroundColor(paintColor);
+    painter.setOpacityF(m_brushOpacity);
+
+    painter.setStrokeStyle(KisPainter::StrokeStyleBrush);
+    painter.setFillStyle(m_shapeFilled ? KisPainter::FillStyleForegroundColor : KisPainter::FillStyleNone);
+    
+    if (m_selection) {
+        painter.setSelection(m_selection);
     }
-    if (closed) {
-        path.closeSubpath();
+    
+    const int layerIndex = qBound(0, m_currentLayer, (int)m_layers.size() - 1);
+    if (m_brushPreset) {
+        painter.setPaintOpPreset(m_brushPreset, KisNodeSP(m_layers[layerIndex].node), image);
+        if (m_brushPreset->settings()) {
+            painter.setCompositeOpId(m_brushPreset->settings()->effectivePaintOpCompositeOp());
+        }
     }
-    const QRectF bb = path.boundingRect();
-    const QRect region =
-        bb.toAlignedRect()
-            .adjusted(-int(m_brushSize), -int(m_brushSize),
-                      int(m_brushSize), int(m_brushSize))
-            .intersected(QRect(0, 0, image->width(), image->height()));
-    if (region.isEmpty()) {
-        return;
+    
+    painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
+    
+    vQPointF pts;
+    for (const QPoint &p : points) {
+        pts.append(p);
     }
 
-    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
-        device->readBytes(bytes.data(), region.x(), region.y(),
-                          region.width(), region.height());
-        memcpy(layerImg.bits(), bytes.constData(),
-               size_t(region.width()) * region.height() * 4);
+    if (closed) {
+        painter.paintPolygon(pts);
+    } else {
+        painter.paintPolyline(pts);
     }
-    QColor qColor(m_brushColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
-    }
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    const QImage originalImg = layerImg.copy();
-    QPainter painter(&layerImg);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    QPen pen(qColor, qMax<qreal>(1.0, m_shapeStrokeWidth > 0 ? m_shapeStrokeWidth : m_brushSize),
-             Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    painter.setPen(pen);
-    painter.setBrush(m_shapeFilled ? QBrush(qColor) : Qt::NoBrush);
-    painter.translate(-region.topLeft());
-    painter.drawPath(path);
-    painter.end();
-    if (m_selection) {
-        clipEditToSelection(layerImg, originalImg, selectionMask(),
-                            region.x(), region.y());
-    }
-    device->writeBytes(layerImg.constBits(), region.x(), region.y(),
-                       region.width(), region.height());
+
     device->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());
@@ -3274,76 +3196,76 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
 void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return;
-    }
+    if (!image) return;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
+    if (!device) return;
+    if (x1 == x2 && y1 == y2) return;
+
+    KisTransaction txn(kundo2_i18n("Gradient"), device);
+
     const int iw = image->width();
     const int ih = image->height();
-    if (QPoint(x1, y1) == QPoint(x2, y2)) {
-        return;
+    QImage gradImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
+    gradImg.fill(Qt::transparent);
+
+    QPainter qp(&gradImg);
+    qp.setRenderHint(QPainter::Antialiasing, true);
+
+    QColor fgColor(m_brushColor);
+    if (!fgColor.isValid()) fgColor = Qt::black;
+    fgColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+
+    QColor bgColor(m_brushColor);
+    bgColor.setAlphaF(0.0);
+
+    QPointF p1(x1, y1);
+    QPointF p2(x2, y2);
+
+    if (type == 1) { // Radial
+        qreal r = QLineF(p1, p2).length();
+        if (r < 1.0) r = 1.0;
+        QRadialGradient grad(p1, r);
+        grad.setColorAt(0.0, fgColor);
+        grad.setColorAt(1.0, bgColor);
+        qp.setBrush(grad);
+    } else if (type == 2) { // Conical
+        qreal angle = -QLineF(p1, p2).angle();
+        QConicalGradient grad(p1, angle);
+        grad.setColorAt(0.0, fgColor);
+        grad.setColorAt(1.0, bgColor);
+        qp.setBrush(grad);
+    } else { // Linear
+        QLinearGradient grad(p1, p2);
+        grad.setColorAt(0.0, fgColor);
+        grad.setColorAt(1.0, bgColor);
+        qp.setBrush(grad);
     }
-    // Krita-native undo: wrap the gradient fill in a transaction
-    KisTransaction txn(kundo2_i18n("Gradient"), device);
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
-    }
-    QColor c1(m_brushColor);
-    if (!c1.isValid()) {
-        c1 = Qt::black;
-    }
-    QColor c2(m_brushSecondaryColor);
-    if (!c2.isValid()) {
-        c2 = Qt::transparent;
-    }
-    c1.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    c2.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    const QImage originalImg = layerImg.copy();
-    QPainter painter(&layerImg);
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    if (type == 1) {
-        // Radial: from the start point outward to the end point radius
-        const qreal rad = qMax<qreal>(1.0, hypot(x2 - x1, y2 - y1));
-        QRadialGradient grad(x1, y1, rad);
-        grad.setColorAt(0.0, c1);
-        grad.setColorAt(1.0, c2);
-        painter.fillRect(0, 0, iw, ih, grad);
-    } else if (type == 2) {
-        // Conical (angle): sweep around the start point, end point sets angle
-        const qreal ang = atan2(y2 - y1, x2 - x1) * 180.0 / M_PI;
-        QConicalGradient grad(x1, y1, ang);
-        grad.setColorAt(0.0, c1);
-        grad.setColorAt(1.0, c2);
-        painter.fillRect(0, 0, iw, ih, grad);
-    } else {
-        QLinearGradient grad(x1, y1, x2, y2);
-        grad.setColorAt(0.0, c1);
-        grad.setColorAt(1.0, c2);
-        painter.fillRect(0, 0, iw, ih, grad);
-    }
-    painter.end();
+    qp.setPen(Qt::NoPen);
+    qp.drawRect(0, 0, iw, ih);
+    qp.end();
+
+    KisPaintDeviceSP tempSrc = new KisPaintDevice(image->colorSpace());
+    tempSrc->convertFromQImage(gradImg, 0);
+
+    KisPainter painter(device);
     if (m_selection) {
-        clipEditToSelection(layerImg, originalImg, selectionMask(), 0, 0);
+        painter.setSelection(m_selection);
     }
-    device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
+    painter.setOpacityF(m_brushOpacity);
+    painter.setCompositeOpId(COMPOSITE_OVER);
+    painter.bitBlt(QPoint(0, 0), tempSrc, QRect(0, 0, iw, ih));
+
     device->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
 }
 
+
 void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
 {
     KisImageSP image = m_document;
-    if (!image) {
-        return;
-    }
+    if (!image) return;
     const int iw = image->width();
     const int ih = image->height();
     const KisSelectionSP oldSel = m_selection;
@@ -3353,39 +3275,78 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
     const int rw = qBound(1, qAbs(x2 - x1), iw - rx);
     const int rh = qBound(1, qAbs(y2 - y1), ih - ry);
 
-    QVector<quint8> mask(size_t(iw) * ih, 0);
-    if (kind == 1) {
-        // Ellipse
-        const double cx = rx + rw / 2.0;
-        const double cy = ry + rh / 2.0;
-        const double a = rw / 2.0;
-        const double b = rh / 2.0;
-        if (a > 0 && b > 0) {
-            for (int y = ry; y < ry + rh; ++y) {
-                for (int x = rx; x < rx + rw; ++x) {
-                    const double dx = (x - cx) / a;
-                    const double dy = (y - cy) / b;
-                    if (dx * dx + dy * dy <= 1.0) {
-                        mask[size_t(y) * iw + x] = 255;
-                    }
-                }
-            }
-        }
-    } else {
-        // Rect
-        for (int y = ry; y < ry + rh; ++y) {
-            memset(&mask[size_t(y) * iw + rx], 255, size_t(rw));
-        }
+    QImage maskImg(iw, ih, QImage::Format_Alpha8);
+    maskImg.fill(Qt::transparent);
+
+    QPainter painter(&maskImg);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setBrush(Qt::white);
+    painter.setPen(Qt::NoPen);
+
+    QRect r(rx, ry, rw, rh);
+    if (kind == 1) { // Ellipse
+        painter.drawEllipse(r);
+    } else { // Rect
+        painter.drawRect(r);
     }
-    setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    painter.end();
+
+    QVector<quint8> mask(size_t(iw) * ih);
+    memcpy(mask.data(), maskImg.constBits(), size_t(iw) * ih);
+
+    QVector<quint8> finalMask;
+    const int selMode = qBound(0, (int)m_selectionMode, 3);
+    if (selMode == 0) {
+        finalMask = mask;
+    } else {
+        finalMask = combineSelectionMasks(oldMask, mask, selMode);
+    }
+    setSelection(selectionFromMask(image, finalMask, false));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }
 
+
 void ReverieCore::selectPolygon(const QVector<QPoint> &points)
 {
-    lassoSelect(points);
+    if (points.size() < 3) return;
+    KisImageSP image = m_document;
+    if (!image) return;
+    const int iw = image->width();
+    const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+
+    QImage maskImg(iw, ih, QImage::Format_Alpha8);
+    maskImg.fill(Qt::transparent);
+
+    QPainter painter(&maskImg);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setBrush(Qt::white);
+    painter.setPen(Qt::NoPen);
+
+    QPolygon poly;
+    for (const QPoint &p : points) {
+        poly << p;
+    }
+    painter.drawPolygon(poly);
+    painter.end();
+
+    QVector<quint8> mask(size_t(iw) * ih);
+    memcpy(mask.data(), maskImg.constBits(), size_t(iw) * ih);
+
+    QVector<quint8> finalMask;
+    const int selMode = qBound(0, (int)m_selectionMode, 3);
+    if (selMode == 0) {
+        finalMask = mask;
+    } else {
+        finalMask = combineSelectionMasks(oldMask, mask, selMode);
+    }
+    setSelection(selectionFromMask(image, finalMask, false));
+    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
+    markDirty();
 }
+
 
 static int colorDistance(const QRgb &a, const QRgb &b)
 {
@@ -3401,7 +3362,7 @@ static void setSelectionFromMask(ReverieCore *core, const KisImageSP &image,
                                  const QVector<quint8> &mask,
                                  int selMode)
 {
-    RPC_LOG("RPC setSelectionFromMask mode=%d maskPixels=%d", selMode, mask.size());
+    RPC_LOG("RPC setSelectionFromMask mode=%d maskPixels=%d", selMode, (int)mask.size());
     QVector<quint8> finalMask = mask;
     if (selMode != ReverieCore::SelReplace && core->hasSelection()) {
         QVector<quint8> existing(size_t(image->width()) * image->height(), 0);
@@ -3440,7 +3401,7 @@ static KisSelectionSP selectionFromMask(const KisImageSP &image,
     st.start();
     ps->writeBytes(mask.constData(), 0, 0, iw, ih);
     ps->setDirty(QRect(0, 0, iw, ih));
-    RPC_LOG("RPC selFromMask writeBytes time=%lldms", long(st.elapsed()));
+    RPC_LOG("RPC selFromMask writeBytes time=%ldms", long(st.elapsed()));
     return sel;
 }
 
@@ -3505,7 +3466,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     mask[start] = 255;
     size_t visited = 1;
     const qint64 tFillStart = wt.elapsed();
-    RPC_LOG("RPC wandT wait=%lldms read=%lldms", long(tWaitMs), long(tFillStart - tReadMs));
+    RPC_LOG("RPC wandT wait=%ldms read=%ldms", long(tWaitMs), long(tFillStart - tReadMs));
     auto rowMatch = [&](int ry, int rx) -> bool {
         const int o = (ry * iw + rx) * 4;
         const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
@@ -3568,13 +3529,13 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
         this->setSelection(selectionFromMask(image, mask, true));
         pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
         markDirty();
-        RPC_LOG("RPC wandT fill=%lldms fullSel", long(tFillMs));
+        RPC_LOG("RPC wandT fill=%ldms fullSel", long(tFillMs));
         return;
     }
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
-    RPC_LOG("RPC wandT fill=%lldms visited=%zu", long(tFillMs), visited);
+    RPC_LOG("RPC wandT fill=%ldms visited=%d", long(tFillMs), (int)visited);
 }
 
 void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
@@ -3628,49 +3589,70 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
 
 void ReverieCore::moveLayerContent(int dx, int dy)
 {
-    // Delegate to the transform core: a pure translation. With an active
-    // selection only the selected pixels move (Krita's move tool semantics),
-    // otherwise the whole layer shifts via KisTransformWorker
-    applyTransform(1.0, 1.0, 0.0, 0.0, 0.0, dx, dy);
-    // Krita's move tool carries the selection along with the content - the
-    // marquee follows the moved pixels so the user sees exactly what moved
-    if (m_selection && (dx != 0 || dy != 0)) {
+    KisImageSP image = m_document;
+    if (!image) return;
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) return;
+    if (dx == 0 && dy == 0) return;
+
+    const bool activeSel = hasSelection();
+
+    if (activeSel) {
+        // Krita MoveSelectionStrokeStrategy: cut selected pixels, shift them,
+        // paste back, then shift the selection mask to follow.
+        KisTransaction txn(kundo2_i18n("Move"), device);
+
+        QRect selBounds = m_selection->selectedExactRect()
+                              .intersected(QRect(0, 0, image->width(), image->height()));
+        if (selBounds.isEmpty()) {
+            return;
+        }
+
+        // 1. Extract selected pixels into a temporary device
+        KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
+        KisPainter gc(temp);
+        gc.setSelection(m_selection);
+        gc.bitBlt(selBounds.topLeft(), device, selBounds);
+        gc.end();
+
+        // 2. Clear the selected area on the original device
+        device->clearSelection(m_selection);
+
+        // 3. Shift the temp pixels by (dx, dy) and composite back
+        KisPainter p2(device);
+        p2.setCompositeOpId(COMPOSITE_OVER);
+        QRect tempBounds = temp->exactBounds();
+        p2.bitBlt(tempBounds.topLeft() + QPoint(dx, dy), temp, tempBounds);
+        p2.end();
+
+        // 4. Shift the selection mask to follow the moved pixels
         KisPixelSelectionSP ps = m_selection->pixelSelection();
         if (ps) {
-            const QRect oldExt = ps->selectedExactRect();
-            if (!oldExt.isEmpty()) {
-                QByteArray mask;
-                const QRect b = oldExt.adjusted(-1, -1, 1, 1)
-                                    .intersected(QRect(0, 0, m_docWidth, m_docHeight));
-                mask.resize(b.width() * b.height());
-                ps->readBytes(reinterpret_cast<quint8 *>(mask.data()), b.x(), b.y(),
-                              b.width(), b.height());
-                // clear old area, write back shifted
-                QByteArray cleared(mask.size(), char(0));
-                ps->writeBytes(reinterpret_cast<const quint8 *>(cleared.constData()),
-                               b.x(), b.y(), b.width(), b.height());
-                const QRect nb = b.translated(dx, dy).intersected(
-                    QRect(0, 0, m_docWidth, m_docHeight));
-                if (!nb.isEmpty()) {
-                    QByteArray shifted(nb.width() * nb.height(), char(0));
-                    // copy overlapping region from the shifted mask
-                    for (int yy = 0; yy < nb.height(); ++yy) {
-                        const int sy = nb.y() + yy - dy;
-                        for (int xx = 0; xx < nb.width(); ++xx) {
-                            const int sx = nb.x() + xx - dx;
-                            if (sx >= b.x() && sx < b.x() + b.width() &&
-                                sy >= b.y() && sy < b.y() + b.height()) {
-                                shifted[yy * nb.width() + xx] =
-                                    mask[(sy - b.y()) * b.width() + (sx - b.x())];
-                            }
-                        }
-                    }
-                    ps->writeBytes(reinterpret_cast<const quint8 *>(shifted.constData()),
-                                   nb.x(), nb.y(), nb.width(), nb.height());
-                }
-                ps->setDirty(QRect(0, 0, m_docWidth, m_docHeight));
-            }
+            KisPaintDeviceSP selTemp = new KisPaintDevice(*ps);
+            ps->clear();
+            KisPainter selP(ps);
+            QRect stBounds = selTemp->exactBounds();
+            selP.bitBlt(stBounds.topLeft() + QPoint(dx, dy), selTemp, stBounds);
+            selP.end();
+            m_selection->updateProjection();
         }
+
+        device->setDirty();
+        recompositeProjection();
+        markDirty();
+        txn.commit(image->undoAdapter());
+        m_redoCount = 0;
+    } else {
+        // Krita MoveNormalNodeStrategy: shift the paint device offset.
+        // This is a metadata-only operation — no pixel resampling, no artifacts.
+        // We wrap it in a KisTransaction so undo restores the original offset.
+        KisTransaction txn(kundo2_i18n("Move"), device);
+        device->moveTo(device->x() + dx, device->y() + dy);
+        device->setDirty();
+        recompositeProjection();
+        markDirty();
+        txn.commit(image->undoAdapter());
+        m_redoCount = 0;
     }
 }
 
@@ -3680,137 +3662,369 @@ QRect ReverieCore::contentBounds()
     if (!image) {
         return QRect();
     }
-    KisPaintDeviceSP dev = currentPaintDevice();
-    if (!dev) {
-        return QRect();
+    image->waitForDone();
+    KisSelectionSP sel = image->globalSelection();
+    if (sel && !sel->selectedRect().isEmpty()) {
+        QRect sr = sel->selectedExactRect();
+        if (!sr.isEmpty() && sr.isValid()) {
+            return sr;
+        }
     }
-    QRect b = dev->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
-    return b;
+    KisPaintDeviceSP dev = currentPaintDevice();
+    if (dev) {
+        QRect eb = dev->exactBounds();
+        if (!eb.isEmpty() && eb.isValid()) {
+            return eb;
+        }
+    }
+    // Fallback if the layer is empty
+    return QRect(0, 0, image->width(), image->height());
 }
 
-bool ReverieCore::applyTransform(double xscale, double yscale,
-                                 double xshear, double yshear,
-                                 double rotationRad,
-                                 double xtranslate, double ytranslate)
+bool ReverieCore::applyPerspectiveTransform(
+    double x0, double y0,
+    double x1, double y1,
+    double x2, double y2,
+    double x3, double y3,
+    double origX, double origY, double origW, double origH)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return false;
-    }
+    if (!image) return false;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
+    if (!device) return false;
+
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
+
+    KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
+
+    QRect bounds(qRound(origX), qRound(origY), qRound(origW), qRound(origH));
+    if (bounds.isEmpty() || !bounds.isValid()) {
+        bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
+    }
+    if (bounds.isEmpty() || !bounds.isValid()) {
+        bounds = QRect(0, 0, image->width(), image->height());
+    }
+
+    QPolygonF srcQuad;
+    srcQuad << QPointF(bounds.topLeft())
+            << QPointF(bounds.topRight())
+            << QPointF(bounds.bottomRight())
+            << QPointF(bounds.bottomLeft());
+
+    QPolygonF dstQuad;
+    dstQuad << QPointF(x0, y0)
+            << QPointF(x1, y1)
+            << QPointF(x2, y2)
+            << QPointF(x3, y3);
+
+    QTransform tf;
+    if (!QTransform::quadToQuad(srcQuad, dstQuad, tf)) {
         return false;
     }
-    const int iw = image->width();
-    const int ih = image->height();
-
-    // Krita-native undo: wrap the transform in a transaction
-    KisTransaction txn(kundo2_i18n("Transform"), device);
-
-    // Content bounding box (or the whole canvas when empty); the transform
-    // pivots around its centre like Krita's KisToolTransform
-    QRect bounds = device->exactBounds().intersected(QRect(0, 0, iw, ih));
-    if (!bounds.isValid()) {
-        bounds = QRect(0, 0, iw, ih);
+    if (!tf.isInvertible()) {
+        return false;
     }
-    const QPointF center = bounds.center();
+    if (tf.isIdentity()) {
+        return true;
+    }
 
-    // KisTransformWorker applies SC * S * R * T (translate, rotate, shear,
-    // scale). To pivot around the content centre we must compensate the
-    // linear part applied to the centre point:
-    //   T_full(x) = L(x - c) + c + t = L(x) + (c + t - L(c))
-    QTransform lin;
-    lin.scale(xscale, yscale);
-    lin.shear(0, yshear);
-    lin.shear(xshear, 0);
-    lin.rotateRadians(rotationRad);
-    const QPointF linC = lin.map(center);
-    const double tx = center.x() + xtranslate - linC.x();
-    const double ty = center.y() + ytranslate - linC.y();
+    const bool activeSel = hasSelection();
+    if (activeSel) {
+        KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
+        temp->setDefaultBounds(new KisDefaultBounds(image));
+        QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+        if (selBounds.isEmpty()) selBounds = bounds;
 
-    if (m_selection) {
-        // Selection-constrained transform: crop the selected pixels out,
-        // transform them, clear the original selection area, composite back
-        QImage full(iw, ih, QImage::Format_ARGB32_Premultiplied);
-        {
-            QVector<quint8> bytes(size_t(iw) * ih * 4);
-            device->readBytes(bytes.data(), 0, 0, iw, ih);
-            memcpy(full.bits(), bytes.constData(), size_t(iw) * ih * 4);
-        }
-        const QByteArray selMask = selectionMask();
-        // Work on a copy: zero out unselected pixels in the transform source
-        // only - 'full' keeps the untouched layer content (outside the
-        // selection) that must survive
-        QImage content = full.copy();
-        {
-            QRgb *pix = reinterpret_cast<QRgb *>(content.bits());
-            for (int i = 0; i < iw * ih; ++i) {
-                if (!selMask.isEmpty() && !selMask[i]) {
-                    pix[i] = 0;
-                }
-            }
-        }
-        // Transform the selected content
-        QImage out(iw, ih, QImage::Format_ARGB32_Premultiplied);
-        out.fill(0);
-        {
-            QTransform tf;
-            tf.translate(tx, ty);
-            tf.rotateRadians(rotationRad);
-            tf.shear(xshear, 0);
-            tf.shear(0, yshear);
-            tf.scale(xscale, yscale);
-            QPainter p(&out);
-            p.setRenderHint(QPainter::SmoothPixmapTransform, true);
-            p.setTransform(tf);
-            p.drawImage(0, 0, content);
-            p.end();
-        }
-        // Clear the original selection area on the layer (only the selected
-        // pixels - DestinationOut keeps everything outside the mask)
-        {
-            // Clear only the selected pixels: the mask image must be
-            // TRANSPARENT everywhere except the selection (DestinationOut
-            // clears where the source is opaque) - filling with an opaque
-            // black wiped the whole document including unselected content
-            QImage selImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-            selImg.fill(0); // fully transparent
-            if (!selMask.isEmpty()) {
-                QRgb *sp = reinterpret_cast<QRgb *>(selImg.bits());
-                for (int i = 0; i < iw * ih; ++i) {
-                    if (selMask[i]) {
-                        sp[i] = 0xFFFFFFFF;
-                    }
-                }
-            }
-            QPainter p(&full);
-            p.setCompositionMode(QPainter::CompositionMode_DestinationOut);
-            p.drawImage(0, 0, selImg);
-            p.end();
-        }
-        // Composite the transformed content back (only where it lands)
-        {
-            QPainter p(&full);
-            p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            p.drawImage(0, 0, out);
-            p.end();
-        }
-        device->writeBytes(full.constBits(), 0, 0, iw, ih);
+        KisPainter p0(temp);
+        p0.setSelection(m_selection);
+        p0.bitBlt(selBounds.topLeft(), device, selBounds);
+        p0.end();
+
+        device->clearSelection(m_selection);
+
+        KisPerspectiveTransformWorker workerSel(temp, tf, false, 0);
+        workerSel.run(KisPerspectiveTransformWorker::Bilinear);
+
+        KisPainter p2(device);
+        p2.setCompositeOpId(COMPOSITE_OVER);
+        QRect tempBounds = temp->exactBounds();
+        p2.bitBlt(tempBounds.topLeft(), temp, tempBounds);
+        p2.end();
+
+        KisPerspectiveTransformWorker workerMask(m_selection->pixelSelection(), tf, false, 0);
+        workerMask.run(KisPerspectiveTransformWorker::Bilinear);
+        m_selection->updateProjection();
     } else {
-        // Krita's own transform worker over the whole layer device
-        // (the filter strategy is mandatory - nullptr crashes the weights
-        // buffer; bilinear matches Krita's default transform quality)
-        KisBilinearFilterStrategy filter;
-        KisTransformWorker worker(device, xscale, yscale, xshear, yshear,
-                                  rotationRad, tx, ty, nullptr, &filter);
-        worker.run();
+        KisPaintDeviceSP src = new KisPaintDevice(*device);
+        device->clear();
+
+        KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
+        tmp->setDefaultBounds(new KisDefaultBounds(image));
+        tmp->prepareClone(src);
+        tmp->makeCloneFromRough(src, src->extent());
+
+        KisPerspectiveTransformWorker worker(tmp, tf, false, 0);
+        worker.run(KisPerspectiveTransformWorker::Bilinear);
+
+        KisPainter painter(device);
+        QRect mergeRect = tmp->extent();
+        painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+        painter.end();
     }
-    device->setDirty(QRect(0, 0, iw, ih));
+
+    device->setDirty();
+    recompositeProjection();
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
     return true;
 }
+
+bool ReverieCore::applyWarpMeshTransform(
+    const QVector<QPointF> &origPoints,
+    const QVector<QPointF> &transfPoints,
+    double origX, double origY, double origW, double origH)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) return false;
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) return false;
+    if (origPoints.size() < 4 || origPoints.size() != transfPoints.size()) return false;
+
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
+
+    KisTransaction txn(kundo2_i18n("Mesh Warp Transform"), device);
+
+    KisWarpTransformWorker worker(
+        KisWarpTransformWorker::RIGID_TRANSFORM,
+        origPoints,
+        transfPoints,
+        1.0,
+        0
+    );
+
+    const bool activeSel = hasSelection();
+    if (activeSel) {
+        KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
+        temp->setDefaultBounds(new KisDefaultBounds(image));
+        QRect bounds(qRound(origX), qRound(origY), qRound(origW), qRound(origH));
+        QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+        if (selBounds.isEmpty()) selBounds = bounds;
+
+        KisPainter p0(temp);
+        p0.setSelection(m_selection);
+        p0.bitBlt(selBounds.topLeft(), device, selBounds);
+        p0.end();
+
+        device->clearSelection(m_selection);
+
+        KisPaintDeviceSP dstTemp = new KisPaintDevice(image->colorSpace());
+        dstTemp->setDefaultBounds(new KisDefaultBounds(image));
+        worker.run(temp, dstTemp);
+
+        KisPainter p2(device);
+        p2.setCompositeOpId(COMPOSITE_OVER);
+        QRect tempBounds = dstTemp->exactBounds();
+        p2.bitBlt(tempBounds.topLeft(), dstTemp, tempBounds);
+        p2.end();
+    } else {
+        KisPaintDeviceSP src = new KisPaintDevice(*device);
+        device->clear();
+
+        KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
+        tmp->setDefaultBounds(new KisDefaultBounds(image));
+        tmp->prepareClone(src);
+        tmp->makeCloneFromRough(src, src->extent());
+
+        worker.run(tmp, device);
+    }
+
+    device->setDirty();
+    recompositeProjection();
+    markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
+    return true;
+}
+
+bool ReverieCore::applyTransform(double xscale, double yscale,
+                                 double xshear, double yshear,
+                                 double rotationRad,
+                                 double xtranslate, double ytranslate,
+                                 double originX, double originY)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) return false;
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) return false;
+
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
+
+    KisTransaction txn(kundo2_i18n("Transform"), device);
+
+    QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
+    if (!bounds.isValid() || bounds.isEmpty()) bounds = QRect(0, 0, image->width(), image->height());
+
+    QPointF center;
+    if (originX >= 0 && originY >= 0) {
+        center = QPointF(originX, originY);
+    } else {
+        center = bounds.center();
+    }
+
+    QTransform tf;
+    tf.scale(xscale, yscale);
+    tf.shear(0, yshear);
+    tf.shear(xshear, 0);
+    tf.rotateRadians(rotationRad);
+    QPointF mappedC = tf.map(center);
+    double effectiveTx = center.x() - mappedC.x() + xtranslate;
+    double effectiveTy = center.y() - mappedC.y() + ytranslate;
+
+    const bool activeSel = hasSelection();
+    if (activeSel) {
+        KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
+        QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+        if (selBounds.isEmpty()) selBounds = bounds;
+
+        // Extract selected area to temp
+        KisPainter p0(temp);
+        p0.setSelection(m_selection);
+        p0.bitBlt(selBounds.topLeft(), device, selBounds);
+
+        // Cleanly erase selected area from device
+        device->clearSelection(m_selection);
+
+        // Transform the extracted content
+        KisTransformWorker workerSel(temp,
+                                     xscale, yscale,
+                                     xshear, yshear,
+                                     rotationRad,
+                                     effectiveTx, effectiveTy,
+                                     0,
+                                     KisFilterStrategyRegistry::instance()->value("Bicubic"));
+        workerSel.run();
+
+        // Composite transformed temp back onto device
+        KisPainter p2(device);
+        p2.setCompositeOpId(COMPOSITE_OVER);
+        QRect tempBounds = temp->exactBounds();
+        p2.bitBlt(tempBounds.topLeft(), temp, tempBounds);
+
+        // Transform the selection mask
+        KisTransformWorker workerMask(m_selection->pixelSelection(),
+                                      xscale, yscale, xshear, yshear,
+                                      rotationRad,
+                                      effectiveTx, effectiveTy, 0,
+                                      KisFilterStrategyRegistry::instance()->value("Bilinear"));
+        workerMask.run();
+        m_selection->updateProjection();
+    } else {
+        // Krita's pattern from transformAndMergeDevice:
+        // 1. Clone the source device
+        // 2. Clear the original
+        // 3. Transform the clone into a new temp
+        // 4. Merge back onto the cleared original
+        KisPaintDeviceSP src = new KisPaintDevice(*device);
+        device->clear();
+
+        // Transform src → tmp
+        KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
+        tmp->prepareClone(src);
+        tmp->makeCloneFromRough(src, src->extent());
+
+        KisTransformWorker worker(tmp,
+                                  xscale, yscale,
+                                  xshear, yshear,
+                                  rotationRad,
+                                  effectiveTx, effectiveTy,
+                                  0,
+                                  KisFilterStrategyRegistry::instance()->value("Bicubic"));
+        worker.run();
+
+        // Merge transformed result back onto the cleared device
+        KisPainter painter(device);
+        QRect mergeRect = tmp->extent();
+        painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+        painter.end();
+    }
+
+    device->setDirty();
+    recompositeProjection();
+    markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
+    return true;
+}
+
+bool ReverieCore::startTransformPreview(QImage* outImage)
+{
+    KisImageSP image = m_document;
+    if (!image) return false;
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) return false;
+
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
+
+    m_previewTransaction = new KisTransaction(kundo2_i18n("Transform Preview"), device);
+    m_previewTempDevice = new KisPaintDevice(image->colorSpace());
+
+    QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
+    if (!bounds.isValid() || bounds.isEmpty()) bounds = QRect(0, 0, image->width(), image->height());
+
+    const bool activeSel = hasSelection();
+    if (activeSel) {
+        QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+        if (selBounds.isEmpty()) selBounds = bounds;
+
+        KisPainter p0(m_previewTempDevice);
+        p0.setSelection(m_selection);
+        p0.bitBlt(selBounds.topLeft(), device, selBounds);
+
+        // Cleanly erase selected area on device so it doesn't double-render
+        device->clearSelection(m_selection);
+    } else {
+        KisPainter p0(m_previewTempDevice);
+        p0.bitBlt(bounds.topLeft(), device, bounds);
+        device->clear();
+    }
+
+    if (outImage) {
+        *outImage = m_previewTempDevice->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+    }
+
+    device->setDirty();
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
+void ReverieCore::cancelTransformPreview()
+{
+    if (m_previewTransaction) {
+        m_previewTransaction->revert();
+        delete m_previewTransaction;
+        m_previewTransaction = nullptr;
+    }
+    m_previewTempDevice = nullptr;
+    
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (device) {
+        device->setDirty();
+    }
+    recompositeProjection();
+    markDirty();
+}
+
+
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
 {
@@ -4103,29 +4317,10 @@ QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to,
 
 void ReverieCore::lassoSelect(const QVector<QPoint> &points)
 {
-    RPC_LOG("RPC lassoSelect points=%d", points.size());
-    KisImageSP image = m_document;
-    if (!image || points.size() < 3) {
-        return;
-    }
-    const int iw = image->width();
-    const int ih = image->height();
-    const KisSelectionSP oldSel = m_selection;
-    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
-    QVector<bool> mask;
-    scanlineFillPolygon(points, iw, ih, mask);
-    QVector<quint8> selMask(size_t(iw) * ih, 0);
-    for (int y = 0; y < ih; ++y) {
-        for (int x = 0; x < iw; ++x) {
-            if (mask[size_t(y) * iw + x]) {
-                selMask[size_t(y) * iw + x] = 255;
-            }
-        }
-    }
-    setSelectionFromMask(this, image, selMask, int(m_selectionMode));
-    pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
-    markDirty();
+    // Lasso is essentially a polygon selection with many points.
+    selectPolygon(points);
 }
+
 
 void ReverieCore::lassoFill(const QVector<QPoint> &points)
 {
@@ -4209,58 +4404,64 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
 void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mode)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return;
-    }
+    if (!image) return;
     KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        return;
-    }
-    const int iw = image->width();
-    const int ih = image->height();
-    // Krita-native undo: wrap the liquify displacement in a transaction
+    if (!device) return;
+    
     KisTransaction txn(kundo2_i18n("Liquify"), device);
-
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
-    }
-    QImage result = layerImg.copy();
-
+    
     const qreal radius = qMax<qreal>(8.0, m_brushSize * 0.6);
-    const qreal radius2 = radius * radius;
-    const int dx = tx - fx;
-    const int dy = ty - fy;
-    const QPoint center(fx, fy);
-
-    const int x0 = qMax(0, int(fx - radius));
-    const int x1 = qMin(iw - 1, int(fx + radius));
-    const int y0 = qMax(0, int(fy - radius));
-    const int y1 = qMin(ih - 1, int(fy + radius));
-
-    for (int y = y0; y <= y1; ++y) {
-        for (int x = x0; x <= x1; ++x) {
-            const qreal r2 = qreal((x - fx) * (x - fx) + (y - fy) * (y - fy));
-            if (r2 > radius2) {
-                continue;
-            }
-            // Falloff: strongest at center, zero at edge
-            const qreal falloff = 1.0 - qSqrt(r2 / radius2);
-            const qreal strength = falloff * qBound<qreal>(0.05, strength, 2.0);
-            const int sx = qBound(0, x - int(dx * strength), iw - 1);
-            const int sy = qBound(0, y - int(dy * strength), ih - 1);
-            result.setPixel(x, y, layerImg.pixel(sx, sy));
-        }
+    QVector<QPointF> origPoints;
+    QVector<QPointF> transPoints;
+    
+    // Create points around the radius boundary that stay fixed
+    const int numBoundaryPoints = 12;
+    for (int i = 0; i < numBoundaryPoints; ++i) {
+        double angle = (2.0 * M_PI * i) / numBoundaryPoints;
+        QPointF p(fx + radius * cos(angle), fy + radius * sin(angle));
+        origPoints.append(p);
+        transPoints.append(p);
     }
+    
+    // Create the center point that moves
+    origPoints.append(QPointF(fx, fy));
+    
+    // Scale movement by strength
+    QPointF dt((tx - fx) * qBound<qreal>(0.05, strength, 2.0),
+               (ty - fy) * qBound<qreal>(0.05, strength, 2.0));
+    transPoints.append(QPointF(fx + dt.x(), fy + dt.y()));
 
-    device->writeBytes(result.constBits(), 0, 0, iw, ih);
+    KisWarpTransformWorker worker(KisWarpTransformWorker::RIGID_TRANSFORM,
+                                  origPoints, transPoints, 1.0, nullptr);
+                                  
+    // Warp transforms the whole device. We should limit it.
+    // KisWarpTransformWorker doesn't limit bounds automatically, but
+    // since outer points are fixed, the deformation is mostly local.
+    // Still, running it on a 4K canvas could be slow.
+    // For performance, we'll isolate the region.
+    QRect region(fx - radius * 1.5, fy - radius * 1.5, radius * 3.0, radius * 3.0);
+    region = region.intersected(device->exactBounds());
+    
+    KisPaintDeviceSP tempSrc = new KisPaintDevice(image->colorSpace());
+    KisPainter p(tempSrc);
+    p.setCompositeOpId(COMPOSITE_COPY);
+    p.bitBlt(region.topLeft(), device, region);
+    
+    KisPaintDeviceSP tempDst = new KisPaintDevice(image->colorSpace());
+    worker.run(tempSrc, tempDst); 
+    
+    // Clear original region then blit back
+    device->clear(region);
+    KisPainter p2(device);
+    p2.setCompositeOpId(COMPOSITE_COPY);
+    p2.bitBlt(region.topLeft(), tempDst, region);
+
     device->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
 }
+
 
 bool ReverieCore::savePng(const QString &path)
 {

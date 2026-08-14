@@ -188,11 +188,24 @@ public:
     // KisTransformWorker (SC*S*R*T order) for the no-selection case.
     bool applyTransform(double xscale, double yscale, double xshear,
                         double yshear, double rotationRad,
-                        double xtranslate, double ytranslate);
+                        double xtranslate, double ytranslate,
+                        double originX = -1.0, double originY = -1.0);
+    bool applyPerspectiveTransform(double x0, double y0,
+                                   double x1, double y1,
+                                   double x2, double y2,
+                                   double x3, double y3,
+                                   double origX, double origY, double origW, double origH);
+    bool applyWarpMeshTransform(const QVector<QPointF> &origPoints,
+                                const QVector<QPointF> &transfPoints,
+                                double origX, double origY, double origW, double origH);
     // Content bounding box of the current layer in document coords (for the
     // transform tool's rubber band). Empty (w<=0) when the layer is empty.
     QRect contentBounds();
     void cropCanvas(int x, int y, int w, int h);
+    
+    // Transform preview mechanism (extracts target pixels and hides them in C++)
+    bool startTransformPreview(QImage* outImage);
+    void cancelTransformPreview();
 
     // Draw text at (x, y) with the current brush color/size
     void drawText(int x, int y, const QString &text, qreal fontSize);
@@ -321,6 +334,9 @@ private:
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
     int m_soloedLayer = -1;          // currently soloed layer, -1 if none
+
+    KisTransaction *m_previewTransaction = nullptr;
+    KisPaintDeviceSP m_previewTempDevice;
 
     // Brush state
     qreal m_brushSize = 20.0;

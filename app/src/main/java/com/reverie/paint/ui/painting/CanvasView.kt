@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
@@ -79,6 +80,8 @@ fun CanvasView(
 
     // Live selection preview path (updated while dragging a selection tool)
     var liveSelectionPath by remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
+    var liveShapeStart by remember { mutableStateOf<Offset?>(null) }
+    var liveShapeEnd by remember { mutableStateOf<Offset?>(null) }
 
     // Instant feedback ring at a magic-wand / similar-color tap: the
     // selection computation runs on the render thread (~20-60ms), so a small
@@ -117,6 +120,12 @@ fun CanvasView(
     }
 
     fun tfHandles(): List<Offset> {
+        if (tfState.mode == TransformMode.PERSPECTIVE) {
+            return tfState.quadCorners
+        }
+        if (tfState.mode == TransformMode.DISTORT) {
+            return tfState.meshPoints
+        }
         val r = tfState.bounds
         val corners = listOf(r.topLeft, r.topRight, r.bottomRight, r.bottomLeft)
         val mids =
@@ -184,26 +193,23 @@ fun CanvasView(
                         var localPanX = latestPanX
                         var localPanY = latestPanY
                         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
-                        val trackShapeTool =
-                            tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH
+                        val pointClickTool =
+                            tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH || tool == Tool.SELECT_POLYGON
                         val twoPointTool =
                             tool == Tool.GRADIENT || tool == Tool.SELECT_RECT ||
                                 tool == Tool.SELECT_ELLIPSE
                         val trackSelectTool =
-                            tool == Tool.SELECT_POLYGON || tool == Tool.SELECT_MAGNETIC
+                            tool == Tool.SELECT_MAGNETIC
                         var mode =
                             when (tool) {
-                                Tool.MOVE -> GestureMode.MOVE
                                 Tool.PICKER, Tool.FILL, Tool.TEXT,
-                                Tool.MAGICWAND, Tool.SELECT_SIMILAR -> GestureMode.NONE
-                                else -> GestureMode.STROKE // Includes DYNA, etc.
+                                Tool.MAGICWAND, Tool.SELECT_SIMILAR,
+                                Tool.POLYGON, Tool.POLYLINE, Tool.PATH, Tool.SELECT_POLYGON -> GestureMode.NONE
+                                Tool.MOVE -> GestureMode.STROKE // Use STROKE for MOVE to go through the unified pointer handling
+                                else -> GestureMode.STROKE
                             }
                         var strokeStarted = false
                         var transformStarted = false
-                        // Pressure: only a stylus reports meaningful force.
-                        // Touch screens report arbitrary small values for
-                        // fingers, which would shrink strokes into dotted
-                        // lines - so fingers always paint at full width.
                         val stylus = down.type == PointerType.Stylus
                         var smoothedPressure = 0.8f
                         var shapeEnd = Offset.Zero
@@ -235,16 +241,15 @@ fun CanvasView(
                         magneticPrev = null
                         liquifyPrevious = firstImage
 
-                        // Krita's selection tools select on the primary action
-                        // (finger-down): the magic wand / similar-color / fill
-                        // fire immediately here, and a second finger landing
-                        // mid-gesture (zoom/pan) reverts them with an undo.
-                        // Text keeps the release-confirmed tap because a modal
-                        // dialog must not pop up during a transform.
+                        if (shapeTool || twoPointTool) {
+                            liveShapeStart = firstImage
+                            liveShapeEnd = firstImage
+                        }
+
                         var pendingTap: Offset? = null
                         var tapReverted = false
                         when (tool) {
-                            Tool.TRANSFORM -> {
+                            Tool.TRANSFORM, Tool.MOVE -> {
                                 if (!tfState.active) {
                                     val b = vm.contentBounds()
                                     if (b != null && b[2] > 0 && b[3] > 0) {
@@ -256,13 +261,26 @@ fun CanvasView(
                                                 (b[1] + b[3]).toFloat(),
                                             )
                                         )
+                                    } else {
+                                        tfState.reset(
+                                            androidx.compose.ui.geometry.Rect(
+                                                0f,
+                                                0f,
+                                                vm.docWidth.toFloat(),
+                                                vm.docHeight.toFloat(),
+                                            )
+                                        )
                                     }
+                                    vm.startTransformPreview()
+                                }
+                                if (tool == Tool.MOVE) {
+                                    tfState.handle = 8 // Translate only
                                 } else {
-                                    // Hit test: 8 handles, then inside (move),
-                                    // then outside (rotate)
                                     val handles = tfHandles()
+                                    val currentScale = zoom * fitScale
+                                    val hitThresholdDoc = (32.dp.toPx()) / maxOf(0.01f, currentScale)
                                     var best = -1
-                                    var bestD = 32f
+                                    var bestD = hitThresholdDoc
                                     for (i in handles.indices) {
                                         val d =
                                             hypot(
@@ -274,34 +292,38 @@ fun CanvasView(
                                             best = i
                                         }
                                     }
-                                    // Point-in-transformed-box test: transform
-                                    // the finger back through the inverse
-                                    // (scale/rotate/translate) and compare
-                                    val c = tfState.bounds.center
-                                    val dx = firstImage.x - c.x - tfState.tx
-                                    val dy = firstImage.y - c.y - tfState.ty
-                                    val rad = Math.toRadians(-tfState.rotation.toDouble())
-                                    val cosR = cos(rad).toFloat()
-                                    val sinR = sin(rad).toFloat()
-                                    val ux = (dx * cosR - dy * sinR) / tfState.scaleX
-                                    val uy = (dx * sinR + dy * cosR) / tfState.scaleY
-                                    val inBox =
-                                        ux >= -tfState.bounds.width / 2f &&
-                                            ux <= tfState.bounds.width / 2f &&
-                                            uy >= -tfState.bounds.height / 2f &&
-                                            uy <= tfState.bounds.height / 2f
-                                    tfState.handle = if (best >= 0) best else if (inBox) 8 else 9
-                                    tfState.dragStart = firstImage
-                                    tfState.startScaleX = tfState.scaleX
-                                    tfState.startScaleY = tfState.scaleY
-                                    tfState.startRotation = tfState.rotation
-                                    tfState.startTx = tfState.tx
-                                    tfState.startTy = tfState.ty
+                                    if (tfState.mode == TransformMode.PERSPECTIVE) {
+                                        tfState.handle = if (best in 0..3) best else 8
+                                    } else if (tfState.mode == TransformMode.DISTORT) {
+                                        tfState.handle = if (best in 0..15) best else 99
+                                    } else {
+                                        val c = tfState.bounds.center
+                                        val dx = firstImage.x - c.x - tfState.tx
+                                        val dy = firstImage.y - c.y - tfState.ty
+                                        val rad = Math.toRadians(-tfState.rotation.toDouble())
+                                        val cosR = cos(rad).toFloat()
+                                        val sinR = sin(rad).toFloat()
+                                        val ux = (dx * cosR - dy * sinR) / tfState.scaleX
+                                        val uy = (dx * sinR + dy * cosR) / tfState.scaleY
+                                        val inBox =
+                                            ux >= -tfState.bounds.width / 2f &&
+                                                ux <= tfState.bounds.width / 2f &&
+                                                uy >= -tfState.bounds.height / 2f &&
+                                                uy <= tfState.bounds.height / 2f
+                                        tfState.handle = if (best >= 0) best else if (inBox) 8 else 9
+                                    }
                                 }
+                                tfState.dragStart = firstImage
+                                tfState.startScaleX = tfState.scaleX
+                                tfState.startScaleY = tfState.scaleY
+                                tfState.startRotation = tfState.rotation
+                                tfState.startTx = tfState.tx
+                                tfState.startTy = tfState.ty
+                                tfState.startQuadCorners = tfState.quadCorners
+                                tfState.startMeshPoints = tfState.meshPoints
                             }
 
                             Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON, Tool.PATH -> {
-                                // Point-click: add a vertex on each tap
                                 onPolyPoint(firstImage)
                             }
 
@@ -585,6 +607,7 @@ fun CanvasView(
 
                                         shapeTool || twoPointTool -> {
                                             shapeEnd = imagePos
+                                            liveShapeEnd = imagePos
                                         }
 
                                         tool == Tool.PICKER -> {
@@ -595,18 +618,9 @@ fun CanvasView(
                                             }
                                         }
 
-                                        (trackShapeTool && tool != Tool.POLYGON &&
-                                            tool != Tool.POLYLINE && tool != Tool.PATH) ||
-                                            (trackSelectTool && tool != Tool.SELECT_POLYGON) ||
+                                        tool == Tool.SELECT_MAGNETIC ||
                                             tool == Tool.LASSO || tool == Tool.MAGICWAND -> {
                                             if (tool == Tool.SELECT_MAGNETIC) {
-                                                // Magnetic lasso: snap each segment to the
-                                                // strongest nearby edge. Krita computes each
-                                                // segment synchronously as the pointer moves
-                                                // (KisToolSelectMagnetic), so we do the same:
-                                                // the preview path stays continuous and the
-                                                // committed selection always matches what was
-                                                // shown (no late-async "change after done")
                                                 val prev = magneticPrev ?: firstImage
                                                 val cur = imagePos
                                                 val dd = (cur.x - prev.x) * (cur.x - prev.x) +
@@ -632,7 +646,6 @@ fun CanvasView(
                                                                 }
                                                             }
                                                         } else if (lassoPoints.lastOrNull() != cur) {
-                                                            // Fallback: keep the path continuous
                                                             lassoPoints += cur
                                                         }
                                                         val bmpW2 = bmp?.width ?: 0
@@ -661,10 +674,6 @@ fun CanvasView(
                                                 }
                                             } else if (lassoPoints.lastOrNull() != imagePos) {
                                                 lassoPoints += imagePos
-                                                // Live selection preview: fill the
-                                                // polygon into the overlay while the
-                                                // finger moves (throttled); the
-                                                // committed selection replaces it
                                                 val nowNs = System.nanoTime()
                                                 if (nowNs - lastLassoPreviewNs > 45_000_000L) {
                                                     lastLassoPreviewNs = nowNs
@@ -679,36 +688,114 @@ fun CanvasView(
                                             measureEnd = imagePos
                                         }
 
-                                        tool == Tool.TRANSFORM && tfState.active && tfState.handle >= 0 -> {
-                                            // Transform tool: drag handles scale
-                                            // (centre-anchored), drag inside moves,
-                                            // drag outside rotates
-                                            val c = tfState.bounds.center
-                                            when {
-                                                tfState.handle in 0..7 -> {
-                                                    val curD =
-                                                        hypot(imagePos.x - c.x, imagePos.y - c.y)
-                                                    val startD =
-                                                        hypot(tfState.dragStart.x - c.x, tfState.dragStart.y - c.y)
-                                                    if (startD > 1f) {
-                                                        val k = curD / startD
-                                                        tfState.scaleX = tfState.startScaleX * k
-                                                        tfState.scaleY = tfState.startScaleY * k
+                                        tool == Tool.TRANSFORM || tool == Tool.MOVE -> {
+                                            shapeEnd = imagePos
+                                            if (tfState.active && tfState.handle >= 0) {
+                                                val c = tfState.bounds.center
+                                                when {
+                                                    // Distort (3x3 Mesh Grid) dragging
+                                                    tfState.mode == TransformMode.DISTORT -> {
+                                                        val delta = imagePos - tfState.dragStart
+                                                        if (tfState.handle in 0..15) {
+                                                            val newMesh = tfState.startMeshPoints.toMutableList()
+                                                            newMesh[tfState.handle] = tfState.startMeshPoints[tfState.handle] + delta
+                                                            tfState.meshPoints = newMesh
+                                                        } else {
+                                                            tfState.meshPoints = tfState.startMeshPoints.map { it + delta }
+                                                        }
                                                     }
-                                                }
 
-                                                tfState.handle == 8 -> {
-                                                    tfState.tx = tfState.startTx + (imagePos.x - tfState.dragStart.x)
-                                                    tfState.ty = tfState.startTy + (imagePos.y - tfState.dragStart.y)
-                                                }
+                                                    // Perspective (4-Point Quad) dragging
+                                                    tfState.mode == TransformMode.PERSPECTIVE -> {
+                                                        val delta = imagePos - tfState.dragStart
+                                                        if (tfState.handle in 0..3) {
+                                                            val idx = tfState.handle
+                                                            val newCorners = tfState.startQuadCorners.toMutableList()
+                                                            newCorners[idx] = tfState.startQuadCorners[idx] + delta
+                                                            tfState.quadCorners = newCorners
+                                                        } else {
+                                                            // Translate all 4 corners
+                                                            tfState.quadCorners = tfState.startQuadCorners.map { it + delta }
+                                                        }
+                                                    }
 
-                                                tfState.handle == 9 -> {
-                                                    val a1 =
-                                                        atan2(tfState.dragStart.y - c.y, tfState.dragStart.x - c.x)
-                                                    val a2 = atan2(imagePos.y - c.y, imagePos.x - c.x)
-                                                    val d =
-                                                        Math.toDegrees((a2 - a1).toDouble()).toFloat()
-                                                    tfState.rotation = tfState.startRotation + d
+                                                    // Corner 1 (Top-Right) & Corner 3 (Bottom-Left) & Outside (9): Rotate
+                                                    tfState.handle == 1 || tfState.handle == 3 || tfState.handle == 9 -> {
+                                                        val a1 = atan2(tfState.dragStart.y - c.y - tfState.startTy, tfState.dragStart.x - c.x - tfState.startTx)
+                                                        val a2 = atan2(imagePos.y - c.y - tfState.startTy, imagePos.x - c.x - tfState.startTx)
+                                                        val d = Math.toDegrees((a2 - a1).toDouble()).toFloat()
+                                                        tfState.rotation = tfState.startRotation + d
+                                                    }
+
+                                                    // Corner 0 (Top-Left) & Corner 2 (Bottom-Right): Scale
+                                                    tfState.handle == 0 || tfState.handle == 2 -> {
+                                                        val rad = Math.toRadians(-tfState.startRotation.toDouble())
+                                                        val cosR = cos(rad).toFloat()
+                                                        val sinR = sin(rad).toFloat()
+                                                        val dx = imagePos.x - c.x - tfState.startTx
+                                                        val dy = imagePos.y - c.y - tfState.startTy
+                                                        val ux = dx * cosR - dy * sinR
+                                                        val uy = dx * sinR + dy * cosR
+
+                                                        val sdx = tfState.dragStart.x - c.x - tfState.startTx
+                                                        val sdy = tfState.dragStart.y - c.y - tfState.startTy
+                                                        val sux = sdx * cosR - sdy * sinR
+                                                        val suy = sdx * sinR + sdy * cosR
+
+                                                        val kx = if (kotlin.math.abs(sux) > 1f) ux / sux else 1f
+                                                        val ky = if (kotlin.math.abs(suy) > 1f) uy / suy else 1f
+
+                                                        if (tfState.mode == TransformMode.STANDARD) {
+                                                            // Standard mode: Proportional locked aspect ratio!
+                                                            val k = if (kotlin.math.abs(kx - 1f) > kotlin.math.abs(ky - 1f)) kx else ky
+                                                            tfState.scaleX = tfState.startScaleX * k
+                                                            tfState.scaleY = tfState.startScaleY * k
+                                                        } else {
+                                                            // Free mode: Independent scale
+                                                            tfState.scaleX = tfState.startScaleX * kx
+                                                            tfState.scaleY = tfState.startScaleY * ky
+                                                        }
+                                                    }
+
+                                                    // Edge 4 (Top) & Edge 6 (Bottom): Scale Y
+                                                    tfState.handle == 4 || tfState.handle == 6 -> {
+                                                        val rad = Math.toRadians(-tfState.startRotation.toDouble())
+                                                        val cosR = cos(rad).toFloat()
+                                                        val sinR = sin(rad).toFloat()
+                                                        val dy = imagePos.y - c.y - tfState.startTy
+                                                        val dx = imagePos.x - c.x - tfState.startTx
+                                                        val uy = dx * sinR + dy * cosR
+
+                                                        val sdy = tfState.dragStart.y - c.y - tfState.startTy
+                                                        val sdx = tfState.dragStart.x - c.x - tfState.startTx
+                                                        val suy = sdx * sinR + sdy * cosR
+
+                                                        val ky = if (kotlin.math.abs(suy) > 1f) uy / suy else 1f
+                                                        tfState.scaleY = tfState.startScaleY * ky
+                                                    }
+
+                                                    // Edge 5 (Right) & Edge 7 (Left): Scale X
+                                                    tfState.handle == 5 || tfState.handle == 7 -> {
+                                                        val rad = Math.toRadians(-tfState.startRotation.toDouble())
+                                                        val cosR = cos(rad).toFloat()
+                                                        val sinR = sin(rad).toFloat()
+                                                        val dx = imagePos.x - c.x - tfState.startTx
+                                                        val dy = imagePos.y - c.y - tfState.startTy
+                                                        val ux = dx * cosR - dy * sinR
+
+                                                        val sdx = tfState.dragStart.x - c.x - tfState.startTx
+                                                        val sdy = tfState.dragStart.y - c.y - tfState.startTy
+                                                        val sux = sdx * cosR - sdy * sinR
+
+                                                        val kx = if (kotlin.math.abs(sux) > 1f) ux / sux else 1f
+                                                        tfState.scaleX = tfState.startScaleX * kx
+                                                    }
+
+                                                    // Inside bounding box (8): Translate / Move
+                                                    tfState.handle == 8 -> {
+                                                        tfState.tx = tfState.startTx + (imagePos.x - tfState.dragStart.x)
+                                                        tfState.ty = tfState.startTy + (imagePos.y - tfState.dragStart.y)
+                                                    }
                                                 }
                                             }
                                         }
@@ -731,8 +818,6 @@ fun CanvasView(
 
                                         else -> {
                                             if (!strokeStarted) {
-                                                // Start at the finger-DOWN position (not the first
-                                                // move), so the stroke's beginning is not cut off
                                                 val downP = down.pressure.coerceIn(0f, 1f)
                                                 smoothedPressure = if (stylus && downP > 0f) downP else 0.8f
                                                 val startP = if (stylus) smoothedPressure.toDouble() else 1.0
@@ -761,10 +846,9 @@ fun CanvasView(
                             }
                         }
 
-                        // NOTE: the live preview stays visible after release;
-                        // it is cleared only once the C++ selection overlay is
-                        // ready, so there is no blink between the preview and
-                        // the committed selection
+                        liveShapeStart = null
+                        liveShapeEnd = null
+
                         if (!transformStarted) {
                             pendingTap?.let { tap ->
                                 if (tool == Tool.TEXT) {
@@ -772,14 +856,63 @@ fun CanvasView(
                                 }
                             }
                             when {
-                                // One-shot tools already applied on finger-down
                                 tool == Tool.MAGICWAND ||
                                     tool == Tool.SELECT_SIMILAR ||
                                     tool == Tool.FILL -> Unit
 
-                                tool == Tool.TRANSFORM -> {
-                                    tfState.handle = -1
-                                }
+                                 tool == Tool.TRANSFORM -> {
+                                     tfState.handle = -1
+                                     when (tfState.mode) {
+                                         TransformMode.PERSPECTIVE -> {
+                                             val c = tfState.quadCorners
+                                             val b = tfState.bounds
+                                             vm.applyPerspectiveTransform(
+                                                 c[0].x.toDouble(), c[0].y.toDouble(),
+                                                 c[1].x.toDouble(), c[1].y.toDouble(),
+                                                 c[2].x.toDouble(), c[2].y.toDouble(),
+                                                 c[3].x.toDouble(), c[3].y.toDouble(),
+                                                 b.left.toDouble(), b.top.toDouble(),
+                                                 b.width.toDouble(), b.height.toDouble(),
+                                             )
+                                             val newB = vm.contentBounds()
+                                             if (newB != null && newB[2] > 0 && newB[3] > 0) {
+                                                 tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
+                                             }
+                                             vm.startTransformPreview()
+                                         }
+                                         TransformMode.DISTORT -> {
+                                             val b = tfState.bounds
+                                             vm.applyWarpMeshTransform(
+                                                 tfState.origMeshPoints,
+                                                 tfState.meshPoints,
+                                                 b.left.toDouble(), b.top.toDouble(),
+                                                 b.width.toDouble(), b.height.toDouble(),
+                                             )
+                                             val newB = vm.contentBounds()
+                                             if (newB != null && newB[2] > 0 && newB[3] > 0) {
+                                                 tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
+                                             }
+                                             vm.startTransformPreview()
+                                         }
+                                         else -> {
+                                             if (tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.rotation != 0f || tfState.tx != 0f || tfState.ty != 0f) {
+                                                 val c = tfState.bounds.center
+                                                 val rotRad = Math.toRadians(tfState.rotation.toDouble())
+                                                 vm.applyTransform(
+                                                     tfState.scaleX.toDouble(), tfState.scaleY.toDouble(),
+                                                     0.0, 0.0, rotRad,
+                                                     tfState.tx.toDouble(), tfState.ty.toDouble(),
+                                                     c.x.toDouble(), c.y.toDouble(),
+                                                 )
+                                                 val newB = vm.contentBounds()
+                                                 if (newB != null && newB[2] > 0 && newB[3] > 0) {
+                                                     tfState.reset(androidx.compose.ui.geometry.Rect(newB[0].toFloat(), newB[1].toFloat(), (newB[0] + newB[2]).toFloat(), (newB[1] + newB[3]).toFloat()))
+                                                 }
+                                                 vm.startTransformPreview()
+                                             }
+                                         }
+                                     }
+                                 }
 
                                 tool == Tool.CROP -> Unit
 
@@ -795,21 +928,7 @@ fun CanvasView(
                                     vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
                                 }
 
-                                // Point-click tools commit via the panel's
-                                // 完成 button (Krita polygon interaction)
-                                tool == Tool.POLYGON ||
-                                    tool == Tool.POLYLINE ||
-                                    tool == Tool.SELECT_POLYGON ||
-                                    tool == Tool.PATH -> Unit
-
-                                trackShapeTool -> {
-                                    val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                    if (points.size >= 2) {
-                                        val closed =
-                                            tool == Tool.POLYGON
-                                        vm.drawPolygon(points, closed = closed)
-                                    }
-                                }
+                                pointClickTool -> Unit
 
                                 twoPointTool -> {
                                     val x1 = firstImage.x.toInt()
@@ -828,27 +947,22 @@ fun CanvasView(
                                     gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                                        if (tool == Tool.SELECT_POLYGON) {
-                                            // Freeze the preview at the exact final
-                                            // path before committing so the
-                                            // preview -> selection transition has
-                                            // no visible jump
-                                            vm.previewLassoSync(points)
-                                            vm.selectPolygon(points)
-                                        } else {
-                                            vm.previewLassoSync(points)
-                                            vm.lassoSelect(points)
-                                        }
+                                        vm.previewLassoSync(points)
+                                        vm.lassoSelect(points)
                                     }
                                 }
 
                                 tool == Tool.MOVE -> {
-                                    val dx = (shapeEnd.x - firstImage.x).toInt()
-                                    val dy = (shapeEnd.y - firstImage.y).toInt()
-                                    if (dx != 0 || dy != 0) vm.moveLayerContent(dx, dy)
+                                    val dx = tfState.tx.toInt()
+                                    val dy = tfState.ty.toInt()
+                                    tfState.tx = 0f
+                                    tfState.ty = 0f
+                                    if (dx != 0 || dy != 0) {
+                                        vm.moveLayerContent(dx, dy, restartPreview = true)
+                                    }
                                 }
 
-                                tool == Tool.LASSO || tool == Tool.SELECT_MAGNETIC -> {
+                                tool == Tool.LASSO -> {
                                     gestureEnded = true
                                     if (lassoPoints.size >= 3) {
                                         val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
@@ -861,8 +975,6 @@ fun CanvasView(
                                     vm.touchEnd()
                                 }
 
-                                // A pure tap on a painting tool (no movement)
-                                // still commits a single dab at the tap point
                                 mode == GestureMode.STROKE -> {
                                     vm.touchStart(firstImage.x, firstImage.y, if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0)
                                     vm.touchEnd()
@@ -903,6 +1015,119 @@ fun CanvasView(
                 
                 // Draw the actual canvas image over the white paper
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
+
+                // Draw transform preview
+                val previewBmp = vm.transformPreviewBitmap
+                if ((tool == Tool.TRANSFORM || tool == Tool.MOVE) && tfState.active && previewBmp != null) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.DISTORT) {
+                        // 3x3 Mesh Grid (9 cells) Piecewise Quad Warping on GPU
+                        val nativeCanvas = drawContext.canvas.nativeCanvas
+                        val aBmp = previewBmp.asAndroidBitmap()
+                        val b = tfState.bounds
+                        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+
+                        for (r in 0..2) {
+                            for (c in 0..2) {
+                                val sLeft = (b.left + b.width * (c / 3f)) * scX - image.width / 2f
+                                val sRight = (b.left + b.width * ((c + 1) / 3f)) * scX - image.width / 2f
+                                val sTop = (b.top + b.height * (r / 3f)) * scY - image.height / 2f
+                                val sBottom = (b.top + b.height * ((r + 1) / 3f)) * scY - image.height / 2f
+
+                                val srcQuad = floatArrayOf(
+                                    sLeft, sTop,
+                                    sRight, sTop,
+                                    sRight, sBottom,
+                                    sLeft, sBottom,
+                                )
+
+                                val pTL = tfState.meshPoints[r * 4 + c]
+                                val pTR = tfState.meshPoints[r * 4 + (c + 1)]
+                                val pBR = tfState.meshPoints[(r + 1) * 4 + (c + 1)]
+                                val pBL = tfState.meshPoints[(r + 1) * 4 + c]
+
+                                val dstQuad = floatArrayOf(
+                                    pTL.x * scX - image.width / 2f, pTL.y * scY - image.height / 2f,
+                                    pTR.x * scX - image.width / 2f, pTR.y * scY - image.height / 2f,
+                                    pBR.x * scX - image.width / 2f, pBR.y * scY - image.height / 2f,
+                                    pBL.x * scX - image.width / 2f, pBL.y * scY - image.height / 2f,
+                                )
+
+                                val m = android.graphics.Matrix()
+                                if (m.setPolyToPoly(srcQuad, 0, dstQuad, 0, 4)) {
+                                    nativeCanvas.save()
+                                    val clipPath = android.graphics.Path().apply {
+                                        moveTo(dstQuad[0], dstQuad[1])
+                                        lineTo(dstQuad[2], dstQuad[3])
+                                        lineTo(dstQuad[4], dstQuad[5])
+                                        lineTo(dstQuad[6], dstQuad[7])
+                                        close()
+                                    }
+                                    nativeCanvas.clipPath(clipPath)
+                                    nativeCanvas.concat(m)
+                                    nativeCanvas.drawBitmap(
+                                        aBmp,
+                                        null,
+                                        android.graphics.RectF(-image.width / 2f, -image.height / 2f, image.width / 2f, image.height / 2f),
+                                        p
+                                    )
+                                    nativeCanvas.restore()
+                                }
+                            }
+                        }
+                    } else if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.PERSPECTIVE) {
+                        // Projective / Perspective Matrix Mapping using Android nativeCanvas
+                        val nativeCanvas = drawContext.canvas.nativeCanvas
+                        val aBmp = previewBmp.asAndroidBitmap()
+                        val b = tfState.bounds
+                        val src = floatArrayOf(
+                            b.left * scX - image.width / 2f, b.top * scY - image.height / 2f,
+                            b.right * scX - image.width / 2f, b.top * scY - image.height / 2f,
+                            b.right * scX - image.width / 2f, b.bottom * scY - image.height / 2f,
+                            b.left * scX - image.width / 2f, b.bottom * scY - image.height / 2f,
+                        )
+                        val c0 = tfState.quadCorners[0]
+                        val c1 = tfState.quadCorners[1]
+                        val c2 = tfState.quadCorners[2]
+                        val c3 = tfState.quadCorners[3]
+                        val dst = floatArrayOf(
+                            c0.x * scX - image.width / 2f, c0.y * scY - image.height / 2f,
+                            c1.x * scX - image.width / 2f, c1.y * scY - image.height / 2f,
+                            c2.x * scX - image.width / 2f, c2.y * scY - image.height / 2f,
+                            c3.x * scX - image.width / 2f, c3.y * scY - image.height / 2f,
+                        )
+                        val m = android.graphics.Matrix()
+                        if (m.setPolyToPoly(src, 0, dst, 0, 4)) {
+                            nativeCanvas.save()
+                            nativeCanvas.concat(m)
+                            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                            nativeCanvas.drawBitmap(
+                                aBmp,
+                                null,
+                                android.graphics.RectF(-image.width / 2f, -image.height / 2f, image.width / 2f, image.height / 2f),
+                                p
+                            )
+                            nativeCanvas.restore()
+                        }
+                    } else {
+                        // Standard / Free / Move Affine Transform
+                        val c = tfState.bounds.center
+                        withTransform({
+                            translate(c.x * scX - image.width / 2f + tfState.tx * scX, c.y * scY - image.height / 2f + tfState.ty * scY)
+                            rotate(tfState.rotation, pivot = Offset.Zero)
+                            scale(tfState.scaleX, tfState.scaleY, pivot = Offset.Zero)
+                            translate(-c.x * scX + image.width / 2f, -c.y * scY + image.height / 2f)
+                        }) {
+                            drawImage(
+                                image = previewBmp,
+                                dstSize = androidx.compose.ui.unit.IntSize(image.width, image.height),
+                                dstOffset = androidx.compose.ui.unit.IntOffset((-image.width / 2f).toInt(), (-image.height / 2f).toInt()),
+                                filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                            )
+                        }
+                    }
+                }
 
                 // Magic-wand tap flash: instant feedback ring in document
                 // space (scaled into bitmap space like the preview path)
@@ -1009,33 +1234,245 @@ fun CanvasView(
                     )
                 }
 
-                // Transform tool rubber band (bitmap space, origin at the
-                // image centre): white frame + 8 square handles
+                // Transform tool rubber band (bitmap space, origin at the image centre)
                 if (tool == Tool.TRANSFORM && tfState.active) {
                     val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
                     val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
                     val handles = tfHandles().map { bx(it) }
-                    val frame = androidx.compose.ui.graphics.Path()
-                    if (handles.size >= 4) {
-                        frame.moveTo(handles[0].x, handles[0].y)
-                        for (i in 1..3) {
-                            frame.lineTo(handles[i].x, handles[i].y)
+                    val currentScale = zoom * fitScale
+
+                    if (tfState.mode == TransformMode.DISTORT) {
+                        // 3x3 Mesh Grid (16 Handles + 4 horizontal lines + 4 vertical lines)
+                        if (handles.size == 16) {
+                            // 1. Draw horizontal grid lines
+                            for (r in 0..3) {
+                                val linePath = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(handles[r * 4].x, handles[r * 4].y)
+                                    for (c in 1..3) {
+                                        lineTo(handles[r * 4 + c].x, handles[r * 4 + c].y)
+                                    }
+                                }
+                                val isBorder = (r == 0 || r == 3)
+                                drawPath(
+                                    linePath,
+                                    color = if (isBorder) Color(0xFF181B22) else Color(0x66181B22),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 3.dp.toPx() / currentScale else 2.dp.toPx() / currentScale),
+                                )
+                                drawPath(
+                                    linePath,
+                                    color = if (isBorder) Morandi.accent else Color(0x88AAB3C2),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 1.5.dp.toPx() / currentScale else 1.dp.toPx() / currentScale),
+                                )
+                            }
+                            // 2. Draw vertical grid lines
+                            for (c in 0..3) {
+                                val linePath = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(handles[c].x, handles[c].y)
+                                    for (r in 1..3) {
+                                        lineTo(handles[r * 4 + c].x, handles[r * 4 + c].y)
+                                    }
+                                }
+                                val isBorder = (c == 0 || c == 3)
+                                drawPath(
+                                    linePath,
+                                    color = if (isBorder) Color(0xFF181B22) else Color(0x66181B22),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 3.dp.toPx() / currentScale else 2.dp.toPx() / currentScale),
+                                )
+                                drawPath(
+                                    linePath,
+                                    color = if (isBorder) Morandi.accent else Color(0x88AAB3C2),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 1.5.dp.toPx() / currentScale else 1.dp.toPx() / currentScale),
+                                )
+                            }
+                            // 3. Draw 16 Control Handles
+                            handles.forEachIndexed { idx, h ->
+                                val isCorner = (idx == 0 || idx == 3 || idx == 12 || idx == 15)
+                                val hr = (if (isCorner) 9.dp.toPx() else 6.5.dp.toPx()) / currentScale
+                                drawCircle(Color(0xFF22262E), radius = hr, center = h)
+                                drawCircle(if (isCorner) Morandi.accent else Color(0xFFAAB3C2), radius = hr, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale))
+                                drawCircle(Color.White, radius = (if (isCorner) 3.dp.toPx() else 2.dp.toPx()) / currentScale, center = h)
+                            }
                         }
-                        frame.close()
-                        drawPath(
-                            frame,
-                            color = Color.White,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
-                        )
-                        val hs = 4.dp.toPx()
-                        handles.forEach { h ->
-                            drawRect(
-                                color = Color.White,
-                                topLeft = Offset(h.x - hs / 2f, h.y - hs / 2f),
-                                size = androidx.compose.ui.geometry.Size(hs, hs),
+                    } else if (tfState.mode == TransformMode.PERSPECTIVE) {
+                        // 4-Point Quad Frame
+                        if (handles.size == 4) {
+                            val quadPath = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(handles[0].x, handles[0].y)
+                                lineTo(handles[1].x, handles[1].y)
+                                lineTo(handles[2].x, handles[2].y)
+                                lineTo(handles[3].x, handles[3].y)
+                                close()
+                            }
+                            drawPath(
+                                quadPath,
+                                color = Color(0xFF181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
                             )
+                            drawPath(
+                                quadPath,
+                                color = Morandi.accent,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                            )
+                            val handleRadius = 11.dp.toPx() / currentScale
+                            handles.forEach { h ->
+                                drawCircle(Color(0xFF22262E), radius = handleRadius, center = h)
+                                drawCircle(Morandi.accent, radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale))
+                                drawCircle(Color.White, radius = 3.dp.toPx() / currentScale, center = h)
+                            }
                         }
+                    } else {
+                        // Standard / Free 8-Handle Bounding Box
+                        val frame = androidx.compose.ui.graphics.Path()
+                        if (handles.size >= 4) {
+                            frame.moveTo(handles[0].x, handles[0].y)
+                            for (i in 1..3) {
+                                frame.lineTo(handles[i].x, handles[i].y)
+                            }
+                            frame.close()
+
+                            // 1. High-contrast dual-layer bounding frame
+                            drawPath(
+                                frame,
+                                color = Color(0xFF181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
+                            )
+                            drawPath(
+                                frame,
+                                color = Color(0xFFAAB3C2),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                            )
+
+                            // 2. Center Pivot Indicator
+                            val centerDoc = tfState.bounds.center + Offset(tfState.tx, tfState.ty)
+                            val centerBmp = bx(centerDoc)
+                            val cr = 5.dp.toPx() / currentScale
+                            drawLine(Color(0xFF181B22), centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 3.dp.toPx() / currentScale)
+                            drawLine(Color(0xFF181B22), centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 3.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent, centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 1.5.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent, centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 1.5.dp.toPx() / currentScale)
+
+                            // 3. Huashijie Pro Style Vector Handle Badges
+                            val handleRadius = 11.dp.toPx() / currentScale
+                            val badgeStrokeW = 1.4.dp.toPx() / currentScale
+                            val glyphSize = handleRadius * 0.52f
+                            val glyphColor = Color.White
+                            val glyphStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.5.dp.toPx() / currentScale,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                            )
+
+                            handles.forEachIndexed { i, h ->
+                                drawCircle(Color(0xFF22262E), radius = handleRadius, center = h)
+                                drawCircle(if (i == 1 || i == 3) Morandi.accent else Color(0xFF9098A6), radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = badgeStrokeW))
+                                when (i) {
+                                    0, 2 -> {
+                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        val ah = glyphSize * 0.45f
+                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h - Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h - Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(glyphSize, glyphSize), h + Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                    }
+                                    1, 3 -> {
+                                        val arcRect = androidx.compose.ui.geometry.Rect(h - Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize))
+                                        drawArc(
+                                            color = Morandi.accent,
+                                            startAngle = 40f,
+                                            sweepAngle = 260f,
+                                            useCenter = false,
+                                            topLeft = arcRect.topLeft,
+                                            size = arcRect.size,
+                                            style = glyphStroke,
+                                        )
+                                        val rad = Math.toRadians(300.0)
+                                        val tip = h + Offset((glyphSize * kotlin.math.cos(rad)).toFloat(), (glyphSize * kotlin.math.sin(rad)).toFloat())
+                                        drawLine(Morandi.accent, tip, tip + Offset(-glyphSize * 0.35f, -glyphSize * 0.2f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(Morandi.accent, tip, tip + Offset(-glyphSize * 0.15f, glyphSize * 0.35f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                    }
+                                    4, 6 -> {
+                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h + Offset(0f, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        val ah = glyphSize * 0.38f
+                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h - Offset(-ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h - Offset(ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(0f, glyphSize), h + Offset(-ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(0f, glyphSize), h + Offset(ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                    }
+                                    5, 7 -> {
+                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h + Offset(glyphSize, 0f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        val ah = glyphSize * 0.38f
+                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h - Offset(glyphSize - ah, -ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h - Offset(glyphSize - ah, ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(glyphSize, 0f), h + Offset(glyphSize - ah, -ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, h + Offset(glyphSize, 0f), h + Offset(glyphSize - ah, ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Polygon / Polyline vertices preview
+                if (polyPoints.isNotEmpty()) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val mappedPts = polyPoints.map { bx(it) }
+                    val currentScale = zoom * fitScale
+                    val polyPath = androidx.compose.ui.graphics.Path()
+                    polyPath.moveTo(mappedPts[0].x, mappedPts[0].y)
+                    for (i in 1 until mappedPts.size) {
+                        polyPath.lineTo(mappedPts[i].x, mappedPts[i].y)
+                    }
+                    if (tool == Tool.POLYGON && mappedPts.size >= 3) {
+                        polyPath.close()
+                    }
+                    drawPath(
+                        polyPath,
+                        color = Color.White,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
+                    )
+                    mappedPts.forEach { pt ->
+                        drawCircle(
+                            color = Morandi.accent,
+                            radius = 5.dp.toPx() / currentScale,
+                            center = pt,
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.dp.toPx() / currentScale,
+                            center = pt,
+                        )
+                    }
+                }
+
+                // Live shape drawing preview (line, rect, ellipse, gradient)
+                if (liveShapeStart != null && liveShapeEnd != null) {
+                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val s = bx(liveShapeStart!!)
+                    val e = bx(liveShapeEnd!!)
+                    val currentScale = zoom * fitScale
+                    val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
+
+                    when (tool) {
+                        Tool.LINE -> drawLine(Color.White, s, e, strokeWidth = 2.dp.toPx() / currentScale)
+                        Tool.RECT -> {
+                            val r = androidx.compose.ui.geometry.Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
+                            drawRect(Color.White, topLeft = r.topLeft, size = r.size, style = strokeStyle)
+                        }
+                        Tool.ELLIPSE -> {
+                            val r = androidx.compose.ui.geometry.Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
+                            drawOval(Color.White, topLeft = r.topLeft, size = r.size, style = strokeStyle)
+                        }
+                        Tool.GRADIENT -> {
+                            drawLine(Color.White, s, e, strokeWidth = 2.dp.toPx() / currentScale)
+                            drawCircle(Color.White, radius = 5.dp.toPx() / currentScale, center = s)
+                            drawCircle(Morandi.accent, radius = 5.dp.toPx() / currentScale, center = e)
+                        }
+                        else -> Unit
                     }
                 }
 

@@ -2,6 +2,8 @@ package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,34 +35,32 @@ fun ShapeToolPanel(
     onCancel: () -> Unit,
 ) {
     if (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON || tool == Tool.PATH) {
-        // Point-click tools: vertex count + 完成/取消
-        ToolFloatPanel(title = tool.label, modifier = Modifier) {
-            Text(
-                "点击画布添加顶点 ($vertexCount)",
-                color = Morandi.text,
-                fontSize = 12.sp,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ReButton(text = "完成", onClick = onFinish)
-                ReButton(text = "取消", onClick = onCancel, primary = false)
+        // Point-click tools: vertex count + finish/cancel
+        ToolFloatPanel(modifier = Modifier) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ToolFloatChip(label = "完成", selected = true, onClick = onFinish)
+                ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
+                Text(
+                    "顶点: $vertexCount",
+                    color = Morandi.subText,
+                    fontSize = 12.sp,
+                )
             }
         }
     } else {
         // line / rect / ellipse: stroke width + fill
-        ToolFloatPanel(title = tool.label, modifier = Modifier) {
-            ToolFloatSlider(
-                label = "描边",
-                valueText = "${strokeWidth.roundToInt()}px",
-                range = 1f..100f,
-                value = strokeWidth,
-                onValue = onStrokeWidth,
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text("填充", color = Morandi.text, fontSize = 12.sp)
-                ReSwitch(checked = filled, onChecked = onFilled)
+        ToolFloatPanel(modifier = Modifier) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ToolFloatChip(label = "填充", selected = filled, onClick = { onFilled(!filled) })
+                Box(modifier = Modifier.width(180.dp)) {
+                    ToolFloatSlider(
+                        label = "描边",
+                        valueText = "${strokeWidth.roundToInt()}px",
+                        range = 1f..100f,
+                        value = strokeWidth,
+                        onValue = onStrokeWidth,
+                    )
+                }
             }
         }
     }

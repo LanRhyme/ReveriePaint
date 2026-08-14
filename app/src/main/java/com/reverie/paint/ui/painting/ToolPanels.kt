@@ -2,6 +2,9 @@ package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -20,17 +23,12 @@ fun GradientPanel(
     onType: (Int) -> Unit,
 ) {
     val types = listOf(0 to "线性", 1 to "径向", 2 to "角度")
-    ToolFloatPanel(title = "渐变", modifier = Modifier) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    ToolFloatPanel(modifier = Modifier) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             types.forEach { (t, label) ->
                 ToolFloatChip(label, selected = type == t, onClick = { onType(t) })
             }
         }
-        Text(
-            "拖拽画布设置渐变方向, 颜色为前景→背景",
-            color = Morandi.subText,
-            fontSize = 11.sp,
-        )
     }
 }
 
@@ -41,19 +39,16 @@ fun FillPanel(
     tolerance: Int,
     onTolerance: (Int) -> Unit,
 ) {
-    ToolFloatPanel(title = "填充", modifier = Modifier) {
-        ToolFloatSlider(
-            label = "容差",
-            valueText = "$tolerance",
-            range = 0f..255f,
-            value = tolerance.toFloat(),
-            onValue = { onTolerance(it.toInt()) },
-        )
-        Text(
-            "点击画布填充同色区域",
-            color = Morandi.subText,
-            fontSize = 11.sp,
-        )
+    ToolFloatPanel(modifier = Modifier) {
+        Box(modifier = Modifier.width(200.dp)) {
+            ToolFloatSlider(
+                label = "容差",
+                valueText = "$tolerance",
+                range = 0f..255f,
+                value = tolerance.toFloat(),
+                onValue = { onTolerance(it.toInt()) },
+            )
+        }
     }
 }
 

@@ -2,6 +2,8 @@ package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -14,6 +16,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
@@ -132,9 +137,67 @@ fun PaintingPage(vm: PaintViewModel) {
     var liquifyBrushSize by remember { mutableStateOf(60f) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
-    // Clear transient tool state when switching tools
+    // Clear transient tool state when switching tools, and activate tool states
     androidx.compose.runtime.LaunchedEffect(tool) {
-        if (tool != Tool.TRANSFORM) tfState.active = false
+        if (tool == Tool.TRANSFORM || tool == Tool.MOVE) {
+            val b = vm.contentBounds()
+            if (b != null && b[2] > 0 && b[3] > 0) {
+                tfState.reset(
+                    androidx.compose.ui.geometry.Rect(
+                        b[0].toFloat(),
+                        b[1].toFloat(),
+                        (b[0] + b[2]).toFloat(),
+                        (b[1] + b[3]).toFloat(),
+                    )
+                )
+            } else {
+                tfState.reset(
+                    androidx.compose.ui.geometry.Rect(
+                        0f,
+                        0f,
+                        vm.docWidth.toFloat(),
+                        vm.docHeight.toFloat(),
+                    )
+                )
+            }
+            vm.startTransformPreview()
+        } else {
+            if (tfState.active) {
+                // Real-time auto-commit on tool switch
+                if (tfState.mode in listOf(TransformMode.PERSPECTIVE, TransformMode.DISTORT)) {
+                    val corners = tfState.quadCorners
+                    if (corners.size == 4) {
+                        vm.applyPerspectiveTransform(
+                            corners[0].x.toDouble(), corners[0].y.toDouble(),
+                            corners[1].x.toDouble(), corners[1].y.toDouble(),
+                            corners[2].x.toDouble(), corners[2].y.toDouble(),
+                            corners[3].x.toDouble(), corners[3].y.toDouble(),
+                            tfState.bounds.left.toDouble(), tfState.bounds.top.toDouble(),
+                            tfState.bounds.width.toDouble(), tfState.bounds.height.toDouble(),
+                        )
+                    }
+                } else {
+                    val rad = Math.toRadians(tfState.rotation.toDouble())
+                    val c = tfState.bounds.center
+                    if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f || tfState.ty != 0f) {
+                        vm.applyTransform(
+                            tfState.scaleX.toDouble(),
+                            tfState.scaleY.toDouble(),
+                            0.0,
+                            0.0,
+                            rad,
+                            tfState.tx.toDouble(),
+                            tfState.ty.toDouble(),
+                            c.x.toDouble(),
+                            c.y.toDouble(),
+                        )
+                    } else {
+                        vm.cancelTransformPreview()
+                    }
+                }
+            }
+            tfState.active = false
+        }
         if (tool != Tool.CROP) cropRect = null
         if (tool != Tool.POLYGON && tool != Tool.POLYLINE && tool != Tool.PATH && tool != Tool.SELECT_POLYGON) {
             polyPoints = emptyList()
@@ -324,32 +387,28 @@ fun PaintingPage(vm: PaintViewModel) {
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 90.dp),
+                    .padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
             TransformPanel(
                 vm = vm,
-                rotationDeg = tfState.rotation,
-                scaleX = tfState.scaleX,
-                scaleY = tfState.scaleY,
-                onRotation = { tfState.rotation = it },
-                onScaleX = { tfState.scaleX = it },
-                onScaleY = { tfState.scaleY = it },
-                onApply = {
-                    val rad = Math.toRadians(tfState.rotation.toDouble())
-                    vm.applyTransform(
-                        tfState.scaleX.toDouble(),
-                        tfState.scaleY.toDouble(),
-                        0.0,
-                        0.0,
-                        rad,
-                        tfState.tx.toDouble(),
-                        tfState.ty.toDouble(),
-                    )
-                    tfState.active = false
+                tfState = tfState,
+                onReset = {
+                    vm.cancelTransformPreview()
+                    val b = vm.contentBounds()
+                    if (b != null && b[2] > 0 && b[3] > 0) {
+                        tfState.reset(
+                            androidx.compose.ui.geometry.Rect(
+                                b[0].toFloat(),
+                                b[1].toFloat(),
+                                (b[0] + b[2]).toFloat(),
+                                (b[1] + b[3]).toFloat(),
+                            )
+                        )
+                    }
+                    vm.startTransformPreview()
                 },
-                onCancel = { tfState.active = false },
             )
         }
 
@@ -359,7 +418,7 @@ fun PaintingPage(vm: PaintViewModel) {
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 90.dp),
+                    .padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
@@ -400,7 +459,7 @@ fun PaintingPage(vm: PaintViewModel) {
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 90.dp),
+                    .padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
@@ -424,7 +483,7 @@ fun PaintingPage(vm: PaintViewModel) {
         // ---- Gradient / Fill / Liquify tool options ----
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.GRADIENT,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
@@ -432,7 +491,7 @@ fun PaintingPage(vm: PaintViewModel) {
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.FILL,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
@@ -440,7 +499,7 @@ fun PaintingPage(vm: PaintViewModel) {
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.LIQUIFY,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 90.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
         ) {
@@ -791,130 +850,176 @@ private fun SelectionFloatPanel(
     onToggleProps: () -> Unit,
     onDrag: (Float, Float) -> Unit,
 ) {
-    val modes =
-        listOf(
-            0 to "替换",
-            1 to "加",
-            2 to "减",
-            3 to "交",
-        )
-    Column(
-        modifier =
-            modifier
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        onDrag(dragAmount.x, dragAmount.y)
+    ToolFloatPanel(modifier = modifier) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Row 1: Top Segmented Mode Selector (新建, 增加, 减去, 相交)
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFF1B1E24))
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val modes = listOf(
+                    0 to "新建",
+                    1 to "增加",
+                    2 to "减去",
+                    3 to "相交",
+                )
+                modes.forEach { (modeVal, modeName) ->
+                    val isSel = vm.selectionMode == modeVal
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSel) Morandi.accent else Color.Transparent)
+                            .pointerInput(modeVal) {
+                                detectTapGestures { vm.updateSelectionMode(modeVal) }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = modeName,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSel) Morandi.onAccent else Morandi.subText,
+                        )
                     }
                 }
-                .padding(horizontal = 12.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.85f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
-                .padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        // Row 1: merge mode (all selection tools)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            modes.forEach { (mode, label) ->
-                val selected = vm.selectionMode == mode
-                Box(
-                    modifier =
-                        Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) Morandi.accent else Morandi.panel)
-                            .noRippleClickable { vm.updateSelectionMode(mode) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        label,
-                        color = if (selected) Morandi.onAccent else Morandi.text,
-                        fontSize = 13.sp,
+            }
+
+            // Row 2: Magic Wand / Similar Tolerance Slider
+            if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
+                Box(modifier = Modifier.width(220.dp)) {
+                    ToolFloatSlider(
+                        label = "容差",
+                        valueText = "${vm.selectionTolerance}",
+                        range = 0f..255f,
+                        value = vm.selectionTolerance.toFloat(),
+                        onValue = { vm.updateSelectionTolerance(it.toInt()) },
                     )
                 }
             }
-        }
-        // Row 2: tool-specific properties
-        if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
-            // Tolerance slider (magic wand / similar color only, like Krita)
-            SelectionPropSlider(
-                "容差",
-                range = 0..255,
-                value = vm.selectionTolerance,
-                onApply = { vm.updateSelectionTolerance(it) },
-            )
-        }
-        // Common modifiers: feather / expand / contract / smooth
-        if (propsOpen) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SelectionPropSlider("羽化", 0..32, 8) { vm.featherSelection(it) }
-                SelectionPropSlider("扩展", 0..64, 16) { vm.expandSelection(it) }
-                SelectionPropSlider("收缩", 0..64, 8) { vm.contractSelection(it) }
-                SelectionPropSlider("平滑", 1..16, 4) { vm.smoothSelection(it) }
+
+            // Expandable Modifiers Drawer (羽化, 扩展, 收缩, 平滑)
+            androidx.compose.animation.AnimatedVisibility(visible = propsOpen) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.width(220.dp).padding(vertical = 4.dp),
+                ) {
+                    ToolFloatSlider(label = "羽化", valueText = "8px", range = 0f..32f, value = 8f, onValue = { vm.featherSelection(it.toInt()) })
+                    ToolFloatSlider(label = "扩展", valueText = "16px", range = 0f..64f, value = 16f, onValue = { vm.expandSelection(it.toInt()) })
+                    ToolFloatSlider(label = "收缩", valueText = "8px", range = 0f..64f, value = 8f, onValue = { vm.contractSelection(it.toInt()) })
+                    ToolFloatSlider(label = "平滑", valueText = "4px", range = 1f..16f, value = 4f, onValue = { vm.smoothSelection(it.toInt()) })
+                }
+            }
+
+            // Row 3: Action Buttons (全选, 反选, 清除, 属性)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SelectionActionItem(
+                    iconRes = R.drawable.ic_layers,
+                    label = "全选",
+                    onClick = { vm.selectAllAction() },
+                )
+                SelectionActionItem(
+                    iconRes = R.drawable.ic_refresh,
+                    label = "反选",
+                    onClick = { vm.invertSelectionAction() },
+                )
+                SelectionActionItem(
+                    iconRes = R.drawable.ic_trash,
+                    label = "清除",
+                    danger = true,
+                    onClick = { vm.clearSelectionAction() },
+                )
+                SelectionActionItem(
+                    iconRes = R.drawable.ic_sliders,
+                    label = if (propsOpen) "收起" else "属性",
+                    active = propsOpen,
+                    onClick = { onToggleProps() },
+                )
             }
         }
-        // Row 3: quick actions
-        Row(
-            modifier = Modifier.padding(top = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            SelectionActionChip("选中图层") { vm.selectAllAction() }
-            SelectionActionChip("反选") { vm.invertSelectionAction() }
-            SelectionActionChip("清除", danger = true) { vm.clearSelectionAction() }
-            SelectionActionChip(if (propsOpen) "收起属性" else "高级属性") { onToggleProps() }
-        }
     }
 }
 
 @Composable
-private fun SelectionActionChip(
+private fun SelectionActionItem(
+    iconRes: Int,
     label: String,
+    primary: Boolean = false,
     danger: Boolean = false,
+    active: Boolean = false,
     onClick: () -> Unit,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(if (danger) Color(0x33B05552) else Morandi.panel)
-                .noRippleClickable { onClick() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        Text(
-            label,
-            color = if (danger) Color(0xFFB05552) else Morandi.text,
-            fontSize = 13.sp,
-        )
-    }
-}
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (pressed) 0.90f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "btn_scale")
 
-@Composable
-private fun SelectionPropSlider(
-    label: String,
-    range: IntRange,
-    initial: Int = range.last / 2,
-    value: Int? = null,
-    onApply: (Int) -> Unit,
-) {
-    var local by remember { mutableStateOf(initial) }
-    val current = value ?: local
-    Row(
-        modifier = Modifier.padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    primary -> Morandi.accent
+                    danger -> Color(0x33C45656)
+                    active -> Morandi.accent.copy(alpha = 0.25f)
+                    else -> Color(0xFF262A33).copy(alpha = 0.7f)
+                }
+            )
+            .border(
+                1.dp,
+                when {
+                    primary -> Morandi.accent
+                    danger -> Color(0x66C45656)
+                    active -> Morandi.accent
+                    else -> Color(0xFF383D48)
+                },
+                RoundedCornerShape(10.dp)
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(label, color = Morandi.subText, fontSize = 11.sp)
-        ReSlider(
-            value = (current - range.first).toFloat() / (range.last - range.first),
-            onValue = {
-                val v = range.first + (it * (range.last - range.first)).toInt()
-                if (value == null) local = v
-                onApply(v)
+        androidx.compose.material3.Icon(
+            painter = androidx.compose.ui.res.painterResource(id = iconRes),
+            contentDescription = label,
+            tint = when {
+                primary -> Morandi.onAccent
+                danger -> Color(0xFFF28B82)
+                active -> Morandi.accent
+                else -> Morandi.text
             },
-            modifier = Modifier.width(140.dp),
+            modifier = Modifier.size(18.dp),
         )
-        Text("$current", color = Morandi.text, fontSize = 11.sp)
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = if (primary || active) FontWeight.Bold else FontWeight.Normal,
+            color = when {
+                primary -> Morandi.onAccent
+                danger -> Color(0xFFF28B82)
+                active -> Morandi.accent
+                else -> Morandi.subText
+            },
+        )
     }
 }
 

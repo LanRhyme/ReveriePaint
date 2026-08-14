@@ -1,56 +1,359 @@
 package com.reverie.paint.ui.painting
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
-import com.reverie.paint.ui.components.ReButton
-import kotlin.math.roundToInt
+import com.reverie.paint.ui.theme.Morandi
 
 /**
- * Transform tool options - Krita tool-options floating capsule. Precise
- * rotation / scale inputs plus Apply / Cancel; the on-canvas rubber band
- * handles free transform
+ * Professional Transform Tool Panel matching Krita & Huashijie Pro.
+ * Provides quick transform modes (标准, 自由, 透视, 扭曲), horizontal/vertical flips,
+ * 90-degree rotations, canvas alignment, micro-step D-pad, and reset action.
  */
 @Composable
 fun TransformPanel(
     vm: PaintViewModel,
-    rotationDeg: Float,
-    scaleX: Float,
-    scaleY: Float,
-    onRotation: (Float) -> Unit,
-    onScaleX: (Float) -> Unit,
-    onScaleY: (Float) -> Unit,
-    onApply: () -> Unit,
-    onCancel: () -> Unit,
+    tfState: TransformState,
+    onReset: () -> Unit = {},
 ) {
-    ToolFloatPanel(title = "变换", modifier = Modifier) {
-        ToolFloatSlider(
-            label = "旋转",
-            valueText = "${rotationDeg.roundToInt()}°",
-            range = -180f..180f,
-            value = rotationDeg,
-            onValue = onRotation,
-        )
-        ToolFloatSlider(
-            label = "水平缩放",
-            valueText = "${(scaleX * 100).roundToInt()}%",
-            range = 0.1f..8f,
-            value = scaleX,
-            onValue = onScaleX,
-        )
-        ToolFloatSlider(
-            label = "垂直缩放",
-            valueText = "${(scaleY * 100).roundToInt()}%",
-            range = 0.1f..8f,
-            value = scaleY,
-            onValue = onScaleY,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ReButton(text = "应用", onClick = onApply)
-            ReButton(text = "取消", onClick = onCancel, primary = false)
+    var showDpad by remember { mutableStateOf(false) }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // Floating D-Pad for Pixel-Perfect Micro Adjustments (No background, No center dot)
+        AnimatedVisibility(visible = showDpad) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                // UP (Chevron points up: rotate 270)
+                TransformIconButton(
+                    iconRes = R.drawable.ic_chevron,
+                    label = "上移",
+                    rotation = 270f,
+                    onClick = {
+                        tfState.ty -= 1f
+                        if (tfState.mode == TransformMode.PERSPECTIVE) {
+                            tfState.quadCorners = tfState.quadCorners.map { it.copy(y = it.y - 1f) }
+                        } else if (tfState.mode == TransformMode.DISTORT) {
+                            tfState.meshPoints = tfState.meshPoints.map { it.copy(y = it.y - 1f) }
+                        }
+                    }
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(28.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // LEFT (Chevron points left: rotate 180)
+                    TransformIconButton(
+                        iconRes = R.drawable.ic_chevron,
+                        label = "左移",
+                        rotation = 180f,
+                        onClick = {
+                            tfState.tx -= 1f
+                            if (tfState.mode == TransformMode.PERSPECTIVE) {
+                                tfState.quadCorners = tfState.quadCorners.map { it.copy(x = it.x - 1f) }
+                            } else if (tfState.mode == TransformMode.DISTORT) {
+                                tfState.meshPoints = tfState.meshPoints.map { it.copy(x = it.x - 1f) }
+                            }
+                        }
+                    )
+                    // RIGHT (Chevron points right: rotate 0)
+                    TransformIconButton(
+                        iconRes = R.drawable.ic_chevron,
+                        label = "右移",
+                        rotation = 0f,
+                        onClick = {
+                            tfState.tx += 1f
+                            if (tfState.mode == TransformMode.PERSPECTIVE) {
+                                tfState.quadCorners = tfState.quadCorners.map { it.copy(x = it.x + 1f) }
+                            } else if (tfState.mode == TransformMode.DISTORT) {
+                                tfState.meshPoints = tfState.meshPoints.map { it.copy(x = it.x + 1f) }
+                            }
+                        }
+                    )
+                }
+                // DOWN (Chevron points down: rotate 90)
+                TransformIconButton(
+                    iconRes = R.drawable.ic_chevron,
+                    label = "下移",
+                    rotation = 90f,
+                    onClick = {
+                        tfState.ty += 1f
+                        if (tfState.mode == TransformMode.PERSPECTIVE) {
+                            tfState.quadCorners = tfState.quadCorners.map { it.copy(y = it.y + 1f) }
+                        } else if (tfState.mode == TransformMode.DISTORT) {
+                            tfState.meshPoints = tfState.meshPoints.map { it.copy(y = it.y + 1f) }
+                        }
+                    }
+                )
+            }
         }
+
+        // Main Bottom Floating Panel
+        ToolFloatPanel(modifier = Modifier) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Top Segmented Mode Selector (标准, 自由, 透视, 扭曲)
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF1B1E24))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val modes = listOf(
+                        TransformMode.STANDARD to "标准",
+                        TransformMode.FREE to "自由",
+                        TransformMode.PERSPECTIVE to "透视",
+                        TransformMode.DISTORT to "扭曲",
+                    )
+                    modes.forEach { (modeVal, modeName) ->
+                        val isSel = tfState.mode == modeVal
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) Morandi.accent else Color.Transparent)
+                                .pointerInput(modeVal) {
+                                    detectTapGestures { tfState.mode = modeVal }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = modeName,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSel) Morandi.onAccent else Morandi.subText,
+                            )
+                        }
+                    }
+                }
+
+                // Functional Action Buttons Row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Flip Horizontal
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_flip_h,
+                        label = "水平",
+                        onClick = {
+                            tfState.scaleX *= -1f
+                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                            tfState.quadCorners = tfState.quadCorners.map {
+                                it.copy(x = c.x - (it.x - c.x))
+                            }
+                        },
+                    )
+
+                    // Flip Vertical
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_flip_v,
+                        label = "垂直",
+                        onClick = {
+                            tfState.scaleY *= -1f
+                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                            tfState.quadCorners = tfState.quadCorners.map {
+                                it.copy(y = c.y - (it.y - c.y))
+                            }
+                        },
+                    )
+
+                    // Rotate -90
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_rotate_ccw,
+                        label = "-90°",
+                        onClick = {
+                            var r = (tfState.rotation - 90f) % 360f
+                            if (r < -180f) r += 360f
+                            tfState.rotation = r
+                        },
+                    )
+
+                    // Rotate +90
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_rotate_cw,
+                        label = "+90°",
+                        onClick = {
+                            var r = (tfState.rotation + 90f) % 360f
+                            if (r > 180f) r -= 360f
+                            tfState.rotation = r
+                        },
+                    )
+
+                    // Micro D-Pad Toggle
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_move,
+                        label = "微调",
+                        active = showDpad,
+                        onClick = { showDpad = !showDpad },
+                    )
+
+                    // Reset All
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_refresh,
+                        label = "重置",
+                        onClick = {
+                            tfState.reset(tfState.bounds)
+                            onReset()
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransformActionItem(
+    iconRes: Int,
+    label: String,
+    primary: Boolean = false,
+    danger: Boolean = false,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (pressed) 0.90f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "btn_scale")
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = Modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    primary -> Morandi.accent
+                    danger -> Color(0x33C45656)
+                    active -> Morandi.accent.copy(alpha = 0.25f)
+                    else -> Color(0xFF262A33).copy(alpha = 0.7f)
+                }
+            )
+            .border(
+                1.dp,
+                when {
+                    primary -> Morandi.accent
+                    danger -> Color(0x66C45656)
+                    active -> Morandi.accent
+                    else -> Color(0xFF383D48)
+                },
+                RoundedCornerShape(10.dp)
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = label,
+            tint = when {
+                primary -> Morandi.onAccent
+                danger -> Color(0xFFF28B82)
+                active -> Morandi.accent
+                else -> Morandi.text
+            },
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = if (primary || active) FontWeight.Bold else FontWeight.Normal,
+            color = when {
+                primary -> Morandi.onAccent
+                danger -> Color(0xFFF28B82)
+                active -> Morandi.accent
+                else -> Morandi.subText
+            },
+        )
+    }
+}
+
+@Composable
+private fun TransformIconButton(
+    iconRes: Int,
+    label: String,
+    size: androidx.compose.ui.unit.Dp = 34.dp,
+    rotation: Float = 0f,
+    onClick: () -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, label = "btn_scale")
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .scale(scale)
+            .clip(CircleShape)
+            .background(Color(0xFF262A33).copy(alpha = 0.90f))
+            .border(1.dp, Color(0xFF485060), CircleShape)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
+                    onTap = { onClick() }
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = label,
+            tint = Color.White,
+            modifier = Modifier
+                .size(18.dp)
+                .rotate(rotation),
+        )
     }
 }

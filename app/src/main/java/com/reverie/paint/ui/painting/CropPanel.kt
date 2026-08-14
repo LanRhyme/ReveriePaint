@@ -19,15 +19,13 @@ fun CropPanel(
     onApply: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    ToolFloatPanel(title = "裁剪", modifier = Modifier) {
-        Text(
-            "裁剪尺寸: ${rect.width.roundToInt()} × ${rect.height.roundToInt()} px",
-            color = Morandi.text,
-            fontSize = 12.sp,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ReButton(text = "确认", onClick = onApply)
-            ReButton(text = "取消", onClick = onCancel, primary = false)
+    ToolFloatPanel(modifier = Modifier) {
+        androidx.compose.foundation.layout.Row(
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        ) {
+            ToolFloatChip(label = "应用裁剪", selected = true, onClick = onApply)
+            ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
         }
     }
 }

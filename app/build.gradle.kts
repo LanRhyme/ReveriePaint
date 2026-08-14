@@ -74,13 +74,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    if (buildNative) {
-        // CMake 重新编译 libreverie_jni.so 并自动收集其 NEEDED 闭包,
-        // jniLibs 的预编译文件全部让位(指向空目录)避免 merge 重复
-        sourceSets.getByName("main") {
-            jniLibs.setSrcDirs(listOf("src/main/jniLibsNativeEmpty"))
-        }
-    }
     kotlin {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)
@@ -92,6 +85,7 @@ android {
             // Compress the native libs so the APK stays small on disk;
             // they're extracted (and decompressed) at install time.
             useLegacyPackaging = true
+            pickFirsts += listOf("**/libreverie_jni.so", "**/*.so")
         }
     }
 }

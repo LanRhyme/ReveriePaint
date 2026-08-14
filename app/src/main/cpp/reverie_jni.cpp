@@ -11,6 +11,7 @@
 #include <android/log.h>
 
 #include <QCoreApplication>
+#include <QPainter>
 #include <QString>
 #include <QByteArray>
 
@@ -286,10 +287,60 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyTransform(JNIEnv *env, jobjec
                                                              jdouble xscale, jdouble yscale,
                                                              jdouble xshear, jdouble yshear,
                                                              jdouble rotationRad,
-                                                             jdouble xtranslate, jdouble ytranslate)
+                                                             jdouble xtranslate, jdouble ytranslate,
+                                                             jdouble originX, jdouble originY)
 {
     return core()->applyTransform(xscale, yscale, xshear, yshear,
-                                  rotationRad, xtranslate, ytranslate)
+                                  rotationRad, xtranslate, ytranslate,
+                                  originX, originY)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyPerspectiveTransform(JNIEnv *env, jobject,
+                                                                        jdouble x0, jdouble y0,
+                                                                        jdouble x1, jdouble y1,
+                                                                        jdouble x2, jdouble y2,
+                                                                        jdouble x3, jdouble y3,
+                                                                        jdouble origX, jdouble origY,
+                                                                        jdouble origW, jdouble origH)
+{
+    return core()->applyPerspectiveTransform(x0, y0, x1, y1, x2, y2, x3, y3,
+                                             origX, origY, origW, origH)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyWarpMeshTransform(JNIEnv *env, jobject,
+                                                                     jdoubleArray origXs, jdoubleArray origYs,
+                                                                     jdoubleArray transfXs, jdoubleArray transfYs,
+                                                                     jint count,
+                                                                     jdouble origX, jdouble origY,
+                                                                     jdouble origW, jdouble origH)
+{
+    if (count <= 0) return JNI_FALSE;
+    jdouble *ox = env->GetDoubleArrayElements(origXs, nullptr);
+    jdouble *oy = env->GetDoubleArrayElements(origYs, nullptr);
+    jdouble *tx = env->GetDoubleArrayElements(transfXs, nullptr);
+    jdouble *ty = env->GetDoubleArrayElements(transfYs, nullptr);
+
+    QVector<QPointF> origPoints;
+    QVector<QPointF> transfPoints;
+    origPoints.reserve(count);
+    transfPoints.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        origPoints.append(QPointF(ox[i], oy[i]));
+        transfPoints.append(QPointF(tx[i], ty[i]));
+    }
+
+    env->ReleaseDoubleArrayElements(origXs, ox, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(origYs, oy, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(transfXs, tx, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(transfYs, ty, JNI_ABORT);
+
+    return core()->applyWarpMeshTransform(origPoints, transfPoints, origX, origY, origW, origH)
         ? JNI_TRUE
         : JNI_FALSE;
 }
@@ -968,3 +1019,43 @@ Java_com_reverie_paint_core_ReverieCoreBridge_docHeight(JNIEnv *, jobject)
 }
 
 } // extern "C"
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreview(JNIEnv *env, jobject, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+    QImage outImage;
+    bool res = core()->startTransformPreview(&outImage);
+    if (res && !outImage.isNull()) {
+        AndroidBitmapInfo info;
+        void *pixels;
+        if (AndroidBitmap_getInfo(env, bitmap, &info) >= 0 &&
+            info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
+            AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
+
+            QImage dest((uchar *)pixels, info.width, info.height, info.stride, QImage::Format_RGBA8888);
+            
+            QImage src = outImage;
+            if (src.format() != QImage::Format_RGBA8888) {
+                src = src.convertToFormat(QImage::Format_RGBA8888);
+            }
+            
+            if (src.size() != dest.size()) {
+                src = src.scaled(dest.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+            }
+            
+            QPainter painter(&dest);
+            painter.setCompositionMode(QPainter::CompositionMode_Source);
+            painter.drawImage(0, 0, src);
+            
+            AndroidBitmap_unlockPixels(env, bitmap);
+            return JNI_TRUE;
+        }
+    }
+    return JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_cancelTransformPreview(JNIEnv *env, jobject)
+{
+    core()->cancelTransformPreview();
+}

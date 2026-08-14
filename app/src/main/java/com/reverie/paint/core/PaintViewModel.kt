@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 
 /**
@@ -282,15 +283,10 @@ class PaintViewModel : ViewModel() {
             renderBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         }
         val src = renderBmp ?: return
+        val pub: Bitmap
         synchronized(renderLock) {
             ReverieCoreBridge.renderToBuffer(src)
-        }
-        mainHandler.post {
-            // Publish buffers must also resize when the document size
-            // changes (canvas preset switch / project load): a stale-sized
-            // buffer made displayBitmap mismatch the document and the canvas
-            // visibly changed size.
-            val pub: Bitmap =
+            pub =
                 if (publishFlip) {
                     if (publishA == null || publishA!!.width != w || publishA!!.height != h) {
                         publishA = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -303,11 +299,12 @@ class PaintViewModel : ViewModel() {
                     publishB!!
                 }
             publishFlip = !publishFlip
-            synchronized(renderLock) {
-                // copyPixelsFrom is API 26+; Canvas works on all APIs without
-                // allocating a temp pixel array
-                android.graphics.Canvas(pub).drawBitmap(src, 0f, 0f, null)
-            }
+            // Clear recycled publish buffer completely to prevent ghosting from stale frames
+            val canvas = android.graphics.Canvas(pub)
+            canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
+            canvas.drawBitmap(src, 0f, 0f, null)
+        }
+        mainHandler.post {
             displayBitmap = pub
         }
     }
@@ -998,8 +995,18 @@ class PaintViewModel : ViewModel() {
         runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
     }
 
-    fun moveLayerContent(dx: Int, dy: Int) {
-        runCore { ReverieCoreBridge.moveLayerContent(dx, dy) }
+    fun moveLayerContent(dx: Int, dy: Int, restartPreview: Boolean = false) {
+        transformPreviewBitmap = null
+        runCore(render = true, after = {
+            notifyLayerChanged()
+            refreshSelection()
+            if (restartPreview) {
+                startTransformPreview()
+            }
+        }) {
+            ReverieCoreBridge.cancelTransformPreview()
+            ReverieCoreBridge.moveLayerContent(dx, dy)
+        }
     }
 
     fun cropCanvas(x: Int, y: Int, w: Int, h: Int) {
@@ -1050,11 +1057,61 @@ class PaintViewModel : ViewModel() {
         xshear: Double, yshear: Double,
         rotationRad: Double,
         xtranslate: Double, ytranslate: Double,
+        originX: Double = -1.0, originY: Double = -1.0,
     ) {
-        runCore {
+        runCore(render = true, after = {
+            notifyLayerChanged()
+            refreshSelection()
+            transformPreviewBitmap = null
+        }) {
             ReverieCoreBridge.applyTransform(
                 xscale, yscale, xshear, yshear,
                 rotationRad, xtranslate, ytranslate,
+                originX, originY,
+            )
+        }
+    }
+
+    fun applyPerspectiveTransform(
+        x0: Double, y0: Double,
+        x1: Double, y1: Double,
+        x2: Double, y2: Double,
+        x3: Double, y3: Double,
+        origX: Double, origY: Double,
+        origW: Double, origH: Double,
+    ) {
+        runCore(render = true, after = {
+            notifyLayerChanged()
+            refreshSelection()
+            transformPreviewBitmap = null
+        }) {
+            ReverieCoreBridge.applyPerspectiveTransform(
+                x0, y0, x1, y1, x2, y2, x3, y3,
+                origX, origY, origW, origH,
+            )
+        }
+    }
+
+    fun applyWarpMeshTransform(
+        origPoints: List<androidx.compose.ui.geometry.Offset>,
+        transfPoints: List<androidx.compose.ui.geometry.Offset>,
+        origX: Double, origY: Double,
+        origW: Double, origH: Double,
+    ) {
+        val count = origPoints.size
+        val ox = DoubleArray(count) { origPoints[it].x.toDouble() }
+        val oy = DoubleArray(count) { origPoints[it].y.toDouble() }
+        val tx = DoubleArray(count) { transfPoints[it].x.toDouble() }
+        val ty = DoubleArray(count) { transfPoints[it].y.toDouble() }
+
+        runCore(render = true, after = {
+            notifyLayerChanged()
+            refreshSelection()
+            transformPreviewBitmap = null
+        }) {
+            ReverieCoreBridge.applyWarpMeshTransform(
+                ox, oy, tx, ty, count,
+                origX, origY, origW, origH,
             )
         }
     }
@@ -1111,6 +1168,28 @@ class PaintViewModel : ViewModel() {
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
     // of the canvas so the user can see the active selection (Krita-style)
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
+
+    var transformPreviewBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+
+    fun startTransformPreview() {
+        if (docWidth <= 0 || docHeight <= 0) return
+        runCore(render = true) {
+            val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
+            val success = ReverieCoreBridge.startTransformPreview(b)
+            mainHandler.post {
+                if (success) {
+                    transformPreviewBitmap = b.asImageBitmap()
+                }
+            }
+        }
+    }
+
+    fun cancelTransformPreview() {
+        transformPreviewBitmap = null
+        runCore(render = true) {
+            ReverieCoreBridge.cancelTransformPreview()
+        }
+    }
 
     // ---- Selection merge mode (replace/add/subtract/intersect) ----
     var selectionMode by mutableStateOf(0)

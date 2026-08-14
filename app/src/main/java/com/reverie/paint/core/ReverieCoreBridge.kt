@@ -135,6 +135,24 @@ object ReverieCoreBridge {
         xshear: Double, yshear: Double,
         rotationRad: Double,
         xtranslate: Double, ytranslate: Double,
+        originX: Double = -1.0, originY: Double = -1.0,
+    ): Boolean
+
+    external fun applyPerspectiveTransform(
+        x0: Double, y0: Double,
+        x1: Double, y1: Double,
+        x2: Double, y2: Double,
+        x3: Double, y3: Double,
+        origX: Double, origY: Double,
+        origW: Double, origH: Double,
+    ): Boolean
+
+    external fun applyWarpMeshTransform(
+        origXs: DoubleArray, origYs: DoubleArray,
+        transfXs: DoubleArray, transfYs: DoubleArray,
+        count: Int,
+        origX: Double, origY: Double,
+        origW: Double, origH: Double,
     ): Boolean
     external fun setBrushSecondaryColor(color: String)
 
@@ -256,6 +274,10 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
     external fun loadPng(path: String): Boolean
 
     external fun renderLayerThumb(index: Int, bitmap: Bitmap): Boolean
+
+    external fun startTransformPreview(bitmap: Bitmap): Boolean
+
+    external fun cancelTransformPreview()
 
     external fun docWidth(): Int
 
