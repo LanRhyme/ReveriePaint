@@ -905,20 +905,12 @@ fun CanvasView(
                                  tool == Tool.MOVE -> {
                                      val dx = tfState.tx.toInt()
                                      val dy = tfState.ty.toInt()
+                                     tfState.tx = 0f
+                                     tfState.ty = 0f
                                      if (dx != 0 || dy != 0) {
-                                         vm.moveLayerContent(dx, dy, restartPreview = true) {
-                                             tfState.tx = 0f
-                                             tfState.ty = 0f
-                                             val b = vm.contentBounds()
-                                             if (b != null && b[2] > 0 && b[3] > 0) {
-                                                 tfState.bounds = androidx.compose.ui.geometry.Rect(
-                                                     b[0].toFloat(),
-                                                     b[1].toFloat(),
-                                                     (b[0] + b[2]).toFloat(),
-                                                     (b[1] + b[3]).toFloat(),
-                                                 )
-                                             }
-                                         }
+                                         vm.moveLayerContent(dx, dy)
+                                     } else {
+                                         vm.cancelTransformPreview()
                                      }
                                  }
 
