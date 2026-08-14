@@ -14,8 +14,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
@@ -151,12 +151,13 @@ fun LayerPanel(
         Column(
             modifier =
                 Modifier
+                    .pointerHoverIcon(PointerIcon.Default)
                     .align(Alignment.TopEnd)
                     .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panelHi.copy(alpha = opacity))
+                    .background(Morandi.panel.copy(alpha = opacity))
                     .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

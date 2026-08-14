@@ -4,6 +4,8 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -84,7 +86,7 @@ fun ToolRail(
         }
     }
 
-    Box(modifier = modifier.fillMaxHeight().width(36.dp)) {
+    Box(modifier = modifier.pointerHoverIcon(PointerIcon.Default).fillMaxHeight().width(36.dp)) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Bottom

@@ -18,6 +18,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
@@ -321,8 +323,9 @@ fun PaintingPage(vm: PaintViewModel) {
                 Box(
                     modifier =
                         Modifier
+                            .pointerHoverIcon(PointerIcon.Default)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panelHi)
+                            .background(Morandi.panel)
                             .border(
                                 1.dp,
                                 Morandi.border,

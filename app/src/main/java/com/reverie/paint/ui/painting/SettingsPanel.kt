@@ -10,6 +10,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,11 +83,12 @@ fun SettingsPanel(
     ) {
         Column(
             modifier = Modifier
+                .pointerHoverIcon(PointerIcon.Default)
                 .align(Alignment.TopEnd)
                 .padding(top = 44.dp, end = 8.dp)
                 .width(280.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Morandi.panelHi.copy(alpha = opacity))
+                .background(Morandi.panel.copy(alpha = opacity))
                 .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
                 .padding(12.dp)
                 .clickable(

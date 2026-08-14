@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,8 +68,9 @@ fun ToolFloatPanel(
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .shadow(16.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.2f))
+                .pointerHoverIcon(PointerIcon.Default)
                 .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.85f))
+                .background(Morandi.panel.copy(alpha = 0.94f))
                 .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

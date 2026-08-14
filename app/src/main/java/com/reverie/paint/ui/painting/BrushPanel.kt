@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
@@ -117,12 +119,13 @@ fun BrushPanel(
     ) {
         Box(
             modifier = Modifier
+                .pointerHoverIcon(PointerIcon.Default)
                 .padding(start = 48.dp)
                 .align(Alignment.CenterStart)
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Morandi.panelHi.copy(alpha = opacity))
+                .background(Morandi.panel.copy(alpha = opacity))
                 .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(12.dp))
                 .clickable(enabled = false) {}
         ) {

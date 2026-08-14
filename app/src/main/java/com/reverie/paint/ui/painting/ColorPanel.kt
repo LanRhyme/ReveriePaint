@@ -14,9 +14,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,10 +123,11 @@ fun ColorPanel(
     ) {
         Column(
             modifier = Modifier
+                .pointerHoverIcon(PointerIcon.Default)
                 .align(Alignment.BottomStart)
                 .padding(start = 44.dp, bottom = 16.dp)
                 .width(270.dp)
-                .background(Morandi.panelHi.copy(alpha = opacity), RoundedCornerShape(14.dp))
+                .background(Morandi.panel.copy(alpha = opacity), RoundedCornerShape(14.dp))
                 .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

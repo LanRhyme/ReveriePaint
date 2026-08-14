@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -142,12 +144,13 @@ fun ToolbarCustomizeDialog(
         ) {
             Box(
                 modifier = Modifier
+                    .pointerHoverIcon(PointerIcon.Default)
                     .widthIn(max = 420.dp)
                     .heightIn(max = 560.dp)
                     .fillMaxWidth(0.90f)
                     .fillMaxHeight(0.75f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Morandi.panelHi)
+                    .background(Morandi.panel)
                     .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
                     .clickable(enabled = false) {}
             ) {

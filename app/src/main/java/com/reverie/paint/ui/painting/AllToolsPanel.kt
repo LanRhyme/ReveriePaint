@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,12 +56,13 @@ fun AllToolsPanel(
     ) {
         Box(
             modifier = Modifier
+                .pointerHoverIcon(PointerIcon.Default)
                 .padding(start = 52.dp, top = 48.dp, bottom = 48.dp)
                 .align(Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(200.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Morandi.panelHi.copy(alpha = opacity))
+                .background(Morandi.panel.copy(alpha = opacity))
                 .border(1.dp, Morandi.border.copy(alpha = opacity), RoundedCornerShape(14.dp))
                 .padding(12.dp)
         ) {

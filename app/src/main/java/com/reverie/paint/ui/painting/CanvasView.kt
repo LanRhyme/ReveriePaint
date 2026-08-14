@@ -213,6 +213,15 @@ fun CanvasView(
                             val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             val change = event.changes.firstOrNull()
                             if (change != null) {
+                                val isStylusOrMouse = change.type == PointerType.Stylus ||
+                                        change.type == PointerType.Eraser ||
+                                        change.type == PointerType.Mouse
+
+                                if (vm.penOnlyMode && !isStylusOrMouse) {
+                                    // Finger touches in pen-only mode must not move or trigger the cursor
+                                    continue
+                                }
+
                                 cursorScreenPos = change.position
                                 when (event.type) {
                                     PointerEventType.Enter, PointerEventType.Move -> {
