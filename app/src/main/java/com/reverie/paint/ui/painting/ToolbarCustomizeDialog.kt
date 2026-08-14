@@ -1,9 +1,6 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,12 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -44,9 +42,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -56,7 +58,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
-import java.util.Collections
+import kotlin.math.roundToInt
 
 private val rowHeight = 48.dp
 
@@ -70,7 +72,52 @@ fun ToolbarCustomizeDialog(
     val orderedTools = remember { mutableStateListOf(*(initialPinned + initialRest).toTypedArray()) }
     var enabledTools by remember { mutableStateOf(initialPinned.toSet()) }
 
+    var draggingToolId by remember { mutableStateOf<String?>(null) }
+    var dragFingerY by remember { mutableStateOf(0f) }
+    var dragTargetIdx by remember { mutableStateOf(-1) }
+    var columnTop by remember { mutableStateOf(0f) }
+
+    val density = LocalDensity.current
+    val rowPx = with(density) { rowHeight.roundToPx() }
     val haptic = LocalHapticFeedback.current
+
+    val displayList = remember(orderedTools, draggingToolId, dragTargetIdx) {
+        if (draggingToolId == null || dragTargetIdx < 0) {
+            orderedTools.toList()
+        } else {
+            val list = orderedTools.toMutableList()
+            val from = list.indexOfFirst { it.id == draggingToolId }
+            if (from >= 0) {
+                val item = list.removeAt(from)
+                list.add(dragTargetIdx.coerceIn(0, list.size), item)
+            }
+            list
+        }
+    }
+
+    fun updateDragPos(fingerY: Float) {
+        dragFingerY = fingerY
+        val rowPos = (fingerY - columnTop) / rowPx
+        val target = (rowPos + 0.4999f).toInt().coerceIn(0, orderedTools.size - 1)
+        if (target != dragTargetIdx) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            dragTargetIdx = target
+        }
+    }
+
+    fun endDrag() {
+        val draggedId = draggingToolId
+        val target = dragTargetIdx
+        if (draggedId != null && target >= 0) {
+            val from = orderedTools.indexOfFirst { it.id == draggedId }
+            if (from >= 0 && from != target) {
+                val item = orderedTools.removeAt(from)
+                orderedTools.add(target.coerceIn(0, orderedTools.size), item)
+            }
+        }
+        draggingToolId = null
+        dragTargetIdx = -1
+    }
 
     Dialog(
         onDismissRequest = {
@@ -105,7 +152,7 @@ fun ToolbarCustomizeDialog(
                     .clickable(enabled = false) {}
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // Header (LayerPanel style)
+                    // Header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -147,7 +194,7 @@ fun ToolbarCustomizeDialog(
                             .background(Morandi.border)
                     )
 
-                    // Quick Actions (恢复默认 / 全部启用 / 全部禁用)
+                    // Quick Actions
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -185,131 +232,103 @@ fun ToolbarCustomizeDialog(
                             .background(Morandi.border)
                     )
 
-                    // Draggable Items List
+                    // List Container
                     val listState = rememberLazyListState()
-                    var draggingIndex by remember { mutableStateOf<Int?>(null) }
-                    var dragAccumulatedY by remember { mutableStateOf(0f) }
 
-                    LazyColumn(
-                        state = listState,
-                        userScrollEnabled = draggingIndex == null,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            .onGloballyPositioned { columnTop = it.boundsInRoot().top }
                     ) {
-                        itemsIndexed(orderedTools, key = { _, tool -> tool.id }) { index, tool ->
-                            val isDragging = draggingIndex == index
-                            val isEnabled = tool in enabledTools
+                        LazyColumn(
+                            state = listState,
+                            userScrollEnabled = draggingToolId == null,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(displayList, key = { it.id }) { tool ->
+                                val isBeingDragged = draggingToolId == tool.id
+                                val isEnabled = tool in enabledTools
 
-                            val rowBg by animateColorAsState(
-                                targetValue = when {
-                                    isDragging -> Morandi.accent.copy(alpha = 0.25f)
-                                    isEnabled -> Morandi.panel.copy(alpha = 0.35f)
-                                    else -> Color.Transparent
-                                },
-                                animationSpec = tween(150),
-                                label = "row_bg"
-                            )
-
-                            Row(
-                                modifier = Modifier
-                                    .animateItem(
-                                        fadeInSpec = null,
-                                        fadeOutSpec = null,
-                                        placementSpec = spring(
-                                            stiffness = Spring.StiffnessMediumLow,
-                                            dampingRatio = 0.85f
-                                        )
-                                    )
-                                    .fillMaxWidth()
-                                    .height(rowHeight)
-                                    .background(rowBg)
-                                    .graphicsLayer {
-                                        if (isDragging) {
-                                            alpha = 0.85f
-                                        }
-                                    }
-                                    .pointerInput(tool.id) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                val cur = orderedTools.indexOfFirst { it.id == tool.id }
-                                                if (cur >= 0) draggingIndex = cur
-                                                dragAccumulatedY = 0f
-                                            },
-                                            onDragEnd = {
-                                                draggingIndex = null
-                                                dragAccumulatedY = 0f
-                                            },
-                                            onDragCancel = {
-                                                draggingIndex = null
-                                                dragAccumulatedY = 0f
-                                            },
-                                            onDrag = { change, dragAmount ->
-                                                change.consume()
-                                                val currentIdx = orderedTools.indexOfFirst { it.id == tool.id }
-                                                if (currentIdx < 0) return@detectDragGesturesAfterLongPress
-                                                dragAccumulatedY += dragAmount.y
-
-                                                val rowThreshold = 44f
-                                                if (dragAccumulatedY > rowThreshold && currentIdx < orderedTools.size - 1) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    java.util.Collections.swap(orderedTools, currentIdx, currentIdx + 1)
-                                                    dragAccumulatedY -= rowThreshold
-                                                } else if (dragAccumulatedY < -rowThreshold && currentIdx > 0) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    java.util.Collections.swap(orderedTools, currentIdx, currentIdx - 1)
-                                                    dragAccumulatedY += rowThreshold
-                                                }
-                                            }
-                                        )
-                                    }
-                                    .padding(horizontal = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // Drag handle
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_menu),
-                                    contentDescription = "拖动排序",
-                                    tint = if (isDragging) Morandi.accent else Morandi.subText.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-
-                                // Tool Icon
-                                Icon(
-                                    painter = painterResource(toolIcon(tool)),
-                                    contentDescription = tool.label,
-                                    tint = if (isEnabled) Morandi.accent else Morandi.icon,
-                                    modifier = Modifier.size(20.dp)
-                                )
-
-                                // Tool Label
-                                Text(
-                                    text = tool.label,
-                                    color = if (isEnabled) Morandi.text else Morandi.subText,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal,
-                                    modifier = Modifier.weight(1f)
-                                )
-
-                                // Switch for pinning (Clean Morandi style)
-                                Switch(
-                                    checked = isEnabled,
-                                    onCheckedChange = { checked ->
-                                        enabledTools = if (checked) {
-                                            enabledTools + tool
-                                        } else {
-                                            enabledTools - tool
-                                        }
+                                val rowBg by animateColorAsState(
+                                    targetValue = when {
+                                        isBeingDragged -> Morandi.accent.copy(alpha = 0.20f)
+                                        isEnabled -> Morandi.panel.copy(alpha = 0.35f)
+                                        else -> Color.Transparent
                                     },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Morandi.panelHi,
-                                        checkedTrackColor = Morandi.accent,
-                                        uncheckedThumbColor = Morandi.subText,
-                                        uncheckedTrackColor = Morandi.panel
-                                    )
+                                    animationSpec = tween(150),
+                                    label = "row_bg"
                                 )
+
+                                ToolRowContent(
+                                    tool = tool,
+                                    isEnabled = isEnabled,
+                                    onToggle = {
+                                        enabledTools = if (it) enabledTools + tool else enabledTools - tool
+                                    },
+                                    modifier = Modifier
+                                        .animateItem(
+                                            fadeInSpec = null,
+                                            fadeOutSpec = null,
+                                            placementSpec = tween(180)
+                                        )
+                                        .fillMaxWidth()
+                                        .height(rowHeight)
+                                        .background(rowBg)
+                                        .graphicsLayer {
+                                            if (isBeingDragged) alpha = 0.3f
+                                        }
+                                        .pointerInput(tool.id) {
+                                            detectDragGesturesAfterLongPress(
+                                                onDragStart = { offset ->
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    draggingToolId = tool.id
+                                                    val cur = orderedTools.indexOfFirst { it.id == tool.id }
+                                                    dragTargetIdx = cur
+                                                    dragFingerY = columnTop + (cur * rowPx) + offset.y
+                                                },
+                                                onDragEnd = { endDrag() },
+                                                onDragCancel = { endDrag() },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    updateDragPos(dragFingerY + dragAmount.y)
+                                                }
+                                            )
+                                        }
+                                        .padding(horizontal = 14.dp)
+                                )
+                            }
+                        }
+
+                        // Floating overlay row following the finger directly
+                        if (draggingToolId != null) {
+                            val draggedTool = orderedTools.firstOrNull { it.id == draggingToolId }
+                            if (draggedTool != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset {
+                                            val y = dragFingerY - columnTop - rowPx / 2f
+                                            IntOffset(0, y.roundToInt())
+                                        }
+                                        .fillMaxWidth()
+                                        .height(rowHeight)
+                                        .graphicsLayer {
+                                            scaleX = 1.03f
+                                            scaleY = 1.03f
+                                            shadowElevation = with(density) { 14.dp.toPx() }
+                                        }
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panelHi)
+                                        .border(1.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 14.dp)
+                                ) {
+                                    ToolRowContent(
+                                        tool = draggedTool,
+                                        isEnabled = draggedTool in enabledTools,
+                                        onToggle = {},
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
@@ -351,6 +370,57 @@ fun ToolbarCustomizeDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ToolRowContent(
+    tool: Tool,
+    isEnabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Drag handle icon
+        Icon(
+            painter = painterResource(R.drawable.ic_menu),
+            contentDescription = "拖动排序",
+            tint = Morandi.subText.copy(alpha = 0.6f),
+            modifier = Modifier.size(16.dp)
+        )
+
+        // Tool Icon
+        Icon(
+            painter = painterResource(toolIcon(tool)),
+            contentDescription = tool.label,
+            tint = if (isEnabled) Morandi.accent else Morandi.icon,
+            modifier = Modifier.size(20.dp)
+        )
+
+        // Tool Label
+        Text(
+            text = tool.label,
+            color = if (isEnabled) Morandi.text else Morandi.subText,
+            fontSize = 14.sp,
+            fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Switch
+        Switch(
+            checked = isEnabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Morandi.panelHi,
+                checkedTrackColor = Morandi.accent,
+                uncheckedThumbColor = Morandi.subText,
+                uncheckedTrackColor = Morandi.panel
+            )
+        )
     }
 }
 
