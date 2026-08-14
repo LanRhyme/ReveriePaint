@@ -192,6 +192,7 @@ fun ToolbarCustomizeDialog(
 
                     LazyColumn(
                         state = listState,
+                        userScrollEnabled = draggingIndex == null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
