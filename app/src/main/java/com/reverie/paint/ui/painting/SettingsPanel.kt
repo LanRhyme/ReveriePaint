@@ -323,7 +323,7 @@ private fun SettingsTabPage(
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
     ) {
-        // 1. 深浅主题切换 (Morandi Palette)
+        // 1. 笔模式 (快速切换)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -331,39 +331,10 @@ private fun SettingsTabPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("主题模式", color = Morandi.text, fontSize = 13.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Light theme swatch
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFFE5E5E5))
-                        .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
-                )
-                // Dark theme swatch (Active)
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF2C3238))
-                        .border(2.dp, Morandi.accent, RoundedCornerShape(4.dp))
-                )
-            }
-        }
-
-        // 2. 右侧界面
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("右侧界面", color = Morandi.text, fontSize = 13.sp)
+            Text("笔模式", color = Morandi.text, fontSize = 13.sp)
             ReSwitch(
-                checked = isRightHanded,
-                onChecked = { isRightHanded = it }
+                checked = vm.penOnlyMode,
+                onChecked = { vm.updatePenOnlyMode(it) }
             )
         }
 
@@ -372,13 +343,19 @@ private fun SettingsTabPage(
         // List item links with chevron
         SettingNavRow("视图显示") {}
         SettingNavRow("手势") {}
-        SettingNavRow("手写笔设置") {}
+        SettingNavRow("手写笔设置") {
+            vm.homeSelectedTab = 1
+            vm.settingsInitialSubPage = "STYLUS"
+            vm.goHome()
+            onClose()
+        }
         SettingNavRow("快捷键设置") {}
         SettingNavRow("颜色设置") {}
 
         // 更多设置 -> 跳转到设置页面
         SettingNavRow("更多设置") {
             vm.homeSelectedTab = 1
+            vm.settingsInitialSubPage = "MAIN"
             vm.goHome()
             onClose()
         }

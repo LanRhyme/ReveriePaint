@@ -123,31 +123,40 @@ class PaintViewModel : ViewModel() {
     var colorPickerMode by mutableStateOf("SQUARE")
         private set
 
-    /** Evaluate mapped pressure from raw input pressure using the active curve */
-    fun evaluatePressure(raw: Float): Float {
-        if (pressureCurvePreset == 0) return raw.coerceIn(0f, 1f)
-        val p0 = pressureControlPoints.getOrElse(0) { androidx.compose.ui.geometry.Offset(0f, 0f) }
-        val p1 = pressureControlPoints.getOrElse(1) { androidx.compose.ui.geometry.Offset(0.33f, 0.33f) }
-        val p2 = pressureControlPoints.getOrElse(2) { androidx.compose.ui.geometry.Offset(0.66f, 0.66f) }
-        val p3 = pressureControlPoints.getOrElse(3) { androidx.compose.ui.geometry.Offset(1f, 1f) }
+    var settingsInitialSubPage by mutableStateOf("MAIN")
 
-        val targetX = raw.coerceIn(0f, 1f)
-        var tLow = 0f
-        var tHigh = 1f
-        var t = targetX
-        for (i in 0 until 8) {
-            val omt = 1f - t
-            val bx = omt * omt * omt * p0.x + 3f * omt * omt * t * p1.x + 3f * omt * t * t * p2.x + t * t * t * p3.x
-            if (bx < targetX) {
-                tLow = t
-            } else {
-                tHigh = t
-            }
-            t = (tLow + tHigh) * 0.5f
+    /** Evaluate mapped pressure from raw input pressure using the active curve (monotonic piecewise cubic spline) */
+    fun evaluatePressure(raw: Float): Float {
+        val x = raw.coerceIn(0f, 1f)
+        val pts = pressureControlPoints.sortedBy { it.x }
+        if (pts.size < 2) return x
+        if (x <= pts.first().x) return pts.first().y.coerceIn(0.01f, 1f)
+        if (x >= pts.last().x) return pts.last().y.coerceIn(0.01f, 1f)
+
+        var i = 0
+        while (i < pts.size - 1 && pts[i + 1].x < x) {
+            i++
         }
-        val omt = 1f - t
-        val by = omt * omt * omt * p0.y + 3f * omt * omt * t * p1.y + 3f * omt * t * t * p2.y + t * t * t * p3.y
-        return by.coerceIn(0.01f, 1f)
+        val p0 = if (i > 0) pts[i - 1] else pts[i]
+        val p1 = pts[i]
+        val p2 = pts[i + 1]
+        val p3 = if (i + 2 < pts.size) pts[i + 2] else p2
+
+        val dx = (p2.x - p1.x).coerceAtLeast(0.0001f)
+        val t = ((x - p1.x) / dx).coerceIn(0f, 1f)
+
+        val m1 = (p2.y - p0.y) / (p2.x - p0.x).coerceAtLeast(0.0001f)
+        val m2 = (p3.y - p1.y) / (p3.x - p1.x).coerceAtLeast(0.0001f)
+
+        val t2 = t * t
+        val t3 = t2 * t
+        val h00 = 2f * t3 - 3f * t2 + 1f
+        val h10 = t3 - 2f * t2 + t
+        val h01 = -2f * t3 + 3f * t2
+        val h11 = t3 - t2
+
+        val y = h00 * p1.y + h10 * dx * m1 + h01 * p2.y + h11 * dx * m2
+        return y.coerceIn(0.01f, 1f)
     }
 
     fun updatePenOnlyMode(enable: Boolean) {

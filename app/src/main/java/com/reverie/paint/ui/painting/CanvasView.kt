@@ -21,8 +21,12 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.core.PaintViewModel
@@ -102,6 +106,11 @@ fun CanvasView(
     var pickerInitialColor by remember { mutableStateOf(Color.White) }
     var pickerCurrentColor by remember { mutableStateOf(Color.White) }
 
+    // Krita-style cursor hover and touch position tracking
+    var cursorScreenPos by remember { mutableStateOf<Offset?>(null) }
+    var isCursorHovering by remember { mutableStateOf(false) }
+    var isCursorTouching by remember { mutableStateOf(false) }
+
     // ---- Transform tool state (document coords, lifted for the panel) ----
     // Transformed corner points of the rubber band: 0-3 corners (TL,TR,BR,BL),
     // 4-7 edge midpoints
@@ -169,6 +178,15 @@ fun CanvasView(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val customPointerIcon = remember(context) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            PointerIcon(android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_NULL))
+        } else {
+            PointerIcon.Default
+        }
+    }
+
     Box(
         modifier =
             modifier
@@ -177,6 +195,37 @@ fun CanvasView(
                     viewH = it.height
                     vm.setRenderViewport(it.width, it.height)
                 }.background(Morandi.canvasBg)
+                .pointerHoverIcon(customPointerIcon)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull()
+                            if (change != null) {
+                                cursorScreenPos = change.position
+                                when (event.type) {
+                                    PointerEventType.Enter, PointerEventType.Move -> {
+                                        isCursorHovering = !change.pressed
+                                        isCursorTouching = change.pressed
+                                    }
+                                    PointerEventType.Exit -> {
+                                        isCursorHovering = false
+                                        isCursorTouching = false
+                                        cursorScreenPos = null
+                                    }
+                                    PointerEventType.Press -> {
+                                        isCursorTouching = true
+                                        isCursorHovering = false
+                                    }
+                                    PointerEventType.Release -> {
+                                        isCursorTouching = false
+                                        isCursorHovering = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // Only stable document/tool identity belongs in the key
                 .pointerInput(tool, bmp?.width, bmp?.height) {
                     val image = bmp ?: return@pointerInput
@@ -1628,6 +1677,57 @@ fun CanvasView(
                     end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
                     strokeWidth = 1.5.dp.toPx()
                 )
+            }
+
+            // ---- 7. Custom Krita-Style Cursor Rendering ----
+            val isEraser = tool == Tool.ERASER
+            val cursorMode = if (isEraser) vm.eraserCursorMode else vm.brushCursorMode
+            // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
+            val shouldShow = when (cursorMode) {
+                1 -> isCursorTouching
+                2 -> isCursorHovering
+                3 -> isCursorTouching || isCursorHovering
+                else -> false
+            }
+            if (shouldShow && cursorScreenPos != null && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
+                val curPos = cursorScreenPos!!
+                val brushRadiusScreen = (vm.brushSize * scale * 0.5f).toFloat().coerceAtLeast(2f)
+
+                when (vm.cursorStyleMode) {
+                    0 -> { // 圆形 (Brush Outline Ring - Krita dual-contrast circle)
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            radius = brushRadiusScreen + 0.8f,
+                            center = curPos,
+                            style = Stroke(width = 1.6.dp.toPx())
+                        )
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.95f),
+                            radius = brushRadiusScreen,
+                            center = curPos,
+                            style = Stroke(width = 1.0.dp.toPx())
+                        )
+                    }
+                    1 -> { // 十字准星 (Crosshair)
+                        val len = 12.dp.toPx()
+                        val gap = 3.5.dp.toPx()
+                        // Black outline
+                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
+                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
+                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
+                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
+                        // White foreground
+                        drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
+                        drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
+                        drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
+                        drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
+                    }
+                    2 -> { // 点 (Precise Dot)
+                        drawCircle(Color.Black.copy(alpha = 0.6f), radius = 3.5.dp.toPx(), center = curPos)
+                        drawCircle(Color.White, radius = 2.dp.toPx(), center = curPos)
+                    }
+                    3 -> {} // 无 (No Cursor)
+                }
             }
         }
     }

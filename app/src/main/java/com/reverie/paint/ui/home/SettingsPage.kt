@@ -12,7 +12,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,7 +87,21 @@ enum class SettingsSubPage {
 
 @Composable
 fun SettingsPageContent(vm: PaintViewModel) {
-    var subPage by remember { mutableStateOf(SettingsSubPage.MAIN) }
+    var subPage by remember {
+        mutableStateOf(
+            if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS else SettingsSubPage.MAIN
+        )
+    }
+
+    androidx.compose.runtime.LaunchedEffect(vm.settingsInitialSubPage) {
+        if (vm.settingsInitialSubPage == "STYLUS") {
+            subPage = SettingsSubPage.STYLUS
+            vm.settingsInitialSubPage = "MAIN"
+        } else if (vm.settingsInitialSubPage == "THEME") {
+            subPage = SettingsSubPage.THEME
+            vm.settingsInitialSubPage = "MAIN"
+        }
+    }
 
     AnimatedContent(
         targetState = subPage,
@@ -607,41 +622,61 @@ private fun PressureCurveEditor(
             .background(Color(0xFF1E2022))
             .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
             .pointerInput(points) {
-                detectDragGestures(
-                    onDragStart = { touchOffset ->
-                        val w = size.width.toFloat()
-                        val h = size.height.toFloat()
-                        // Find closest control point
-                        var minD = Float.MAX_VALUE
-                        var foundIdx = -1
-                        points.forEachIndexed { idx, pt ->
-                            val px = pt.x * w
-                            val py = (1f - pt.y) * h
-                            val d = (touchOffset.x - px) * (touchOffset.x - px) + (touchOffset.y - py) * (touchOffset.y - py)
-                            if (d < minD && d < 40f * 40f) {
-                                minD = d
-                                foundIdx = idx
-                            }
-                        }
-                        draggingPointIdx = foundIdx
-                    },
-                    onDragEnd = { draggingPointIdx = -1 },
-                    onDragCancel = { draggingPointIdx = -1 },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        val idx = draggingPointIdx
-                        if (idx in points.indices) {
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            val cur = points[idx]
-                            val newX = if (idx == 0) 0f else if (idx == points.size - 1) 1f else (cur.x + dragAmount.x / w).coerceIn(0f, 1f)
-                            val newY = (cur.y - dragAmount.y / h).coerceIn(0f, 1f)
-                            val updated = points.toMutableList()
-                            updated[idx] = Offset(newX, newY)
-                            onPointsChanged(updated)
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    val w = size.width.toFloat()
+                    val h = size.height.toFloat()
+                    val touchOffset = down.position
+
+                    // Find nearest point within 48dp
+                    var minD = Float.MAX_VALUE
+                    var foundIdx = -1
+                    points.forEachIndexed { idx, pt ->
+                        val px = pt.x * w
+                        val py = (1f - pt.y) * h
+                        val dx = touchOffset.x - px
+                        val dy = touchOffset.y - py
+                        val d = dx * dx + dy * dy
+                        if (d < 48f * 48f && d < minD) {
+                            minD = d
+                            foundIdx = idx
                         }
                     }
-                )
+
+                    var activeIdx = foundIdx
+                    if (activeIdx == -1) {
+                        // Add a new point at clicked location
+                        val newPt = Offset(
+                            (touchOffset.x / w).coerceIn(0.01f, 0.99f),
+                            (1f - touchOffset.y / h).coerceIn(0f, 1f)
+                        )
+                        val updated = (points + newPt).sortedBy { it.x }
+                        activeIdx = updated.indexOf(newPt)
+                        draggingPointIdx = activeIdx
+                        onPointsChanged(updated)
+                    } else {
+                        draggingPointIdx = activeIdx
+                    }
+
+                    // Drag tracking loop
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) break
+                        change.consume()
+
+                        val curX = if (activeIdx == 0) 0f else if (activeIdx == points.size - 1) 1f else (change.position.x / w).coerceIn(0f, 1f)
+                        val curY = (1f - change.position.y / h).coerceIn(0f, 1f)
+
+                        val list = points.toMutableList()
+                        if (activeIdx in list.indices) {
+                            list[activeIdx] = Offset(curX, curY)
+                            onPointsChanged(list.sortedBy { it.x })
+                        }
+                    }
+                    draggingPointIdx = -1
+                }
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -657,41 +692,81 @@ private fun PressureCurveEditor(
                 drawLine(gridColor, Offset(0f, gy), Offset(w, gy), strokeWidth = 1.dp.toPx())
             }
 
-            // Draw Curve Line
-            if (points.size >= 4) {
+            // Draw Piecewise Monotonic Spline
+            val sorted = points.sortedBy { it.x }
+            if (sorted.isNotEmpty()) {
                 val path = Path()
-                val p0 = Offset(points[0].x * w, (1f - points[0].y) * h)
-                val p1 = Offset(points[1].x * w, (1f - points[1].y) * h)
-                val p2 = Offset(points[2].x * w, (1f - points[2].y) * h)
-                val p3 = Offset(points[3].x * w, (1f - points[3].y) * h)
-
-                path.moveTo(p0.x, p0.y)
-                path.cubicTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
+                val step = 120
+                for (s in 0..step) {
+                    val xVal = s / step.toFloat()
+                    val yVal = evaluateSpline(sorted, xVal)
+                    val screenX = xVal * w
+                    val screenY = (1f - yVal) * h
+                    if (s == 0) path.moveTo(screenX, screenY) else path.lineTo(screenX, screenY)
+                }
 
                 drawPath(
                     path = path,
-                    color = Color(0xFFC0C4CC),
+                    color = Color(0xFFE2E6EC),
                     style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                 )
 
                 // Control points handles
-                points.forEachIndexed { idx, pt ->
+                sorted.forEachIndexed { idx, pt ->
                     val cx = pt.x * w
                     val cy = (1f - pt.y) * h
+                    val isDragging = idx == draggingPointIdx
+                    if (isDragging) {
+                        drawCircle(
+                            color = Color(0x66388AF6),
+                            radius = 12.dp.toPx(),
+                            center = Offset(cx, cy)
+                        )
+                    }
                     drawCircle(
                         color = Color(0xFF388AF6),
-                        radius = if (idx == 0 || idx == points.size - 1) 4.dp.toPx() else 3.5.dp.toPx(),
+                        radius = if (idx == 0 || idx == sorted.size - 1) 5.dp.toPx() else 4.dp.toPx(),
                         center = Offset(cx, cy)
                     )
                     drawCircle(
                         color = Color.White,
-                        radius = 2.dp.toPx(),
+                        radius = 2.5.dp.toPx(),
                         center = Offset(cx, cy)
                     )
                 }
             }
         }
     }
+}
+
+private fun evaluateSpline(pts: List<Offset>, x: Float): Float {
+    if (pts.size < 2) return x
+    if (x <= pts.first().x) return pts.first().y
+    if (x >= pts.last().x) return pts.last().y
+
+    var i = 0
+    while (i < pts.size - 1 && pts[i + 1].x < x) {
+        i++
+    }
+    val p0 = if (i > 0) pts[i - 1] else pts[i]
+    val p1 = pts[i]
+    val p2 = pts[i + 1]
+    val p3 = if (i + 2 < pts.size) pts[i + 2] else p2
+
+    val dx = (p2.x - p1.x).coerceAtLeast(0.0001f)
+    val t = ((x - p1.x) / dx).coerceIn(0f, 1f)
+
+    val m1 = (p2.y - p0.y) / (p2.x - p0.x).coerceAtLeast(0.0001f)
+    val m2 = (p3.y - p1.y) / (p3.x - p1.x).coerceAtLeast(0.0001f)
+
+    val t2 = t * t
+    val t3 = t2 * t
+    val h00 = 2f * t3 - 3f * t2 + 1f
+    val h10 = t3 - 2f * t2 + t
+    val h01 = -2f * t3 + 3f * t2
+    val h11 = t3 - t2
+
+    return (h00 * p1.y + h10 * dx * m1 + h01 * p2.y + h11 * dx * m2).coerceIn(0f, 1f)
 }
 
 @Composable
