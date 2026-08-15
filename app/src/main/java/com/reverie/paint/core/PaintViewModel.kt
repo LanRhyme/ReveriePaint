@@ -51,7 +51,7 @@ class PaintViewModel : ViewModel() {
 
     // Brush state
     var brushSize by mutableStateOf(20.0)
-    var brushColor by mutableStateOf("#262a30")
+    var brushColor by mutableStateOf("#000000")
     var brushSecondaryColor by mutableStateOf("#ffffff")
     var brushOpacity by mutableStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
@@ -338,6 +338,12 @@ class PaintViewModel : ViewModel() {
             quickShapeEnabled = prefs.getBoolean("quickShapeEnabled", true)
             val savedPreset = prefs.getInt("pressureCurvePreset", 0)
             updatePressureCurvePreset(savedPreset)
+
+            brushColor = prefs.getString("brushColor", "#000000") ?: "#000000"
+            brushSecondaryColor = prefs.getString("brushSecondaryColor", "#ffffff") ?: "#ffffff"
+            runCore {
+                ReverieCoreBridge.setBrushColor(brushColor)
+            }
 
             val parsedColor = com.reverie.paint.ui.theme.parseColor(accentColorHex)
             com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
@@ -640,6 +646,7 @@ class PaintViewModel : ViewModel() {
                     coreW = ReverieCoreBridge.docWidth()
                     coreH = ReverieCoreBridge.docHeight()
                     syncLayersFromNative()
+                    ReverieCoreBridge.setBrushColor(brushColor)
                 }
             }
         }
@@ -919,6 +926,7 @@ class PaintViewModel : ViewModel() {
                 coreW = w
                 coreH = h
                 syncLayersFromNative()
+                ReverieCoreBridge.setBrushColor(brushColor)
             }
         }
     }
@@ -983,6 +991,18 @@ class PaintViewModel : ViewModel() {
         runCore(after = {
             android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
             brushPresets = list.toList()
+            if (brushPresets.isNotEmpty()) {
+                val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
+                val savedToolState = toolBrushStates[savedToolId]
+                val targetIndex = if (savedToolState != null && savedToolState.presetIndex in brushPresets.indices) {
+                    savedToolState.presetIndex
+                } else {
+                    val savedPresetIdx = prefs().getInt("last_brush_preset_index", 0)
+                    if (savedPresetIdx in brushPresets.indices) savedPresetIdx else 0
+                }
+                applyTool(savedToolId)
+                selectBrushPreset(targetIndex)
+            }
         }) {
             android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
             val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
@@ -1258,6 +1278,11 @@ class PaintViewModel : ViewModel() {
         }
         
         try {
+            currentToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
+        } catch (_: Exception) {
+        }
+        
+        try {
             val raw = prefs().getString("pinned_tools", null)
             if (raw != null && raw.isNotBlank()) {
                 val tools = raw.split(",").map { com.reverie.paint.model.Tool.fromId(it) }
@@ -1305,6 +1330,10 @@ class PaintViewModel : ViewModel() {
             if (ReverieCoreBridge.loadBrushPreset(index)) {
                 brushPresetIndex = index
                 updateCurrentToolBrushState { it.copy(presetIndex = index) }
+                try {
+                    prefs().edit().putInt("last_brush_preset_index", index).apply()
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -1344,12 +1373,24 @@ class PaintViewModel : ViewModel() {
     fun updateBrushColor(c: String) {
         brushColor = c
         ReverieCoreBridge.setBrushColor(c)
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("brushColor", c).apply()
+        }
+    }
+
+    fun updateBrushSecondaryColor(c: String) {
+        brushSecondaryColor = c
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("brushSecondaryColor", c).apply()
+        }
     }
 
     fun swapColors() {
         val temp = brushColor
         updateBrushColor(brushSecondaryColor)
-        brushSecondaryColor = temp
+        updateBrushSecondaryColor(temp)
     }
 
     fun updateBrushOpacity(v: Double) {
@@ -1408,6 +1449,10 @@ class PaintViewModel : ViewModel() {
             ReverieCoreBridge.setToolMode(mode)
         }
         currentToolId = toolId
+        try {
+            prefs().edit().putString("current_tool_id", toolId).apply()
+        } catch (_: Exception) {
+        }
 
         val t = com.reverie.paint.model.Tool.fromId(toolId)
         if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {

@@ -1065,7 +1065,7 @@ fun CanvasView(
                                     val g = (pickerCurrentColor.green * 255).toInt().coerceIn(0, 255)
                                     val b = (pickerCurrentColor.blue * 255).toInt().coerceIn(0, 255)
                                     val hex = String.format("#%02X%02X%02X", r, g, b)
-                                    vm.brushColor = hex
+                                    vm.updateBrushColor(hex)
                                 }
 
                                 strokeStarted -> {
