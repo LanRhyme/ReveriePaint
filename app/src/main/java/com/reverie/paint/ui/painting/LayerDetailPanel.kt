@@ -3,10 +3,10 @@ package com.reverie.paint.ui.painting
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -14,46 +14,26 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import java.util.Locale
-import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -63,11 +43,20 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,50 +64,58 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeChild
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -170,36 +167,39 @@ internal fun LayerDetailPage(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 var currentColor by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
                 var showBgColorPicker by remember { mutableStateOf(false) }
 
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                        .noRippleClickable { showBgColorPicker = true }
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Morandi.panelHi)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                            .noRippleClickable { showBgColorPicker = true }
+                            .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(currentColor))
-                                .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            modifier =
+                                Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(currentColor))
+                                    .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp)),
                         )
                         Column {
                             Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -208,14 +208,14 @@ internal fun LayerDetailPage(
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text("点击取色", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Icon(
                             painterResource(R.drawable.ic_chevron),
                             contentDescription = null,
                             tint = Morandi.accent,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(14.dp),
                         )
                     }
                 }
@@ -225,16 +225,17 @@ internal fun LayerDetailPage(
                         title = "设置背景颜色",
                         initialColor = Color(currentColor),
                         onColorSelected = { col ->
-                            val cInt = android.graphics.Color.argb(
-                                255,
-                                (col.red * 255).toInt(),
-                                (col.green * 255).toInt(),
-                                (col.blue * 255).toInt()
-                            )
+                            val cInt =
+                                android.graphics.Color.argb(
+                                    255,
+                                    (col.red * 255).toInt(),
+                                    (col.green * 255).toInt(),
+                                    (col.blue * 255).toInt(),
+                                )
                             currentColor = cInt
                             vm.setBackgroundColor(cInt, commit = true)
                         },
-                        onDismiss = { showBgColorPicker = false }
+                        onDismiss = { showBgColorPicker = false },
                     )
                 }
             }
@@ -333,8 +334,16 @@ internal fun LayerDetailPage(
                 val now = System.nanoTime()
                 if (now - lastOpacityNs > 50_000_000L) {
                     lastOpacityNs = now
-                    vm.setLayerOpacity(index, it.toDouble())
+                    // Drag preview: no undo step, no thumbnail refresh, no
+                    // immediate frame - just the throttled render
+                    vm.setLayerOpacity(index, it.toDouble(), preview = true)
                 }
+            },
+            onRelease = {
+                // Drag finished: commit once through the undo stack and do the
+                // full refresh (thumbnails + immediate render). One drag = one
+                // undo step instead of dozens of per-tick commands
+                vm.setLayerOpacity(index, localOpacity.toDouble())
             },
             modifier = Modifier.padding(horizontal = 14.dp),
         )
@@ -358,17 +367,17 @@ internal fun LayerDetailPage(
                 val color = layerLabelColor(label)
                 val isSelected = currentLabel == label
                 Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(if (label == 0) Morandi.panelHi else color)
-                        .border(
-                            width = if (isSelected) 2.dp else 1.dp,
-                            color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
-                            shape = CircleShape
-                        )
-                        .clickable { vm.setLayerColorLabel(index, label) },
-                    contentAlignment = Alignment.Center
+                    modifier =
+                        Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (label == 0) Morandi.panelHi else color)
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
+                                shape = CircleShape,
+                            ).clickable { vm.setLayerColorLabel(index, label) },
+                    contentAlignment = Alignment.Center,
                 ) {
                     if (label == 0) {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(Morandi.subText.copy(alpha = 0.5f)))
@@ -388,19 +397,21 @@ internal fun LayerDetailPage(
         )
 
         var showGroupPicker by remember { mutableStateOf(false) }
-        val availableGroups = remember(vm.layers) {
-            vm.layers.filter { it.isGroup && it.index != index }
-        }
+        val availableGroups =
+            remember(vm.layers) {
+                vm.layers.filter { it.isGroup && it.index != index }
+            }
 
         if (showGroupPicker) {
             androidx.compose.ui.window.Dialog(onDismissRequest = { showGroupPicker = false }) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
-                        .padding(18.dp)
+                    modifier =
+                        Modifier
+                            .fillMaxWidth(0.9f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Morandi.panel)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                            .padding(18.dp),
                 ) {
                     Column {
                         Text("移入图层组", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -411,17 +422,22 @@ internal fun LayerDetailPage(
                             } else {
                                 availableGroups.forEach { grp ->
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .noRippleClickable {
-                                                vm.moveLayerToGroup(index, grp.index)
-                                                showGroupPicker = false
-                                            }
-                                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                                        modifier =
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .noRippleClickable {
+                                                    vm.moveLayerToGroup(index, grp.index)
+                                                    showGroupPicker = false
+                                                }.padding(vertical = 10.dp, horizontal = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
-                                        Icon(painterResource(R.drawable.ic_folder), null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
+                                        Icon(
+                                            painterResource(R.drawable.ic_folder),
+                                            null,
+                                            tint = Morandi.accent,
+                                            modifier = Modifier.size(18.dp),
+                                        )
                                         Text(grp.name, color = Morandi.text, fontSize = 14.sp)
                                     }
                                 }
@@ -430,11 +446,12 @@ internal fun LayerDetailPage(
                         Spacer(Modifier.height(16.dp))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Morandi.panelHi)
-                                    .clickable { showGroupPicker = false }
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                modifier =
+                                    Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panelHi)
+                                        .clickable { showGroupPicker = false }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
                             ) {
                                 Text("取消", color = Morandi.text, fontSize = 13.sp)
                             }
@@ -448,8 +465,14 @@ internal fun LayerDetailPage(
             // Group-specific page
             Column {
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) { vm.removeLayer(index); onBack() }
-                OpItem(R.drawable.ic_merge_down, "合并图层组", enabled = !isBg) { vm.flattenGroup(index); onBack() }
+                OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) {
+                    vm.removeLayer(index)
+                    onBack()
+                }
+                OpItem(R.drawable.ic_merge_down, "合并图层组", enabled = !isBg) {
+                    vm.flattenGroup(index)
+                    onBack()
+                }
                 OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
                 OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
                 OpItem(R.drawable.ic_eye, "独显/隔离此图层组") { vm.soloLayer(index) }
@@ -469,7 +492,10 @@ internal fun LayerDetailPage(
                 OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
                 OpItem(R.drawable.ic_erase, "清除图层") { vm.clearLayer(index) }
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) { vm.removeLayer(index); onBack() }
+                OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) {
+                    vm.removeLayer(index)
+                    onBack()
+                }
                 OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
                 OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
                 if ((layer?.depth ?: 0) > 0) {
@@ -480,7 +506,10 @@ internal fun LayerDetailPage(
                 }
                 OpItem(R.drawable.ic_flip_h, "水平翻转") { vm.flipLayerHorizontal(index) }
                 OpItem(R.drawable.ic_flip_v, "垂直翻转") { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) { vm.mergeDown(index); onBack() }
+                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) {
+                    vm.mergeDown(index)
+                    onBack()
+                }
                 OpItem(R.drawable.ic_eye, "独显此图层") { vm.soloLayer(index) }
                 OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
@@ -664,4 +693,3 @@ internal fun BlendModesPage(
 // ---------------------------------------------------------------------------
 // Filters sub page (HuaShijie Pro style list matching user screenshot)
 // ---------------------------------------------------------------------------
-

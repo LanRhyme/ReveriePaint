@@ -400,6 +400,13 @@ object ReverieCoreBridge {
         opacity: Double,
     )
 
+    // Opacity change without pushing an undo step (slider drag preview); the
+    // drag release commits through setLayerOpacity so one drag = one undo step
+    external fun setLayerOpacityDirect(
+        index: Int,
+        opacity: Double,
+    )
+
     external fun layerOpacity(index: Int): Double
 
     external fun setLayerLocked(

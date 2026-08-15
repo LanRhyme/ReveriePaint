@@ -120,6 +120,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setLayerOpacity(JNIEnv *, jobject,
     core()->setLayerOpacity(index, opacity);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerOpacityDirect(JNIEnv *, jobject, jint index, jdouble opacity)
+{
+    core()->setLayerOpacityDirect(index, opacity);
+}
+
 extern "C" JNIEXPORT jdouble JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_layerOpacity(JNIEnv *, jobject, jint index)
 {

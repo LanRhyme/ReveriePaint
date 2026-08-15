@@ -430,6 +430,23 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
     markDirty();
 }
 
+// Opacity change WITHOUT pushing an undo command - used while the user is
+// dragging the opacity slider (many values per second). The slider commit on
+// release goes through setLayerOpacity() above, so the whole drag collapses
+// into a single undo step
+void ReverieCore::setLayerOpacityDirect(int index, qreal opacity)
+{
+    if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;  // background stays opaque
+    }
+    const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
+    if (m_layers[index].node->opacity() != o) {
+        m_layers[index].node->setOpacity(o);
+        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+        markDirty();
+    }
+}
+
 void ReverieCore::setLayerBlendMode(int index, const QString &opId)
 {
     if (index <= 0 || index >= m_layers.size()) {

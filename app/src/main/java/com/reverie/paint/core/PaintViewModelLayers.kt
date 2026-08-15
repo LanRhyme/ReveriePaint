@@ -191,9 +191,20 @@ internal fun PaintViewModel.layerOpacity(i: Int) = ReverieCoreBridge.layerOpacit
 internal fun PaintViewModel.setLayerOpacity(
     i: Int,
     v: Double,
+    preview: Boolean = false,
 ) {
-    runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.setLayerOpacity(i, v)
+    if (preview) {
+        // Slider drag preview: apply without an undo step and render through
+        // the 16ms throttle - no layer sync / thumbnail refresh / immediate
+        // frame per tick, so dragging the slider stays smooth
+        runCore(after = { scheduleRender(immediate = false) }) {
+            ReverieCoreBridge.setLayerOpacityDirect(i, v)
+        }
+    } else {
+        // Slider release commit: single undo step + full refresh
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setLayerOpacity(i, v)
+        }
     }
 }
 

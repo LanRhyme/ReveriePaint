@@ -66,6 +66,10 @@ public:
     void setLayerAlphaLocked(int index, bool locked);
     qreal layerOpacity(int index) const;
     void setLayerOpacity(int index, qreal opacity);
+    // Opacity change without the undo stack (slider drag preview - the release
+    // commit goes through setLayerOpacity above, collapsing the drag into one
+    // undo step)
+    void setLayerOpacityDirect(int index, qreal opacity);
     // Blend mode: Krita composite op id (full KoCompositeOpRegistry set:
     // normal, multiply, screen, overlay, darken, lighten, dodge, burn,
     // linear_burn, linear_dodge, difference, add, subtract, divide,
