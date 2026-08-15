@@ -88,6 +88,7 @@ public:
     bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
     bool moveLayerAbove(int fromIndex, int aboveIndex);   // move layer above the given layer (exact sibling semantics)
     bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
+    bool moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove); // move layer relative to target layer in hierarchy
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
     // layer hides every other layer, tapping the soloed layer again restores
     void soloLayer(int index);

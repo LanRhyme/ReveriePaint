@@ -1483,6 +1483,56 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
     return true;
 }
 
+bool ReverieCore::moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove)
+{
+    if (fromIndex <= 0 || fromIndex >= m_layers.size()) return false;
+    if (targetIndex < 0 || targetIndex >= m_layers.size()) return false;
+    if (fromIndex == targetIndex) return false;
+
+    const LayerEntry &src = m_layers[fromIndex];
+    const LayerEntry &dst = m_layers[targetIndex];
+    if (src.locked || src.background) return false;
+    if (!src.node || !dst.node || !m_document) return false;
+
+    KisNodeSP node(src.node);
+    KisNodeSP target(dst.node);
+
+    // Prevent moving a group into its own subtree
+    if (src.isGroup) {
+        KisNodeSP p(target);
+        while (p) {
+            if (p == node) return false;
+            p = p->parent();
+        }
+    }
+
+    KisNodeSP parent;
+    KisNodeSP aboveThis;
+
+    if (dst.isGroup && !placeAbove) {
+        // Drop directly into the group at the bottom
+        parent = target;
+        aboveThis = KisNodeSP();
+    } else {
+        parent = target->parent() ? target->parent() : KisNodeSP(m_document->root());
+        if (placeAbove) {
+            aboveThis = target;
+        } else {
+            aboveThis = target->prevSibling();
+        }
+    }
+
+    if (!parent) parent = m_document->root();
+
+    pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, aboveThis));
+    syncLayersFromImage();
+    const int idx = indexOfNode(node.data());
+    if (idx >= 0) m_currentLayer = idx;
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
 bool ReverieCore::moveLayerUp(int index)
 {
     if (index <= 0 || index >= m_layers.size() - 1) return false;

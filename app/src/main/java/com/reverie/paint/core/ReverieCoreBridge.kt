@@ -344,6 +344,12 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
         group: Int,
     ): Boolean
 
+    external fun moveLayerRelative(
+        from: Int,
+        target: Int,
+        placeAbove: Boolean,
+    ): Boolean
+
     external fun moveLayerUp(index: Int): Boolean
 
     external fun moveLayerDown(index: Int): Boolean

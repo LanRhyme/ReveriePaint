@@ -889,6 +889,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject
     return core()->moveLayerToGroup(from, group);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerRelative(JNIEnv *, jobject, jint from, jint target, jboolean placeAbove)
+{
+    return core()->moveLayerRelative(from, target, placeAbove == JNI_TRUE);
+}
+
 JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
 {
     return core()->mergeDown(index);

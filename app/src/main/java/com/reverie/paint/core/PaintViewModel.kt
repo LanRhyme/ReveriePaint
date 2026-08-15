@@ -2378,6 +2378,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun moveLayerRelative(from: Int, target: Int, placeAbove: Boolean) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerRelative(from, target, placeAbove)
+        }
+    }
+
     fun moveLayerUp(i: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.moveLayerUp(i)

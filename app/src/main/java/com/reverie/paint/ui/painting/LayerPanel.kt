@@ -437,12 +437,6 @@ private fun LayerListView(
         val insert = dragTargetIdx
         val over = dragOver
         if (from > 0 && insert >= 0) {
-            // Reconstruct the frozen drop order DIRECTLY from displayRows.
-            // Reading the remember()d displayList here can return a stale
-            // cached order built for an older dragTargetIdx (the last move
-            // event's state update may not have recomposed yet), which then
-            // differs from the real post-move order and plays a phantom
-            // shuffle after release (the "moves again after drop" bug)
             val frozen = displayRows.toMutableList()
             val fi = frozen.indexOfFirst { it.index == from }
             if (fi >= 0) {
@@ -450,39 +444,22 @@ private fun LayerListView(
                 frozen.add(insert.coerceIn(0, frozen.size), item)
             }
             pendingOrder = frozen.map { it.name }
-            // Dropped into a group's middle zone -> move into the group
+
             val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 vm.moveLayerToGroup(from, over.first)
             } else {
-                // Exact target semantics verified against Krita's sources:
-                // KisNode::add(newNode, aboveThis) inserts at
-                // index(aboveThis)+1, so the node lands DIRECTLY ABOVE
-                // aboveThis in the bottom-first tree (m_layers). With
-                //   to = m_layers index where the layer lands (visual slot
-                //        insert <-> m_layers size-1-insert):
-                //   to > from (dragged up visually): aboveThis = m_layers[to]
-                //   to < from (dragged down visually): aboveThis = m_layers[to-1]
-                // Desktop harness: 9/9 scenarios land exactly at `insert`.
-                val to = frozen.size - 1 - insert
-                if (to > 0 && to != from) {
-                    val aboveIdx = if (to > from) to else to - 1
-                    if (aboveIdx != from) {
-                        android.util.Log.d(
-                            "LayerPanel",
-                            "ENDDRAG from=$from insert=$insert to=$to above=$aboveIdx size=${frozen.size}",
-                        )
-                        vm.moveLayerAbove(from, aboveIdx)
-                        // The dragged layer now lives at m_layers index `to`;
-                        // select it (not the layer that was pushed into its
-                        // old slot)
-                        selectedIndex = to
-                        vm.setCurrentLayer(to)
-                        // glide the floating overlay into the drop slot so the
-                        // visual landing equals the real landing
-                        settleFrom = dragFingerY - columnTop - rowPx / 2f
-                        settleTo = columnTop + insert * rowPx + rowPx / 2f
-                        settling = true
+                val listWithoutFrom = displayRows.filter { it.index != from }
+                if (listWithoutFrom.isNotEmpty()) {
+                    if (insert == 0) {
+                        val target = listWithoutFrom.first().index
+                        vm.moveLayerRelative(from, target, placeAbove = true)
+                    } else if (insert >= listWithoutFrom.size) {
+                        val target = listWithoutFrom.last().index
+                        vm.moveLayerRelative(from, target, placeAbove = false)
+                    } else {
+                        val target = listWithoutFrom[insert].index
+                        vm.moveLayerRelative(from, target, placeAbove = true)
                     }
                 }
             }
