@@ -576,7 +576,17 @@ class PaintViewModel : ViewModel() {
         val ok = ReverieCoreBridge.renderToBuffer(target)
         if (ok) {
             mainHandler.post {
-                displayBitmap = target
+                // Copy into a stable display bitmap instead of aliasing the
+                // render scratch buffer: rapid consecutive undo/redo renders
+                // the same scratch buffer in sequence, and aliasing let the
+                // UI thread display a buffer the render thread was already
+                // overwriting (stale frames / glitches during fast undo)
+                var cur = displayBitmap
+                if (cur == null || cur.width != w || cur.height != h) {
+                    cur = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    displayBitmap = cur
+                }
+                android.graphics.Canvas(cur).drawBitmap(target, 0f, 0f, null)
                 displayRevision++
             }
         }
