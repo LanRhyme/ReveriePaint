@@ -17,18 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
@@ -38,7 +38,6 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
-
 
 /**
  * Full workspace canvas with one shared forward and inverse transform
@@ -181,28 +180,35 @@ fun CanvasView(
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
-    val checkerboardPaint = remember {
-        val tileSize = 24
-        val bmp = android.graphics.Bitmap.createBitmap(tileSize * 2, tileSize * 2, android.graphics.Bitmap.Config.ARGB_8888)
-        val cv = android.graphics.Canvas(bmp)
-        val p1 = android.graphics.Paint().apply { color = android.graphics.Color.WHITE }
-        val p2 = android.graphics.Paint().apply { color = android.graphics.Color.rgb(228, 230, 235) }
-        cv.drawRect(0f, 0f, tileSize.toFloat(), tileSize.toFloat(), p1)
-        cv.drawRect(tileSize.toFloat(), 0f, (tileSize * 2).toFloat(), tileSize.toFloat(), p2)
-        cv.drawRect(0f, tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), p2)
-        cv.drawRect(tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), (tileSize * 2).toFloat(), p1)
-        val shader = android.graphics.BitmapShader(bmp, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
-        android.graphics.Paint().apply { this.shader = shader }
-    }
-    val customPointerIcon = remember(context) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
-            val nullIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
-            PointerIcon(nullIcon)
-        } else {
-            PointerIcon.Default
+    val checkerboardPaint =
+        remember {
+            val tileSize = 24
+            val bmp = android.graphics.Bitmap.createBitmap(tileSize * 2, tileSize * 2, android.graphics.Bitmap.Config.ARGB_8888)
+            val cv = android.graphics.Canvas(bmp)
+            val p1 = android.graphics.Paint().apply { color = android.graphics.Color.WHITE }
+            val p2 = android.graphics.Paint().apply { color = android.graphics.Color.rgb(228, 230, 235) }
+            cv.drawRect(0f, 0f, tileSize.toFloat(), tileSize.toFloat(), p1)
+            cv.drawRect(tileSize.toFloat(), 0f, (tileSize * 2).toFloat(), tileSize.toFloat(), p2)
+            cv.drawRect(0f, tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), p2)
+            cv.drawRect(tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), (tileSize * 2).toFloat(), p1)
+            val shader =
+                android.graphics.BitmapShader(
+                    bmp,
+                    android.graphics.Shader.TileMode.REPEAT,
+                    android.graphics.Shader.TileMode.REPEAT,
+                )
+            android.graphics.Paint().apply { this.shader = shader }
         }
-    }
+    val customPointerIcon =
+        remember(context) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                val nullIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
+                PointerIcon(nullIcon)
+            } else {
+                PointerIcon.Default
+            }
+        }
 
     LaunchedEffect(Unit) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
@@ -226,7 +232,8 @@ fun CanvasView(
                             val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                             val change = event.changes.firstOrNull()
                             if (change != null) {
-                                val isStylusOrMouse = change.type == PointerType.Stylus ||
+                                val isStylusOrMouse =
+                                    change.type == PointerType.Stylus ||
                                         change.type == PointerType.Eraser ||
                                         change.type == PointerType.Mouse
 
@@ -246,12 +253,14 @@ fun CanvasView(
                                             livePressure.value = 1f
                                         }
                                     }
+
                                     PointerEventType.Exit -> {
                                         isCursorHovering.value = false
                                         isCursorTouching.value = false
                                         cursorScreenPos.value = null
                                         livePressure.value = 1f
                                     }
+
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
@@ -259,9 +268,17 @@ fun CanvasView(
                                             livePressure.value = vm.evaluatePressure(change.pressure)
                                         }
                                     }
+
                                     PointerEventType.Release -> {
                                         isCursorTouching.value = false
-                                        isCursorHovering.value = true
+                                        if (isStylusOrMouse) {
+                                            // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
+                                            isCursorHovering.value = true
+                                        } else {
+                                            // 手指：无 hover 概念，离开屏幕即隐藏指针
+                                            isCursorHovering.value = false
+                                            cursorScreenPos.value = null
+                                        }
                                         livePressure.value = 1f
                                     }
                                 }
@@ -345,6 +362,7 @@ fun CanvasView(
         )
     }
 }
+
 internal fun angleDegrees(
     a: Offset,
     b: Offset,
