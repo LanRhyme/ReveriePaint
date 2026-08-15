@@ -76,14 +76,17 @@ import com.reverie.paint.ui.theme.parseColor
 enum class SettingsSubPage {
     MAIN,
     THEME,
-    STYLUS
+    STYLUS,
 }
 
 @Composable
-fun SettingsPageContent(vm: PaintViewModel) {
+fun SettingsPageContent(
+    vm: PaintViewModel,
+    onExit: () -> Unit = {},
+) {
     var subPage by remember {
         mutableStateOf(
-            if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS else SettingsSubPage.MAIN
+            if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS else SettingsSubPage.MAIN,
         )
     }
 
@@ -101,6 +104,11 @@ fun SettingsPageContent(vm: PaintViewModel) {
         subPage = SettingsSubPage.MAIN
     }
 
+    // 主页内嵌时无退出入口；绘画页覆盖层通过 onExit 返回画布
+    androidx.activity.compose.BackHandler(enabled = subPage == SettingsSubPage.MAIN) {
+        onExit()
+    }
+
     AnimatedContent(
         targetState = subPage,
         transitionSpec = {
@@ -112,43 +120,50 @@ fun SettingsPageContent(vm: PaintViewModel) {
                     .togetherWith(slideOutHorizontally(tween(200)) { it } + fadeOut(tween(150)))
             }
         },
-        label = "SettingsSubPageTransition"
+        label = "SettingsSubPageTransition",
     ) { page ->
         when (page) {
-            SettingsSubPage.MAIN -> SettingsMainPage(
-                onNavigate = { subPage = it }
-            )
-            SettingsSubPage.THEME -> ThemeSettingsSubPage(
-                vm = vm,
-                onBack = { subPage = SettingsSubPage.MAIN }
-            )
-            SettingsSubPage.STYLUS -> StylusSettingsSubPage(
-                vm = vm,
-                onBack = { subPage = SettingsSubPage.MAIN }
-            )
+            SettingsSubPage.MAIN -> {
+                SettingsMainPage(
+                    onNavigate = { subPage = it },
+                )
+            }
+
+            SettingsSubPage.THEME -> {
+                ThemeSettingsSubPage(
+                    vm = vm,
+                    onBack = { subPage = SettingsSubPage.MAIN },
+                )
+            }
+
+            SettingsSubPage.STYLUS -> {
+                StylusSettingsSubPage(
+                    vm = vm,
+                    onBack = { subPage = SettingsSubPage.MAIN },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SettingsMainPage(
-    onNavigate: (SettingsSubPage) -> Unit
-) {
+private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
     val colors = Theme.current
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(colors.bg)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 24.dp)
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(colors.bg)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp),
     ) {
         Text(
             text = "设置",
             color = colors.text,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 20.dp)
+            modifier = Modifier.padding(bottom = 20.dp),
         )
 
         // Native Android settings row: 主题设置
@@ -156,7 +171,7 @@ private fun SettingsMainPage(
             iconRes = R.drawable.ic_palette,
             title = "主题设置",
             summary = "主色调、面板透明度与全屏沉浸模式",
-            onClick = { onNavigate(SettingsSubPage.THEME) }
+            onClick = { onNavigate(SettingsSubPage.THEME) },
         )
 
         Spacer(Modifier.height(8.dp))
@@ -168,9 +183,7 @@ private fun SettingsMainPage(
             iconRes = R.drawable.ic_pencil,
             title = "手写笔设置",
             summary = "笔模式、光标显示、驻停成形与全局压力曲线",
-            onClick = { onNavigate(SettingsSubPage.STYLUS) }
+            onClick = { onNavigate(SettingsSubPage.STYLUS) },
         )
     }
 }
-
-

@@ -1,57 +1,42 @@
 package com.reverie.paint.ui.painting
 
-import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import com.reverie.paint.ui.components.ReSlider
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import com.reverie.paint.ui.components.noRippleClickable
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.ui.res.painterResource
-import com.reverie.paint.R
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,21 +47,36 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Painting page: full-bleed canvas with touch painting + gestures,
@@ -166,7 +166,7 @@ fun PaintingPage(vm: PaintViewModel) {
                         b[1].toFloat(),
                         (b[0] + b[2]).toFloat(),
                         (b[1] + b[3]).toFloat(),
-                    )
+                    ),
                 )
             } else {
                 tfState.reset(
@@ -175,7 +175,7 @@ fun PaintingPage(vm: PaintViewModel) {
                         0f,
                         vm.docWidth.toFloat(),
                         vm.docHeight.toFloat(),
-                    )
+                    ),
                 )
             }
             vm.startTransformPreview()
@@ -187,27 +187,39 @@ fun PaintingPage(vm: PaintViewModel) {
                         val corners = tfState.quadCorners
                         if (corners.size == 4) {
                             vm.applyPerspectiveTransform(
-                                corners[0].x.toDouble(), corners[0].y.toDouble(),
-                                corners[1].x.toDouble(), corners[1].y.toDouble(),
-                                corners[2].x.toDouble(), corners[2].y.toDouble(),
-                                corners[3].x.toDouble(), corners[3].y.toDouble(),
-                                tfState.bounds.left.toDouble(), tfState.bounds.top.toDouble(),
-                                tfState.bounds.width.toDouble(), tfState.bounds.height.toDouble(),
+                                corners[0].x.toDouble(),
+                                corners[0].y.toDouble(),
+                                corners[1].x.toDouble(),
+                                corners[1].y.toDouble(),
+                                corners[2].x.toDouble(),
+                                corners[2].y.toDouble(),
+                                corners[3].x.toDouble(),
+                                corners[3].y.toDouble(),
+                                tfState.bounds.left.toDouble(),
+                                tfState.bounds.top.toDouble(),
+                                tfState.bounds.width.toDouble(),
+                                tfState.bounds.height.toDouble(),
                             )
                         }
                     }
+
                     TransformMode.DISTORT -> {
                         vm.applyWarpMeshTransform(
                             tfState.origMeshPoints,
                             tfState.meshPoints,
-                            tfState.bounds.left.toDouble(), tfState.bounds.top.toDouble(),
-                            tfState.bounds.width.toDouble(), tfState.bounds.height.toDouble(),
+                            tfState.bounds.left.toDouble(),
+                            tfState.bounds.top.toDouble(),
+                            tfState.bounds.width.toDouble(),
+                            tfState.bounds.height.toDouble(),
                         )
                     }
+
                     else -> {
                         val rad = Math.toRadians(tfState.rotation.toDouble())
                         val c = tfState.bounds.center
-                        if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f || tfState.ty != 0f) {
+                        if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
+                            tfState.ty != 0f
+                        ) {
                             vm.applyTransform(
                                 tfState.scaleX.toDouble(),
                                 tfState.scaleY.toDouble(),
@@ -236,8 +248,13 @@ fun PaintingPage(vm: PaintViewModel) {
     var shapeFilled by remember { mutableStateOf(false) }
     val shapeTools =
         listOf(
-            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE,
-            Tool.SELECT_POLYGON, Tool.PATH,
+            Tool.LINE,
+            Tool.RECT,
+            Tool.ELLIPSE,
+            Tool.POLYGON,
+            Tool.POLYLINE,
+            Tool.SELECT_POLYGON,
+            Tool.PATH,
         )
 
     val hazeState = remember { HazeState() }
@@ -245,12 +262,13 @@ fun PaintingPage(vm: PaintViewModel) {
     Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
         // ---- Canvas workspace
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Transparent)
-                .then(
-                    if (vm.blurBackground) Modifier.haze(hazeState) else Modifier
-                )
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Transparent)
+                    .then(
+                        if (vm.blurBackground) Modifier.haze(hazeState) else Modifier,
+                    ),
         ) {
             CanvasView(
                 vm = vm,
@@ -319,7 +337,9 @@ fun PaintingPage(vm: PaintViewModel) {
                 onSaveAndExit = {
                     showExitSaveDialog = false
                     vm.saveProject(vm.docName) {
-                        android.widget.Toast.makeText(exitContext, "工程已保存", android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast
+                            .makeText(exitContext, "工程已保存", android.widget.Toast.LENGTH_SHORT)
+                            .show()
                         vm.goHome()
                     }
                 },
@@ -336,7 +356,6 @@ fun PaintingPage(vm: PaintViewModel) {
                 onDismiss = { showDiscardConfirmDialog = false },
             )
         }
-
 
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
@@ -399,7 +418,9 @@ fun PaintingPage(vm: PaintViewModel) {
         if (selectionMenuOpen) {
             androidx.compose.ui.window.Popup(
                 alignment = Alignment.TopEnd,
-                offset = androidx.compose.ui.unit.IntOffset(0, 180),
+                offset =
+                    androidx.compose.ui.unit
+                        .IntOffset(0, 180),
             ) {
                 Box(
                     modifier =
@@ -421,7 +442,7 @@ fun PaintingPage(vm: PaintViewModel) {
                             Modifier
                                 .fillMaxWidth()
                                 .height(1.dp)
-                                .background(Morandi.border)
+                                .background(Morandi.border),
                         )
                         SelectionMenuItem("关闭") { selectionMenuOpen = false }
                     }
@@ -431,10 +452,11 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Left tool rail ----
         ToolRail(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 48.dp) // Gap from top bar
-                .fillMaxHeight(),
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 48.dp) // Gap from top bar
+                    .fillMaxHeight(),
             vm = vm,
             hazeState = hazeState,
             opacity = vm.uiOpacity.toDouble(),
@@ -485,8 +507,16 @@ fun PaintingPage(vm: PaintViewModel) {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             TransformPanel(
                 vm = vm,
@@ -502,7 +532,7 @@ fun PaintingPage(vm: PaintViewModel) {
                                 b[1].toFloat(),
                                 (b[0] + b[2]).toFloat(),
                                 (b[1] + b[3]).toFloat(),
-                            )
+                            ),
                         )
                     }
                     vm.startTransformPreview()
@@ -517,8 +547,16 @@ fun PaintingPage(vm: PaintViewModel) {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             ShapeToolPanel(
                 vm = vm,
@@ -527,15 +565,30 @@ fun PaintingPage(vm: PaintViewModel) {
                 strokeWidth = shapeStrokeWidth,
                 filled = shapeFilled,
                 hazeState = hazeState,
-                onStrokeWidth = { shapeStrokeWidth = it; vm.setShapeStrokeWidth(it.toDouble()) },
-                onFilled = { shapeFilled = it; vm.setShapeFilled(it) },
+                onStrokeWidth = {
+                    shapeStrokeWidth = it
+                    vm.setShapeStrokeWidth(it.toDouble())
+                },
+                onFilled = {
+                    shapeFilled = it
+                    vm.setShapeFilled(it)
+                },
                 onFinish = {
                     if (polyPoints.isNotEmpty()) {
                         val pts = polyPoints.map { it.x.toInt() to it.y.toInt() }
                         when (tool) {
-                            Tool.POLYGON -> vm.drawPolygon(pts, closed = true)
-                            Tool.POLYLINE -> vm.drawPolygon(pts, closed = false)
-                            Tool.SELECT_POLYGON -> vm.selectPolygon(pts)
+                            Tool.POLYGON -> {
+                                vm.drawPolygon(pts, closed = true)
+                            }
+
+                            Tool.POLYLINE -> {
+                                vm.drawPolygon(pts, closed = false)
+                            }
+
+                            Tool.SELECT_POLYGON -> {
+                                vm.selectPolygon(pts)
+                            }
+
                             Tool.PATH -> {
                                 // Bézier path: smooth through the anchors with
                                 // a Catmull-Rom spline, commit as a selection
@@ -543,7 +596,10 @@ fun PaintingPage(vm: PaintViewModel) {
                                 val smooth = smoothPathPoints(pts)
                                 if (smooth.size >= 3) vm.selectPolygon(smooth)
                             }
-                            else -> Unit
+
+                            else -> {
+                                Unit
+                            }
                         }
                         polyPoints = emptyList()
                     }
@@ -559,8 +615,16 @@ fun PaintingPage(vm: PaintViewModel) {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             cropRect?.let { cr ->
                 CropPanel(
@@ -585,24 +649,48 @@ fun PaintingPage(vm: PaintViewModel) {
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.GRADIENT,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it }, hazeState = hazeState)
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.FILL,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             FillPanel(vm = vm, tolerance = fillTolerance, onTolerance = { fillTolerance = it }, hazeState = hazeState)
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.LIQUIFY,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
         ) {
             LiquifyPanel(
                 vm = vm,
@@ -624,24 +712,29 @@ fun PaintingPage(vm: PaintViewModel) {
         // in from the canvas edge; draggable so it never blocks the work
         androidx.compose.animation.AnimatedVisibility(
             visible = tool in selectionTools,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset { IntOffset(selectionPanelOffsetX.roundToInt(), selectionPanelOffsetY.roundToInt()) }
-                .padding(bottom = 24.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset { IntOffset(selectionPanelOffsetX.roundToInt(), selectionPanelOffsetY.roundToInt()) }
+                    .padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core.tween(200),
+                    androidx.compose.animation.core
+                        .tween(200),
                 ) +
                     androidx.compose.animation.slideInVertically(
-                        androidx.compose.animation.core.tween(200),
+                        androidx.compose.animation.core
+                            .tween(200),
                         initialOffsetY = { it },
                     ),
             exit =
                 androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core.tween(200),
+                    androidx.compose.animation.core
+                        .tween(200),
                 ) +
                     androidx.compose.animation.slideOutVertically(
-                        androidx.compose.animation.core.tween(200),
+                        androidx.compose.animation.core
+                            .tween(200),
                         targetOffsetY = { it },
                     ),
         ) {
@@ -654,7 +747,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 onDrag = { dx, dy ->
                     selectionPanelOffsetX += dx
                     selectionPanelOffsetY += dy
-                }
+                },
             )
         }
 
@@ -668,23 +761,41 @@ fun PaintingPage(vm: PaintViewModel) {
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.actionToastMessage != null,
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
-                    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) +
-                    androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(200)) { -it },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 56.dp)
-                .zIndex(25f)
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                ) +
+                    androidx.compose.animation.slideInVertically(
+                        androidx.compose.animation.core
+                            .spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                    ) {
+                        -it
+                    },
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ) +
+                    androidx.compose.animation.slideOutVertically(
+                        androidx.compose.animation.core
+                            .tween(200),
+                    ) { -it },
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 56.dp)
+                    .zIndex(25f),
         ) {
             val msg = vm.actionToastMessage ?: ""
             val iconRes = vm.actionToastIcon
             Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Morandi.panelHi.copy(alpha = 0.94f))
-                    .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panelHi.copy(alpha = 0.94f))
+                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
@@ -712,23 +823,41 @@ fun PaintingPage(vm: PaintViewModel) {
         // ---- Transform indicator (top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
             visible = showIndicator && !vm.isFilterAdjustActive && (vm.actionToastMessage == null),
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
-                    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250)) +
-                    androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(250)) { -it },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 56.dp)
-                .zIndex(20f)
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                ) +
+                    androidx.compose.animation.slideInVertically(
+                        androidx.compose.animation.core
+                            .spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
+                    ) {
+                        -it
+                    },
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(250),
+                ) +
+                    androidx.compose.animation.slideOutVertically(
+                        androidx.compose.animation.core
+                            .tween(250),
+                    ) { -it },
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 56.dp)
+                    .zIndex(20f),
         ) {
             val zoomPct = (zoom * fitScale * 100).toInt()
             val rotDeg = ((rotation % 360 + 360) % 360).toInt()
             Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Morandi.panelHi.copy(alpha = 0.94f))
-                    .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier =
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panelHi.copy(alpha = 0.94f))
+                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
@@ -736,7 +865,7 @@ fun PaintingPage(vm: PaintViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "缩放 ${zoomPct}%",
+                        "缩放 $zoomPct%",
                         color = Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
@@ -744,10 +873,10 @@ fun PaintingPage(vm: PaintViewModel) {
                     Box(
                         Modifier
                             .size(3.dp)
-                            .background(Morandi.border, CircleShape)
+                            .background(Morandi.border, CircleShape),
                     )
                     Text(
-                        "旋转 ${rotDeg}°",
+                        "旋转 $rotDeg°",
                         color = Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
@@ -761,7 +890,7 @@ fun PaintingPage(vm: PaintViewModel) {
             visible = brushPanelOpen,
             enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
             BrushPanel(
                 vm = vm,
@@ -774,7 +903,7 @@ fun PaintingPage(vm: PaintViewModel) {
             visible = layerPanelOpen,
             enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
             LayerPanel(
                 vm = vm,
@@ -787,7 +916,7 @@ fun PaintingPage(vm: PaintViewModel) {
             visible = settingsPanelOpen,
             enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
             SettingsPanel(
                 vm = vm,
@@ -800,7 +929,7 @@ fun PaintingPage(vm: PaintViewModel) {
             visible = colorPanelOpen,
             enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
             ColorPanel(
                 vm = vm,
@@ -811,9 +940,12 @@ fun PaintingPage(vm: PaintViewModel) {
         }
         AnimatedVisibility(
             visible = moreToolsOpen,
-            enter = fadeIn(tween(250, easing = FastOutSlowInEasing)) + slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -40 },
+            enter =
+                fadeIn(
+                    tween(250, easing = FastOutSlowInEasing),
+                ) + slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -40 },
             exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f)
+            modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
             AllToolsPanel(
                 vm = vm,
@@ -836,6 +968,49 @@ fun PaintingPage(vm: PaintViewModel) {
             )
         }
 
+        // More Settings full-screen overlay (stays inside painting page, back returns to canvas)
+        if (vm.moreSettingsOpen) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(Morandi.canvasBg)
+                        .zIndex(500f),
+            ) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    // Top bar with back button (no bottom navigation bar here)
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .background(Morandi.panel)
+                                .padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { vm.closeMoreSettings() }) {
+                            Icon(
+                                painterResource(R.drawable.ic_arrow_left),
+                                contentDescription = "返回画布",
+                                tint = Morandi.text,
+                            )
+                        }
+                        Text(
+                            "更多设置",
+                            color = Morandi.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        com.reverie.paint.ui.home.SettingsPageContent(
+                            vm = vm,
+                            onExit = { vm.closeMoreSettings() },
+                        )
+                    }
+                }
+            }
+        }
+
         // Text tool input dialog
         textDialogPos?.let { (tx, ty) ->
             TextInputDialog(
@@ -852,46 +1027,70 @@ fun PaintingPage(vm: PaintViewModel) {
         // Blocking Loading & Saving Modal Overlay (prevents any clicks/interactions)
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.isBlockingLoading,
-            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)) +
-                    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(150), initialScale = 0.94f),
-            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) +
-                    androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.94f),
-            modifier = Modifier.zIndex(999f)
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(150),
+                ) +
+                    androidx.compose.animation.scaleIn(
+                        androidx.compose.animation.core
+                            .tween(150),
+                        initialScale = 0.94f,
+                    ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(150),
+                ) +
+                    androidx.compose.animation.scaleOut(
+                        androidx.compose.animation.core
+                            .tween(150),
+                        targetScale = 0.94f,
+                    ),
+            modifier = Modifier.zIndex(999f),
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f))
-                    .clickable(
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    ),
-                contentAlignment = Alignment.Center
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            androidx.compose.ui.graphics.Color.Black
+                                .copy(alpha = 0.45f),
+                        ).clickable(
+                            interactionSource =
+                                remember {
+                                    androidx.compose.foundation.interaction
+                                        .MutableInteractionSource()
+                                },
+                            indication = null,
+                            onClick = {},
+                        ),
+                contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 28.dp, vertical = 22.dp),
-                    contentAlignment = Alignment.Center
+                    modifier =
+                        Modifier
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Morandi.panelHi)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                            .padding(horizontal = 28.dp, vertical = 22.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        verticalArrangement = Arrangement.Center,
                     ) {
                         androidx.compose.material3.CircularProgressIndicator(
                             color = Morandi.accent,
                             strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(36.dp),
                         )
                         Spacer(Modifier.height(14.dp))
                         Text(
                             text = vm.blockingLoadingMessage.ifBlank { "请稍候..." },
                             color = Morandi.text,
                             fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
@@ -967,17 +1166,19 @@ private fun smoothPathPoints(points: List<Pair<Int, Int>>): List<Pair<Int, Int>>
             val u = step / 16f
             val u2 = u * u
             val u3 = u2 * u
-            val x = 0.5f * (
-                (2 * p1.first) +
-                    (-p0.first + p2.first) * u +
-                    (2 * p0.first - 5 * p1.first + 4 * p2.first - p3.first) * u2 +
-                    (-p0.first + 3 * p1.first - 3 * p2.first + p3.first) * u3
+            val x =
+                0.5f * (
+                    (2 * p1.first) +
+                        (-p0.first + p2.first) * u +
+                        (2 * p0.first - 5 * p1.first + 4 * p2.first - p3.first) * u2 +
+                        (-p0.first + 3 * p1.first - 3 * p2.first + p3.first) * u3
                 )
-            val y = 0.5f * (
-                (2 * p1.second) +
-                    (-p0.second + p2.second) * u +
-                    (2 * p0.second - 5 * p1.second + 4 * p2.second - p3.second) * u2 +
-                    (-p0.second + 3 * p1.second - 3 * p2.second + p3.second) * u3
+            val y =
+                0.5f * (
+                    (2 * p1.second) +
+                        (-p0.second + p2.second) * u +
+                        (2 * p0.second - 5 * p1.second + 4 * p2.second - p3.second) * u2 +
+                        (-p0.second + 3 * p1.second - 3 * p2.second + p3.second) * u3
                 )
             result += x.toInt() to y.toInt()
         }

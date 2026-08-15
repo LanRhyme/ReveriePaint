@@ -228,6 +228,19 @@ class PaintViewModel : ViewModel() {
 
     var settingsInitialSubPage by mutableStateOf("MAIN")
 
+    // 绘画页内的“更多设置”全屏覆盖层（不退出画布）
+    var moreSettingsOpen by mutableStateOf(false)
+
+    fun openMoreSettings(initialSubPage: String = "MAIN") {
+        settingsInitialSubPage = initialSubPage
+        moreSettingsOpen = true
+    }
+
+    fun closeMoreSettings() {
+        settingsInitialSubPage = "MAIN"
+        moreSettingsOpen = false
+    }
+
     /** Evaluate mapped pressure from raw input pressure using the active curve (monotonic piecewise cubic spline) */
     fun evaluatePressure(raw: Float): Float {
         val x = raw.coerceIn(0f, 1f)

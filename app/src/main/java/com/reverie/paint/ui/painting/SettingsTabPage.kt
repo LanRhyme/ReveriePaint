@@ -382,9 +382,7 @@ internal fun SettingsTabPage(
                         currentSubPage = "GESTURE"
                     }
                     SettingNavRow("手写笔设置") {
-                        vm.homeSelectedTab = 1
-                        vm.settingsInitialSubPage = "STYLUS"
-                        vm.goHome()
+                        vm.openMoreSettings("STYLUS")
                         onClose()
                     }
                     SettingNavRow("快捷键设置") {}
@@ -392,11 +390,9 @@ internal fun SettingsTabPage(
                         currentSubPage = "COLOR"
                     }
 
-                    // 更多设置 -> 跳转到设置页面
+                    // 更多设置 -> 绘画页内全屏覆盖层（不退出画布）
                     SettingNavRow("更多设置") {
-                        vm.homeSelectedTab = 1
-                        vm.settingsInitialSubPage = "MAIN"
-                        vm.goHome()
+                        vm.openMoreSettings("MAIN")
                         onClose()
                     }
 
