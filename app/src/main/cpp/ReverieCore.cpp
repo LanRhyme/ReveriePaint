@@ -277,11 +277,104 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
-    const QRect full(0, 0, image->width(), image->height());
+    const int w = image->width();
+    const int h = image->height();
+    const QRect full(0, 0, w, h);
+
+    bool hasClippedLayer = false;
+    for (const LayerEntry &e : m_layers) {
+        if (e.clipped) {
+            hasClippedLayer = true;
+            break;
+        }
+    }
+
+    if (!hasClippedLayer) {
+        KisRefreshSubtreeWalker walker(full);
+        walker.collectRects(image->rootLayer(), full);
+        KisAsyncMerger merger;
+        merger.startMerge(walker);
+        return;
+    }
+
+    // Standard dynamic clipping mask compositor:
+    // Update individual group projections first
     KisRefreshSubtreeWalker walker(full);
     walker.collectRects(image->rootLayer(), full);
     KisAsyncMerger merger;
     merger.startMerge(walker);
+
+    // Composite layers from bottom to top onto root projection
+    KisPaintDeviceSP rootProj = image->projection();
+    if (!rootProj) return;
+    rootProj->clear();
+
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (!e.visible || !e.node) continue;
+
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+
+        const QRect ext = dev->exactBounds();
+        if (ext.isEmpty()) continue;
+
+        const qreal opacityF = qreal(e.node->opacity()) / 255.0;
+        const QString blendOp = e.node->compositeOpId();
+
+        if (!e.clipped) {
+            KisPainter painter(rootProj);
+            painter.setOpacityF(opacityF);
+            painter.setCompositeOpId(blendOp.isEmpty() ? QStringLiteral("normal") : blendOp);
+            painter.bitBlt(ext.x(), ext.y(), dev, ext.x(), ext.y(), ext.width(), ext.height());
+        } else {
+            // Find base layer (the first non-clipped layer below)
+            KisPaintDeviceSP baseDev;
+            for (int b = i - 1; b >= 0; --b) {
+                if (!m_layers[b].clipped) {
+                    baseDev = layerPaintDeviceFor(m_layers[b]);
+                    if (baseDev) break;
+                }
+            }
+            if (!baseDev) continue;
+
+            const QRect baseExt = baseDev->exactBounds();
+            const QRect clipExt = ext.intersected(baseExt).intersected(full);
+            if (clipExt.isEmpty()) continue;
+
+            QImage devImg(clipExt.size(), QImage::Format_ARGB32_Premultiplied);
+            QImage baseImg(clipExt.size(), QImage::Format_ARGB32_Premultiplied);
+            dev->readBytes(devImg.bits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
+            baseDev->readBytes(baseImg.bits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
+
+            for (int y = 0; y < devImg.height(); ++y) {
+                quint8 *d = devImg.scanLine(y);
+                const quint8 *b = baseImg.constScanLine(y);
+                for (int x = 0; x < devImg.width(); ++x) {
+                    quint8 *dp = d + x * 4;
+                    const quint8 *bp = b + x * 4;
+                    if (bp[3] == 0) {
+                        dp[0] = 0; dp[1] = 0; dp[2] = 0; dp[3] = 0;
+                    } else if (bp[3] < 255) {
+                        const int na = (int(dp[3]) * int(bp[3])) / 255;
+                        dp[0] = quint8((int(dp[0]) * int(bp[3])) / 255);
+                        dp[1] = quint8((int(dp[1]) * int(bp[3])) / 255);
+                        dp[2] = quint8((int(dp[2]) * int(bp[3])) / 255);
+                        dp[3] = quint8(na);
+                    }
+                }
+            }
+
+            KisPaintDeviceSP tempDev = new KisPaintDevice(dev->colorSpace());
+            tempDev->writeBytes(devImg.constBits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
+
+            KisPainter painter(rootProj);
+            painter.setOpacityF(opacityF);
+            painter.setCompositeOpId(blendOp.isEmpty() ? QStringLiteral("normal") : blendOp);
+            painter.bitBlt(clipExt.x(), clipExt.y(), tempDev, clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
+        }
+    }
+    rootProj->setDirty(full);
 }
 
 void ReverieCore::syncLayersFromImage()
@@ -1227,39 +1320,6 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     m_layers[index].clipped = clipped;
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
         layer->disableAlphaChannel(clipped);
-    }
-    if (clipped) {
-        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
-        KisPaintDeviceSP base;
-        for (int i = index - 1; i >= 0; --i) {
-            if (!m_layers[i].clipped) {
-                base = layerPaintDeviceFor(m_layers[i]);
-                if (base) break;
-            }
-        }
-        if (dev && base) {
-            const QRect ext = dev->exactBounds();
-            if (!ext.isEmpty()) {
-                QImage devImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
-                QImage baseImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
-                dev->readBytes(devImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
-                base->readBytes(baseImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
-                for (int y = 0; y < devImg.height(); ++y) {
-                    quint8 *d = devImg.scanLine(y);
-                    const quint8 *b = baseImg.constScanLine(y);
-                    for (int x = 0; x < devImg.width(); ++x) {
-                        quint8 *dp = d + x * 4;
-                        const quint8 *bp = b + x * 4;
-                        dp[3] = quint8(int(dp[3]) * int(bp[3]) / 255);
-                        if (bp[3] == 0) {
-                            dp[0] = 0; dp[1] = 0; dp[2] = 0;
-                        }
-                    }
-                }
-                dev->writeBytes(devImg.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
-                dev->setDirty(ext);
-            }
-        }
     }
     recompositeProjection();
     markDirty();
@@ -3161,41 +3221,9 @@ void ReverieCore::commitStrokeToLayer()
     }
     painter.bitBlt(ext.x(), ext.y(), m_strokeBuffer,
                    ext.x(), ext.y(), ext.width(), ext.height());
-    // Clipping mask (self-implemented): keep only the pixels that sit on top
-    // of the next paint layer's opaque area. Krita only has inherit-opacity,
-    // so we mask the freshly committed stroke region against the base layer.
-    if (cur.clipped) {
-        KisPaintDeviceSP base;
-        for (int i = m_currentLayer - 1; i >= 0; --i) {
-            if (!m_layers[i].clipped) {
-                base = layerPaintDeviceFor(m_layers[i]);
-                if (base) break;
-            }
-        }
-        if (base) {
-            QImage devImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
-            QImage baseImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
-            device->readBytes(devImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
-            base->readBytes(baseImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
-            for (int y = 0; y < devImg.height(); ++y) {
-                quint8 *d = devImg.scanLine(y);
-                const quint8 *b = baseImg.constScanLine(y);
-                for (int x = 0; x < devImg.width(); ++x) {
-                    quint8 *dp = d + x * 4;
-                    const quint8 *bp = b + x * 4;
-                    dp[3] = quint8(int(dp[3]) * int(bp[3]) / 255);
-                    if (bp[3] == 0) {
-                        dp[0] = 0; dp[1] = 0; dp[2] = 0;
-                    }
-                }
-            }
-            device->writeBytes(devImg.constBits(), ext.x(), ext.y(),
-                               ext.width(), ext.height());
-        }
-    }
-    // Krita's dirty propagation: mark the region dirty on the layer device
-    // so its projection leaf recomposites it.
+    // Mark the region dirty on the layer device and recomposite
     device->setDirty(ext);
+    recompositeProjection();
     markRegionDirty(ext);
     m_strokeBuffer->clear();
 }
