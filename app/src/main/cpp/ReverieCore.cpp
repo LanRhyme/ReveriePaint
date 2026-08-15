@@ -53,25 +53,11 @@
 #endif
 #include <algorithm>
 #include <queue>
-#include <kis_transparency_mask.h>
 #include <kis_fill_painter.h>
 #include <kis_gradient_painter.h>
 #include <kis_transform_worker.h>
 #include <kis_warptransform_worker.h>
 #include <kis_perspectivetransform_worker.h>
-
-static KisTransparencyMaskSP findClippingMask(KisNode *node)
-{
-    if (!node) return nullptr;
-    KisNodeSP child = node->firstChild();
-    while (child) {
-        if (KisTransparencyMask *mask = dynamic_cast<KisTransparencyMask *>(child.data())) {
-            return KisTransparencyMaskSP(mask);
-        }
-        child = child->nextSibling();
-    }
-    return nullptr;
-}
 #include <kis_default_bounds.h>
 #include <KoColor.h>
 #include <QPainter>
@@ -1228,43 +1214,10 @@ bool ReverieCore::layerClipped(int index) const
     if (index < 0 || index >= m_layers.size()) {
         return false;
     }
-    if (m_layers[index].node && findClippingMask(m_layers[index].node)) {
-        return true;
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        return layer->alphaChannelDisabled();
     }
     return m_layers[index].clipped;
-}
-
-void ReverieCore::updateAllClippingMasks()
-{
-    if (!m_document) return;
-
-    int currentBaseIndex = -1;
-
-    for (int i = 0; i < m_layers.size(); ++i) {
-        if (!m_layers[i].clipped || i == 0) {
-            currentBaseIndex = i;
-            if (KisTransparencyMaskSP mask = findClippingMask(m_layers[i].node)) {
-                m_document->removeNode(mask);
-            }
-        } else {
-            // Clipped layer: bind to currentBaseIndex (the bottom-most non-clipped layer)
-            if (currentBaseIndex >= 0 && currentBaseIndex < m_layers.size() && m_layers[i].node) {
-                KisPaintDeviceSP baseDev = layerPaintDeviceFor(m_layers[currentBaseIndex]);
-                if (baseDev) {
-                    KisLayer *parentLayer = dynamic_cast<KisLayer *>(m_layers[i].node);
-                    KisTransparencyMaskSP mask = findClippingMask(m_layers[i].node);
-                    if (!mask) {
-                        mask = new KisTransparencyMask(m_document, QStringLiteral("ClippingMask"));
-                        mask->initSelection(baseDev, parentLayer);
-                        m_document->addNode(mask, KisNodeSP(m_layers[i].node));
-                    } else {
-                        mask->initSelection(baseDev, parentLayer);
-                        mask->setDirty();
-                    }
-                }
-            }
-        }
-    }
 }
 
 void ReverieCore::setLayerClipped(int index, bool clipped)
@@ -1273,7 +1226,10 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
         return;
     }
     m_layers[index].clipped = clipped;
-    updateAllClippingMasks();
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        layer->disableAlphaChannel(clipped);
+        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+    }
     recompositeProjection();
     markDirty();
 }
@@ -2724,7 +2680,6 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxn = nullptr;
         m_strokeTxnActive = false;
         m_redoCount = 0;
-        updateAllClippingMasks();
     }
     m_drawing = false;
 }
@@ -3282,7 +3237,6 @@ void ReverieCore::undo()
     m_undoStore->undo();
     ++m_redoCount;
     syncLayersFromImage();
-    updateAllClippingMasks();
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;
@@ -3296,7 +3250,6 @@ void ReverieCore::redo()
     m_undoStore->redo();
     --m_redoCount;
     syncLayersFromImage();
-    updateAllClippingMasks();
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;

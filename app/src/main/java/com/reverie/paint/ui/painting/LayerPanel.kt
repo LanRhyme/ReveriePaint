@@ -584,7 +584,7 @@ private fun LayerListView(
             )
             TopIcon(
                 resId = R.drawable.ic_clip,
-                desc = "设为剪切蒙版",
+                desc = "继承透明度",
                 active = selLayer?.clipped == true,
                 enabled = !isBg,
                 onClick = {
@@ -1102,7 +1102,7 @@ private fun LayerRowContent(
         if (layer.clipped) {
             Icon(
                 painterResource(R.drawable.ic_clip),
-                contentDescription = "剪贴蒙版",
+                contentDescription = "继承透明度",
                 tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
                 modifier = Modifier.size(13.dp),
             )
@@ -1348,7 +1348,7 @@ private fun LayerDetailPage(
                 OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_clip, "设为剪切蒙版", layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
             }
@@ -1370,7 +1370,7 @@ private fun LayerDetailPage(
                 OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
-                OpToggle(R.drawable.ic_clip, "设为剪切蒙版", layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
                 OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
