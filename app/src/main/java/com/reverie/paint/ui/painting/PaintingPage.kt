@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import com.reverie.paint.ui.components.ReSlider
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
@@ -42,10 +43,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.painterResource
@@ -346,9 +343,9 @@ fun PaintingPage(vm: PaintViewModel) {
                             }
                             Spacer(Modifier.width(4.dp))
                             androidx.compose.material3.TextButton(onClick = {
+                                showExitSaveDialog = false
                                 vm.saveProject(vm.docName) {
                                     android.widget.Toast.makeText(context, "工程已保存", android.widget.Toast.LENGTH_SHORT).show()
-                                    showExitSaveDialog = false
                                     vm.goHome()
                                 }
                             }) {
@@ -419,7 +416,7 @@ fun PaintingPage(vm: PaintViewModel) {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        Icons.Default.WarningAmber,
+                                        painterResource(R.drawable.ic_alert_triangle),
                                         contentDescription = null,
                                         tint = Color(0xFFFF5252),
                                         modifier = Modifier.size(22.dp)
@@ -486,7 +483,7 @@ fun PaintingPage(vm: PaintViewModel) {
                                     .height(46.dp)
                             ) {
                                 Icon(
-                                    Icons.Default.DeleteOutline,
+                                    painterResource(R.drawable.ic_trash),
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier.size(18.dp)
@@ -1067,6 +1064,55 @@ fun PaintingPage(vm: PaintViewModel) {
                 },
                 onDismiss = { textDialogPos = null },
             )
+        }
+
+        // Blocking Loading & Saving Modal Overlay (prevents any clicks/interactions)
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.isBlockingLoading,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)) +
+                    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(150), initialScale = 0.94f),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) +
+                    androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(150), targetScale = 0.94f),
+            modifier = Modifier.zIndex(999f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f))
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Morandi.panelHi)
+                        .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 28.dp, vertical = 22.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = Morandi.accent,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = vm.blockingLoadingMessage.ifBlank { "请稍候..." },
+                            color = Morandi.text,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
     }
 }

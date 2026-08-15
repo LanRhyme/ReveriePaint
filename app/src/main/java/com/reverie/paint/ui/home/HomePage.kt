@@ -19,14 +19,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.DriveFileMove
-import androidx.compose.material.icons.automirrored.filled.Launch
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.Brush
-import androidx.compose.material.icons.rounded.Explore
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -49,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.activity.compose.BackHandler
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
@@ -110,6 +103,10 @@ fun HomePage(vm: PaintViewModel) {
 
     var showMoveDialog by remember { mutableStateOf(false) }
     var targetMoveProjects by remember { mutableStateOf<List<Project>>(emptyList()) }
+
+    // Deletion confirmation dialogs (Secondary confirmation)
+    var projectToDelete by remember { mutableStateOf<Project?>(null) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     var showMoreMenu by remember { mutableStateOf(false) }
 
@@ -320,7 +317,11 @@ fun HomePage(vm: PaintViewModel) {
                                     }
                                     .padding(14.dp)
                             ) {
-                                Text("📁 移出到画廊根目录", color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(painterResource(R.drawable.ic_folder_symlink), contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("移出到画廊根目录", color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
 
@@ -346,7 +347,11 @@ fun HomePage(vm: PaintViewModel) {
                                             }
                                             .padding(14.dp)
                                     ) {
-                                        Text("🗂️ $folderName", color = colors.text, fontSize = 13.sp)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(painterResource(R.drawable.ic_folder), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(folderName, color = colors.text, fontSize = 13.sp)
+                                        }
                                     }
                                 }
                             }
@@ -359,6 +364,198 @@ fun HomePage(vm: PaintViewModel) {
                     ) {
                         TextButton(onClick = { showMoveDialog = false }) {
                             Text("取消", color = colors.subText)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Custom Styled Secondary Deletion Confirmation Dialog: Single Project / Collection
+    if (projectToDelete != null) {
+        val target = projectToDelete!!
+        val isFolder = target.isFolder
+        Dialog(
+            onDismissRequest = { projectToDelete = null },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { projectToDelete = null }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.panel)
+                        .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                        .padding(22.dp)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_alert_triangle),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = if (isFolder) "删除画集" else "删除画布",
+                                color = colors.text,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = if (isFolder) {
+                                "确定要删除画集「${target.name}」吗？画集内的所有作品也将被永久删除，此操作无法撤销。"
+                            } else {
+                                "确定要删除作品「${target.name}」吗？文件将被永久删除，此操作无法撤销。"
+                            },
+                            color = colors.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(Modifier.height(22.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { projectToDelete = null }) {
+                                Text("取消", color = colors.subText, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    val item = target
+                                    projectToDelete = null
+                                    vm.deleteProject(item)
+                                    Toast.makeText(context, if (isFolder) "画集已删除" else "作品已删除", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFF5252),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Custom Styled Secondary Deletion Confirmation Dialog: Batch Selected Projects
+    if (showBatchDeleteConfirm && selectedProjects.isNotEmpty()) {
+        val count = selectedProjects.size
+        Dialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { showBatchDeleteConfirm = false }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.panel)
+                        .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                        .padding(22.dp)
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_alert_triangle),
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = "批量删除",
+                                color = colors.text,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = "确定要删除选中的 ${count} 项内容吗？此操作无法撤销。",
+                            color = colors.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(Modifier.height(22.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                                Text("取消", color = colors.subText, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    showBatchDeleteConfirm = false
+                                    selectedProjects.forEach { vm.deleteProject(it) }
+                                    selectedProjects.clear()
+                                    isSelectMode = false
+                                    Toast.makeText(context, "已删除 $count 项内容", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFF5252),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -423,7 +620,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     .padding(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Icon(
-                                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                                    painter = painterResource(R.drawable.ic_arrow_left),
                                                     contentDescription = "返回",
                                                     tint = colors.text,
                                                     modifier = Modifier.size(18.dp)
@@ -488,7 +685,7 @@ fun HomePage(vm: PaintViewModel) {
                                             vm.searchQuery = ""
                                             isSearchActive = false
                                         }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Close", tint = colors.subText, modifier = Modifier.size(18.dp))
+                                            Icon(painterResource(R.drawable.ic_x), contentDescription = "Close", tint = colors.subText, modifier = Modifier.size(18.dp))
                                         }
                                     },
                                     colors = OutlinedTextFieldDefaults.colors(
@@ -533,7 +730,7 @@ fun HomePage(vm: PaintViewModel) {
                                                 .clickable { isSearchActive = true },
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.icon, modifier = Modifier.size(18.dp))
+                                            Icon(painterResource(R.drawable.ic_search), contentDescription = "Search", tint = colors.icon, modifier = Modifier.size(18.dp))
                                         }
 
                                         // More Menu icon button
@@ -545,7 +742,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     .clickable { showMoreMenu = true },
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Icon(Icons.Default.MoreVert, contentDescription = "More", tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                Icon(painterResource(R.drawable.ic_dots_vertical), contentDescription = "More", tint = colors.icon, modifier = Modifier.size(18.dp))
                                             }
 
                                             DropdownMenu(
@@ -561,7 +758,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         selectedProjects.clear()
                                                     },
                                                     leadingIcon = {
-                                                        Icon(Icons.Default.CheckCircleOutline, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                        Icon(painterResource(R.drawable.ic_circle_check), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                     }
                                                 )
                                                 DropdownMenuItem(
@@ -572,7 +769,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         showNewFolderDialog = true
                                                     },
                                                     leadingIcon = {
-                                                        Icon(Icons.Default.CreateNewFolder, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                        Icon(painterResource(R.drawable.ic_folder_plus), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                     }
                                                 )
                                                 DropdownMenuItem(
@@ -582,7 +779,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         vm.refreshProjects()
                                                     },
                                                     leadingIcon = {
-                                                        Icon(Icons.Default.Refresh, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                     }
                                                 )
                                             }
@@ -851,7 +1048,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     verticalArrangement = Arrangement.Center
                                                                 ) {
                                                                     Icon(
-                                                                        Icons.Default.FolderCopy,
+                                                                        painterResource(R.drawable.ic_folders),
                                                                         contentDescription = null,
                                                                         tint = Color(0xFF757575),
                                                                         modifier = Modifier.size(36.dp)
@@ -879,7 +1076,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         ) {
                                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                                 Icon(
-                                                                    Icons.Default.FolderCopy,
+                                                                    painterResource(R.drawable.ic_folders),
                                                                     contentDescription = null,
                                                                     tint = Color.White.copy(alpha = 0.85f),
                                                                     modifier = Modifier.size(11.dp)
@@ -906,7 +1103,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                 contentAlignment = Alignment.Center
                                                             ) {
                                                                 if (isSelected) {
-                                                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                                    Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                                                                 }
                                                             }
                                                         }
@@ -960,7 +1157,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                 contentAlignment = Alignment.Center
                                                             ) {
                                                                 if (isSelected) {
-                                                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                                    Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                                                                 }
                                                             }
                                                         }
@@ -1020,7 +1217,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     }
                                                 },
                                                 leadingIcon = {
-                                                    Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                    Icon(painterResource(R.drawable.ic_external_link), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                 }
                                             )
                                             if (!p.isFolder) {
@@ -1032,7 +1229,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         showMoveDialog = true
                                                     },
                                                     leadingIcon = {
-                                                        Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                        Icon(painterResource(R.drawable.ic_folder_symlink), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                     }
                                                 )
                                             }
@@ -1045,17 +1242,17 @@ fun HomePage(vm: PaintViewModel) {
                                                     showRenameDialog = true
                                                 },
                                                 leadingIcon = {
-                                                    Icon(Icons.Default.Edit, contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
+                                                    Icon(painterResource(R.drawable.ic_pencil), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
                                                 }
                                             )
                                             DropdownMenuItem(
                                                 text = { Text(if (p.isFolder) "删除画集" else "删除作品", color = Color(0xFFFF5252)) },
                                                 onClick = {
                                                     longPressedProject = null
-                                                    vm.deleteProject(p)
+                                                    projectToDelete = p
                                                 },
                                                 leadingIcon = {
-                                                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                                    Icon(painterResource(R.drawable.ic_trash), contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
                                                 }
                                             )
                                         }
@@ -1088,17 +1285,15 @@ fun HomePage(vm: PaintViewModel) {
                                 targetMoveProjects = selectedProjects.toList()
                                 showMoveDialog = true
                             }) {
-                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
+                                Icon(painterResource(R.drawable.ic_folder_symlink), contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("移动 (${selectedProjects.size})", color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                             Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
                             TextButton(onClick = {
-                                selectedProjects.forEach { vm.deleteProject(it) }
-                                selectedProjects.clear()
-                                isSelectMode = false
+                                showBatchDeleteConfirm = true
                             }) {
-                                Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                Icon(painterResource(R.drawable.ic_trash), contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(6.dp))
                                 Text("删除", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
@@ -1150,7 +1345,7 @@ fun HomePage(vm: PaintViewModel) {
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Icon(
-                        Icons.Rounded.Brush,
+                        painter = painterResource(R.drawable.ic_brush),
                         contentDescription = "画廊",
                         tint = if (isGallery) colors.accent else colors.subText,
                         modifier = Modifier.size(20.dp)
@@ -1182,7 +1377,7 @@ fun HomePage(vm: PaintViewModel) {
                         .clickable(interactionSource = createSource, indication = null) { vm.goCreate() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = "新建", tint = colors.onAccent, modifier = Modifier.size(28.dp))
+                    Icon(painterResource(R.drawable.ic_plus), contentDescription = "新建", tint = colors.onAccent, modifier = Modifier.size(28.dp))
                 }
 
                 // Settings Tab Button with Animated Pill Container
@@ -1195,7 +1390,7 @@ fun HomePage(vm: PaintViewModel) {
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     Icon(
-                        Icons.Rounded.Settings,
+                        painter = painterResource(R.drawable.ic_settings),
                         contentDescription = "设置",
                         tint = if (isSettings) colors.accent else colors.subText,
                         modifier = Modifier.size(20.dp)

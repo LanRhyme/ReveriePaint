@@ -28,12 +28,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -308,11 +302,11 @@ fun BrushPanel(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Spacer(Modifier.weight(1f))
-                                Icon(Icons.Default.Add, contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
+                                Icon(painterResource(R.drawable.ic_plus), contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
                                 Spacer(Modifier.width(16.dp))
-                                Icon(Icons.Default.Folder, contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                                Icon(painterResource(R.drawable.ic_folder), contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
                                 Spacer(Modifier.width(16.dp))
-                                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+                                Icon(painterResource(R.drawable.ic_menu), contentDescription = "Menu", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
                             }
                         }
                     }
@@ -565,7 +559,7 @@ fun BrushPropertyPage(
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    androidx.compose.material.icons.Icons.Default.Refresh,
+                    painterResource(R.drawable.ic_refresh),
                     contentDescription = "重置数值",
                     tint = Morandi.accent,
                     modifier = Modifier.size(16.dp),

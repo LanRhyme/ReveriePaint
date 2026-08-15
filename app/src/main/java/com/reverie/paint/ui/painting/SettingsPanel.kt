@@ -25,16 +25,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -262,12 +255,14 @@ private fun CanvasTabPage(
                         }
                         Spacer(Modifier.width(8.dp))
                         androidx.compose.material3.TextButton(onClick = {
-                            if (saveAsName.isNotBlank()) {
-                                vm.saveProject(saveAsName.trim())
-                                android.widget.Toast.makeText(context, "已另存为 ${saveAsName.trim()}.revp", android.widget.Toast.LENGTH_SHORT).show()
-                            }
+                            val name = saveAsName.trim()
                             showSaveAsDialog = false
                             onClose()
+                            if (name.isNotBlank()) {
+                                vm.saveProject(name) {
+                                    android.widget.Toast.makeText(context, "已另存为 $name.revp", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         }) {
                             Text("保存", color = Morandi.accent, fontWeight = FontWeight.Bold)
                         }
@@ -500,7 +495,7 @@ private fun CanvasTabPage(
                                 ) {
                                     Text(lbl, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                     Icon(
-                                        imageVector = androidx.compose.material.icons.Icons.Default.ChevronRight,
+                                        painter = painterResource(R.drawable.ic_chevron),
                                         contentDescription = null,
                                         tint = Morandi.subText,
                                         modifier = Modifier.size(16.dp)
@@ -611,9 +606,10 @@ private fun CanvasTabPage(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             ReMenuItem(R.drawable.ic_save, "保存", {
-                vm.saveProject(vm.docName)
-                android.widget.Toast.makeText(context, "工程已保存 (${vm.docName}.revp)", android.widget.Toast.LENGTH_SHORT).show()
                 onClose()
+                vm.saveProject(vm.docName) {
+                    android.widget.Toast.makeText(context, "工程已保存 (${vm.docName}.revp)", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }, modifier = Modifier.weight(1f))
             ReMenuItem(R.drawable.ic_save_as, "另存为", {
                 saveAsName = vm.docName + "_copy"
@@ -1061,7 +1057,7 @@ private fun SettingNavRow(
     ) {
         Text(title, color = Morandi.text, fontSize = 13.sp)
         Icon(
-            imageVector = Icons.Default.ChevronRight,
+            painter = painterResource(R.drawable.ic_chevron),
             contentDescription = null,
             tint = Morandi.subText,
             modifier = Modifier.size(18.dp)

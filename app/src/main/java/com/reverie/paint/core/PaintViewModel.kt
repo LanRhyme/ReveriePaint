@@ -630,14 +630,21 @@ class PaintViewModel : ViewModel() {
 
     var currentProjectFile by mutableStateOf<String?>(null)
 
+    // Blocking loading overlay state (used during canvas loading, saving, creating)
+    var isBlockingLoading by mutableStateOf(false)
+    var blockingLoadingMessage by mutableStateOf("")
+
     fun saveProject(name: String, onComplete: (() -> Unit)? = null) {
         tickPaintingTimer()
+        isBlockingLoading = true
+        blockingLoadingMessage = "正在保存作品..."
         runCore(
             after = {
                 initialStrokeCount = totalStrokes
                 isModified = false
                 docName = name
                 refreshProjects()
+                isBlockingLoading = false
                 onComplete?.invoke()
             },
         ) {
@@ -667,6 +674,10 @@ class PaintViewModel : ViewModel() {
 
     fun loadProject(p: com.reverie.paint.model.Project) {
         stopPaintingTimer()
+        // Navigate to painting page first, then show loading overlay while reading native file
+        currentPage = Page.PAINTING
+        isBlockingLoading = true
+        blockingLoadingMessage = "正在载入画布..."
         runCore(
             after = {
                 initialStrokeCount = p.strokeCount
@@ -679,7 +690,7 @@ class PaintViewModel : ViewModel() {
                 elapsedSeconds = p.elapsedSeconds
                 canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
                 colorMode = p.colorMode
-                currentPage = Page.PAINTING
+                isBlockingLoading = false
                 startPaintingTimer()
             },
         ) {
@@ -964,6 +975,9 @@ class PaintViewModel : ViewModel() {
         elapsedSeconds = 0L
         canvasCreatedTime = System.currentTimeMillis()
         stopPaintingTimer()
+        currentPage = Page.PAINTING
+        isBlockingLoading = true
+        blockingLoadingMessage = "正在创建画布..."
         runCore(
             after = {
                 initialStrokeCount = 0
@@ -972,7 +986,7 @@ class PaintViewModel : ViewModel() {
                 docWidth = w
                 docHeight = h
                 docName = actualName
-                currentPage = Page.PAINTING
+                isBlockingLoading = false
                 startPaintingTimer()
             },
         ) {

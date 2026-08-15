@@ -2208,7 +2208,7 @@ private fun FilterAdjustPage(
                 }
                 else -> {
                     Text(
-                        text = "此滤镜已实时应用至图层预览，点击右上角 ✓ 确认应用",
+                        text = "此滤镜已实时应用至图层预览，点击右上角应用按钮确认",
                         color = Morandi.subText,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(vertical = 12.dp)

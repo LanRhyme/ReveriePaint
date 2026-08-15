@@ -34,14 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.rounded.Draw
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -159,7 +151,7 @@ private fun SettingsMainPage(
 
         // Native Android settings row: 主题设置
         SettingNavRow(
-            icon = Icons.Rounded.Palette,
+            iconRes = R.drawable.ic_palette,
             title = "主题设置",
             summary = "主色调、面板透明度与全屏沉浸模式",
             onClick = { onNavigate(SettingsSubPage.THEME) }
@@ -171,7 +163,7 @@ private fun SettingsMainPage(
 
         // Native Android settings row: 手写笔设置
         SettingNavRow(
-            icon = Icons.Rounded.Draw,
+            iconRes = R.drawable.ic_pencil,
             title = "手写笔设置",
             summary = "笔模式、光标显示、驻停成形与全局压力曲线",
             onClick = { onNavigate(SettingsSubPage.STYLUS) }
@@ -214,7 +206,7 @@ private fun ThemeSettingsSubPage(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    painter = painterResource(R.drawable.ic_arrow_left),
                     contentDescription = "返回",
                     tint = colors.text,
                     modifier = Modifier.size(22.dp)
@@ -271,7 +263,7 @@ private fun ThemeSettingsSubPage(
                 ) {
                     if (isSelected) {
                         Icon(
-                            imageVector = Icons.Default.Check,
+                            painter = painterResource(R.drawable.ic_check),
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
@@ -300,7 +292,7 @@ private fun ThemeSettingsSubPage(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isCustomSelected) Icons.Default.Check else Icons.Default.Add,
+                        painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
                         contentDescription = "自定义颜色",
                         tint = if (isCustomSelected) Color.White else colors.icon,
                         modifier = Modifier.size(20.dp)
@@ -404,7 +396,7 @@ private fun StylusSettingsSubPage(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    painter = painterResource(R.drawable.ic_arrow_left),
                     contentDescription = "返回",
                     tint = colors.text,
                     modifier = Modifier.size(22.dp)
@@ -570,7 +562,7 @@ private fun StylusSettingsSubPage(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.HelpOutline,
+                        painter = painterResource(R.drawable.ic_help_circle),
                         contentDescription = "帮助",
                         tint = colors.subText,
                         modifier = Modifier.size(20.dp)
@@ -924,7 +916,7 @@ private fun SettingCategoryHeader(title: String) {
 
 @Composable
 private fun SettingNavRow(
-    icon: ImageVector,
+    iconRes: Int,
     title: String,
     summary: String,
     onClick: () -> Unit
@@ -938,7 +930,7 @@ private fun SettingNavRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = icon,
+            painter = painterResource(iconRes),
             contentDescription = null,
             tint = colors.icon,
             modifier = Modifier.size(24.dp)
@@ -959,7 +951,7 @@ private fun SettingNavRow(
             )
         }
         Icon(
-            imageVector = Icons.Default.ChevronRight,
+            painter = painterResource(R.drawable.ic_chevron),
             contentDescription = null,
             tint = colors.subText.copy(alpha = 0.6f),
             modifier = Modifier.size(20.dp)
