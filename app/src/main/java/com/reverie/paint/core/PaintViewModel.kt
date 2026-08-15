@@ -814,13 +814,17 @@ class PaintViewModel : ViewModel() {
      * Must run on the main thread after any C++ layer mutation. */
     internal fun syncLayersFromNative() {
         val n = ReverieCoreBridge.layerCount()
+        // Solo mode is a render-time filter: rows outside the keep set are
+        // shown as hidden (eye off) in the panel while solo is active, but the
+        // underlying layer state is untouched
+        val soloKeep = if (ReverieCoreBridge.soloActive()) ReverieCoreBridge.layerSoloKeep().toSet() else null
         val list = ArrayList<LayerUiState>(n)
         for (i in 0 until n) {
             list.add(
                 LayerUiState(
                     index = i,
                     name = ReverieCoreBridge.layerName(i),
-                    visible = ReverieCoreBridge.layerVisible(i),
+                    visible = if (soloKeep != null) i in soloKeep else ReverieCoreBridge.layerVisible(i),
                     locked = ReverieCoreBridge.layerLocked(i),
                     alphaLocked = ReverieCoreBridge.layerAlphaLocked(i),
                     isGroup = ReverieCoreBridge.layerIsGroup(i),

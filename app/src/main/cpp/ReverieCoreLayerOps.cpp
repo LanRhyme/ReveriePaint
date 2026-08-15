@@ -453,21 +453,13 @@ bool ReverieCore::groupPassThrough(int index) const
     return false;
 }
 
-// Restore every layer to its pre-solo snapshot (visible + opacity + blend +
-// inheritAlpha) - FolioLayers behavior: closing solo mode must leave the
-// document exactly as it was
+// ---- Solo mode (render-filter only) ----
+// Closing solo / switching solo targets never touches any layer state: the
+// document is exactly as it was, so there is nothing to restore
 void ReverieCore::restoreSolo()
 {
-    for (int i = 0; i < m_layers.size(); ++i) {
-        if (i < m_layers[i].soloPrev.size()) {
-            const SoloBackup &b = m_layers[i].soloPrev[i];
-            setLayerVisibleDirect(i, b.visible);
-            setLayerOpacityDirect(i, b.opacity);
-            setLayerBlendDirect(i, b.blendMode);
-            setLayerInheritAlphaDirect(i, b.inheritAlpha);
-        }
-    }
-    m_soloedLayer = -1;
+    m_soloedNode = nullptr;
+    m_soloKeepNodes.clear();
     m_soloRawMode = false;
 }
 
@@ -477,24 +469,74 @@ bool ReverieCore::soloRawMode() const
 }
 
 // Switch the soloed layer between its original look (常规) and the pure-color
-// raw mode (取消所有效果): 100% opacity + Normal blend + no inherited alpha
+// raw mode (取消所有效果): rendered with 100% opacity + Normal blend at
+// composite time - the layer itself is never modified
 void ReverieCore::toggleSoloRawMode()
 {
-    const int idx = m_soloedLayer;
-    if (idx < 0 || idx >= m_layers.size() || idx >= m_layers[idx].soloPrev.size()) {
+    if (m_soloedNode) {
+        m_soloRawMode = !m_soloRawMode;
+    }
+}
+
+int ReverieCore::soloedIndex() const
+{
+    if (!m_soloedNode) {
+        return -1;
+    }
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (m_layers[i].node == m_soloedNode) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Rebuild the keep set (soloed layer + ancestor groups + descendants +
+// background) from the current m_layers, keyed by node so layer ops that
+// rebuild m_layers cannot invalidate it
+void ReverieCore::computeSoloKeep()
+{
+    m_soloKeepNodes.clear();
+    const int idx = soloedIndex();
+    if (idx < 0) {
         return;
     }
-    const SoloBackup &b = m_layers[idx].soloPrev[idx];
-    m_soloRawMode = !m_soloRawMode;
-    if (m_soloRawMode) {
-        setLayerOpacityDirect(idx, 255);
-        setLayerBlendDirect(idx, QStringLiteral("normal"));
-        setLayerInheritAlphaDirect(idx, false);
-    } else {
-        setLayerOpacityDirect(idx, b.opacity);
-        setLayerBlendDirect(idx, b.blendMode);
-        setLayerInheritAlphaDirect(idx, b.inheritAlpha);
+    const int td = m_layers[idx].depth;
+    m_soloKeepNodes.append(m_layers[idx].node);
+    // Keep the background (index 0) visible: on mobile the white canvas is the
+    // background layer, so hiding it turns the canvas into a transparent
+    // checkerboard which reads as a broken render
+    if (!m_layers.isEmpty() && m_layers[0].background) {
+        m_soloKeepNodes.append(m_layers[0].node);
     }
+    // Ancestors: nearest preceding entries with strictly decreasing depth
+    int curDepth = td;
+    for (int i = idx - 1; i >= 0 && curDepth > 0; --i) {
+        if (m_layers[i].depth < curDepth) {
+            m_soloKeepNodes.append(m_layers[i].node);
+            curDepth = m_layers[i].depth;
+        }
+    }
+    // Descendants: contiguous following entries with depth > td
+    for (int i = idx + 1; i < m_layers.size() && m_layers[i].depth > td; ++i) {
+        m_soloKeepNodes.append(m_layers[i].node);
+    }
+}
+
+// Keep set as layer indices (used by the layer panel to gray out the rows
+// that solo mode hides at render time)
+QVector<int> ReverieCore::soloKeepIndices() const
+{
+    QVector<int> out;
+    for (KisNode *n : m_soloKeepNodes) {
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (m_layers[i].node == n) {
+                out.append(i);
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 void ReverieCore::soloLayer(int index)
@@ -502,64 +544,25 @@ void ReverieCore::soloLayer(int index)
     if (index < 0 || index >= m_layers.size()) {
         return;
     }
-    if (index == m_soloedLayer) {
-        // Restore the pre-solo snapshot (FolioLayers behavior)
+    if (m_layers[index].node == m_soloedNode) {
+        // Tapping the soloed layer again closes solo mode
         restoreSolo();
         return;
     }
-    // Solo another layer while one is active: restore the previous solo first
-    if (m_soloedLayer >= 0) {
-        restoreSolo();
-    }
-    // Record the full pre-solo snapshot of every layer (visible, opacity,
-    // blend mode, inheritAlpha), then show only the target plus its ancestor
-    // groups and descendants (FolioLayers behavior: a child inside a group
-    // stays visible only if its parent group is, and soloing a group keeps
-    // the members visible)
-    for (LayerEntry &e : m_layers) {
-        e.soloPrev.clear();
-        SoloBackup b;
-        b.visible = e.visible;
-        if (e.node) {
-            b.opacity = e.node->opacity();
-            b.blendMode = e.node->compositeOpId();
-            if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
-                b.inheritAlpha = l->alphaChannelDisabled();
-            }
-        }
-        e.soloPrev.append(b);
-    }
-    m_soloedLayer = index;
+    // Solo another layer while one is active: switch the target
+    restoreSolo();
+    m_soloedNode = m_layers[index].node;
     m_soloRawMode = false;   // 默认常规：不改变目标层的效果
-
-    const int td = m_layers[index].depth;
-    QVector<int> keep;
-    keep.append(index);
-    // Keep the background (index 0) visible: on mobile the white canvas is the
-    // background layer, so hiding it turns the canvas into a transparent
-    // checkerboard which reads as a broken render
-    if (!m_layers.isEmpty() && m_layers[0].background) {
-        keep.append(0);
-    }
-    // Ancestors: nearest preceding entries with strictly decreasing depth
-    int curDepth = td;
-    for (int i = index - 1; i >= 0 && curDepth > 0; --i) {
-        if (m_layers[i].depth < curDepth) {
-            keep.append(i);
-            curDepth = m_layers[i].depth;
-        }
-    }
-    // Descendants: contiguous following entries with depth > td
-    for (int i = index + 1; i < m_layers.size() && m_layers[i].depth > td; ++i) {
-        keep.append(i);
-    }
-    for (int i = 0; i < m_layers.size(); ++i) {
-        setLayerVisibleDirect(i, keep.contains(i));
-    }
+    computeSoloKeep();
 }
 
 bool ReverieCore::layerSoloed(int index) const
 {
-    return index >= 0 && index == m_soloedLayer;
+    return index >= 0 && index < m_layers.size() && m_layers[index].node == m_soloedNode;
+}
+
+bool ReverieCore::soloActive() const
+{
+    return m_soloedNode != nullptr;
 }
 

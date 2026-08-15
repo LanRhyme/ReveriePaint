@@ -498,6 +498,10 @@ object ReverieCoreBridge {
 
     external fun layerSoloed(index: Int): Boolean
 
+    external fun soloActive(): Boolean
+
+    external fun layerSoloKeep(): IntArray
+
     external fun layerSoloRawMode(): Boolean
 
     external fun toggleLayerSoloRawMode()

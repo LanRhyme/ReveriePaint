@@ -253,6 +253,23 @@ Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloed(JNIEnv *, jobject, jin
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_soloActive(JNIEnv *, jobject)
+{
+    return core()->soloActive();
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloKeep(JNIEnv *env, jobject)
+{
+    const QVector<int> idx = core()->soloKeepIndices();
+    jintArray arr = env->NewIntArray(idx.size());
+    if (arr && !idx.isEmpty()) {
+        env->SetIntArrayRegion(arr, 0, idx.size(), reinterpret_cast<const jint *>(idx.constData()));
+    }
+    return arr;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloRawMode(JNIEnv *, jobject)
 {
     return core()->soloRawMode();

@@ -15,7 +15,18 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
 
     const int iw = image->width();
     const int ih = image->height();
-    KisPaintDeviceSP proj = image->projection();
+
+    // Solo mode is a pure render-time filter: composite only the keep layers
+    // (soloed + ancestors + descendants + background) into a fresh device and
+    // read from that instead of the full projection. No layer state is ever
+    // modified, so closing solo restores the document exactly and solo can
+    // never corrupt the canvas render or the undo stack.
+    KisPaintDeviceSP proj;
+    if (m_soloedNode) {
+        proj = compositeSoloProjection();
+    } else {
+        proj = image->projection();
+    }
     if (!proj) {
         return false;
     }
@@ -329,3 +340,66 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
 }
 
 
+
+// Solo mode: composite ONLY the keep layers (soloed + ancestors + descendants
+// + background) into a fresh device, in document stack order. Pure render-time
+// filter - no layer state (visible/opacity/blend/inheritAlpha) is ever
+// modified, so closing solo restores the document exactly and solo can never
+// corrupt the canvas render or the undo stack.
+KisPaintDeviceSP ReverieCore::compositeSoloProjection()
+{
+    KisImageSP image = m_document;
+    if (!image || !m_soloedNode) {
+        return KisPaintDeviceSP();
+    }
+    // Keep-set group projections must be fresh: mark them dirty (no state
+    // change) and wait for the async recomposite before reading anything
+    for (KisNode *n : m_soloKeepNodes) {
+        for (const LayerEntry &e : m_layers) {
+            if (e.node == n && e.isGroup && e.node) {
+                e.node->setDirty(QRect(0, 0, image->width(), image->height()));
+            }
+        }
+    }
+    image->waitForDone();
+
+    // Resolve keep nodes to indices and composite bottom -> top (index 0 is
+    // the background, so it lands first and fills the transparent base)
+    QVector<int> keepIdx;
+    for (KisNode *n : m_soloKeepNodes) {
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (m_layers[i].node == n) {
+                keepIdx.append(i);
+                break;
+            }
+        }
+    }
+    std::sort(keepIdx.begin(), keepIdx.end());
+
+    KisPaintDeviceSP out(new KisPaintDevice(image->colorSpace()));
+    const QRect full(0, 0, image->width(), image->height());
+    out->fill(full, KoColor(Qt::transparent, image->colorSpace()));
+
+    for (int idx : keepIdx) {
+        const LayerEntry &e = m_layers[idx];
+        if (!e.node) {
+            continue;
+        }
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) {
+            continue;
+        }
+        KisPainter painter(out);
+        if (m_soloRawMode && e.node == m_soloedNode) {
+            // 取消所有效果：纯净原色（100% 不透明 + Normal 混合）
+            painter.setOpacityF(1.0);
+            painter.setCompositeOpId(QStringLiteral("normal"));
+        } else {
+            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+            painter.setCompositeOpId(e.node->compositeOpId());
+        }
+        painter.bitBlt(0, 0, dev, 0, 0, image->width(), image->height());
+        painter.end();
+    }
+    return out;
+}

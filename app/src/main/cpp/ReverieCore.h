@@ -60,12 +60,6 @@ public:
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
     void setLayerVisible(int index, bool visible);
-    // Visibility change without the undo stack (solo mode only)
-    void setLayerVisibleDirect(int index, bool visible);
-    // Solo-mode raw switches (no undo) - see soloLayer()/toggleSoloRawMode()
-    void setLayerOpacityDirect(int index, quint8 o);
-    void setLayerBlendDirect(int index, const QString &opId);
-    void setLayerInheritAlphaDirect(int index, bool on);
     bool layerLocked(int index) const;
     void setLayerLocked(int index, bool locked);
     bool layerAlphaLocked(int index) const;
@@ -97,12 +91,22 @@ public:
     bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
     bool moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove); // move layer relative to target layer in hierarchy
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
-    // layer hides every other layer, tapping the soloed layer again restores
+    // layer hides every other layer, tapping the soloed layer again restores.
+    // Solo mode is PURELY a render-time filter: it never touches the layer
+    // state (visibility/opacity/blend/inheritAlpha stay untouched), so closing
+    // solo restores the document exactly as it was, and solo can never corrupt
+    // the canvas render or the undo stack
     void soloLayer(int index);
     bool layerSoloed(int index) const;
+    bool soloActive() const;
     void restoreSolo();
     bool soloRawMode() const;
     void toggleSoloRawMode();
+    // Keep set as layer indices (layer panel uses it to gray out hidden rows)
+    QVector<int> soloKeepIndices() const;
+    // Render-time filtered composite (solo mode) - returns the composite of
+    // the soloed layer plus its ancestor groups, descendants and background
+    KisPaintDeviceSP compositeSoloProjection();
     int currentLayerIndex() const { return m_currentLayer; }
     // Multi-layer type creation
     enum LayerType {
@@ -390,8 +394,14 @@ private:
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
-    int m_soloedLayer = -1;          // currently soloed layer, -1 if none
+    // ---- Solo mode state (render-filter only, never mutates layers) ----
+    // The soloed node and its keep set are tracked by node pointer, so layer
+    // add/remove/move (which rebuild m_layers) can never invalidate them
+    KisNode *m_soloedNode = nullptr;
+    QVector<KisNode *> m_soloKeepNodes;
     bool m_soloRawMode = false;      // solo raw mode (pure color) on/off
+    int soloedIndex() const;         // current index of m_soloedNode, -1 if gone
+    void computeSoloKeep();          // rebuild m_soloKeepNodes from m_layers
 
     KisTransaction *m_previewTransaction = nullptr;
     KisPaintDeviceSP m_previewTempDevice;

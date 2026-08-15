@@ -208,15 +208,6 @@ void ReverieCore::recompositeProjection()
 
 void ReverieCore::syncLayersFromImage()
 {
-    // Preserve the pre-solo snapshot across a resync (layer ops like
-    // add/remove/move rebuild m_layers; without this the backup is lost and
-    // un-soloing can no longer restore the original state)
-    QHash<KisNode *, QVector<SoloBackup>> oldSoloPrev;
-    for (const LayerEntry &e : m_layers) {
-        if (!e.soloPrev.isEmpty()) {
-            oldSoloPrev.insert(e.node, e.soloPrev);
-        }
-    }
     m_layers.clear();
     KisImageSP image = m_document;
     if (!image) {
@@ -278,16 +269,15 @@ void ReverieCore::syncLayersFromImage()
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.isEmpty() ? 0 : m_layers.size() - 1;
     }
-    // Restore the solo backup onto the freshly built entries (keyed by node,
-    // so layers that were added/removed simply have no backup)
-    for (LayerEntry &e : m_layers) {
-        auto it = oldSoloPrev.constFind(e.node);
-        if (it != oldSoloPrev.constEnd()) {
-            e.soloPrev = it.value();
+    // Solo mode is a node-keyed render filter: if the soloed node was removed
+    // by this resync, close solo; otherwise refresh the keep set so layer
+    // add/remove/move cannot desync the composite
+    if (m_soloedNode) {
+        if (soloedIndex() < 0) {
+            restoreSolo();
+        } else {
+            computeSoloKeep();
         }
-    }
-    if (m_soloedLayer >= m_layers.size()) {
-        m_soloedLayer = -1;
     }
 }
 
