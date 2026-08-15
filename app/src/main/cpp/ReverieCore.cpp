@@ -3487,130 +3487,141 @@ void ReverieCore::redo()
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#endif
+
+// Fast ARM NEON SIMD blitter to convert Krita's native BGRA/ARGB32 projection bytes
+// to Android Bitmap RGBA_8888 byte format with hardware vector acceleration.
+static void blitBgraToRgbaFast(const quint8 *src, int srcStride, quint8 *dst, int dstStride, int width, int height)
+{
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    static const uint8_t swapRBMask[16] = {
+        2, 1, 0, 3,
+        6, 5, 4, 7,
+        10, 9, 8, 11,
+        14, 13, 12, 15
+    };
+    const uint8x16_t mask = vld1q_u8(swapRBMask);
+
+    for (int y = 0; y < height; ++y) {
+        const uint8_t *s = src + y * srcStride;
+        uint8_t *d = dst + y * dstStride;
+        int x = 0;
+        for (; x <= width - 4; x += 4) {
+            uint8x16_t pix = vld1q_u8(s + x * 4);
+            uint8x16_t swp = vqtbl1q_u8(pix, mask);
+            vst1q_u8(d + x * 4, swp);
+        }
+        for (; x < width; ++x) {
+            uint8_t b = s[x * 4 + 0];
+            uint8_t g = s[x * 4 + 1];
+            uint8_t r = s[x * 4 + 2];
+            uint8_t a = s[x * 4 + 3];
+            d[x * 4 + 0] = r;
+            d[x * 4 + 1] = g;
+            d[x * 4 + 2] = b;
+            d[x * 4 + 3] = a;
+        }
+    }
+#else
+    for (int y = 0; y < height; ++y) {
+        const quint8 *s = src + y * srcStride;
+        quint8 *d = dst + y * dstStride;
+        for (int x = 0; x < width; ++x) {
+            quint8 b = s[x * 4 + 0];
+            quint8 g = s[x * 4 + 1];
+            quint8 r = s[x * 4 + 2];
+            quint8 a = s[x * 4 + 3];
+            d[x * 4 + 0] = r;
+            d[x * 4 + 1] = g;
+            d[x * 4 + 2] = b;
+            d[x * 4 + 3] = a;
+        }
+    }
+#endif
+}
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
 {
     KisImageSP image = m_document;
-    if (!image || !buffer) {
+    if (!image || !buffer || w <= 0 || h <= 0) {
         return false;
     }
-    const qint64 tWfd = QDateTime::currentMSecsSinceEpoch();
     image->waitForDone();
-    const qint64 wfdMs = QDateTime::currentMSecsSinceEpoch() - tWfd;
-    const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
-    qint64 convMs = -1;
+
     const int iw = image->width();
     const int ih = image->height();
-    static int s_lastIw = -1;
-    static int s_lastIh = -1;
-    if (iw != s_lastIw || ih != s_lastIh) {
-        RPC_LOG("RPC renderToBuffer doc=%dx%d buf=%dx%d (size changed %dx%d -> %dx%d)",
-                iw, ih, w, h, s_lastIw, s_lastIh, iw, ih);
-        s_lastIw = iw;
-        s_lastIh = ih;
+    KisPaintDeviceSP proj = image->projection();
+    if (!proj) {
+        return false;
     }
-    // The Android bitmap is the VIEWPORT size (kept at the document aspect
-    // ratio), not the full document size. Rendering a 1080x1920 document at
-    // 1:1 made every frame a ~35-60ms full-region convertToQImage (measured
-    // on desktop; ~3x slower on the phone), which large brushes turn into
-    // obvious lag. The dirty document region is composited by Krita, then
-    // downscaled once into the viewport buffer.
+
+    // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
+    if (w == iw && h == ih) {
+        if (!m_bitmapInited || m_dirtyRect.isNull() || m_dirtyRect == QRect(0, 0, iw, ih)) {
+            // Full frame update
+            QByteArray raw;
+            raw.resize(size_t(iw) * ih * 4);
+            proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), 0, 0, iw, ih);
+            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), iw * 4,
+                               buffer, w * 4, iw, ih);
+            m_bitmapInited = true;
+        } else {
+            // Sub-region dirty update with exact pixel boundaries (0 rounding seams/misalignment)
+            const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
+            if (!r.isEmpty()) {
+                QByteArray raw;
+                raw.resize(size_t(r.width()) * r.height() * 4);
+                proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), r.x(), r.y(), r.width(), r.height());
+                quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
+                blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), r.width() * 4,
+                                   dst, w * 4, r.width(), r.height());
+            }
+        }
+        m_dirtyRect = QRect();
+        return true;
+    }
+
+    // Scaled viewport fallback path (if buffer size != document size)
+    const qreal sx = qreal(w) / iw;
+    const qreal sy = qreal(h) / ih;
+
     if (m_displayImage.isNull() || m_displayImage.size() != QSize(w, h)) {
-        // New document (or viewport resize): full redraw
         m_displayImage = QImage(w, h, QImage::Format_RGBA8888);
         m_dirtyRect = QRect(0, 0, iw, ih);
         m_bitmapInited = false;
     }
-    const qreal sx = qreal(w) / iw;
-    const qreal sy = qreal(h) / ih;
 
-    // Re-composite only the dirty region. Krita's projection recomputes
-    // exactly the tiles that changed, so a stroke costs a small convertToQImage
-    // instead of a full-document pass every frame.
-    m_lastDirty = QRect();
     if (!m_dirtyRect.isEmpty()) {
         const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
         if (!r.isEmpty()) {
-            const qint64 tConv = QDateTime::currentMSecsSinceEpoch();
-            QImage comp;
-            {
-                // Fast path: an RGB8 projection readBytes returns plain
-                // R,G,B,A bytes, which can be wrapped directly into an
-                // RGBA8888 QImage - convertToQImage's per-pixel colour
-                // conversion costs ~30-40ms for a big dirty region and is
-                // the real bottleneck (the projection recomposite itself is
-                // <5ms). Fall back to convertToQImage for other colour
-                // spaces (16-bit, CMYK, ...).
-                KisPaintDeviceSP proj = image->projection();
-                const KoColorSpace *pcs = proj->colorSpace();
-                if (pcs && pcs->pixelSize() == 4 && pcs->channels().size() == 4) {
-                    QByteArray raw;
-                    raw.resize(r.width() * r.height() * 4);
-                    proj->readBytes(reinterpret_cast<quint8 *>(raw.data()),
-                                    r.x(), r.y(), r.width(), r.height());
-                    // RGB8 readBytes returns B,G,R,A premultiplied bytes;
-                    // wrap as ARGB32_Premultiplied (same memory layout) and
-                    // let Qt's SIMD convertToFormat do the unpremultiply +
-                    // byte-order fix - far cheaper than Krita's per-pixel
-                    // colour conversion, which was the render bottleneck.
-                    QImage wrapped(reinterpret_cast<uchar *>(raw.data()),
-                                   r.width(), r.height(), r.width() * 4,
-                                   QImage::Format_ARGB32_Premultiplied);
-                    comp = wrapped.copy().convertToFormat(QImage::Format_RGBA8888);
-                } else {
-                    comp = image->convertToQImage(r.x(), r.y(), r.width(), r.height(), nullptr);
-                }
-            }
-            convMs = QDateTime::currentMSecsSinceEpoch() - tConv;
-            if (!comp.isNull()) {
-                const QImage conv = comp.convertToFormat(QImage::Format_RGBA8888);
-                const int vw = qMax(1, qRound(r.width() * sx));
-                const int vh = qMax(1, qRound(r.height() * sy));
-                // Fast downscale for the real-time preview; full resolution is
-                // used for PNG export (savePng) and layer thumbnails.
-                const QImage scaled = (conv.width() != vw || conv.height() != vh)
-                        ? conv.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::FastTransformation)
-                        : conv;
-                const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
-                const QRect clip = vp.intersected(QRect(0, 0, w, h));
-                if (!clip.isEmpty()) {
-                    for (int y = clip.top(); y <= clip.bottom(); ++y) {
-                        memcpy(m_displayImage.scanLine(y) + clip.left() * 4,
-                               scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
-                               size_t(clip.width()) * 4);
-                    }
-                    m_lastDirty = clip;
+            QByteArray raw;
+            raw.resize(size_t(r.width()) * r.height() * 4);
+            proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), r.x(), r.y(), r.width(), r.height());
+            QImage subBgra(r.width(), r.height(), QImage::Format_RGBA8888);
+            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), r.width() * 4,
+                               subBgra.bits(), r.width() * 4, r.width(), r.height());
+
+            const int vw = qMax(1, qRound(r.width() * sx));
+            const int vh = qMax(1, qRound(r.height() * sy));
+            const QImage scaled = (subBgra.width() != vw || subBgra.height() != vh)
+                    ? subBgra.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                    : subBgra;
+            const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
+            const QRect clip = vp.intersected(QRect(0, 0, w, h));
+            if (!clip.isEmpty()) {
+                for (int y = clip.top(); y <= clip.bottom(); ++y) {
+                    memcpy(m_displayImage.scanLine(y) + clip.left() * 4,
+                           scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
+                           size_t(clip.width()) * 4);
                 }
             }
         }
         m_dirtyRect = QRect();
     }
 
-    // No separate stroke preview: strokes paint straight onto the layer, so
-    // the projection recomposite below already reflects them in real time.
-
-    // Copy into the Android bitmap buffer: full on the first render (or a
-    // resize), then only the rows of the region that actually changed.
-    if (!m_bitmapInited) {
-        memcpy(buffer, m_displayImage.constBits(), size_t(w) * h * 4);
-        m_bitmapInited = true;
-    } else if (!m_lastDirty.isEmpty()) {
-        const QRect r = m_lastDirty.intersected(QRect(0, 0, w, h));
-        for (int y = r.top(); y <= r.bottom(); ++y) {
-            memcpy(buffer + size_t(y) * w * 4 + size_t(r.left()) * 4,
-                   m_displayImage.constScanLine(y) + r.left() * 4,
-                   size_t(r.width()) * 4);
-        }
-    }
-    {
-        const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - t0;
-        if (elapsed >= 30) {
-            RPC_LOG("RPC renderSlow %lldms wfd=%lldms conv=%lldms dirty=%dx%d+%d+%d",
-                    elapsed, wfdMs, convMs,
-                    m_lastDirty.width(), m_lastDirty.height(),
-                    m_lastDirty.x(), m_lastDirty.y());
-        }
-    }
+    memcpy(buffer, m_displayImage.constBits(), size_t(w) * h * 4);
     return true;
 }
 

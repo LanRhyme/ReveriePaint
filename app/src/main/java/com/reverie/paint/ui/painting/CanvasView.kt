@@ -75,7 +75,8 @@ fun CanvasView(
     var viewH by remember { mutableStateOf(1) }
     val viewportReported by remember { mutableStateOf(false) }
     val bmp = vm.displayBitmap
-    val imageBitmap = bmp?.asImageBitmap()
+    val rev = vm.displayRevision
+    val imageBitmap = remember(bmp, rev) { bmp?.asImageBitmap() }
     val latestZoom by rememberUpdatedState(zoom)
     val latestRotation by rememberUpdatedState(rotation)
     val latestPanX by rememberUpdatedState(panX)

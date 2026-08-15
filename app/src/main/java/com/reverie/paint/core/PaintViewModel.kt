@@ -5,6 +5,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -462,23 +464,28 @@ class PaintViewModel : ViewModel() {
     private var coreH = 1920
     private var viewResizeSignal = 0
 
-    // Viewport render size: the Android bitmap is rendered at the on-screen
-    // size (document aspect ratio preserved) instead of the full document
-    // resolution. Full-document rendering made large brushes lag because
-    // every frame composited a huge region (35-60ms+ on device).
-    private var renderW = 540
-    private var renderH = 960
+    // High-performance direct native canvas rendering:
+    // Render buffer is kept at full native document resolution (or clamped to GPU texture limit e.g. 4096)
+    // for pixel-perfect 1:1 Krita projection alignment with 0 scaling artifacts.
+    private var renderW = 1080
+    private var renderH = 1920
 
-    /** Report the visible canvas size (device px); recompute the viewport
-     * render size at the document aspect ratio. */
+    var displayRevision by mutableLongStateOf(0L)
+        private set
+
+    /** Report the visible canvas size (device px); keep render buffer at full native resolution */
     fun setRenderViewport(viewW: Int, viewH: Int) {
         if (viewW <= 0 || viewH <= 0) return
-        val scale = minOf(viewW.toFloat() / coreW, viewH.toFloat() / coreH)
+        val maxTex = 4096
+        val scale = if (coreW > maxTex || coreH > maxTex) {
+            minOf(maxTex.toFloat() / coreW, maxTex.toFloat() / coreH)
+        } else 1f
         val nw = maxOf(1, (coreW * scale).toInt())
         val nh = maxOf(1, (coreH * scale).toInt())
         if (nw != renderW || nh != renderH) {
             renderW = nw
             renderH = nh
+            renderBmp = null
             scheduleRender(immediate = true)
         }
     }
@@ -487,18 +494,7 @@ class PaintViewModel : ViewModel() {
     private var renderHandler: Handler? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Rendering buffers. The engine's renderToBuffer does incremental
-    // updates assuming the SAME destination bitmap every frame (full copy on
-    // first use, then only the changed rows) - so a single render buffer is
-    // used on the render thread, and the pixels are copied to an alternating
-    // pair of publish bitmaps on the main thread for Compose to display.
-    // (Alternating destination buffers would leave stale garbage in the
-    // unchanged regions of every other frame.)
     private var renderBmp: Bitmap? = null
-    private var publishA: Bitmap? = null
-    private var publishB: Bitmap? = null
-    private var publishFlip = false
-    private val renderLock = Any()
     private var renderScheduled = false
 
     init {
@@ -570,34 +566,18 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
-        val rb = renderBmp
-        if (rb == null || rb.width != w || rb.height != h) {
-            renderBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        var bmp = renderBmp
+        if (bmp == null || bmp.width != w || bmp.height != h) {
+            bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            renderBmp = bmp
         }
-        val src = renderBmp ?: return
-        val pub: Bitmap
-        synchronized(renderLock) {
-            ReverieCoreBridge.renderToBuffer(src)
-            pub =
-                if (publishFlip) {
-                    if (publishA == null || publishA!!.width != w || publishA!!.height != h) {
-                        publishA = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    }
-                    publishA!!
-                } else {
-                    if (publishB == null || publishB!!.width != w || publishB!!.height != h) {
-                        publishB = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    }
-                    publishB!!
-                }
-            publishFlip = !publishFlip
-            // Clear recycled publish buffer completely to prevent ghosting from stale frames
-            val canvas = android.graphics.Canvas(pub)
-            canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
-            canvas.drawBitmap(src, 0f, 0f, null)
-        }
-        mainHandler.post {
-            displayBitmap = pub
+        val target = renderBmp ?: return
+        val ok = ReverieCoreBridge.renderToBuffer(target)
+        if (ok) {
+            mainHandler.post {
+                displayBitmap = target
+                displayRevision++
+            }
         }
     }
 
@@ -713,6 +693,9 @@ class PaintViewModel : ViewModel() {
                 if (ok) {
                     coreW = ReverieCoreBridge.docWidth()
                     coreH = ReverieCoreBridge.docHeight()
+                    renderW = coreW
+                    renderH = coreH
+                    renderBmp = null
                     syncLayersFromNative()
                     ReverieCoreBridge.setBrushColor(brushColor)
                 }
@@ -996,6 +979,9 @@ class PaintViewModel : ViewModel() {
             if (ReverieCoreBridge.newDocument(w, h)) {
                 coreW = w
                 coreH = h
+                renderW = w
+                renderH = h
+                renderBmp = null
                 syncLayersFromNative()
                 ReverieCoreBridge.setBrushColor(brushColor)
             }
