@@ -1348,6 +1348,9 @@ private fun LayerDetailPage(
                 OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
+                OpToggle(R.drawable.ic_clip, "设为剪切蒙版", layer?.clipped == true, enabled = !isBg) {
+                    vm.setLayerClipped(index, !(layer?.clipped == true))
+                }
             }
         } else {
             // Vertical operation list

@@ -372,8 +372,12 @@ bool ReverieCore::isLayerEditable(int index) const
 
 KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 {
-    KisPaintLayer *pl = e.isGroup ? nullptr : dynamic_cast<KisPaintLayer *>(e.node);
-    return pl ? pl->paintDevice() : KisPaintDeviceSP();
+    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
+        return pl->paintDevice();
+    } else if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
+        return l->projection();
+    }
+    return KisPaintDeviceSP();
 }
 
 
@@ -1223,9 +1227,42 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     m_layers[index].clipped = clipped;
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
         layer->disableAlphaChannel(clipped);
-        recompositeProjection();
-        markDirty();
     }
+    if (clipped) {
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+        KisPaintDeviceSP base;
+        for (int i = index - 1; i >= 0; --i) {
+            if (!m_layers[i].clipped) {
+                base = layerPaintDeviceFor(m_layers[i]);
+                if (base) break;
+            }
+        }
+        if (dev && base) {
+            const QRect ext = dev->exactBounds();
+            if (!ext.isEmpty()) {
+                QImage devImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
+                QImage baseImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
+                dev->readBytes(devImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+                base->readBytes(baseImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+                for (int y = 0; y < devImg.height(); ++y) {
+                    quint8 *d = devImg.scanLine(y);
+                    const quint8 *b = baseImg.constScanLine(y);
+                    for (int x = 0; x < devImg.width(); ++x) {
+                        quint8 *dp = d + x * 4;
+                        const quint8 *bp = b + x * 4;
+                        dp[3] = quint8(int(dp[3]) * int(bp[3]) / 255);
+                        if (bp[3] == 0) {
+                            dp[0] = 0; dp[1] = 0; dp[2] = 0;
+                        }
+                    }
+                }
+                dev->writeBytes(devImg.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
+                dev->setDirty(ext);
+            }
+        }
+    }
+    recompositeProjection();
+    markDirty();
 }
 
 static void flipDevice(KisPaintDeviceSP dev, bool horizontal)
@@ -3127,12 +3164,12 @@ void ReverieCore::commitStrokeToLayer()
     // Clipping mask (self-implemented): keep only the pixels that sit on top
     // of the next paint layer's opaque area. Krita only has inherit-opacity,
     // so we mask the freshly committed stroke region against the base layer.
-    if (cur.clipped && !cur.isGroup) {
+    if (cur.clipped) {
         KisPaintDeviceSP base;
         for (int i = m_currentLayer - 1; i >= 0; --i) {
-            if (!m_layers[i].isGroup) {
+            if (!m_layers[i].clipped) {
                 base = layerPaintDeviceFor(m_layers[i]);
-                break;
+                if (base) break;
             }
         }
         if (base) {
@@ -3147,6 +3184,9 @@ void ReverieCore::commitStrokeToLayer()
                     quint8 *dp = d + x * 4;
                     const quint8 *bp = b + x * 4;
                     dp[3] = quint8(int(dp[3]) * int(bp[3]) / 255);
+                    if (bp[3] == 0) {
+                        dp[0] = 0; dp[1] = 0; dp[2] = 0;
+                    }
                 }
             }
             device->writeBytes(devImg.constBits(), ext.x(), ext.y(),
