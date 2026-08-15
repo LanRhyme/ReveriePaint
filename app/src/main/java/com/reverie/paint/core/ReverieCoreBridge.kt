@@ -352,6 +352,16 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun applyFilter(index: Int, filterId: Int)
 
+    external fun addLayerWithType(name: String, type: Int, fillColor: Int): Boolean
+
+    external fun beginFilterPreview(index: Int)
+
+    external fun applyFilterPreview(index: Int, filterType: Int, p1: Double, p2: Double, p3: Double, p4: Double)
+
+    external fun commitFilter(index: Int, filterName: String)
+
+    external fun cancelFilter(index: Int)
+
     external fun selectionFromLayer(index: Int): Boolean
 
     external fun hasSelection(): Boolean

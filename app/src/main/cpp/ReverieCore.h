@@ -93,9 +93,24 @@ public:
     void soloLayer(int index);
     bool layerSoloed(int index) const;
     int currentLayerIndex() const { return m_currentLayer; }
-    // Filters (self-implemented pixel ops; Krita's filter plugins are not
-    // built into the Android core). 0=grayscale 1=invert 2=blur 3=sharpen
+    // Multi-layer type creation
+    enum LayerType {
+        LayerTypePaint = 0,
+        LayerTypeGroup = 1,
+        LayerTypeFill = 2,
+        LayerTypeAdjustment = 3,
+        LayerTypeVector = 4,
+        LayerTypeMask = 5
+    };
+    bool addLayerWithType(const QString &name, int type, quint32 fillColor = 0xFFFFFFFF);
+
+    // Filters (interactive preview & commit)
     void applyFilter(int index, int filterId);
+    void beginFilterPreview(int index);
+    void applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4);
+    void commitFilter(int index, const QString &filterName);
+    void cancelFilter(int index);
+
     // Selection: build a pixel selection from the layer's alpha channel and
     // constrain painting to it (KisSelection, Krita mechanism)
     bool selectionFromLayer(int index);
@@ -432,6 +447,11 @@ private:
     // cancel - taps and no-paint strokes never create an undo command.
     KisTransaction *m_strokeTxn = nullptr;
     bool m_strokeTxnActive = false;
+    // Filter backup device for non-destructive live preview
+    KisPaintDeviceSP m_filterBackupDevice;
+    int m_filterBackupIndex = -1;
+    QRect m_filterBackupExt;
+
     // Wrap a command push through the image's undo adapter and clear redo
     void pushUndoCommand(KUndo2Command *cmd);
 

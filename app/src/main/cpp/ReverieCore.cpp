@@ -836,6 +836,65 @@ int ReverieCore::addGroupLayer(const QString &name)
     return m_currentLayer;
 }
 
+bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillColor)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return false;
+    }
+    const int count = m_layers.size();
+    QString finalName = name;
+    if (finalName.isEmpty()) {
+        switch (type) {
+        case LayerTypePaint: finalName = QString("颜料图层 %1").arg(count); break;
+        case LayerTypeGroup: finalName = QString("图层组 %1").arg(count); break;
+        case LayerTypeFill: finalName = QString("填充图层 %1").arg(count); break;
+        case LayerTypeAdjustment: finalName = QString("调整图层 %1").arg(count); break;
+        case LayerTypeVector: finalName = QString("矢量图层 %1").arg(count); break;
+        case LayerTypeMask: finalName = QString("透明度蒙版 %1").arg(count); break;
+        default: finalName = QString("图层 %1").arg(count); break;
+        }
+    }
+
+    KisNodeSP above;
+    KisNodeSP parent;
+    currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+
+    KisNodeSP newNode;
+    if (type == LayerTypeGroup) {
+        newNode = new KisGroupLayer(image, finalName, 255, image->colorSpace());
+    } else {
+        const KoColorSpace *cs = image->colorSpace();
+        KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
+        if (type == LayerTypeFill) {
+            QColor qc = QColor::fromRgba(fillColor);
+            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
+            paintLayer->original()->setDirty();
+        } else if (type == LayerTypeAdjustment) {
+            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
+            paintLayer->setCompositeOpId(QStringLiteral("overlay"));
+        } else if (type == LayerTypeMask) {
+            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
+        } else {
+            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
+        }
+        newNode = paintLayer;
+    }
+
+    pushUndoCommand(new KisImageLayerAddCommand(image, newNode, parent, above));
+    recompositeProjection();
+    syncLayersFromImage();
+    const int idx = indexOfNode(newNode.data());
+    if (idx >= 0) {
+        m_currentLayer = idx;
+        if (type == LayerTypeMask) {
+            m_layers[idx].clipped = true;
+        }
+    }
+    markDirty();
+    return true;
+}
+
 int ReverieCore::copyLayer(int index)
 {
     if (index <= 0 || index >= m_layers.size()) {
@@ -1230,7 +1289,7 @@ bool ReverieCore::mergeDown(int index)
     while (ti > 0 && m_layers[ti].isGroup) {
         --ti;
     }
-    if (ti < 0 || m_layers[ti].isGroup || m_layers[ti].locked || m_layers[ti].background) {
+    if (ti < 0 || m_layers[ti].isGroup || m_layers[ti].locked) {
         return false;
     }
     KisImageSP image = m_document;
@@ -1547,6 +1606,327 @@ void ReverieCore::applyFilter(int index, int filterId)
         txn.commit(m_document->undoAdapter());
         m_redoCount = 0;
     }
+}
+
+void ReverieCore::beginFilterPreview(int index)
+{
+    if (!isLayerEditable(index)) return;
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) return;
+    m_filterBackupIndex = index;
+    m_filterBackupExt = dev->exactBounds();
+    if (m_filterBackupExt.isEmpty()) {
+        m_filterBackupExt = QRect(0, 0, m_docWidth, m_docHeight);
+    }
+    m_filterBackupDevice = new KisPaintDevice(dev->colorSpace());
+    KisPainter::copyAreaOptimized(QPoint(0, 0), dev, m_filterBackupDevice, QRect(0, 0, m_docWidth, m_docHeight));
+}
+
+void ReverieCore::applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4)
+{
+    if (!isLayerEditable(index)) return;
+    if (!m_filterBackupDevice || m_filterBackupIndex != index) {
+        beginFilterPreview(index);
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev || !m_filterBackupDevice) return;
+
+    const int w = m_docWidth;
+    const int h = m_docHeight;
+    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
+
+    switch (filterType) {
+    case 0: { // HSBC: Hue (-180..180), Sat (0..2), Bright (0..2), Contrast (0..2)
+        const double hShift = p1;
+        const double sScale = qMax(0.0, p2);
+        const double vScale = qMax(0.0, p3);
+        const double cScale = qMax(0.0, p4);
+
+        for (int y = 0; y < h; ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *px = line + x * 4;
+                if (px[3] == 0) continue; // Skip transparent
+                int r = px[2], g = px[1], b = px[0];
+                QColor col(r, g, b);
+                float qh = 0.0f, qs = 0.0f, qv = 0.0f;
+                col.getHsvF(&qh, &qs, &qv);
+                if (qh >= 0.0f) {
+                    qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
+                } else if (hShift != 0.0) {
+                    qh = fmodf(float(hShift) / 360.0f + 1.0f, 1.0f);
+                }
+                qs = qBound(0.0f, qs * float(sScale), 1.0f);
+                qv = qBound(0.0f, qv * float(vScale), 1.0f);
+                col.setHsvF(qh, qs, qv);
+                r = col.red(); g = col.green(); b = col.blue();
+                if (cScale != 1.0) {
+                    r = qBound(0, int((r - 128) * cScale + 128), 255);
+                    g = qBound(0, int((g - 128) * cScale + 128), 255);
+                    b = qBound(0, int((b - 128) * cScale + 128), 255);
+                }
+                px[2] = quint8(r); px[1] = quint8(g); px[0] = quint8(b);
+            }
+        }
+        break;
+    }
+    case 1: { // Color Balance: Cyan-Red (-100..100), Magenta-Green (-100..100), Yellow-Blue (-100..100)
+        const int cr = int(p1 * 1.28);
+        const int mg = int(p2 * 1.28);
+        const int yb = int(p3 * 1.28);
+        for (int y = 0; y < h; ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *px = line + x * 4;
+                if (px[3] == 0) continue;
+                px[2] = quint8(qBound(0, px[2] + cr, 255));
+                px[1] = quint8(qBound(0, px[1] + mg, 255));
+                px[0] = quint8(qBound(0, px[0] + yb, 255));
+            }
+        }
+        break;
+    }
+    case 2: { // Gaussian / Box Blur: radius (1..50)
+        const int rad = qBound(1, int(p1), 50);
+        QImage tmp = img;
+        const int step = (rad > 8) ? 2 : 1;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int r = 0, g = 0, b = 0, a = 0, count = 0;
+                for (int dx = -rad; dx <= rad; dx += step) {
+                    int nx = qBound(0, x + dx, w - 1);
+                    const quint8 *p = tmp.constScanLine(y) + nx * 4;
+                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
+                    count++;
+                }
+                quint8 *dst = img.scanLine(y) + x * 4;
+                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
+            }
+        }
+        tmp = img;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int r = 0, g = 0, b = 0, a = 0, count = 0;
+                for (int dy = -rad; dy <= rad; dy += step) {
+                    int ny = qBound(0, y + dy, h - 1);
+                    const quint8 *p = tmp.constScanLine(ny) + x * 4;
+                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
+                    count++;
+                }
+                quint8 *dst = img.scanLine(y) + x * 4;
+                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
+            }
+        }
+        break;
+    }
+    case 3: { // Motion Blur: angle (0..360), distance (1..50)
+        const double angleRad = p1 * M_PI / 180.0;
+        const int dist = qBound(1, int(p2), 50);
+        const double dx = cos(angleRad), dy = sin(angleRad);
+        QImage tmp = img;
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                int r = 0, g = 0, b = 0, a = 0, count = 0;
+                for (int s = -dist; s <= dist; ++s) {
+                    int nx = qBound(0, int(x + s * dx + 0.5), w - 1);
+                    int ny = qBound(0, int(y + s * dy + 0.5), h - 1);
+                    const quint8 *p = tmp.constScanLine(ny) + nx * 4;
+                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
+                    count++;
+                }
+                quint8 *dst = img.scanLine(y) + x * 4;
+                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
+            }
+        }
+        break;
+    }
+    case 4: { // Sharpen: strength (0.1..3.0)
+        const double strength = qBound(0.1, p1, 3.0);
+        QImage tmp = img;
+        for (int y = 0; y < h; ++y) {
+            quint8 *dst = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                int r = 0, g = 0, b = 0;
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int nx = qBound(0, x + dx, w - 1);
+                        int ny = qBound(0, y + dy, h - 1);
+                        const quint8 *p = tmp.constScanLine(ny) + nx * 4;
+                        double k = (dx == 0 && dy == 0) ? (1.0 + 4.0 * strength) : (-strength);
+                        r += int(k * p[2]); g += int(k * p[1]); b += int(k * p[0]);
+                    }
+                }
+                quint8 *px = dst + x * 4;
+                px[2] = quint8(qBound(0, r, 255));
+                px[1] = quint8(qBound(0, g, 255));
+                px[0] = quint8(qBound(0, b, 255));
+            }
+        }
+        break;
+    }
+    case 5: { // Mosaic / Pixelate: blockSize (2..64)
+        const int bs = qBound(2, int(p1), 64);
+        for (int by = 0; by < h; by += bs) {
+            for (int bx = 0; bx < w; bx += bs) {
+                int r = 0, g = 0, b = 0, a = 0, count = 0;
+                for (int dy = 0; dy < bs && by + dy < h; ++dy) {
+                    for (int dx = 0; dx < bs && bx + dx < w; ++dx) {
+                        const quint8 *p = img.constScanLine(by + dy) + (bx + dx) * 4;
+                        r += p[2]; g += p[1]; b += p[0]; a += p[3];
+                        count++;
+                    }
+                }
+                if (count == 0) continue;
+                quint8 ar = r / count, ag = g / count, ab = b / count, aa = a / count;
+                for (int dy = 0; dy < bs && by + dy < h; ++dy) {
+                    quint8 *line = img.scanLine(by + dy);
+                    for (int dx = 0; dx < bs && bx + dx < w; ++dx) {
+                        quint8 *px = line + (bx + dx) * 4;
+                        px[2] = ar; px[1] = ag; px[0] = ab; px[3] = aa;
+                    }
+                }
+            }
+        }
+        break;
+    }
+    case 6: { // Invert
+        for (int y = 0; y < h; ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *px = line + x * 4;
+                px[2] = 255 - px[2]; px[1] = 255 - px[1]; px[0] = 255 - px[0];
+            }
+        }
+        break;
+    }
+    case 7: { // Luminance to Alpha (Lineart Extraction / 亮度转透明度)
+        for (int y = 0; y < h; ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *px = line + x * 4;
+                int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
+                int newAlpha = ((255 - lum) * px[3]) / 255;
+                px[3] = quint8(qBound(0, newAlpha, 255));
+                px[2] = 0; px[1] = 0; px[0] = 0; // Pure black lineart
+            }
+        }
+        break;
+    }
+    case 8: { // Find Edges (Sobel)
+        QImage tmp = img;
+        for (int y = 1; y < h - 1; ++y) {
+            quint8 *dst = img.scanLine(y);
+            for (int x = 1; x < w - 1; ++x) {
+                int gx = 0, gy = 0;
+                const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
+                const int ky[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
+                for (int dy = -1; dy <= 1; ++dy) {
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const quint8 *p = tmp.constScanLine(y + dy) + (x + dx) * 4;
+                        int val = (p[2] + p[1] + p[0]) / 3;
+                        gx += val * kx[dy + 1][dx + 1];
+                        gy += val * ky[dy + 1][dx + 1];
+                    }
+                }
+                int mag = qBound(0, int(sqrt(gx * gx + gy * gy)), 255);
+                quint8 *px = dst + x * 4;
+                px[2] = mag; px[1] = mag; px[0] = mag;
+            }
+        }
+        break;
+    }
+    case 9: { // Emboss / 浮雕
+        QImage tmp = img;
+        for (int y = 1; y < h - 1; ++y) {
+            quint8 *dst = img.scanLine(y);
+            for (int x = 1; x < w - 1; ++x) {
+                const quint8 *p1 = tmp.constScanLine(y - 1) + (x - 1) * 4;
+                const quint8 *p2 = tmp.constScanLine(y + 1) + (x + 1) * 4;
+                int diff = ((p1[2] + p1[1] + p1[0]) - (p2[2] + p2[1] + p2[0])) / 3 + 128;
+                int v = qBound(0, diff, 255);
+                quint8 *px = dst + x * 4;
+                px[2] = v; px[1] = v; px[0] = v;
+            }
+        }
+        break;
+    }
+    case 10: { // Noise / 杂色
+        const int amt = qBound(1, int(p1), 100);
+        for (int y = 0; y < h; ++y) {
+            quint8 *line = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *px = line + x * 4;
+                if (px[3] == 0) continue;
+                int noise = (rand() % (amt * 2 + 1)) - amt;
+                px[2] = quint8(qBound(0, px[2] + noise, 255));
+                px[1] = quint8(qBound(0, px[1] + noise, 255));
+                px[0] = quint8(qBound(0, px[0] + noise, 255));
+            }
+        }
+        break;
+    }
+    case 11: { // Glitch / 色散错位
+        const int offset = qBound(1, int(p1), 40);
+        QImage tmp = img;
+        for (int y = 0; y < h; ++y) {
+            quint8 *dst = img.scanLine(y);
+            for (int x = 0; x < w; ++x) {
+                int rx = qBound(0, x + offset, w - 1);
+                int bx = qBound(0, x - offset, w - 1);
+                const quint8 *pr = tmp.constScanLine(y) + rx * 4;
+                const quint8 *pb = tmp.constScanLine(y) + bx * 4;
+                quint8 *px = dst + x * 4;
+                px[2] = pr[2]; // Red
+                px[0] = pb[0]; // Blue
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
+    dev->writeBytes(img.constBits(), 0, 0, w, h);
+    dev->setDirty(QRect(0, 0, w, h));
+    recompositeProjection();
+    markDirty();
+}
+
+void ReverieCore::commitFilter(int index, const QString &filterName)
+{
+    if (!isLayerEditable(index) || !m_filterBackupDevice) {
+        m_filterBackupDevice = nullptr;
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        m_filterBackupDevice = nullptr;
+        return;
+    }
+    if (m_document) {
+        KisTransaction txn(kundo2_i18n(filterName.toUtf8().constData()), dev);
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
+    m_filterBackupDevice = nullptr;
+    m_filterBackupIndex = -1;
+    markDirty();
+}
+
+void ReverieCore::cancelFilter(int index)
+{
+    if (index >= 0 && index < m_layers.size() && m_filterBackupDevice && m_filterBackupIndex == index) {
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+        if (dev) {
+            KisPainter::copyAreaOptimized(QPoint(0, 0), m_filterBackupDevice, dev, QRect(0, 0, m_docWidth, m_docHeight));
+            dev->setDirty(QRect(0, 0, m_docWidth, m_docHeight));
+            recompositeProjection();
+            markDirty();
+        }
+    }
+    m_filterBackupDevice = nullptr;
+    m_filterBackupIndex = -1;
 }
 
 bool ReverieCore::selectionFromLayer(int index)

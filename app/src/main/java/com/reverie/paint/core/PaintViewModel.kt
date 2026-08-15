@@ -2410,6 +2410,41 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun addLayerWithType(name: String = "", type: Int = 0, fillColor: Int = 0xFFFFFFFF.toInt()) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+        }
+    }
+
+    fun beginFilterPreview(index: Int) {
+        runCore(render = false) {
+            ReverieCoreBridge.beginFilterPreview(index)
+        }
+    }
+
+    fun applyFilterPreview(index: Int, filterType: Int, p1: Double = 0.0, p2: Double = 0.0, p3: Double = 0.0, p4: Double = 0.0) {
+        runCore(after = {
+            scheduleRender(immediate = true)
+        }) {
+            ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
+        }
+    }
+
+    fun commitFilter(index: Int, filterName: String) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.commitFilter(index, filterName)
+        }
+    }
+
+    fun cancelFilter(index: Int) {
+        runCore(after = {
+            scheduleRender(immediate = true)
+            notifyLayerChanged()
+        }) {
+            ReverieCoreBridge.cancelFilter(index)
+        }
+    }
+
     fun recompositeProjection() {
         runCore(after = ::notifyLayerChanged) {
             // runCore triggers rendering and syncs projection

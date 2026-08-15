@@ -919,6 +919,48 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyFilter(JNIEnv *, jobject, jin
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_addLayerWithType(JNIEnv *env, jobject, jstring name, jint type, jint fillColor)
+{
+    QString n;
+    if (name) {
+        const char *c = env->GetStringUTFChars(name, nullptr);
+        n = QString::fromUtf8(c);
+        env->ReleaseStringUTFChars(name, c);
+    }
+    return core()->addLayerWithType(n, type, (quint32)fillColor);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_beginFilterPreview(JNIEnv *, jobject, jint index)
+{
+    core()->beginFilterPreview(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyFilterPreview(JNIEnv *, jobject, jint index, jint filterType, jdouble p1, jdouble p2, jdouble p3, jdouble p4)
+{
+    core()->applyFilterPreview(index, filterType, p1, p2, p3, p4);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_commitFilter(JNIEnv *env, jobject, jint index, jstring filterName)
+{
+    QString fn = QStringLiteral("Filter");
+    if (filterName) {
+        const char *c = env->GetStringUTFChars(filterName, nullptr);
+        fn = QString::fromUtf8(c);
+        env->ReleaseStringUTFChars(filterName, c);
+    }
+    core()->commitFilter(index, fn);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_cancelFilter(JNIEnv *, jobject, jint index)
+{
+    core()->cancelFilter(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_selectionFromLayer(JNIEnv *, jobject, jint index)
 {
     return core()->selectionFromLayer(index);

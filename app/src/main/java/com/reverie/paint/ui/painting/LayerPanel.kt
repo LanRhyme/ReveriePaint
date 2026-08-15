@@ -39,6 +39,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import java.util.Locale
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -117,6 +122,12 @@ private sealed interface LayerView {
 
     data class Filters(
         val index: Int,
+    ) : LayerView
+
+    data class FilterAdjust(
+        val index: Int,
+        val filterId: Int,
+        val filterName: String,
     ) : LayerView
 }
 
@@ -234,6 +245,20 @@ fun LayerPanel(
                             vm = vm,
                             index = v.index,
                             onBack = { view = LayerView.Detail(v.index) },
+                            onSelectFilter = { filterId, filterName ->
+                                view = LayerView.FilterAdjust(v.index, filterId, filterName)
+                            }
+                        )
+                    }
+
+                    is LayerView.FilterAdjust -> {
+                        FilterAdjustPage(
+                            vm = vm,
+                            index = v.index,
+                            filterId = v.filterId,
+                            filterName = v.filterName,
+                            onBack = { view = LayerView.Filters(v.index) },
+                            onDone = { view = LayerView.List }
                         )
                     }
                 }
@@ -463,28 +488,139 @@ private fun LayerListView(
         dragOver = null
     }
 
+    var showNewLayerMenu by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
-        // Top actions: + new layer | folder group | lock alpha | merge down | selection grid
+        val selLayer = vm.layers.getOrNull(selectedIndex)
+        val isBg = selLayer?.isBackground ?: true
+
+        // Top actions: + new layer | folder group | lock layer | lock alpha | multiply | merge down | select
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TopIcon(R.drawable.ic_plus, "新建图层") { vm.addLayer() }
-            Spacer(Modifier.weight(1f))
-            TopIcon(R.drawable.ic_folder, "添加图层组") { vm.addGroupLayer() }
-            TopIcon(R.drawable.ic_lock, "锁定透明度") {
-                if (selectedIndex >= 0) vm.setLayerAlphaLocked(selectedIndex, !vm.layers.getOrNull(selectedIndex)?.alphaLocked.orFalse())
+            Box {
+                TopIcon(R.drawable.ic_plus, "新建图层") {
+                    showNewLayerMenu = true
+                }
+                DropdownMenu(
+                    expanded = showNewLayerMenu,
+                    onDismissRequest = { showNewLayerMenu = false },
+                    modifier = Modifier.background(Morandi.panel).border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("颜料图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_brush), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 0)
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("图层组", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_folder), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 1)
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("填充图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_fill), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 2, vm.brushColor.toInt())
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("调整图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_sliders), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 3)
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("矢量图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_polyline), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 4)
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("透明度蒙版", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_clip), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.addLayerWithType("", 5)
+                            showNewLayerMenu = false
+                        }
+                    )
+                }
             }
-            TopIcon(R.drawable.ic_merge_down, "向下合并") {
-                if (selectedIndex >= 0) vm.mergeDown(selectedIndex)
-            }
-            TopIcon(R.drawable.ic_grid, "创建选区") {
-                if (selectedIndex >= 0) vm.selectionFromLayer(selectedIndex)
-            }
+
+            TopIcon(
+                resId = R.drawable.ic_folder,
+                desc = "新建图层组",
+                onClick = { vm.addGroupLayer() }
+            )
+            TopIcon(
+                resId = R.drawable.ic_lock,
+                desc = "锁定图层",
+                active = selLayer?.locked == true,
+                enabled = !isBg,
+                onClick = {
+                    if (selectedIndex >= 0 && !isBg) {
+                        vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
+                    }
+                }
+            )
+            TopIcon(
+                resId = R.drawable.ic_grid,
+                desc = "锁定透明度",
+                active = selLayer?.alphaLocked == true,
+                enabled = !isBg,
+                onClick = {
+                    if (selectedIndex >= 0 && !isBg) {
+                        vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
+                    }
+                }
+            )
+            TopIcon(
+                resId = R.drawable.ic_layerstack,
+                desc = "设为正片叠底",
+                active = selLayer?.blendMode == "multiply",
+                enabled = !isBg,
+                onClick = {
+                    if (selectedIndex >= 0 && !isBg) {
+                        val nextMode = if (selLayer?.blendMode == "multiply") "normal" else "multiply"
+                        vm.setLayerBlendMode(selectedIndex, nextMode)
+                    }
+                }
+            )
+            TopIcon(
+                resId = R.drawable.ic_merge_down,
+                desc = "向下合并",
+                enabled = selectedIndex > 0 && !isBg,
+                onClick = {
+                    if (selectedIndex > 0 && !isBg) {
+                        vm.mergeDown(selectedIndex)
+                    }
+                }
+            )
+            TopIcon(
+                resId = R.drawable.ic_select,
+                desc = "创建选区",
+                onClick = {
+                    if (selectedIndex >= 0) {
+                        vm.selectionFromLayer(selectedIndex)
+                    }
+                }
+            )
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
@@ -641,21 +777,31 @@ private fun LayerListView(
 private fun TopIcon(
     resId: Int,
     desc: String,
+    active: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(
         modifier =
             Modifier
-                .size(34.dp)
+                .size(32.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .noRippleClickable(onClick),
+                .background(if (active) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
+                .border(
+                    width = if (active) 1.dp else 0.dp,
+                    color = if (active) Morandi.accent else Color.Transparent,
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .noRippleClickable { if (enabled) onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             painterResource(resId),
             contentDescription = desc,
-            tint = Morandi.icon,
-            modifier = Modifier.size(19.dp),
+            tint = if (!enabled) Morandi.subText.copy(alpha = 0.35f)
+                   else if (active) Morandi.accent
+                   else Morandi.icon,
+            modifier = Modifier.size(17.dp),
         )
     }
 }
@@ -1267,18 +1413,15 @@ private fun OpItem(
         Icon(
             painterResource(resId),
             contentDescription = null,
-            tint = if (enabled) Morandi.icon else Morandi.subText.copy(alpha = 0.4f),
+            tint = if (enabled) Morandi.icon else Morandi.subText.copy(alpha = 0.35f),
             modifier = Modifier.size(17.dp),
         )
         Text(
             text,
-            color = if (enabled) Morandi.text else Morandi.subText.copy(alpha = 0.5f),
+            color = if (enabled) Morandi.text else Morandi.subText.copy(alpha = 0.45f),
             fontSize = 13.sp,
         )
         Spacer(Modifier.weight(1f))
-        if (!enabled) {
-            Text("未实现", color = Morandi.subText.copy(alpha = 0.4f), fontSize = 10.sp)
-        }
     }
 }
 
@@ -1412,15 +1555,40 @@ private fun BlendModesPage(
 }
 
 // ---------------------------------------------------------------------------
-// Filters sub page
+// Filters sub page (HuaShijie Pro style list matching user screenshot)
 // ---------------------------------------------------------------------------
+
+data class FilterItemDef(
+    val id: Int,
+    val name: String,
+    val hasSliders: Boolean
+)
 
 @Composable
 private fun FiltersPage(
     vm: PaintViewModel,
     index: Int,
     onBack: () -> Unit,
+    onSelectFilter: (Int, String) -> Unit,
 ) {
+    val filters = remember {
+        listOf(
+            FilterItemDef(0, "色相/饱和度/明度/对比度", true),
+            FilterItemDef(1, "色彩平衡", true),
+            FilterItemDef(2, "高斯模糊", true),
+            FilterItemDef(3, "动感模糊", true),
+            FilterItemDef(4, "锐化", true),
+            FilterItemDef(5, "马赛克", true),
+            FilterItemDef(6, "反相", false),
+            FilterItemDef(7, "亮度转透明度", false),
+            FilterItemDef(8, "查找边缘", false),
+            FilterItemDef(9, "浮雕", false),
+            FilterItemDef(10, "杂色", true),
+            FilterItemDef(11, "色散", true),
+            FilterItemDef(12, "灰度", false),
+        )
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
@@ -1445,26 +1613,398 @@ private fun FiltersPage(
             Text("滤镜", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-        Column {
-            listOf(
-                "灰度" to 0,
-                "反色" to 1,
-                "模糊" to 2,
-                "锐化" to 3,
-            ).forEach { (name, id) ->
+        Column(
+            modifier = Modifier
+                .heightIn(max = 500.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            filters.forEach { item ->
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .noRippleClickable {
-                                vm.applyFilter(index, id)
-                                onBack()
+                                onSelectFilter(item.id, item.name)
                             }.padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(name, color = Morandi.text, fontSize = 13.sp)
+                    Text(item.name, color = Morandi.text, fontSize = 13.sp)
+                    Icon(
+                        painterResource(R.drawable.ic_chevron),
+                        contentDescription = null,
+                        tint = Morandi.subText.copy(alpha = 0.5f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+                Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Filter Adjust Page (HuaShijie Pro slider controls matching user screenshot)
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun FilterAdjustPage(
+    vm: PaintViewModel,
+    index: Int,
+    filterId: Int,
+    filterName: String,
+    onBack: () -> Unit,
+    onDone: () -> Unit,
+) {
+    var isPreview by remember { mutableStateOf(true) }
+
+    // Filter params
+    var hue by remember { mutableFloatStateOf(0f) }
+    var sat by remember { mutableFloatStateOf(1f) }
+    var bright by remember { mutableFloatStateOf(1f) }
+    var contrast by remember { mutableFloatStateOf(1f) }
+
+    var cr by remember { mutableFloatStateOf(0f) }
+    var mg by remember { mutableFloatStateOf(0f) }
+    var yb by remember { mutableFloatStateOf(0f) }
+
+    var blurRadius by remember { mutableFloatStateOf(8f) }
+    var motionAngle by remember { mutableFloatStateOf(0f) }
+    var motionDist by remember { mutableFloatStateOf(12f) }
+    var sharpenAmt by remember { mutableFloatStateOf(1.0f) }
+    var mosaicSize by remember { mutableFloatStateOf(10f) }
+    var noiseAmt by remember { mutableFloatStateOf(20f) }
+    var glitchOffset by remember { mutableFloatStateOf(8f) }
+
+    fun sendPreview() {
+        if (!isPreview) return
+        when (filterId) {
+            0 -> vm.applyFilterPreview(index, 0, hue.toDouble(), sat.toDouble(), bright.toDouble(), contrast.toDouble())
+            1 -> vm.applyFilterPreview(index, 1, cr.toDouble(), mg.toDouble(), yb.toDouble(), 0.0)
+            2 -> vm.applyFilterPreview(index, 2, blurRadius.toDouble(), 0.0, 0.0, 0.0)
+            3 -> vm.applyFilterPreview(index, 3, motionAngle.toDouble(), motionDist.toDouble(), 0.0, 0.0)
+            4 -> vm.applyFilterPreview(index, 4, sharpenAmt.toDouble(), 0.0, 0.0, 0.0)
+            5 -> vm.applyFilterPreview(index, 5, mosaicSize.toDouble(), 0.0, 0.0, 0.0)
+            6 -> vm.applyFilterPreview(index, 6, 0.0, 0.0, 0.0, 0.0)
+            7 -> vm.applyFilterPreview(index, 7, 0.0, 0.0, 0.0, 0.0)
+            8 -> vm.applyFilterPreview(index, 8, 0.0, 0.0, 0.0, 0.0)
+            9 -> vm.applyFilterPreview(index, 9, 0.0, 0.0, 0.0, 0.0)
+            10 -> vm.applyFilterPreview(index, 10, noiseAmt.toDouble(), 0.0, 0.0, 0.0)
+            11 -> vm.applyFilterPreview(index, 11, glitchOffset.toDouble(), 0.0, 0.0, 0.0)
+            12 -> vm.applyFilter(index, 0)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        vm.beginFilterPreview(index)
+        sendPreview()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+    ) {
+        // Header with Filter Title & Action Icons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = filterName,
+                color = Morandi.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Eye (Preview Toggle)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isPreview) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
+                        .noRippleClickable {
+                            isPreview = !isPreview
+                            if (isPreview) sendPreview()
+                            else vm.cancelFilter(index)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(if (isPreview) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                        contentDescription = "预览",
+                        tint = if (isPreview) Morandi.accent else Morandi.subText,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Reset (↺)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .noRippleClickable {
+                            hue = 0f; sat = 1f; bright = 1f; contrast = 1f
+                            cr = 0f; mg = 0f; yb = 0f
+                            blurRadius = 8f; motionAngle = 0f; motionDist = 12f
+                            sharpenAmt = 1.0f; mosaicSize = 10f; noiseAmt = 20f; glitchOffset = 8f
+                            sendPreview()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_refresh),
+                        contentDescription = "重置",
+                        tint = Morandi.icon,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Cancel (✕)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .noRippleClickable {
+                            vm.cancelFilter(index)
+                            onBack()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_x),
+                        contentDescription = "取消",
+                        tint = Morandi.icon,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Confirm (✓)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.accent)
+                        .noRippleClickable {
+                            vm.commitFilter(index, filterName)
+                            onDone()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_check),
+                        contentDescription = "应用",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+
+        // Sliders content based on filter type
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            when (filterId) {
+                0 -> { // HSBC
+                    FilterSliderRow(
+                        label = "色相",
+                        value = hue,
+                        valueRange = -180f..180f,
+                        valueText = "${hue.roundToInt()}",
+                        gradient = Brush.horizontalGradient(
+                            listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
+                        ),
+                        onValue = { hue = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "饱和度",
+                        value = sat,
+                        valueRange = 0f..2f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", sat),
+                        gradient = Brush.horizontalGradient(listOf(Color(0xFF888888), Color(0xFFFF4444))),
+                        onValue = { sat = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "明度",
+                        value = bright,
+                        valueRange = 0f..2f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", bright),
+                        gradient = Brush.horizontalGradient(listOf(Color.Black, Color.White)),
+                        onValue = { bright = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "对比度",
+                        value = contrast,
+                        valueRange = 0f..2f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", contrast),
+                        onValue = { contrast = it; sendPreview() }
+                    )
+                }
+                1 -> { // Color Balance
+                    FilterSliderRow(
+                        label = "青 - 红",
+                        value = cr,
+                        valueRange = -100f..100f,
+                        valueText = "${cr.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color.Cyan, Color.Red)),
+                        onValue = { cr = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "洋红 - 绿",
+                        value = mg,
+                        valueRange = -100f..100f,
+                        valueText = "${mg.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color.Magenta, Color.Green)),
+                        onValue = { mg = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "黄 - 蓝",
+                        value = yb,
+                        valueRange = -100f..100f,
+                        valueText = "${yb.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color.Yellow, Color.Blue)),
+                        onValue = { yb = it; sendPreview() }
+                    )
+                }
+                2 -> { // Gaussian Blur
+                    FilterSliderRow(
+                        label = "模糊半径",
+                        value = blurRadius,
+                        valueRange = 1f..50f,
+                        valueText = "${blurRadius.roundToInt()} px",
+                        onValue = { blurRadius = it; sendPreview() }
+                    )
+                }
+                3 -> { // Motion Blur
+                    FilterSliderRow(
+                        label = "模糊角度",
+                        value = motionAngle,
+                        valueRange = 0f..360f,
+                        valueText = "${motionAngle.roundToInt()}°",
+                        onValue = { motionAngle = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "模糊距离",
+                        value = motionDist,
+                        valueRange = 1f..50f,
+                        valueText = "${motionDist.roundToInt()} px",
+                        onValue = { motionDist = it; sendPreview() }
+                    )
+                }
+                4 -> { // Sharpen
+                    FilterSliderRow(
+                        label = "锐化强度",
+                        value = sharpenAmt,
+                        valueRange = 0.1f..3.0f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", sharpenAmt),
+                        onValue = { sharpenAmt = it; sendPreview() }
+                    )
+                }
+                5 -> { // Mosaic
+                    FilterSliderRow(
+                        label = "像素大小",
+                        value = mosaicSize,
+                        valueRange = 2f..64f,
+                        valueText = "${mosaicSize.roundToInt()} px",
+                        onValue = { mosaicSize = it; sendPreview() }
+                    )
+                }
+                10 -> { // Noise
+                    FilterSliderRow(
+                        label = "杂色数量",
+                        value = noiseAmt,
+                        valueRange = 1f..100f,
+                        valueText = "${noiseAmt.roundToInt()}",
+                        onValue = { noiseAmt = it; sendPreview() }
+                    )
+                }
+                11 -> { // Glitch
+                    FilterSliderRow(
+                        label = "色散偏移",
+                        value = glitchOffset,
+                        valueRange = 1f..40f,
+                        valueText = "${glitchOffset.roundToInt()} px",
+                        onValue = { glitchOffset = it; sendPreview() }
+                    )
+                }
+                else -> {
+                    Text(
+                        text = "此滤镜已实时应用至图层预览，点击右上角 ✓ 确认应用",
+                        color = Morandi.subText,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterSliderRow(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    valueText: String,
+    gradient: Brush? = null,
+    onValue: (Float) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, color = Morandi.text, fontSize = 12.sp)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Morandi.panelHi)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(valueText, color = Morandi.subText, fontSize = 11.sp)
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (gradient != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(gradient)
+                )
+            }
+            val normVal = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
+            ReSlider(
+                value = normVal.coerceIn(0f, 1f),
+                onValue = {
+                    val realVal = valueRange.start + it * (valueRange.endInclusive - valueRange.start)
+                    onValue(realVal)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
