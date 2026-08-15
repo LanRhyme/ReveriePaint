@@ -385,6 +385,21 @@ internal fun PaintViewModel.soloLayer(i: Int) {
 
 internal fun PaintViewModel.layerSoloed(i: Int) = ReverieCoreBridge.layerSoloed(i)
 
+/** 是否处于独显模式（任意层被独显） */
+val PaintViewModel.soloActive: Boolean
+    get() = layers.any { layerSoloed(it.index) }
+
+/** 独显浮窗：当前是否为“取消所有效果”纯净原色模式 */
+val PaintViewModel.soloRawMode: Boolean
+    get() = ReverieCoreBridge.layerSoloRawMode()
+
+/** 独显浮窗：常规 ↔ 取消所有效果 切换 */
+internal fun PaintViewModel.toggleSoloRawMode() {
+    runCore(after = ::notifyLayerChanged) {
+        ReverieCoreBridge.toggleLayerSoloRawMode()
+    }
+}
+
 // ---- Multi-select (right-swipe in the layer panel) ----
 // State lives in PaintViewModel (selectedLayerIndices); these are helpers.
 

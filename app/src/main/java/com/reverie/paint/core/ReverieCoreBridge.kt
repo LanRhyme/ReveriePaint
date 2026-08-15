@@ -116,47 +116,96 @@ object ReverieCoreBridge {
     external fun currentLayerIndex(): Int
 
     external fun setToolMode(mode: Int)
-    external fun drawPolygon(xs: IntArray, ys: IntArray, count: Int, closed: Boolean)
 
-    external fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int, type: Int)
+    external fun drawPolygon(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+        closed: Boolean,
+    )
 
-    external fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int)
+    external fun gradientFill(
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+        type: Int,
+    )
 
-    external fun selectPolygon(xs: IntArray, ys: IntArray, count: Int)
+    external fun selectShape(
+        kind: Int,
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+    )
 
-    external fun moveLayerContent(dx: Int, dy: Int)
+    external fun selectPolygon(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+    )
 
-    external fun cropCanvas(x: Int, y: Int, w: Int, h: Int)
+    external fun moveLayerContent(
+        dx: Int,
+        dy: Int,
+    )
+
+    external fun cropCanvas(
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+    )
 
     external fun contentBounds(): IntArray?
 
     external fun applyTransform(
-        xscale: Double, yscale: Double,
-        xshear: Double, yshear: Double,
+        xscale: Double,
+        yscale: Double,
+        xshear: Double,
+        yshear: Double,
         rotationRad: Double,
-        xtranslate: Double, ytranslate: Double,
-        originX: Double = -1.0, originY: Double = -1.0,
+        xtranslate: Double,
+        ytranslate: Double,
+        originX: Double = -1.0,
+        originY: Double = -1.0,
     ): Boolean
 
     external fun applyPerspectiveTransform(
-        x0: Double, y0: Double,
-        x1: Double, y1: Double,
-        x2: Double, y2: Double,
-        x3: Double, y3: Double,
-        origX: Double, origY: Double,
-        origW: Double, origH: Double,
+        x0: Double,
+        y0: Double,
+        x1: Double,
+        y1: Double,
+        x2: Double,
+        y2: Double,
+        x3: Double,
+        y3: Double,
+        origX: Double,
+        origY: Double,
+        origW: Double,
+        origH: Double,
     ): Boolean
 
     external fun applyWarpMeshTransform(
-        origXs: DoubleArray, origYs: DoubleArray,
-        transfXs: DoubleArray, transfYs: DoubleArray,
+        origXs: DoubleArray,
+        origYs: DoubleArray,
+        transfXs: DoubleArray,
+        transfYs: DoubleArray,
         count: Int,
-        origX: Double, origY: Double,
-        origW: Double, origH: Double,
+        origX: Double,
+        origY: Double,
+        origW: Double,
+        origH: Double,
     ): Boolean
+
     external fun setBrushSecondaryColor(color: String)
 
-    external fun floodFillAt(x: Int, y: Int, tolerance: Int)
+    external fun floodFillAt(
+        x: Int,
+        y: Int,
+        tolerance: Int,
+    )
 
     external fun setBrushSize(size: Double)
 
@@ -200,7 +249,6 @@ object ReverieCoreBridge {
 
     external fun setBrushCompositeOp(op: String)
 
-
     external fun touchStrokeStart(
         x: Double,
         y: Double,
@@ -233,16 +281,42 @@ object ReverieCoreBridge {
 
     external fun canRedo(): Boolean
 
-    external fun liquify(fx: Int, fy: Int, tx: Int, ty: Int, strength: Double, mode: Int)
+    external fun liquify(
+        fx: Int,
+        fy: Int,
+        tx: Int,
+        ty: Int,
+        strength: Double,
+        mode: Int,
+    )
+
     external fun setLiquifyBrushSize(size: Double)
 
-    external fun lassoSelect(xs: IntArray, ys: IntArray, count: Int)
+    external fun lassoSelect(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+    )
 
-    external fun magneticLasso(fx: Int, fy: Int, tx: Int, ty: Int, radius: Int): IntArray
+    external fun magneticLasso(
+        fx: Int,
+        fy: Int,
+        tx: Int,
+        ty: Int,
+        radius: Int,
+    ): IntArray
 
-    external fun selectContiguousAt(x: Int, y: Int, tolerance: Int)
+    external fun selectContiguousAt(
+        x: Int,
+        y: Int,
+        tolerance: Int,
+    )
 
-    external fun selectSimilarAt(x: Int, y: Int, tolerance: Int)
+    external fun selectSimilarAt(
+        x: Int,
+        y: Int,
+        tolerance: Int,
+    )
 
     external fun lassoFill(
         xs: IntArray,
@@ -267,18 +341,39 @@ object ReverieCoreBridge {
 
     external fun setShapeFilled(f: Boolean)
 
-external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Boolean)
+    external fun drawShape(
+        kind: Int,
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+        filled: Boolean,
+    )
 
     external fun savePng(path: String): Boolean
-    external fun exportJpg(path: String, quality: Int = 90): Boolean
+
+    external fun exportJpg(
+        path: String,
+        quality: Int = 90,
+    ): Boolean
+
     external fun exportPsd(path: String): Boolean
-    external fun saveRevp(path: String, extraMetaJson: String = ""): Boolean
+
+    external fun saveRevp(
+        path: String,
+        extraMetaJson: String = "",
+    ): Boolean
+
     external fun loadRevp(path: String): Boolean
+
     external fun saveKra(path: String): Boolean
 
     external fun loadPng(path: String): Boolean
 
-    external fun renderLayerThumb(index: Int, bitmap: Bitmap): Boolean
+    external fun renderLayerThumb(
+        index: Int,
+        bitmap: Bitmap,
+    ): Boolean
 
     external fun startTransformPreview(bitmap: Bitmap): Boolean
 
@@ -295,21 +390,36 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun clearLayer(index: Int)
 
-    external fun setLayerName(index: Int, name: String)
+    external fun setLayerName(
+        index: Int,
+        name: String,
+    )
 
-    external fun setLayerOpacity(index: Int, opacity: Double)
+    external fun setLayerOpacity(
+        index: Int,
+        opacity: Double,
+    )
 
     external fun layerOpacity(index: Int): Double
 
-    external fun setLayerLocked(index: Int, locked: Boolean)
+    external fun setLayerLocked(
+        index: Int,
+        locked: Boolean,
+    )
 
     external fun layerLocked(index: Int): Boolean
 
-    external fun setLayerAlphaLocked(index: Int, locked: Boolean)
+    external fun setLayerAlphaLocked(
+        index: Int,
+        locked: Boolean,
+    )
 
     external fun layerAlphaLocked(index: Int): Boolean
 
-    external fun setLayerColorLabel(index: Int, label: Int)
+    external fun setLayerColorLabel(
+        index: Int,
+        label: Int,
+    )
 
     external fun layerColorLabel(index: Int): Int
 
@@ -319,11 +429,17 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun layerBackground(index: Int): Boolean
 
-    external fun setBackgroundColor(color: Int, commit: Boolean = true)
+    external fun setBackgroundColor(
+        color: Int,
+        commit: Boolean = true,
+    )
 
     external fun layerClipped(index: Int): Boolean
 
-    external fun setLayerClipped(index: Int, clipped: Boolean)
+    external fun setLayerClipped(
+        index: Int,
+        clipped: Boolean,
+    )
 
     external fun flipLayerHorizontal(index: Int)
 
@@ -358,7 +474,10 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun moveLayerOut(index: Int): Boolean
 
-    external fun addMaskToLayer(layerIndex: Int, maskType: Int): Boolean
+    external fun addMaskToLayer(
+        layerIndex: Int,
+        maskType: Int,
+    ): Boolean
 
     external fun removeMask(layerIndex: Int): Boolean
 
@@ -366,7 +485,10 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun flattenGroup(index: Int): Boolean
 
-    external fun setGroupPassThrough(index: Int, passThrough: Boolean): Boolean
+    external fun setGroupPassThrough(
+        index: Int,
+        passThrough: Boolean,
+    ): Boolean
 
     external fun groupPassThrough(index: Int): Boolean
 
@@ -376,16 +498,48 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun layerSoloed(index: Int): Boolean
 
-    external fun applyFilter(index: Int, filterId: Int)
+    external fun layerSoloRawMode(): Boolean
 
-    external fun addLayerWithType(name: String, type: Int, fillColor: Int): Boolean
+    external fun toggleLayerSoloRawMode()
+
+    external fun applyFilter(
+        index: Int,
+        filterId: Int,
+    )
+
+    external fun addLayerWithType(
+        name: String,
+        type: Int,
+        fillColor: Int,
+    ): Boolean
 
     external fun beginFilterPreview(index: Int)
 
-    external fun applyFilterPreview(index: Int, filterType: Int, p1: Double, p2: Double, p3: Double, p4: Double)
-    external fun applyCurvesLUTPreview(index: Int, lutR: ByteArray, lutG: ByteArray, lutB: ByteArray)
-    external fun applyGradientMapPreview(index: Int, gradientLut: IntArray)
-    external fun commitFilter(index: Int, filterName: String)
+    external fun applyFilterPreview(
+        index: Int,
+        filterType: Int,
+        p1: Double,
+        p2: Double,
+        p3: Double,
+        p4: Double,
+    )
+
+    external fun applyCurvesLUTPreview(
+        index: Int,
+        lutR: ByteArray,
+        lutG: ByteArray,
+        lutB: ByteArray,
+    )
+
+    external fun applyGradientMapPreview(
+        index: Int,
+        gradientLut: IntArray,
+    )
+
+    external fun commitFilter(
+        index: Int,
+        filterName: String,
+    )
 
     external fun cancelFilter(index: Int)
 
@@ -395,9 +549,18 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun selectionMask(): ByteArray
 
-    external fun selectionOverlayScaled(vw: Int, vh: Int): IntArray?
+    external fun selectionOverlayScaled(
+        vw: Int,
+        vh: Int,
+    ): IntArray?
 
-    external fun previewLassoOverlay(xs: IntArray, ys: IntArray, count: Int, vw: Int, vh: Int): IntArray?
+    external fun previewLassoOverlay(
+        xs: IntArray,
+        ys: IntArray,
+        count: Int,
+        vw: Int,
+        vh: Int,
+    ): IntArray?
 
     external fun selectAll()
 

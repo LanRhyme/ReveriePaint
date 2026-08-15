@@ -662,6 +662,58 @@ fun PaintingPage(vm: PaintViewModel) {
         ) {
             GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it }, hazeState = hazeState)
         }
+        // Solo-mode floating panel (bottom center, same style as fill/gradient
+        // tool panels): 常规 keeps the layer's own effects, 取消所有效果
+        // switches to pure color (100% opacity + Normal + no inherit alpha).
+        // Closing solo restores every layer's original state exactly.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.soloActive,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+            enter =
+                androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ) +
+                    androidx.compose.animation.scaleIn(
+                        androidx.compose.animation.core
+                            .tween(200),
+                        initialScale = 0.95f,
+                    ),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ) +
+                    androidx.compose.animation.scaleOut(
+                        androidx.compose.animation.core
+                            .tween(200),
+                        targetScale = 0.95f,
+                    ),
+        ) {
+            ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
+                androidx.compose.foundation.layout.Row(
+                    horizontalArrangement =
+                        androidx.compose.foundation.layout.Arrangement
+                            .spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToolFloatChip(
+                        label = "常规",
+                        selected = !vm.soloRawMode,
+                        onClick = {
+                            if (vm.soloRawMode) vm.toggleSoloRawMode()
+                        },
+                    )
+                    ToolFloatChip(
+                        label = "取消所有效果",
+                        selected = vm.soloRawMode,
+                        onClick = {
+                            if (!vm.soloRawMode) vm.toggleSoloRawMode()
+                        },
+                    )
+                }
+            }
+        }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.FILL,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),

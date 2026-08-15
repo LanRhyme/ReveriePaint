@@ -383,6 +383,50 @@ void ReverieCore::setLayerVisibleDirect(int index, bool visible)
     }
 }
 
+// Direct opacity change without the undo stack (solo mode only)
+void ReverieCore::setLayerOpacityDirect(int index, quint8 o)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;
+    }
+    if (m_layers[index].node->opacity() != o) {
+        m_layers[index].node->setOpacity(o);
+        m_layers[index].node->setDirty(
+            QRect(0, 0, m_document->width(), m_document->height()));
+        markDirty();
+    }
+}
+
+// Direct blend-mode change without the undo stack (solo mode only)
+void ReverieCore::setLayerBlendDirect(int index, const QString &opId)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;
+    }
+    if (m_layers[index].node->compositeOpId() != opId) {
+        m_layers[index].node->setCompositeOpId(opId);
+        m_layers[index].node->setDirty(
+            QRect(0, 0, m_document->width(), m_document->height()));
+        markDirty();
+    }
+}
+
+// Direct inherit-alpha change without the undo stack (solo mode only)
+void ReverieCore::setLayerInheritAlphaDirect(int index, bool on)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
+        return;
+    }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        if (layer->alphaChannelDisabled() != on) {
+            layer->disableAlphaChannel(on);
+            m_layers[index].node->setDirty(
+                QRect(0, 0, m_document->width(), m_document->height()));
+            markDirty();
+        }
+    }
+}
+
 bool ReverieCore::layerVisible(int index) const
 {
     if (index < 0 || index >= m_layers.size()) {

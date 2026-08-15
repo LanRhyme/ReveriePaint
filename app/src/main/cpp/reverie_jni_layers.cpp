@@ -253,6 +253,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloed(JNIEnv *, jobject, jin
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerSoloRawMode(JNIEnv *, jobject)
+{
+    return core()->soloRawMode();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_toggleLayerSoloRawMode(JNIEnv *, jobject)
+{
+    core()->toggleSoloRawMode();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerUp(JNIEnv *, jobject, jint index)
 {
     return core()->moveLayerUp(index);

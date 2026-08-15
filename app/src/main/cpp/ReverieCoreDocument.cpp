@@ -208,10 +208,10 @@ void ReverieCore::recompositeProjection()
 
 void ReverieCore::syncLayersFromImage()
 {
-    // Preserve the pre-solo visibility backup across a resync (layer ops like
+    // Preserve the pre-solo snapshot across a resync (layer ops like
     // add/remove/move rebuild m_layers; without this the backup is lost and
-    // un-soloing can no longer restore the original visibility)
-    QHash<KisNode *, QVector<bool>> oldSoloPrev;
+    // un-soloing can no longer restore the original state)
+    QHash<KisNode *, QVector<SoloBackup>> oldSoloPrev;
     for (const LayerEntry &e : m_layers) {
         if (!e.soloPrev.isEmpty()) {
             oldSoloPrev.insert(e.node, e.soloPrev);

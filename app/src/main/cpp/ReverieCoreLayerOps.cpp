@@ -453,38 +453,84 @@ bool ReverieCore::groupPassThrough(int index) const
     return false;
 }
 
+// Restore every layer to its pre-solo snapshot (visible + opacity + blend +
+// inheritAlpha) - FolioLayers behavior: closing solo mode must leave the
+// document exactly as it was
+void ReverieCore::restoreSolo()
+{
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (i < m_layers[i].soloPrev.size()) {
+            const SoloBackup &b = m_layers[i].soloPrev[i];
+            setLayerVisibleDirect(i, b.visible);
+            setLayerOpacityDirect(i, b.opacity);
+            setLayerBlendDirect(i, b.blendMode);
+            setLayerInheritAlphaDirect(i, b.inheritAlpha);
+        }
+    }
+    m_soloedLayer = -1;
+    m_soloRawMode = false;
+}
+
+bool ReverieCore::soloRawMode() const
+{
+    return m_soloRawMode;
+}
+
+// Switch the soloed layer between its original look (常规) and the pure-color
+// raw mode (取消所有效果): 100% opacity + Normal blend + no inherited alpha
+void ReverieCore::toggleSoloRawMode()
+{
+    const int idx = m_soloedLayer;
+    if (idx < 0 || idx >= m_layers.size() || idx >= m_layers[idx].soloPrev.size()) {
+        return;
+    }
+    const SoloBackup &b = m_layers[idx].soloPrev[idx];
+    m_soloRawMode = !m_soloRawMode;
+    if (m_soloRawMode) {
+        setLayerOpacityDirect(idx, 255);
+        setLayerBlendDirect(idx, QStringLiteral("normal"));
+        setLayerInheritAlphaDirect(idx, false);
+    } else {
+        setLayerOpacityDirect(idx, b.opacity);
+        setLayerBlendDirect(idx, b.blendMode);
+        setLayerInheritAlphaDirect(idx, b.inheritAlpha);
+    }
+}
+
 void ReverieCore::soloLayer(int index)
 {
     if (index < 0 || index >= m_layers.size()) {
         return;
     }
     if (index == m_soloedLayer) {
-        // Restore the pre-solo visibility (FolioLayers behavior)
-        for (int i = 0; i < m_layers.size(); ++i) {
-            if (i < m_layers[i].soloPrev.size()) {
-                setLayerVisibleDirect(i, m_layers[i].soloPrev[i]);
-            }
-        }
-        m_soloedLayer = -1;
+        // Restore the pre-solo snapshot (FolioLayers behavior)
+        restoreSolo();
         return;
     }
     // Solo another layer while one is active: restore the previous solo first
     if (m_soloedLayer >= 0) {
-        for (int i = 0; i < m_layers.size(); ++i) {
-            if (i < m_layers[i].soloPrev.size()) {
-                setLayerVisibleDirect(i, m_layers[i].soloPrev[i]);
-            }
-        }
+        restoreSolo();
     }
-    // Record the current visibility of every layer, then show only the
-    // target plus its ancestor groups and descendants (FolioLayers behavior:
-    // a child inside a group stays visible only if its parent group is,
-    // and soloing a group keeps the members visible)
+    // Record the full pre-solo snapshot of every layer (visible, opacity,
+    // blend mode, inheritAlpha), then show only the target plus its ancestor
+    // groups and descendants (FolioLayers behavior: a child inside a group
+    // stays visible only if its parent group is, and soloing a group keeps
+    // the members visible)
     for (LayerEntry &e : m_layers) {
         e.soloPrev.clear();
-        e.soloPrev.append(e.visible);
+        SoloBackup b;
+        b.visible = e.visible;
+        if (e.node) {
+            b.opacity = e.node->opacity();
+            b.blendMode = e.node->compositeOpId();
+            if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
+                b.inheritAlpha = l->alphaChannelDisabled();
+            }
+        }
+        e.soloPrev.append(b);
     }
     m_soloedLayer = index;
+    m_soloRawMode = false;   // 默认常规：不改变目标层的效果
 
     const int td = m_layers[index].depth;
     QVector<int> keep;

@@ -62,6 +62,10 @@ public:
     void setLayerVisible(int index, bool visible);
     // Visibility change without the undo stack (solo mode only)
     void setLayerVisibleDirect(int index, bool visible);
+    // Solo-mode raw switches (no undo) - see soloLayer()/toggleSoloRawMode()
+    void setLayerOpacityDirect(int index, quint8 o);
+    void setLayerBlendDirect(int index, const QString &opId);
+    void setLayerInheritAlphaDirect(int index, bool on);
     bool layerLocked(int index) const;
     void setLayerLocked(int index, bool locked);
     bool layerAlphaLocked(int index) const;
@@ -96,6 +100,9 @@ public:
     // layer hides every other layer, tapping the soloed layer again restores
     void soloLayer(int index);
     bool layerSoloed(int index) const;
+    void restoreSolo();
+    bool soloRawMode() const;
+    void toggleSoloRawMode();
     int currentLayerIndex() const { return m_currentLayer; }
     // Multi-layer type creation
     enum LayerType {
@@ -184,6 +191,14 @@ public:
 
     // Public data structure: one entry per layer/group in tree traversal
     // order (bottom -> top). Used by file-scope helpers in ReverieCore.cpp.
+    // Pre-solo snapshot of one layer (FolioLayers behavior: closing solo mode
+    // must restore visible/opacity/blend/inheritAlpha exactly)
+    struct SoloBackup {
+        bool visible = true;
+        quint8 opacity = 255;
+        QString blendMode = QStringLiteral("normal");
+        bool inheritAlpha = false;
+    };
     struct LayerEntry {
         KisNode *node = nullptr;      // paint layer or group layer
         bool visible = true;
@@ -195,7 +210,7 @@ public:
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
         bool background = false;      // background layer (index 0)
-        QVector<bool> soloPrev;       // visibility before solo (FolioLayers)
+        QVector<SoloBackup> soloPrev; // snapshot before solo (FolioLayers)
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
@@ -376,6 +391,7 @@ private:
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
     int m_soloedLayer = -1;          // currently soloed layer, -1 if none
+    bool m_soloRawMode = false;      // solo raw mode (pure color) on/off
 
     KisTransaction *m_previewTransaction = nullptr;
     KisPaintDeviceSP m_previewTempDevice;
