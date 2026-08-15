@@ -113,6 +113,14 @@ fun PaintingPage(vm: PaintViewModel) {
         }
     }
 
+    // Auto-hide action toast 1.0s after trigger
+    LaunchedEffect(vm.actionToastRevision) {
+        if (vm.actionToastRevision > 0L && vm.actionToastMessage != null) {
+            kotlinx.coroutines.delay(1000)
+            vm.clearActionToast()
+        }
+    }
+
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
@@ -657,9 +665,53 @@ fun PaintingPage(vm: PaintViewModel) {
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+        // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.actionToastMessage != null,
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
+                    androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(200)) +
+                    androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(200)) { -it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 56.dp)
+                .zIndex(25f)
+        ) {
+            val msg = vm.actionToastMessage ?: ""
+            val iconRes = vm.actionToastIcon
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Morandi.panelHi.copy(alpha = 0.94f))
+                    .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (iconRes != null) {
+                        Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = msg,
+                            tint = Morandi.text,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                    Text(
+                        msg,
+                        color = Morandi.text,
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    )
+                }
+            }
+        }
+
         // ---- Transform indicator (top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = showIndicator && !vm.isFilterAdjustActive,
+            visible = showIndicator && !vm.isFilterAdjustActive && (vm.actionToastMessage == null),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
                     androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250)) +

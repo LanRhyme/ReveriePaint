@@ -254,6 +254,64 @@ class PaintViewModel : ViewModel() {
         return y.coerceIn(0.01f, 1f)
     }
 
+    var gestureTwoFingerUndo by mutableStateOf(true)
+    var gestureThreeFingerRedo by mutableStateOf(true)
+    var gesturePinchTransform by mutableStateOf(true)
+
+    fun updateGestureTwoFingerUndo(enable: Boolean) {
+        gestureTwoFingerUndo = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("gestureTwoFingerUndo", enable).apply()
+        }
+    }
+
+    fun updateGestureThreeFingerRedo(enable: Boolean) {
+        gestureThreeFingerRedo = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("gestureThreeFingerRedo", enable).apply()
+        }
+    }
+
+    fun updateGesturePinchTransform(enable: Boolean) {
+        gesturePinchTransform = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("gesturePinchTransform", enable).apply()
+        }
+    }
+
+    var actionToastMessage by mutableStateOf<String?>(null)
+    var actionToastIcon by mutableStateOf<Int?>(null)
+    var actionToastRevision by mutableLongStateOf(0L)
+
+    fun showActionToast(message: String, iconRes: Int? = null) {
+        actionToastMessage = message
+        actionToastIcon = iconRes
+        actionToastRevision++
+    }
+
+    var longPressEyedropperEnabled by mutableStateOf(true)
+    var eyedropperSensitivity by mutableIntStateOf(3) // 1..5, default 3
+
+    fun updateLongPressEyedropperEnabled(enable: Boolean) {
+        longPressEyedropperEnabled = enable
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("longPressEyedropperEnabled", enable).apply()
+        }
+    }
+
+    fun updateEyedropperSensitivity(level: Int) {
+        val clamped = level.coerceIn(1, 5)
+        eyedropperSensitivity = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("eyedropperSensitivity", clamped).apply()
+        }
+    }
+
     fun updatePenOnlyMode(enable: Boolean) {
         penOnlyMode = enable
         if (::appContext.isInitialized) {
@@ -396,6 +454,11 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun clearActionToast() {
+        actionToastMessage = null
+        actionToastIcon = null
+    }
+
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
@@ -406,6 +469,11 @@ class PaintViewModel : ViewModel() {
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
+            gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
+            gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
+            gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
+            longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
+            eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
             brushCursorMode = prefs.getInt("brushCursorMode", 0)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 0)
@@ -576,11 +644,6 @@ class PaintViewModel : ViewModel() {
         val ok = ReverieCoreBridge.renderToBuffer(target)
         if (ok) {
             mainHandler.post {
-                // Copy into a stable display bitmap instead of aliasing the
-                // render scratch buffer: rapid consecutive undo/redo renders
-                // the same scratch buffer in sequence, and aliasing let the
-                // UI thread display a buffer the render thread was already
-                // overwriting (stale frames / glitches during fast undo)
                 var cur = displayBitmap
                 if (cur == null || cur.width != w || cur.height != h) {
                     cur = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

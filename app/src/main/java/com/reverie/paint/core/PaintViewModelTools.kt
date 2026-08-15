@@ -17,7 +17,7 @@ import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.util.zip.ZipFile
 import org.json.JSONObject
-import org.json.JSONArray
+import com.reverie.paint.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -274,26 +274,28 @@ import kotlinx.coroutines.launch
     }
 
     internal fun PaintViewModel.undo() {
-        runCore(after = {
-            // Rapid consecutive undo merges into one frame render (16ms
-            // scheduleRender throttle) and one thumbnail refresh (400ms
-            // debounce); rendering every intermediate state starves the
-            // render thread and makes the undo chain laggy/stuck
-            notifyLayerChanged(forceThumbs = false, immediateRender = false)
-            refreshSelection()
-        }) {
-            if (ReverieCoreBridge.canUndo()) {
+        if (ReverieCoreBridge.canUndo()) {
+            showActionToast("撤销", R.drawable.ic_undo)
+            runCore(after = {
+                // Rapid consecutive undo merges into one frame render (16ms
+                // scheduleRender throttle) and one thumbnail refresh (400ms
+                // debounce); rendering every intermediate state starves the
+                // render thread and makes the undo chain laggy/stuck
+                notifyLayerChanged(forceThumbs = false, immediateRender = false)
+                refreshSelection()
+            }) {
                 ReverieCoreBridge.undo()
             }
         }
     }
 
     internal fun PaintViewModel.redo() {
-        runCore(after = {
-            notifyLayerChanged(forceThumbs = false, immediateRender = false)
-            refreshSelection()
-        }) {
-            if (ReverieCoreBridge.canRedo()) {
+        if (ReverieCoreBridge.canRedo()) {
+            showActionToast("恢复", R.drawable.ic_redo)
+            runCore(after = {
+                notifyLayerChanged(forceThumbs = false, immediateRender = false)
+                refreshSelection()
+            }) {
                 ReverieCoreBridge.redo()
             }
         }
