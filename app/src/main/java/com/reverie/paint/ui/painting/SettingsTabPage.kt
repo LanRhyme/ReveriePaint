@@ -305,6 +305,30 @@ internal fun SettingsTabPage(
                                 }
                             }
                         }
+
+                        // 取色点偏移开关（防止手指/笔遮挡中心点）
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("取色点偏移", color = Morandi.text, fontSize = 13.sp)
+                                Text(
+                                    "取色位置偏移到手指上方，避免手指遮挡中心点",
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            ReSwitch(
+                                checked = vm.eyedropperOffsetEnabled,
+                                onChecked = { vm.updateEyedropperOffsetEnabled(it) },
+                            )
+                        }
                     }
 
                     Spacer(Modifier.height(12.dp))

@@ -14,15 +14,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import java.io.File
-import java.util.zip.ZipFile
-import org.json.JSONObject
-import org.json.JSONArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.util.zip.ZipFile
 
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
@@ -95,14 +95,15 @@ class PaintViewModel : ViewModel() {
 
     internal fun startPaintingTimer() {
         timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (isActive) {
-                delay(1000L)
-                if (currentPage == Page.PAINTING) {
-                    tickPaintingTimer()
+        timerJob =
+            viewModelScope.launch {
+                while (isActive) {
+                    delay(1000L)
+                    if (currentPage == Page.PAINTING) {
+                        tickPaintingTimer()
+                    }
                 }
             }
-        }
     }
 
     internal fun stopPaintingTimer() {
@@ -130,10 +131,12 @@ class PaintViewModel : ViewModel() {
     var brushOpacity by mutableStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var brushPresetIndex by mutableStateOf(-1)
+
     // User-defined brush groups: preset name -> group name; and the list of
     // custom group names the user created (persisted in SharedPreferences)
     var userBrushGroups by mutableStateOf<Map<String, String>>(emptyMap())
     var customBrushGroups by mutableStateOf<List<String>>(emptyList())
+
     // Custom display order of presets (persisted); empty = default (sorted)
     var brushOrder by mutableStateOf<List<String>>(emptyList())
     var brushFlow by mutableStateOf(1.0)
@@ -162,7 +165,7 @@ class PaintViewModel : ViewModel() {
     // layer getters after add/remove/select/visibility operations.
     var layerPanelOpen by mutableStateOf(false)
     var brushPanelOpen by mutableStateOf(false)
-    
+
     // Brush panel persistence state
     var brushPanelSelectedCategory by mutableStateOf("全部")
     var brushPanelDetailIndex by mutableStateOf<Int?>(null)
@@ -180,17 +183,18 @@ class PaintViewModel : ViewModel() {
         val categoryScrollIndex: Int = 0,
         val categoryScrollOffset: Int = 0,
         val presetScrollIndex: Int = 0,
-        val presetScrollOffset: Int = 0
+        val presetScrollOffset: Int = 0,
     )
+
     var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())
         internal set
-        
+
     var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(emptyList())
         internal set
-        
+
     var currentToolId by mutableStateOf("brush")
         internal set
-        
+
     // UI Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
@@ -208,13 +212,17 @@ class PaintViewModel : ViewModel() {
     var pressureCurvePreset by mutableStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
         listOf(
-            androidx.compose.ui.geometry.Offset(0f, 0f),
-            androidx.compose.ui.geometry.Offset(0.33f, 0.33f),
-            androidx.compose.ui.geometry.Offset(0.66f, 0.66f),
-            androidx.compose.ui.geometry.Offset(1f, 1f)
-        )
+            androidx.compose.ui.geometry
+                .Offset(0f, 0f),
+            androidx.compose.ui.geometry
+                .Offset(0.33f, 0.33f),
+            androidx.compose.ui.geometry
+                .Offset(0.66f, 0.66f),
+            androidx.compose.ui.geometry
+                .Offset(1f, 1f),
+        ),
     )
-    
+
     var colorPickerMode by mutableStateOf("SQUARE")
         internal set
 
@@ -261,24 +269,33 @@ class PaintViewModel : ViewModel() {
     fun updateGestureTwoFingerUndo(enable: Boolean) {
         gestureTwoFingerUndo = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("gestureTwoFingerUndo", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("gestureTwoFingerUndo", enable)
+                .apply()
         }
     }
 
     fun updateGestureThreeFingerRedo(enable: Boolean) {
         gestureThreeFingerRedo = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("gestureThreeFingerRedo", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("gestureThreeFingerRedo", enable)
+                .apply()
         }
     }
 
     fun updateGesturePinchTransform(enable: Boolean) {
         gesturePinchTransform = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("gesturePinchTransform", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("gesturePinchTransform", enable)
+                .apply()
         }
     }
 
@@ -286,7 +303,10 @@ class PaintViewModel : ViewModel() {
     var actionToastIcon by mutableStateOf<Int?>(null)
     var actionToastRevision by mutableLongStateOf(0L)
 
-    fun showActionToast(message: String, iconRes: Int? = null) {
+    fun showActionToast(
+        message: String,
+        iconRes: Int? = null,
+    ) {
         actionToastMessage = message
         actionToastIcon = iconRes
         actionToastRevision++
@@ -294,12 +314,16 @@ class PaintViewModel : ViewModel() {
 
     var longPressEyedropperEnabled by mutableStateOf(true)
     var eyedropperSensitivity by mutableIntStateOf(3) // 1..5, default 3
+    var eyedropperOffsetEnabled by mutableStateOf(true) // offset sampling point to avoid finger blocking
 
     fun updateLongPressEyedropperEnabled(enable: Boolean) {
         longPressEyedropperEnabled = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("longPressEyedropperEnabled", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("longPressEyedropperEnabled", enable)
+                .apply()
         }
     }
 
@@ -307,88 +331,159 @@ class PaintViewModel : ViewModel() {
         val clamped = level.coerceIn(1, 5)
         eyedropperSensitivity = clamped
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("eyedropperSensitivity", clamped).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("eyedropperSensitivity", clamped)
+                .apply()
+        }
+    }
+
+    fun updateEyedropperOffsetEnabled(enable: Boolean) {
+        eyedropperOffsetEnabled = enable
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("eyedropperOffsetEnabled", enable)
+                .apply()
         }
     }
 
     fun updatePenOnlyMode(enable: Boolean) {
         penOnlyMode = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("penOnlyMode", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("penOnlyMode", enable)
+                .apply()
         }
     }
 
     fun updateBrushCursorMode(mode: Int) {
         brushCursorMode = mode
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("brushCursorMode", mode).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("brushCursorMode", mode)
+                .apply()
         }
     }
 
     fun updateEraserCursorMode(mode: Int) {
         eraserCursorMode = mode
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("eraserCursorMode", mode).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("eraserCursorMode", mode)
+                .apply()
         }
     }
 
     fun updateCursorStyleMode(mode: Int) {
         cursorStyleMode = mode
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("cursorStyleMode", mode).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("cursorStyleMode", mode)
+                .apply()
         }
     }
 
     fun updateQuickShapeEnabled(enable: Boolean) {
         quickShapeEnabled = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeEnabled", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("quickShapeEnabled", enable)
+                .apply()
         }
     }
 
     fun updatePressureCurvePreset(preset: Int) {
         pressureCurvePreset = preset
         when (preset) {
-            0 -> pressureControlPoints = listOf(
-                androidx.compose.ui.geometry.Offset(0f, 0f),
-                androidx.compose.ui.geometry.Offset(0.33f, 0.33f),
-                androidx.compose.ui.geometry.Offset(0.66f, 0.66f),
-                androidx.compose.ui.geometry.Offset(1f, 1f)
-            )
-            1 -> pressureControlPoints = listOf( // Soft / Convex (Huawei sensitive)
-                androidx.compose.ui.geometry.Offset(0f, 0f),
-                androidx.compose.ui.geometry.Offset(0.15f, 0.65f),
-                androidx.compose.ui.geometry.Offset(0.45f, 0.90f),
-                androidx.compose.ui.geometry.Offset(1f, 1f)
-            )
-            2 -> pressureControlPoints = listOf( // Hard / Concave
-                androidx.compose.ui.geometry.Offset(0f, 0f),
-                androidx.compose.ui.geometry.Offset(0.55f, 0.10f),
-                androidx.compose.ui.geometry.Offset(0.85f, 0.35f),
-                androidx.compose.ui.geometry.Offset(1f, 1f)
-            )
-            3 -> pressureControlPoints = listOf( // S-Curve
-                androidx.compose.ui.geometry.Offset(0f, 0f),
-                androidx.compose.ui.geometry.Offset(0.40f, 0.10f),
-                androidx.compose.ui.geometry.Offset(0.60f, 0.90f),
-                androidx.compose.ui.geometry.Offset(1f, 1f)
-            )
-            4 -> pressureControlPoints = listOf( // Extreme
-                androidx.compose.ui.geometry.Offset(0f, 0f),
-                androidx.compose.ui.geometry.Offset(0.10f, 0.85f),
-                androidx.compose.ui.geometry.Offset(0.90f, 0.95f),
-                androidx.compose.ui.geometry.Offset(1f, 1f)
-            )
+            0 -> {
+                pressureControlPoints =
+                    listOf(
+                        androidx.compose.ui.geometry
+                            .Offset(0f, 0f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.33f, 0.33f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.66f, 0.66f),
+                        androidx.compose.ui.geometry
+                            .Offset(1f, 1f),
+                    )
+            }
+
+            1 -> {
+                pressureControlPoints =
+                    listOf( // Soft / Convex (Huawei sensitive)
+                        androidx.compose.ui.geometry
+                            .Offset(0f, 0f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.15f, 0.65f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.45f, 0.90f),
+                        androidx.compose.ui.geometry
+                            .Offset(1f, 1f),
+                    )
+            }
+
+            2 -> {
+                pressureControlPoints =
+                    listOf( // Hard / Concave
+                        androidx.compose.ui.geometry
+                            .Offset(0f, 0f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.55f, 0.10f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.85f, 0.35f),
+                        androidx.compose.ui.geometry
+                            .Offset(1f, 1f),
+                    )
+            }
+
+            3 -> {
+                pressureControlPoints =
+                    listOf( // S-Curve
+                        androidx.compose.ui.geometry
+                            .Offset(0f, 0f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.40f, 0.10f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.60f, 0.90f),
+                        androidx.compose.ui.geometry
+                            .Offset(1f, 1f),
+                    )
+            }
+
+            4 -> {
+                pressureControlPoints =
+                    listOf( // Extreme
+                        androidx.compose.ui.geometry
+                            .Offset(0f, 0f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.10f, 0.85f),
+                        androidx.compose.ui.geometry
+                            .Offset(0.90f, 0.95f),
+                        androidx.compose.ui.geometry
+                            .Offset(1f, 1f),
+                    )
+            }
         }
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("pressureCurvePreset", preset).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("pressureCurvePreset", preset)
+                .apply()
         }
     }
 
@@ -400,57 +495,80 @@ class PaintViewModel : ViewModel() {
     fun updateUiOpacity(v: Float) {
         uiOpacity = v
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putFloat("uiOpacity", v).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("uiOpacity", v)
+                .apply()
         }
     }
 
     fun updatePopupPanelOpacity(v: Float) {
         popupPanelOpacity = v
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putFloat("popupPanelOpacity", v).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("popupPanelOpacity", v)
+                .apply()
         }
     }
 
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
-        val color = com.reverie.paint.ui.theme.parseColor(hex)
-        com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
-            accent = color,
-            accentHi = color
-        )
+        val color =
+            com.reverie.paint.ui.theme
+                .parseColor(hex)
+        com.reverie.paint.ui.theme.Theme.current =
+            com.reverie.paint.ui.theme.Theme.current.copy(
+                accent = color,
+                accentHi = color,
+            )
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putString("accentColor", hex).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("accentColor", hex)
+                .apply()
         }
     }
 
     fun updateImmersiveMode(enable: Boolean) {
         immersiveMode = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("immersiveMode", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("immersiveMode", enable)
+                .apply()
         }
-        com.reverie.paint.MainActivity.applyImmersive(enable, extendToCutout)
+        com.reverie.paint.MainActivity
+            .applyImmersive(enable, extendToCutout)
     }
 
     fun updateExtendToCutout(extend: Boolean) {
         extendToCutout = extend
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("extendToCutout", extend).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("extendToCutout", extend)
+                .apply()
         }
         if (immersiveMode) {
-            com.reverie.paint.MainActivity.applyImmersive(true, extend)
+            com.reverie.paint.MainActivity
+                .applyImmersive(true, extend)
         }
     }
 
     fun updateBlurBackground(enable: Boolean) {
         blurBackground = enable
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("blurBackground", enable).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("blurBackground", enable)
+                .apply()
         }
     }
 
@@ -474,6 +592,7 @@ class PaintViewModel : ViewModel() {
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
             longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
             eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
+            eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)
             brushCursorMode = prefs.getInt("brushCursorMode", 0)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 0)
@@ -487,19 +606,25 @@ class PaintViewModel : ViewModel() {
                 ReverieCoreBridge.setBrushColor(brushColor)
             }
 
-            val parsedColor = com.reverie.paint.ui.theme.parseColor(accentColorHex)
-            com.reverie.paint.ui.theme.Theme.current = com.reverie.paint.ui.theme.Theme.current.copy(
-                accent = parsedColor,
-                accentHi = parsedColor
-            )
+            val parsedColor =
+                com.reverie.paint.ui.theme
+                    .parseColor(accentColorHex)
+            com.reverie.paint.ui.theme.Theme.current =
+                com.reverie.paint.ui.theme.Theme.current.copy(
+                    accent = parsedColor,
+                    accentHi = parsedColor,
+                )
         }
     }
-        
+
     fun updateColorPickerMode(mode: String) {
         colorPickerMode = mode
         if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putString("colorPickerMode", mode).apply()
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("colorPickerMode", mode)
+                .apply()
         }
     }
 
@@ -543,12 +668,18 @@ class PaintViewModel : ViewModel() {
         internal set
 
     /** Report the visible canvas size (device px); keep render buffer at full native resolution */
-    fun setRenderViewport(viewW: Int, viewH: Int) {
+    fun setRenderViewport(
+        viewW: Int,
+        viewH: Int,
+    ) {
         if (viewW <= 0 || viewH <= 0) return
         val maxTex = 4096
-        val scale = if (coreW > maxTex || coreH > maxTex) {
-            minOf(maxTex.toFloat() / coreW, maxTex.toFloat() / coreH)
-        } else 1f
+        val scale =
+            if (coreW > maxTex || coreH > maxTex) {
+                minOf(maxTex.toFloat() / coreW, maxTex.toFloat() / coreH)
+            } else {
+                1f
+            }
         val nw = maxOf(1, (coreW * scale).toInt())
         val nh = maxOf(1, (coreH * scale).toInt())
         if (nw != renderW || nh != renderH) {
@@ -693,16 +824,17 @@ class PaintViewModel : ViewModel() {
 
     internal fun isAppContextReady(): Boolean = ::appContext.isInitialized
 
-
     var currentProjectFile by mutableStateOf<String?>(null)
     var isBlockingLoading by mutableStateOf(false)
     var blockingLoadingMessage by mutableStateOf("")
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
+
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
+
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
     // of the canvas so the user can see the active selection (Krita-style)
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
@@ -711,6 +843,7 @@ class PaintViewModel : ViewModel() {
     var selectionMode by mutableStateOf(0)
     var selectionTolerance by mutableStateOf(24)
     internal val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
+
     // Name-keyed mirror: layer indices change on every move/group op, so the
     // index cache goes empty right after a drag and the rows flash blank until
     // the 400ms-throttled refresh lands. Names are stable across moves, so a
@@ -753,37 +886,36 @@ class PaintViewModel : ViewModel() {
     var isFilterAdjustActive by mutableStateOf(false)
 
     internal var filterPreviewJob: kotlinx.coroutines.Job? = null
-
 }
 
 enum class Page { HOME, CREATE, PAINTING }
 
-
 /** Krita-style brush grouping: the preset name prefix maps to a group. */
-fun inferBrushGroup(name: String): String = when {
-    name.startsWith("a)") -> "橡皮擦"
-    name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
-    name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
-    name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
-    name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
-    name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
-    name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
-    name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
-    name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
-    name.startsWith("j)") || name.startsWith("Water") -> "水彩"
-    name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
-    name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
-    name.startsWith("t)") || name.startsWith("Shape") -> "形状"
-    name.startsWith("u)") || name.contains("Pixel") -> "像素画"
-    name.startsWith("v)") -> "特效"
-    name.startsWith("w)") -> "纹理"
-    name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
-    name.startsWith("y)") -> "纹理"
-    name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
-    name.contains("Spray") -> "喷枪"
-    name.contains("Clone") || name.contains("Distort") -> "特效"
-    else -> "其他"
-}
+fun inferBrushGroup(name: String): String =
+    when {
+        name.startsWith("a)") -> "橡皮擦"
+        name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
+        name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
+        name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
+        name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
+        name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
+        name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
+        name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
+        name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
+        name.startsWith("j)") || name.startsWith("Water") -> "水彩"
+        name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
+        name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
+        name.startsWith("t)") || name.startsWith("Shape") -> "形状"
+        name.startsWith("u)") || name.contains("Pixel") -> "像素画"
+        name.startsWith("v)") -> "特效"
+        name.startsWith("w)") -> "纹理"
+        name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
+        name.startsWith("y)") -> "纹理"
+        name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
+        name.contains("Spray") -> "喷枪"
+        name.contains("Clone") || name.contains("Distort") -> "特效"
+        else -> "其他"
+    }
 
 /** Per-preset independent brush parameters (size/opacity/flow). */
 data class BrushParams(
@@ -797,5 +929,5 @@ data class BrushPresetInfo(
     val index: Int,
     val name: String,
     val thumbBytes: ByteArray,
-    val group: String = "",  // effective group (custom override or inferred)
+    val group: String = "", // effective group (custom override or inferred)
 )
