@@ -46,11 +46,11 @@ import androidx.activity.compose.BackHandler
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Project
+import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Theme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-
 // In-Memory LRU Cache for high-performance thumbnail rendering without disk jank
 private object ThumbnailCache {
     private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
@@ -153,414 +153,73 @@ fun HomePage(vm: PaintViewModel) {
 
     // Custom Styled Dialog: Create Stack / Folder (新建画集)
     if (showNewFolderDialog) {
-        Dialog(onDismissRequest = { showNewFolderDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.panel)
-                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                    .padding(22.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "新建画集",
-                        color = colors.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    OutlinedTextField(
-                        value = newFolderName,
-                        onValueChange = { newFolderName = it },
-                        singleLine = true,
-                        placeholder = { Text("画集名称", color = colors.subText) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = colors.text,
-                            unfocusedTextColor = colors.text,
-                            focusedBorderColor = colors.accent,
-                            unfocusedBorderColor = colors.border,
-                            focusedContainerColor = colors.panelHi,
-                            unfocusedContainerColor = colors.panelHi,
-                            cursorColor = colors.accent
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(20.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { showNewFolderDialog = false }) {
-                            Text("取消", color = colors.subText)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = {
-                            if (newFolderName.isNotBlank()) {
-                                vm.createFolder(newFolderName.trim())
-                                Toast.makeText(context, "已创建画集: ${newFolderName.trim()}", Toast.LENGTH_SHORT).show()
-                            }
-                            showNewFolderDialog = false
-                            newFolderName = ""
-                        }) {
-                            Text("创建", color = colors.accent, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
+        NewFolderDialog(
+            colors = colors,
+            folderName = newFolderName,
+            onFolderNameChange = { newFolderName = it },
+            onCreate = { name ->
+                vm.createFolder(name)
+                Toast.makeText(context, "已创建画集: $name", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showNewFolderDialog = false },
+        )
     }
 
-    // Custom Styled Dialog: Rename (重命名)
     if (showRenameDialog && targetRenameProject != null) {
-        Dialog(onDismissRequest = { showRenameDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.panel)
-                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                    .padding(22.dp)
-            ) {
-                Column {
-                    Text(
-                        text = if (targetRenameProject?.isFolder == true) "重命名画集" else "重命名作品",
-                        color = colors.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    OutlinedTextField(
-                        value = newProjectName,
-                        onValueChange = { newProjectName = it },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = colors.text,
-                            unfocusedTextColor = colors.text,
-                            focusedBorderColor = colors.accent,
-                            unfocusedBorderColor = colors.border,
-                            focusedContainerColor = colors.panelHi,
-                            unfocusedContainerColor = colors.panelHi,
-                            cursorColor = colors.accent
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(20.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = {
-                            showRenameDialog = false
-                            targetRenameProject = null
-                        }) {
-                            Text("取消", color = colors.subText)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = {
-                            val p = targetRenameProject
-                            if (p != null && newProjectName.isNotBlank()) {
-                                vm.renameProject(p, newProjectName.trim())
-                            }
-                            showRenameDialog = false
-                            targetRenameProject = null
-                        }) {
-                            Text("确定", color = colors.accent, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
+        val renameTarget = targetRenameProject!!
+        RenameProjectDialog(
+            colors = colors,
+            project = renameTarget,
+            name = newProjectName,
+            onNameChange = { newProjectName = it },
+            onRename = { newName -> vm.renameProject(renameTarget, newName) },
+            onDismiss = {
+                showRenameDialog = false
+                targetRenameProject = null
+            },
+        )
     }
 
-    // Custom Styled Dialog: Move to Stack / Root (移动到画集)
     if (showMoveDialog && targetMoveProjects.isNotEmpty()) {
-        val rootDir = vm.projectDir()
-        val allFolders = remember(vm.projects) {
-            rootDir.listFiles { f: File -> f.isDirectory }?.map { it.name } ?: emptyList()
-        }
-
-        Dialog(onDismissRequest = { showMoveDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.panel)
-                    .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                    .padding(22.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "移动作品到画集",
-                        color = colors.text,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Option to move to Root
-                        if (currentFolder != null) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(colors.panelHi)
-                                    .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                    .clickable {
-                                        targetMoveProjects.forEach { p ->
-                                            vm.moveProjectToFolder(p, null)
-                                        }
-                                        Toast.makeText(context, "已移出到画廊根目录", Toast.LENGTH_SHORT).show()
-                                        showMoveDialog = false
-                                        isSelectMode = false
-                                        selectedProjects.clear()
-                                    }
-                                    .padding(14.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(painterResource(R.drawable.ic_folder_symlink), contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("移出到画廊根目录", color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-
-                        if (allFolders.isEmpty()) {
-                            Text("当前暂无画集，可先在右上角菜单中新建画集", color = colors.subText, fontSize = 13.sp)
-                        } else {
-                            allFolders.forEach { folderName ->
-                                if (currentFolder?.name != folderName) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(colors.panelHi)
-                                            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                            .clickable {
-                                                targetMoveProjects.forEach { p ->
-                                                    vm.moveProjectToFolder(p, folderName)
-                                                }
-                                                Toast.makeText(context, "已移动到画集: $folderName", Toast.LENGTH_SHORT).show()
-                                                showMoveDialog = false
-                                                isSelectMode = false
-                                                selectedProjects.clear()
-                                            }
-                                            .padding(14.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(painterResource(R.drawable.ic_folder), contentDescription = null, tint = colors.icon, modifier = Modifier.size(18.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(folderName, color = colors.text, fontSize = 13.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { showMoveDialog = false }) {
-                            Text("取消", color = colors.subText)
-                        }
-                    }
-                }
-            }
-        }
+        MoveProjectDialog(
+            colors = colors,
+            vm = vm,
+            currentFolder = currentFolder,
+            targetMoveProjects = targetMoveProjects,
+            onMoved = {
+                showMoveDialog = false
+                isSelectMode = false
+                selectedProjects.clear()
+            },
+            onDismiss = { showMoveDialog = false },
+        )
     }
 
-    // Custom Styled Secondary Deletion Confirmation Dialog: Single Project / Collection
     if (projectToDelete != null) {
-        val target = projectToDelete!!
-        val isFolder = target.isFolder
-        Dialog(
-            onDismissRequest = { projectToDelete = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { projectToDelete = null }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(320.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(colors.panel)
-                        .border(1.dp, colors.border, RoundedCornerShape(18.dp))
-                        .padding(22.dp)
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_alert_triangle),
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF5252),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = if (isFolder) "删除画集" else "删除画布",
-                                color = colors.text,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = if (isFolder) {
-                                "确定要删除画集「${target.name}」吗？画集内的所有作品也将被永久删除，此操作无法撤销。"
-                            } else {
-                                "确定要删除作品「${target.name}」吗？文件将被永久删除，此操作无法撤销。"
-                            },
-                            color = colors.subText,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
-                        )
-                        Spacer(Modifier.height(22.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = { projectToDelete = null }) {
-                                Text("取消", color = colors.subText, fontSize = 14.sp)
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    val item = target
-                                    projectToDelete = null
-                                    vm.deleteProject(item)
-                                    Toast.makeText(context, if (isFolder) "画集已删除" else "作品已删除", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF5252),
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        val deleteTarget = projectToDelete!!
+        DeleteProjectDialog(
+            colors = colors,
+            target = deleteTarget,
+            onDelete = {
+                vm.deleteProject(deleteTarget)
+                Toast.makeText(context, if (deleteTarget.isFolder) "画集已删除" else "作品已删除", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { projectToDelete = null },
+        )
     }
 
-    // Custom Styled Secondary Deletion Confirmation Dialog: Batch Selected Projects
     if (showBatchDeleteConfirm && selectedProjects.isNotEmpty()) {
-        val count = selectedProjects.size
-        Dialog(
-            onDismissRequest = { showBatchDeleteConfirm = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { showBatchDeleteConfirm = false }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(320.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {}
-                        )
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(colors.panel)
-                        .border(1.dp, colors.border, RoundedCornerShape(18.dp))
-                        .padding(22.dp)
-                ) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_alert_triangle),
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF5252),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = "批量删除",
-                                color = colors.text,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = "确定要删除选中的 ${count} 项内容吗？此操作无法撤销。",
-                            color = colors.subText,
-                            fontSize = 13.sp,
-                            lineHeight = 18.sp
-                        )
-                        Spacer(Modifier.height(22.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(onClick = { showBatchDeleteConfirm = false }) {
-                                Text("取消", color = colors.subText, fontSize = 14.sp)
-                            }
-                            Spacer(Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    showBatchDeleteConfirm = false
-                                    selectedProjects.forEach { vm.deleteProject(it) }
-                                    selectedProjects.clear()
-                                    isSelectMode = false
-                                    Toast.makeText(context, "已删除 $count 项内容", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF5252),
-                                    contentColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        BatchDeleteConfirmDialog(
+            colors = colors,
+            count = selectedProjects.size,
+            onConfirm = {
+                selectedProjects.forEach { vm.deleteProject(it) }
+                selectedProjects.clear()
+                isSelectMode = false
+                Toast.makeText(context, "已删除 ${selectedProjects.size} 项内容", Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showBatchDeleteConfirm = false },
+        )
     }
 
     Column(
@@ -1308,114 +967,7 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-        // Floating Morandi Bottom Navigation Bar with Spring Animations
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp, vertical = 14.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val isGallery = selectedTab == 0
-            val isSettings = selectedTab == 1
 
-            val createSource = remember { MutableInteractionSource() }
-            val isCreatePressed by createSource.collectIsPressedAsState()
-            val createScale by animateFloatAsState(
-                targetValue = if (isCreatePressed) 0.88f else 1.0f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-                label = "CreateBtnScale"
-            )
-
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(32.dp))
-                    .background(colors.panel.copy(alpha = 0.95f))
-                    .border(1.dp, colors.border, RoundedCornerShape(32.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Gallery Tab Button with Animated Pill Container
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(if (isGallery) colors.panelHi else Color.Transparent)
-                        .clickable { vm.homeSelectedTab = 0 }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_brush),
-                        contentDescription = "画廊",
-                        tint = if (isGallery) colors.accent else colors.subText,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    AnimatedVisibility(
-                        visible = isGallery,
-                        enter = fadeIn(tween(200)) + expandHorizontally(expandFrom = Alignment.Start),
-                        exit = fadeOut(tween(150)) + shrinkHorizontally(shrinkTowards = Alignment.Start)
-                    ) {
-                        Row {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "画廊",
-                                color = colors.text,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                // Create Action Button (Pulsing / Press-responsive Accent Circle)
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .scale(createScale)
-                        .clip(CircleShape)
-                        .background(colors.accent)
-                        .clickable(interactionSource = createSource, indication = null) { vm.goCreate() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(painterResource(R.drawable.ic_plus), contentDescription = "新建", tint = colors.onAccent, modifier = Modifier.size(28.dp))
-                }
-
-                // Settings Tab Button with Animated Pill Container
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(if (isSettings) colors.panelHi else Color.Transparent)
-                        .clickable { vm.homeSelectedTab = 1 }
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_settings),
-                        contentDescription = "设置",
-                        tint = if (isSettings) colors.accent else colors.subText,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    AnimatedVisibility(
-                        visible = isSettings,
-                        enter = fadeIn(tween(200)) + expandHorizontally(expandFrom = Alignment.Start),
-                        exit = fadeOut(tween(150)) + shrinkHorizontally(shrinkTowards = Alignment.Start)
-                    ) {
-                        Row {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "设置",
-                                color = colors.text,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
+    HomeBottomBar(colors = colors, vm = vm, selectedTab = selectedTab)
     }
 }
-
-
-
-
