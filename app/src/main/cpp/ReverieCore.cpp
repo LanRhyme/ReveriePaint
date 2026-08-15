@@ -1234,43 +1234,46 @@ bool ReverieCore::layerClipped(int index) const
     return m_layers[index].clipped;
 }
 
+void ReverieCore::updateAllClippingMasks()
+{
+    if (!m_document) return;
+
+    int currentBaseIndex = -1;
+
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (!m_layers[i].clipped || i == 0) {
+            currentBaseIndex = i;
+            if (KisTransparencyMaskSP mask = findClippingMask(m_layers[i].node)) {
+                m_document->removeNode(mask);
+            }
+        } else {
+            // Clipped layer: bind to currentBaseIndex (the bottom-most non-clipped layer)
+            if (currentBaseIndex >= 0 && currentBaseIndex < m_layers.size() && m_layers[i].node) {
+                KisPaintDeviceSP baseDev = layerPaintDeviceFor(m_layers[currentBaseIndex]);
+                if (baseDev) {
+                    KisLayer *parentLayer = dynamic_cast<KisLayer *>(m_layers[i].node);
+                    KisTransparencyMaskSP mask = findClippingMask(m_layers[i].node);
+                    if (!mask) {
+                        mask = new KisTransparencyMask(m_document, QStringLiteral("ClippingMask"));
+                        mask->initSelection(baseDev, parentLayer);
+                        m_document->addNode(mask, KisNodeSP(m_layers[i].node));
+                    } else {
+                        mask->initSelection(baseDev, parentLayer);
+                        mask->setDirty();
+                    }
+                }
+            }
+        }
+    }
+}
+
 void ReverieCore::setLayerClipped(int index, bool clipped)
 {
     if (index <= 0 || index >= m_layers.size()) {
         return;
     }
     m_layers[index].clipped = clipped;
-    KisNode *node = m_layers[index].node;
-    if (!node || !m_document) {
-        return;
-    }
-
-    KisTransparencyMaskSP existingMask = findClippingMask(node);
-
-    if (clipped) {
-        KisPaintDeviceSP baseDev;
-        for (int i = index - 1; i >= 0; --i) {
-            if (!m_layers[i].clipped) {
-                baseDev = layerPaintDeviceFor(m_layers[i]);
-                if (baseDev) break;
-            }
-        }
-        if (baseDev) {
-            KisLayer *parentLayer = dynamic_cast<KisLayer *>(node);
-            if (!existingMask) {
-                existingMask = new KisTransparencyMask(m_document, QStringLiteral("ClippingMask"));
-                existingMask->initSelection(baseDev, parentLayer);
-                m_document->addNode(existingMask, KisNodeSP(node));
-            } else {
-                existingMask->initSelection(baseDev, parentLayer);
-                existingMask->setDirty();
-            }
-        }
-    } else {
-        if (existingMask) {
-            m_document->removeNode(existingMask);
-        }
-    }
+    updateAllClippingMasks();
     recompositeProjection();
     markDirty();
 }
@@ -2721,18 +2724,7 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxn = nullptr;
         m_strokeTxnActive = false;
         m_redoCount = 0;
-
-        // If any layers above are clipped to the active layer, refresh their masks
-        for (int i = m_currentLayer + 1; i < m_layers.size(); ++i) {
-            if (!m_layers[i].clipped) break;
-            KisPaintDeviceSP baseDev = layerPaintDeviceFor(m_layers[m_currentLayer]);
-            if (baseDev) {
-                if (KisTransparencyMaskSP mask = findClippingMask(m_layers[i].node)) {
-                    mask->initSelection(baseDev, dynamic_cast<KisLayer *>(m_layers[i].node));
-                    mask->setDirty();
-                }
-            }
-        }
+        updateAllClippingMasks();
     }
     m_drawing = false;
 }
@@ -3290,6 +3282,7 @@ void ReverieCore::undo()
     m_undoStore->undo();
     ++m_redoCount;
     syncLayersFromImage();
+    updateAllClippingMasks();
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;
@@ -3303,6 +3296,7 @@ void ReverieCore::redo()
     m_undoStore->redo();
     --m_redoCount;
     syncLayersFromImage();
+    updateAllClippingMasks();
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;

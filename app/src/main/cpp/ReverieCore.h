@@ -328,6 +328,7 @@ public:
 
 private:
     void syncLayersFromImage();
+    void updateAllClippingMasks();
     KisPaintDeviceSP currentPaintDevice();
     KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;
     bool isLayerEditable(int index) const;   // background/locked check
