@@ -23,22 +23,21 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
     if (w == iw && h == ih) {
         if (!m_bitmapInited || m_dirtyRect.isNull() || m_dirtyRect == QRect(0, 0, iw, ih)) {
-            // Full frame update
-            QByteArray raw;
-            raw.resize(size_t(iw) * ih * 4);
-            proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), 0, 0, iw, ih);
-            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), iw * 4,
-                               buffer, w * 4, iw, ih);
+            // Full frame update: direct in-place read and SIMD conversion
+            proj->readBytes(buffer, 0, 0, iw, ih);
+            blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
         } else {
             // Sub-region dirty update with exact pixel boundaries (0 rounding seams/misalignment)
             const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
             if (!r.isEmpty()) {
-                QByteArray raw;
-                raw.resize(size_t(r.width()) * r.height() * 4);
-                proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), r.x(), r.y(), r.width(), r.height());
+                const size_t req = size_t(r.width()) * r.height() * 4;
+                if (size_t(m_subRegionBuffer.size()) < req) {
+                    m_subRegionBuffer.resize(req);
+                }
+                proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r.x(), r.y(), r.width(), r.height());
                 quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
-                blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), r.width() * 4,
+                blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
                                    dst, w * 4, r.width(), r.height());
             }
         }

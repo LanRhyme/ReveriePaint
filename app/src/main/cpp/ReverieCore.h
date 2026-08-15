@@ -438,6 +438,7 @@ private:
     // the dirty region only and copy the rest from the cached image.
     QImage m_displayImage;
     QRect m_dirtyRect;
+    QByteArray m_subRegionBuffer;
     void markDirty() {
         markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     }
