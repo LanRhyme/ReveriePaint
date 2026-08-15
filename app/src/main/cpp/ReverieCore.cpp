@@ -304,34 +304,35 @@ void ReverieCore::syncLayersFromImage()
         KisNodeSP node = parent->firstChild();
         while (node) {
             const bool isGroup = dynamic_cast<KisGroupLayer *>(node.data()) != nullptr;
-            if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node.data())) {
+            if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
                 LayerEntry entry;
                 entry.node = node.data();
-                entry.visible = pl->visible();
-                entry.name = pl->name();
+                entry.visible = l->visible();
+                entry.name = l->name();
+                entry.depth = depth;
+                entry.isGroup = isGroup;
+                entry.locked = l->userLocked();
+                if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(l)) {
+                    entry.alphaLocked = pl->alphaLocked();
+                } else {
+                    entry.alphaLocked = false;
+                }
+                entry.colorLabel = l->colorLabelIndex();
+                entry.clipped = l->alphaChannelDisabled();
+                entry.background = m_layers.isEmpty();  // first layer = bg
+                m_layers.append(entry);
+            } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {
+                LayerEntry entry;
+                entry.node = node.data();
+                entry.visible = m->visible();
+                entry.name = m->name();
                 entry.depth = depth;
                 entry.isGroup = false;
-                entry.locked = pl->userLocked();
-                entry.alphaLocked = pl->alphaLocked();
-                entry.colorLabel = pl->colorLabelIndex();
-                entry.clipped = pl->alphaChannelDisabled();
-                entry.background = m_layers.isEmpty();  // first paint layer = bg
-                m_layers.append(entry);
-            } else if (isGroup) {
-                // Group layers participate in the layer list (depth, name,
-                // visibility) so the UI can nest and the index space stays
-                // a full tree traversal
-                LayerEntry entry;
-                entry.node = node.data();
-                entry.visible = node->visible();
-                entry.name = node->name();
-                entry.depth = depth;
-                entry.isGroup = true;
-                entry.locked = node->userLocked();
-                entry.colorLabel = node->colorLabelIndex();
-                if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
-                    entry.clipped = l->alphaChannelDisabled();
-                }
+                entry.locked = m->userLocked();
+                entry.alphaLocked = false;
+                entry.colorLabel = m->colorLabelIndex();
+                entry.clipped = false;
+                entry.background = false;
                 m_layers.append(entry);
             }
             if (node->childCount() > 0) {
@@ -379,8 +380,10 @@ KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 {
     if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
         return pl->paintDevice();
+    } else if (KisMask *m = dynamic_cast<KisMask *>(e.node)) {
+        return m->paintDevice();
     } else if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
-        return l->projection();
+        return l->paintDevice() ? l->paintDevice() : l->projection();
     }
     return KisPaintDeviceSP();
 }
@@ -916,41 +919,23 @@ int ReverieCore::copyLayer(int index)
         return -1;  // background cannot be copied
     }
     LayerEntry &src = m_layers[index];
-    KisPaintLayer *sl = src.isGroup ? nullptr : dynamic_cast<KisPaintLayer *>(src.node);
-    if (!sl) {
-        return -1;  // groups are not copied in the MVP
-    }
+    if (!src.node) return -1;
     KisImageSP image = m_document;
-    if (!image) {
-        return -1;
-    }
-    KisPaintLayerSP nl = new KisPaintLayer(image, src.name + QStringLiteral(" 副本"), 255, image->colorSpace());
-    if (!nl) {
-        return -1;
-    }
-    // Copy pixels: reuse Krita's clone helper over the content bounds
-    const QRect ext = sl->paintDevice()->extent();
-    if (!ext.isEmpty()) {
-        nl->original()->makeCloneFrom(sl->paintDevice(), ext);
-        nl->original()->setDirty(ext);
-    }
-    nl->setOpacity(sl->opacity());
-    nl->setCompositeOpId(sl->compositeOpId());
-    nl->setVisible(src.visible);
-    nl->setAlphaLocked(src.alphaLocked);
-    nl->setUserLocked(src.locked);
-    nl->setColorLabelIndex(src.colorLabel);
+    if (!image) return -1;
+
+    KisNodeSP cloned = src.node->clone();
+    if (!cloned) return -1;
+    cloned->setName(src.name + QStringLiteral(" 副本"));
 
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
-    pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
+    pushUndoCommand(new KisImageLayerAddCommand(image, cloned, parent, above));
     recompositeProjection();
     syncLayersFromImage();
-    const int idx = indexOfNode(nl.data());
-    if (idx < 0) {
-        return -1;
+    const int idx = indexOfNode(cloned.data());
+    if (idx >= 0) {
+        m_currentLayer = idx;
     }
-    m_currentLayer = idx;
     markDirty();
     return m_currentLayer;
 }
