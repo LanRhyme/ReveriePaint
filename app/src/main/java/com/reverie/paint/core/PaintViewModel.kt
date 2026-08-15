@@ -36,6 +36,9 @@ class PaintViewModel : ViewModel() {
     var currentPage by mutableStateOf(Page.HOME)
         private set
 
+    var isBusy by mutableStateOf(false)
+    var busyMessage by mutableStateOf("")
+
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
     var docName by mutableStateOf("Untitled")
@@ -632,12 +635,16 @@ class PaintViewModel : ViewModel() {
 
     fun saveProject(name: String, onComplete: (() -> Unit)? = null) {
         tickPaintingTimer()
+        isBusy = true
+        busyMessage = "正在保存…"
         runCore(
             after = {
                 initialStrokeCount = totalStrokes
                 isModified = false
                 docName = name
                 refreshProjects()
+                isBusy = false
+                busyMessage = ""
                 onComplete?.invoke()
             },
         ) {
@@ -667,6 +674,8 @@ class PaintViewModel : ViewModel() {
 
     fun loadProject(p: com.reverie.paint.model.Project) {
         stopPaintingTimer()
+        isBusy = true
+        busyMessage = "正在加载…"
         runCore(
             after = {
                 initialStrokeCount = p.strokeCount
@@ -681,6 +690,8 @@ class PaintViewModel : ViewModel() {
                 colorMode = p.colorMode
                 currentPage = Page.PAINTING
                 startPaintingTimer()
+                isBusy = false
+                busyMessage = ""
             },
         ) {
             val file = java.io.File(p.filePath)
