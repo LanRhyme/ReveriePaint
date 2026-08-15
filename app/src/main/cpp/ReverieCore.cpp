@@ -174,14 +174,14 @@ bool ReverieCore::newDocument(int width, int height)
     }
     image->setResolution(72.0, 72.0);
 
-    // Background layer (white, opaque, locked): index 0, cannot be painted
-    // on, deleted, renamed or moved. Hiding it reveals the transparent grid.
+    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+
+    // Background layer (transparent, locked): index 0, controls projection background
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
     if (!bg) {
         return false;
     }
-    KoColor white(QColor(Qt::white), cs);
-    bg->original()->fill(QRect(0, 0, width, height), white);
+    bg->original()->fill(QRect(0, 0, width, height), KoColor(Qt::transparent, cs));
     bg->original()->setDirty();
     bg->setUserLocked(true);
     bg->setAlphaLocked(true);
@@ -277,104 +277,11 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
-    const int w = image->width();
-    const int h = image->height();
-    const QRect full(0, 0, w, h);
-
-    bool hasClippedLayer = false;
-    for (const LayerEntry &e : m_layers) {
-        if (e.clipped) {
-            hasClippedLayer = true;
-            break;
-        }
-    }
-
-    if (!hasClippedLayer) {
-        KisRefreshSubtreeWalker walker(full);
-        walker.collectRects(image->rootLayer(), full);
-        KisAsyncMerger merger;
-        merger.startMerge(walker);
-        return;
-    }
-
-    // Standard dynamic clipping mask compositor:
-    // Update individual group projections first
+    const QRect full(0, 0, image->width(), image->height());
     KisRefreshSubtreeWalker walker(full);
     walker.collectRects(image->rootLayer(), full);
     KisAsyncMerger merger;
     merger.startMerge(walker);
-
-    // Composite layers from bottom to top onto root projection
-    KisPaintDeviceSP rootProj = image->projection();
-    if (!rootProj) return;
-    rootProj->clear();
-
-    for (int i = 0; i < m_layers.size(); ++i) {
-        const LayerEntry &e = m_layers[i];
-        if (!e.visible || !e.node) continue;
-
-        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
-        if (!dev) continue;
-
-        const QRect ext = dev->exactBounds();
-        if (ext.isEmpty()) continue;
-
-        const qreal opacityF = qreal(e.node->opacity()) / 255.0;
-        const QString blendOp = e.node->compositeOpId();
-
-        if (!e.clipped) {
-            KisPainter painter(rootProj);
-            painter.setOpacityF(opacityF);
-            painter.setCompositeOpId(blendOp.isEmpty() ? QStringLiteral("normal") : blendOp);
-            painter.bitBlt(ext.x(), ext.y(), dev, ext.x(), ext.y(), ext.width(), ext.height());
-        } else {
-            // Find base layer (the first non-clipped layer below)
-            KisPaintDeviceSP baseDev;
-            for (int b = i - 1; b >= 0; --b) {
-                if (!m_layers[b].clipped) {
-                    baseDev = layerPaintDeviceFor(m_layers[b]);
-                    if (baseDev) break;
-                }
-            }
-            if (!baseDev) continue;
-
-            const QRect baseExt = baseDev->exactBounds();
-            const QRect clipExt = ext.intersected(baseExt).intersected(full);
-            if (clipExt.isEmpty()) continue;
-
-            QImage devImg(clipExt.size(), QImage::Format_ARGB32_Premultiplied);
-            QImage baseImg(clipExt.size(), QImage::Format_ARGB32_Premultiplied);
-            dev->readBytes(devImg.bits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
-            baseDev->readBytes(baseImg.bits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
-
-            for (int y = 0; y < devImg.height(); ++y) {
-                quint8 *d = devImg.scanLine(y);
-                const quint8 *b = baseImg.constScanLine(y);
-                for (int x = 0; x < devImg.width(); ++x) {
-                    quint8 *dp = d + x * 4;
-                    const quint8 *bp = b + x * 4;
-                    if (bp[3] == 0) {
-                        dp[0] = 0; dp[1] = 0; dp[2] = 0; dp[3] = 0;
-                    } else if (bp[3] < 255) {
-                        const int na = (int(dp[3]) * int(bp[3])) / 255;
-                        dp[0] = quint8((int(dp[0]) * int(bp[3])) / 255);
-                        dp[1] = quint8((int(dp[1]) * int(bp[3])) / 255);
-                        dp[2] = quint8((int(dp[2]) * int(bp[3])) / 255);
-                        dp[3] = quint8(na);
-                    }
-                }
-            }
-
-            KisPaintDeviceSP tempDev = new KisPaintDevice(dev->colorSpace());
-            tempDev->writeBytes(devImg.constBits(), clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
-
-            KisPainter painter(rootProj);
-            painter.setOpacityF(opacityF);
-            painter.setCompositeOpId(blendOp.isEmpty() ? QStringLiteral("normal") : blendOp);
-            painter.bitBlt(clipExt.x(), clipExt.y(), tempDev, clipExt.x(), clipExt.y(), clipExt.width(), clipExt.height());
-        }
-    }
-    rootProj->setDirty(full);
 }
 
 void ReverieCore::syncLayersFromImage()
@@ -1161,9 +1068,10 @@ void ReverieCore::setLayerVisible(int index, bool visible)
             KisNodeSP(m_layers[index].node), visible,
             kundo2_i18n("Layer Visibility")));
         m_layers[index].visible = visible;
-        // Visibility is a structural change: KisNode::setVisible only
-        // notifies the graph listener, it does not schedule a projection
-        // recomposite. setDirty() -> requestProjectionUpdate does.
+        if (m_layers[index].background && m_document) {
+            const KoColorSpace *cs = m_document->colorSpace();
+            m_document->setDefaultProjectionColor(visible ? KoColor(Qt::white, cs) : KoColor(Qt::transparent, cs));
+        }
         m_layers[index].node->setDirty(
             QRect(0, 0, m_document->width(), m_document->height()));
         markDirty();
