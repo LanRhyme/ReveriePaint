@@ -299,7 +299,7 @@ private fun LayerListView(
     // Only one row may have its swipe drawer open; swiping another row
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
-    var collapsedGroups by remember { mutableStateOf(setOf<Int>()) }
+    var collapsedGroupNames by remember { mutableStateOf(setOf<String>()) }
     var draggingFrom by remember { mutableStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
     var dragFingerY by remember { mutableStateOf(0f) }
@@ -320,7 +320,7 @@ private fun LayerListView(
     // display list recursively: siblings are reversed, group rows keep their
     // whole subtree below them (nested groups included).
     val displayRows =
-        remember(vm.layers, collapsedGroups) {
+        remember(vm.layers, collapsedGroupNames) {
             val n = vm.layers.size
             fun collectBlock(
                 lo: Int,
@@ -335,7 +335,7 @@ private fun LayerListView(
                 for (j in siblings.reversed()) {
                     val c = vm.layers[j]
                     out.add(c)
-                    if (c.isGroup && c.index !in collapsedGroups) {
+                    if (c.isGroup && c.name !in collapsedGroupNames) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         collectBlock(j + 1, e, c.depth, out)
                     }
@@ -356,7 +356,7 @@ private fun LayerListView(
 
     // Display list priority: frozen drop order > dragging order > real order
     val displayList =
-        remember(vm.layers, collapsedGroups, draggingFrom, dragTargetIdx, pendingOrder) {
+        remember(vm.layers, collapsedGroupNames, draggingFrom, dragTargetIdx, pendingOrder) {
             if (pendingOrder != null) {
                 val byName = displayRows.associateBy { it.name }
                 pendingOrder!!.mapNotNull { byName[it] }
@@ -458,8 +458,13 @@ private fun LayerListView(
                         val target = listWithoutFrom.last().index
                         vm.moveLayerRelative(from, target, placeAbove = false)
                     } else {
-                        val target = listWithoutFrom[insert].index
-                        vm.moveLayerRelative(from, target, placeAbove = true)
+                        val prevItem = listWithoutFrom[insert - 1]
+                        val nextItem = listWithoutFrom[insert]
+                        if (prevItem.depth > nextItem.depth) {
+                            vm.moveLayerRelative(from, prevItem.index, placeAbove = false)
+                        } else {
+                            vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                        }
                     }
                 }
             }
@@ -645,12 +650,12 @@ private fun LayerListView(
                         vm = vm,
                         layer = layer,
                         selected = layer.index == selectedIndex,
-                        collapsed = layer.index in collapsedGroups,
+                        collapsed = layer.name in collapsedGroupNames,
                         onToggleCollapse = {
                             revealedIndex = null
-                            collapsedGroups =
-                                if (layer.index in collapsedGroups) collapsedGroups - layer.index
-                                else collapsedGroups + layer.index
+                            collapsedGroupNames =
+                                if (layer.name in collapsedGroupNames) collapsedGroupNames - layer.name
+                                else collapsedGroupNames + layer.name
                         },
                         revealed = layer.index == revealedIndex,
                         onReveal = { revealedIndex = layer.index },
@@ -728,7 +733,7 @@ private fun LayerListView(
                             vm = vm,
                             layer = dragged,
                             selected = dragged.index == selectedIndex,
-                            collapsed = dragged.index in collapsedGroups,
+                            collapsed = dragged.name in collapsedGroupNames,
                             index = dragged.index,
                             onToggleCollapse = {},
                             modifier =
