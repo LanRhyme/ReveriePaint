@@ -291,6 +291,11 @@ private fun LayerListView(
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
     var selectedIndex by remember { mutableStateOf(vm.currentLayerIndex) }
+    LaunchedEffect(vm.currentLayerIndex) {
+        if (vm.currentLayerIndex in vm.layers.indices) {
+            selectedIndex = vm.currentLayerIndex
+        }
+    }
     // Only one row may have its swipe drawer open; swiping another row
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
@@ -550,10 +555,18 @@ private fun LayerListView(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("透明度蒙版", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_clip), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        text = { Text("克隆图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
                         onClick = {
                             vm.addLayerWithType("", 5)
+                            showNewLayerMenu = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("盖印可见图层", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_layers), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        onClick = {
+                            vm.stampVisibleLayers()
                             showNewLayerMenu = false
                         }
                     )
@@ -1339,17 +1352,80 @@ private fun LayerDetailPage(
                 .background(Morandi.border),
         )
 
+        var showGroupPicker by remember { mutableStateOf(false) }
+        val availableGroups = remember(vm.layers) {
+            vm.layers.filter { it.isGroup && it.index != index }
+        }
+
+        if (showGroupPicker) {
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showGroupPicker = false }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Morandi.panel)
+                        .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                        .padding(18.dp)
+                ) {
+                    Column {
+                        Text("移入图层组", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(12.dp))
+                        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                            if (availableGroups.isEmpty()) {
+                                Text("当前画布中暂无其他图层组", color = Morandi.subText, fontSize = 13.sp)
+                            } else {
+                                availableGroups.forEach { grp ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .noRippleClickable {
+                                                vm.moveLayerToGroup(index, grp.index)
+                                                showGroupPicker = false
+                                            }
+                                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(painterResource(R.drawable.ic_folder), null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
+                                        Text(grp.name, color = Morandi.text, fontSize = 14.sp)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panelHi)
+                                    .clickable { showGroupPicker = false }
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Text("取消", color = Morandi.text, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (layer?.isGroup == true) {
             // Group-specific page
             Column {
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) { vm.removeLayer(index) }
+                OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) { vm.removeLayer(index); onBack() }
+                OpItem(R.drawable.ic_merge_down, "合并图层组", enabled = !isBg) { vm.flattenGroup(index); onBack() }
+                OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
+                OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
                 OpItem(R.drawable.ic_eye, "独显/隔离此图层组") { vm.soloLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
                 OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
+                }
+                OpToggle(R.drawable.ic_sliders, "穿透混合模式 (Pass-through)", vm.groupPassThrough(index)) {
+                    vm.setGroupPassThrough(index, !vm.groupPassThrough(index))
                 }
             }
         } else {
@@ -1358,10 +1434,18 @@ private fun LayerDetailPage(
                 OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
                 OpItem(R.drawable.ic_erase, "清除图层") { vm.clearLayer(index) }
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) { vm.removeLayer(index) }
+                OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) { vm.removeLayer(index); onBack() }
+                OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
+                OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
+                if ((layer?.depth ?: 0) > 0) {
+                    OpItem(R.drawable.ic_folder, "移出图层组") { vm.moveLayerOut(index) }
+                }
+                if (availableGroups.isNotEmpty()) {
+                    OpItem(R.drawable.ic_folder, "移入图层组") { showGroupPicker = true }
+                }
                 OpItem(R.drawable.ic_flip_h, "水平翻转") { vm.flipLayerHorizontal(index) }
                 OpItem(R.drawable.ic_flip_v, "垂直翻转") { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) { vm.mergeDown(index) }
+                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) { vm.mergeDown(index); onBack() }
                 OpItem(R.drawable.ic_eye, "独显此图层") { vm.soloLayer(index) }
                 OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
@@ -1373,6 +1457,9 @@ private fun LayerDetailPage(
                 OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
+                OpItem(R.drawable.ic_clip, "添加透明度蒙版") { vm.addMaskToLayer(index, 0) }
+                OpItem(R.drawable.ic_sliders, "添加滤镜蒙版") { vm.addMaskToLayer(index, 1) }
+                OpItem(R.drawable.ic_fill, "栅格化为普通图层") { vm.rasterizeLayer(index) }
                 OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
             }
         }

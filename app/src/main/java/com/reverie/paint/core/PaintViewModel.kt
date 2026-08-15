@@ -2378,6 +2378,56 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun moveLayerUp(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerUp(i)
+        }
+    }
+
+    fun moveLayerDown(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerDown(i)
+        }
+    }
+
+    fun moveLayerOut(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.moveLayerOut(i)
+        }
+    }
+
+    fun addMaskToLayer(layerIndex: Int, maskType: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.addMaskToLayer(layerIndex, maskType)
+        }
+    }
+
+    fun removeMask(layerIndex: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.removeMask(layerIndex)
+        }
+    }
+
+    fun rasterizeLayer(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.rasterizeLayer(i)
+        }
+    }
+
+    fun flattenGroup(i: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.flattenGroup(i)
+        }
+    }
+
+    fun setGroupPassThrough(i: Int, passThrough: Boolean) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setGroupPassThrough(i, passThrough)
+        }
+    }
+
+    fun groupPassThrough(i: Int) = ReverieCoreBridge.groupPassThrough(i)
+
     fun mergeDown(i: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.mergeDown(i)

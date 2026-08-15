@@ -919,6 +919,60 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyFilter(JNIEnv *, jobject, jin
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerUp(JNIEnv *, jobject, jint index)
+{
+    return core()->moveLayerUp(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerDown(JNIEnv *, jobject, jint index)
+{
+    return core()->moveLayerDown(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerOut(JNIEnv *, jobject, jint index)
+{
+    return core()->moveLayerOut(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_addMaskToLayer(JNIEnv *, jobject, jint layerIndex, jint maskType)
+{
+    return core()->addMaskToLayer(layerIndex, maskType);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_removeMask(JNIEnv *, jobject, jint layerIndex)
+{
+    return core()->removeMask(layerIndex);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_rasterizeLayer(JNIEnv *, jobject, jint index)
+{
+    return core()->rasterizeLayer(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_flattenGroup(JNIEnv *, jobject, jint index)
+{
+    return core()->flattenGroup(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setGroupPassThrough(JNIEnv *, jobject, jint index, jboolean passThrough)
+{
+    return core()->setGroupPassThrough(index, passThrough == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_groupPassThrough(JNIEnv *, jobject, jint index)
+{
+    return core()->groupPassThrough(index);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_addLayerWithType(JNIEnv *env, jobject, jstring name, jint type, jint fillColor)
 {
     QString n;

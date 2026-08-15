@@ -100,9 +100,24 @@ public:
         LayerTypeFill = 2,
         LayerTypeAdjustment = 3,
         LayerTypeVector = 4,
-        LayerTypeMask = 5
+        LayerTypeClone = 5
+    };
+    enum MaskType {
+        MaskTypeTransparency = 0,
+        MaskTypeFilter = 1,
+        MaskTypeTransform = 2,
+        MaskTypeSelection = 3
     };
     bool addLayerWithType(const QString &name, int type, quint32 fillColor = 0xFFFFFFFF);
+    bool addMaskToLayer(int layerIndex, int maskType);
+    bool removeMask(int layerIndex);
+    bool rasterizeLayer(int index);
+    bool flattenGroup(int index);
+    bool setGroupPassThrough(int index, bool passThrough);
+    bool groupPassThrough(int index) const;
+    bool moveLayerUp(int index);
+    bool moveLayerDown(int index);
+    bool moveLayerOut(int index);
 
     // Filters (interactive preview & commit)
     void applyFilter(int index, int filterId);

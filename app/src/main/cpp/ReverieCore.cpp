@@ -53,6 +53,11 @@
 #endif
 #include <algorithm>
 #include <queue>
+#include <kis_clone_layer.h>
+#include <kis_transparency_mask.h>
+#include <kis_filter_mask.h>
+#include <kis_transform_mask.h>
+#include <kis_selection_mask.h>
 #include <kis_fill_painter.h>
 #include <kis_gradient_painter.h>
 #include <kis_transform_worker.h>
@@ -858,7 +863,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         case LayerTypeFill: finalName = QString("填充图层 %1").arg(count); break;
         case LayerTypeAdjustment: finalName = QString("调整图层 %1").arg(count); break;
         case LayerTypeVector: finalName = QString("矢量图层 %1").arg(count); break;
-        case LayerTypeMask: finalName = QString("透明度蒙版 %1").arg(count); break;
+        case LayerTypeClone: finalName = QString("克隆图层 %1").arg(count); break;
         default: finalName = QString("图层 %1").arg(count); break;
         }
     }
@@ -870,6 +875,14 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     KisNodeSP newNode;
     if (type == LayerTypeGroup) {
         newNode = new KisGroupLayer(image, finalName, 255, image->colorSpace());
+    } else if (type == LayerTypeClone) {
+        const int selIdx = qBound(0, m_currentLayer, m_layers.size() - 1);
+        KisLayerSP srcLayer = dynamic_cast<KisLayer *>(m_layers[selIdx].node);
+        if (srcLayer) {
+            newNode = new KisCloneLayer(srcLayer, image, finalName, 255);
+        } else {
+            newNode = new KisPaintLayer(image, finalName, 255, image->colorSpace());
+        }
     } else {
         const KoColorSpace *cs = image->colorSpace();
         KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
@@ -880,9 +893,6 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         } else if (type == LayerTypeAdjustment) {
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
             paintLayer->setCompositeOpId(QStringLiteral("overlay"));
-        } else if (type == LayerTypeMask) {
-            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
-            paintLayer->disableAlphaChannel(true);
         } else {
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
         }
@@ -1469,7 +1479,6 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
     }
     KisNodeSP node(src.node);
     KisNodeSP group(grp.node);
-    // never move a group into its own subtree
     if (src.isGroup) {
         KisNodeSP p(group->parent());
         while (p) {
@@ -1479,13 +1488,170 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
             p = p->parent();
         }
     }
-    // Krita-native undo: move into the group at its bottom (index 0)
     pushUndoCommand(new KisImageLayerMoveCommand(
         m_document, node, group, quint32(0)));
     syncLayersFromImage();
+    const int idx = indexOfNode(node.data());
+    if (idx >= 0) m_currentLayer = idx;
     recompositeProjection();
     markDirty();
     return true;
+}
+
+bool ReverieCore::moveLayerUp(int index)
+{
+    if (index <= 0 || index >= m_layers.size() - 1) return false;
+    return moveLayer(index, index + 1);
+}
+
+bool ReverieCore::moveLayerDown(int index)
+{
+    if (index <= 1 || index >= m_layers.size()) return false;
+    return moveLayer(index, index - 1);
+}
+
+bool ReverieCore::moveLayerOut(int index)
+{
+    if (index <= 0 || index >= m_layers.size()) return false;
+    if (m_layers[index].depth <= 0) return false;
+    KisImageSP image = m_document;
+    if (!image) return false;
+    KisNodeSP node(m_layers[index].node);
+    if (!node) return false;
+
+    KisNodeSP parent = node->parent();
+    if (!parent) return false;
+
+    pushUndoCommand(new KisImageLayerMoveCommand(image, node, image->rootLayer(), parent));
+    syncLayersFromImage();
+    const int idx = indexOfNode(node.data());
+    if (idx >= 0) m_currentLayer = idx;
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::addMaskToLayer(int layerIndex, int maskType)
+{
+    if (layerIndex <= 0 || layerIndex >= m_layers.size()) return false;
+    KisImageSP image = m_document;
+    if (!image) return false;
+    KisNode *target = m_layers[layerIndex].node;
+    if (!target) return false;
+
+    KisMaskSP mask;
+    const QString maskName = QString("蒙版 %1").arg(m_layers[layerIndex].name);
+
+    if (maskType == MaskTypeTransparency) {
+        KisTransparencyMaskSP tmask = new KisTransparencyMask(image, maskName);
+        if (KisLayer *layer = dynamic_cast<KisLayer *>(target)) {
+            tmask->initSelection(layer);
+        }
+        mask = tmask;
+    } else if (maskType == MaskTypeFilter) {
+        KisFilterMaskSP fmask = new KisFilterMask(image, maskName);
+        if (KisLayer *layer = dynamic_cast<KisLayer *>(target)) {
+            fmask->initSelection(layer);
+        }
+        mask = fmask;
+    } else if (maskType == MaskTypeTransform) {
+        KisTransformMaskSP txmask = new KisTransformMask(image, maskName);
+        mask = txmask;
+    } else if (maskType == MaskTypeSelection) {
+        KisSelectionMaskSP smask = new KisSelectionMask(image);
+        smask->setName(maskName);
+        if (m_selection) {
+            smask->initSelection(m_selection, dynamic_cast<KisLayer *>(target));
+        }
+        mask = smask;
+    }
+
+    if (mask) {
+        pushUndoCommand(new KisImageLayerAddCommand(image, mask, KisNodeSP(target), KisNodeSP()));
+        recompositeProjection();
+        syncLayersFromImage();
+        markDirty();
+        return true;
+    }
+    return false;
+}
+
+bool ReverieCore::removeMask(int layerIndex)
+{
+    if (layerIndex <= 0 || layerIndex >= m_layers.size()) return false;
+    KisImageSP image = m_document;
+    if (!image) return false;
+    KisNode *target = m_layers[layerIndex].node;
+    if (!target) return false;
+
+    KisNodeSP child = target->firstChild();
+    while (child) {
+        if (dynamic_cast<KisMask *>(child.data())) {
+            pushUndoCommand(new KisImageLayerRemoveCommand(image, child));
+            recompositeProjection();
+            syncLayersFromImage();
+            markDirty();
+            return true;
+        }
+        child = child->nextSibling();
+    }
+    return false;
+}
+
+bool ReverieCore::rasterizeLayer(int index)
+{
+    if (index <= 0 || index >= m_layers.size()) return false;
+    KisImageSP image = m_document;
+    if (!image) return false;
+    KisNodeSP node(m_layers[index].node);
+    if (!node) return false;
+
+    KisPaintLayerSP paintLayer = new KisPaintLayer(image, m_layers[index].name + QStringLiteral(" (栅格化)"), m_layers[index].node->opacity(), image->colorSpace());
+    if (KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index])) {
+        KisPainter::copyAreaOptimized(QPoint(0, 0), dev, paintLayer->paintDevice(), dev->exactBounds());
+        paintLayer->paintDevice()->setDirty();
+    }
+    paintLayer->setCompositeOpId(m_layers[index].node->compositeOpId());
+
+    KisNodeSP parent = node->parent();
+    KisNodeSP above = node->prevSibling();
+
+    pushUndoCommand(new KisImageLayerRemoveCommand(image, node));
+    pushUndoCommand(new KisImageLayerAddCommand(image, paintLayer, parent, above));
+    recompositeProjection();
+    syncLayersFromImage();
+    const int idx = indexOfNode(paintLayer.data());
+    if (idx >= 0) m_currentLayer = idx;
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::flattenGroup(int index)
+{
+    if (index <= 0 || index >= m_layers.size()) return false;
+    if (!m_layers[index].isGroup) return false;
+    return rasterizeLayer(index);
+}
+
+bool ReverieCore::setGroupPassThrough(int index, bool passThrough)
+{
+    if (index <= 0 || index >= m_layers.size()) return false;
+    if (KisGroupLayer *grp = dynamic_cast<KisGroupLayer *>(m_layers[index].node)) {
+        grp->setPassThroughMode(passThrough);
+        recompositeProjection();
+        markDirty();
+        return true;
+    }
+    return false;
+}
+
+bool ReverieCore::groupPassThrough(int index) const
+{
+    if (index <= 0 || index >= m_layers.size()) return false;
+    if (KisGroupLayer *grp = dynamic_cast<KisGroupLayer *>(m_layers[index].node)) {
+        return grp->passThroughMode();
+    }
+    return false;
 }
 
 void ReverieCore::soloLayer(int index)

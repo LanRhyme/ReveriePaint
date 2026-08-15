@@ -344,6 +344,24 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
         group: Int,
     ): Boolean
 
+    external fun moveLayerUp(index: Int): Boolean
+
+    external fun moveLayerDown(index: Int): Boolean
+
+    external fun moveLayerOut(index: Int): Boolean
+
+    external fun addMaskToLayer(layerIndex: Int, maskType: Int): Boolean
+
+    external fun removeMask(layerIndex: Int): Boolean
+
+    external fun rasterizeLayer(index: Int): Boolean
+
+    external fun flattenGroup(index: Int): Boolean
+
+    external fun setGroupPassThrough(index: Int, passThrough: Boolean): Boolean
+
+    external fun groupPassThrough(index: Int): Boolean
+
     external fun mergeDown(index: Int): Boolean
 
     external fun soloLayer(index: Int)
