@@ -33,7 +33,10 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
 
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
     if (w == iw && h == ih) {
-        if (!m_bitmapInited || m_dirtyRect.isNull() || m_dirtyRect == QRect(0, 0, iw, ih)) {
+        // Solo mode always re-composites the full frame: the filtered
+        // composite is rebuilt every call, so a dirty sub-region read would
+        // only refresh part of the raw-mode switch and leave the rest stale
+        if (m_soloedNode || !m_bitmapInited || m_dirtyRect.isNull() || m_dirtyRect == QRect(0, 0, iw, ih)) {
             // Full frame update: direct in-place read and SIMD conversion
             proj->readBytes(buffer, 0, 0, iw, ih);
             blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
@@ -346,6 +349,54 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
 // filter - no layer state (visible/opacity/blend/inheritAlpha) is ever
 // modified, so closing solo restores the document exactly and solo can never
 // corrupt the canvas render or the undo stack.
+// Recursive solo composite of [startIdx, endIdx). Leaf layers are drawn
+// only when they are in the solo keep set; groups composite their keep-set
+// children into a temp device and then apply the group's own opacity/blend,
+// so group nesting (and group opacity) stays correct and a soloed child is
+// never drawn twice (once via its ancestor's projection, once directly).
+void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full)
+{
+    int i = startIdx;
+    while (i < endIdx) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup && e.node) {
+            // Find the group's span: entries with depth > e.depth
+            int j = i + 1;
+            while (j < endIdx && m_layers[j].depth > e.depth) {
+                ++j;
+            }
+            KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
+            tmp->fill(full, KoColor(Qt::transparent, m_document->colorSpace()));
+            compositeSoloRange(tmp, i + 1, j, full);
+            KisPainter painter(out);
+            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+            painter.setCompositeOpId(e.node->compositeOpId());
+            painter.bitBlt(0, 0, tmp, 0, 0, full.width(), full.height());
+            painter.end();
+            i = j;
+        } else {
+            // Leaf: composite only if it belongs to the solo keep set
+            if (e.node && m_soloKeepNodes.contains(e.node)) {
+                KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+                if (dev) {
+                    KisPainter painter(out);
+                    if (m_soloRawMode && e.node == m_soloedNode) {
+                        // 取消所有效果：纯净原色（100% 不透明 + Normal 混合）
+                        painter.setOpacityF(1.0);
+                        painter.setCompositeOpId(QStringLiteral("normal"));
+                    } else {
+                        painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                        painter.setCompositeOpId(e.node->compositeOpId());
+                    }
+                    painter.bitBlt(0, 0, dev, 0, 0, full.width(), full.height());
+                    painter.end();
+                }
+            }
+            ++i;
+        }
+    }
+}
+
 KisPaintDeviceSP ReverieCore::compositeSoloProjection()
 {
     KisImageSP image = m_document;
@@ -363,43 +414,9 @@ KisPaintDeviceSP ReverieCore::compositeSoloProjection()
     }
     image->waitForDone();
 
-    // Resolve keep nodes to indices and composite bottom -> top (index 0 is
-    // the background, so it lands first and fills the transparent base)
-    QVector<int> keepIdx;
-    for (KisNode *n : m_soloKeepNodes) {
-        for (int i = 0; i < m_layers.size(); ++i) {
-            if (m_layers[i].node == n) {
-                keepIdx.append(i);
-                break;
-            }
-        }
-    }
-    std::sort(keepIdx.begin(), keepIdx.end());
-
     KisPaintDeviceSP out(new KisPaintDevice(image->colorSpace()));
     const QRect full(0, 0, image->width(), image->height());
     out->fill(full, KoColor(Qt::transparent, image->colorSpace()));
-
-    for (int idx : keepIdx) {
-        const LayerEntry &e = m_layers[idx];
-        if (!e.node) {
-            continue;
-        }
-        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
-        if (!dev) {
-            continue;
-        }
-        KisPainter painter(out);
-        if (m_soloRawMode && e.node == m_soloedNode) {
-            // 取消所有效果：纯净原色（100% 不透明 + Normal 混合）
-            painter.setOpacityF(1.0);
-            painter.setCompositeOpId(QStringLiteral("normal"));
-        } else {
-            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-            painter.setCompositeOpId(e.node->compositeOpId());
-        }
-        painter.bitBlt(0, 0, dev, 0, 0, image->width(), image->height());
-        painter.end();
-    }
+    compositeSoloRange(out, 0, m_layers.size(), full);
     return out;
 }

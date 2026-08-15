@@ -461,6 +461,7 @@ void ReverieCore::restoreSolo()
     m_soloedNode = nullptr;
     m_soloKeepNodes.clear();
     m_soloRawMode = false;
+    markDirty();
 }
 
 bool ReverieCore::soloRawMode() const
@@ -475,6 +476,9 @@ void ReverieCore::toggleSoloRawMode()
 {
     if (m_soloedNode) {
         m_soloRawMode = !m_soloRawMode;
+        // Force a full-frame recomposite (the raw switch affects every pixel
+        // of the soloed layer, not just the current dirty region)
+        markDirty();
     }
 }
 
@@ -554,6 +558,7 @@ void ReverieCore::soloLayer(int index)
     m_soloedNode = m_layers[index].node;
     m_soloRawMode = false;   // 默认常规：不改变目标层的效果
     computeSoloKeep();
+    markDirty();
 }
 
 bool ReverieCore::layerSoloed(int index) const

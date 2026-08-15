@@ -108,6 +108,9 @@ public:
     // the soloed layer plus its ancestor groups, descendants and background
     KisPaintDeviceSP compositeSoloProjection();
     int currentLayerIndex() const { return m_currentLayer; }
+    // Recursive solo composite of [startIdx, endIdx): groups composite their
+    // keep-set children into a temp device then apply their own opacity/blend
+    void compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full);
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,
