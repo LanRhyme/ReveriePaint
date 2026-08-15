@@ -1,25 +1,26 @@
 <div align="center">
 
+<img src="art/icon.png" width="128" height="128" alt="ReveriePaint Icon" />
+
 # ReveriePaint
 
 <p>
-  <a href="https://qm.qq.com/q/mtg1yNCi1q"><img alt="QQ" src="https://img.shields.io/badge/QQ-729283213-12B7F5?style=for-the-badge&logo=qq&logoColor=white"></a>
   <a href="https://afdian.com/a/LanRhyme" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/afdian-@LanRhyme-946ce6?style=for-the-badge&logo=afdian&logoColor=white" alt="afdian"></a>
 </p>
 
-基于 Krita 核心引擎的 Android 原生绘画应用, 纯 Compose UI + Krita C++ 引擎, 画世界 Pro 风格界面
+基于 Krita 核心引擎的 Android 原生绘画应用, 纯 Compose UI + Krita C++ 引擎, 画世界 Pro 风格交互
 
 </div>
 
 ## 功能特性
 
 - **完整 Krita 笔刷引擎**: 内置 248 个 Krita 官方预设（圆头/铅笔/墨线/水彩/喷枪/纹理等）, 真实压力/间距/纹理渲染
-- **完整工具集**: 笔刷/橡皮/混合/吸管/填充/渐变/套索/魔棒/矩形/椭圆/多边形/文字/液化/移动/裁剪 等 20+ 工具
-- **完整图层系统**: 图层组/锁定/透明度/25 种混合模式/剪贴蒙版/独显/翻转/合并/重命名/颜色标记
+- **完整工具集**: 笔刷/橡皮/混合/吸管/填充/渐变/套索/魔棒/矩形/椭圆/多边形/文字/液化/移动/裁剪/透视扭曲 等 20+ 工具
+- **完整图层系统**: 稀疏瓦片动态分配/图层组/锁定/透明度/25 种混合模式/剪贴蒙版/独显/翻转/合并/重命名/颜色标记
 - **选区系统**: 套索/矩形/椭圆/多边形/连续/相似色, 替换/加/减/交模式, 羽化/扩展/收缩/平滑
 - **图层树拖拽**: 长按拖拽排序与归组, 滑动展开复制/独显/删除
 - **项目保存加载**: PNG 导出, 主页最近项目缩略图
-- **画布手势**: 单指压感绘画, 双指缩放/旋转/平移
+- **画布手势与高刷插值**: 硬件加速 120 FPS 视口变换, 单指压感绘画, 双指缩放/旋转/平移, 高刷屏子帧触控插值
 - **HSV 取色器**: 色环 + 亮度滑杆 + 预设色板
 - **莫兰迪主题**: 低饱和配色, 全局语义色
 
