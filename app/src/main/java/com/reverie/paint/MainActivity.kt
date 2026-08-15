@@ -4,23 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reverie.paint.core.Page
 import com.reverie.paint.core.PaintViewModel
@@ -98,108 +84,72 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ReverieApp(vm: PaintViewModel = viewModel()) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        androidx.compose.animation.AnimatedContent(
-            targetState = vm.currentPage,
-            transitionSpec = {
-                if (targetState == Page.PAINTING) {
-                    // Expanding smoothly into canvas from gallery
-                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                            androidx.compose.animation.scaleIn(
-                                initialScale = 0.88f,
-                                animationSpec = androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+    androidx.compose.animation.AnimatedContent(
+        targetState = vm.currentPage,
+        transitionSpec = {
+            if (targetState == Page.PAINTING) {
+                // Expanding smoothly into canvas from gallery
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.scaleIn(
+                            initialScale = 0.88f,
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ))
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                                androidx.compose.animation.scaleOut(
+                                    targetScale = 1.08f,
+                                    animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
                                 )
-                            ))
-                        .togetherWith(
-                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                                    androidx.compose.animation.scaleOut(
-                                        targetScale = 1.08f,
-                                        animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                                    )
-                        )
-                } else if (initialState == Page.PAINTING) {
-                    // Contracting smoothly back into gallery from canvas
-                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                            androidx.compose.animation.scaleIn(
-                                initialScale = 1.08f,
-                                animationSpec = androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                )
-                            ))
-                        .togetherWith(
-                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                                    androidx.compose.animation.scaleOut(
-                                        targetScale = 0.88f,
-                                        animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                                    )
-                        )
-                } else {
-                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                            androidx.compose.animation.slideInHorizontally(
-                                animationSpec = androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                )
-                            ) { if (targetState == Page.CREATE) it / 3 else -it / 3 })
-                        .togetherWith(
-                            androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)) +
-                                    androidx.compose.animation.slideOutHorizontally(
-                                        animationSpec = androidx.compose.animation.core.tween(160)
-                                    ) { if (targetState == Page.CREATE) -it / 3 else it / 3 }
-                        )
-                }
-            },
-            label = "AppPageTransition"
-        ) { page ->
-            when (page) {
-                Page.HOME -> {
-                    HomePage(vm)
-                }
-
-                Page.CREATE -> {
-                    CreatePage(vm)
-                }
-
-                Page.PAINTING -> {
-                    PaintingPage(vm)
-                }
-            }
-        }
-
-        // Full-screen blocking loading overlay
-        if (vm.isBusy) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(36.dp),
                     )
-                    if (vm.busyMessage.isNotEmpty()) {
-                        Text(
-                            text = vm.busyMessage,
-                            color = Color.White.copy(alpha = 0.9f),
-                            fontSize = 14.sp,
-                            letterSpacing = 0.3.sp,
-                        )
-                    }
-                }
+            } else if (initialState == Page.PAINTING) {
+                // Contracting smoothly back into gallery from canvas
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.scaleIn(
+                            initialScale = 1.08f,
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ))
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                                androidx.compose.animation.scaleOut(
+                                    targetScale = 0.88f,
+                                    animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                                )
+                    )
+            } else {
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.slideInHorizontally(
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ) { if (targetState == Page.CREATE) it / 3 else -it / 3 })
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)) +
+                                androidx.compose.animation.slideOutHorizontally(
+                                    animationSpec = androidx.compose.animation.core.tween(160)
+                                ) { if (targetState == Page.CREATE) -it / 3 else it / 3 }
+                    )
+            }
+        },
+        label = "AppPageTransition"
+    ) { page ->
+        when (page) {
+            Page.HOME -> {
+                HomePage(vm)
+            }
+
+            Page.CREATE -> {
+                CreatePage(vm)
+            }
+
+            Page.PAINTING -> {
+                PaintingPage(vm)
             }
         }
     }
