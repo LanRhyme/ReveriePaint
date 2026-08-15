@@ -87,19 +87,53 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
     androidx.compose.animation.AnimatedContent(
         targetState = vm.currentPage,
         transitionSpec = {
-            if (targetState == Page.PAINTING || initialState == Page.PAINTING) {
-                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                        androidx.compose.animation.scaleIn(initialScale = 0.96f, animationSpec = androidx.compose.animation.core.tween(240)))
+            if (targetState == Page.PAINTING) {
+                // Expanding smoothly into canvas from gallery
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(280, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.scaleIn(
+                            initialScale = 0.88f,
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ))
                     .togetherWith(
-                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180)) +
-                                androidx.compose.animation.scaleOut(targetScale = 1.02f, animationSpec = androidx.compose.animation.core.tween(180))
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                                androidx.compose.animation.scaleOut(
+                                    targetScale = 1.08f,
+                                    animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                                )
+                    )
+            } else if (initialState == Page.PAINTING) {
+                // Contracting smoothly back into gallery from canvas
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.scaleIn(
+                            initialScale = 1.08f,
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ))
+                    .togetherWith(
+                        androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                                androidx.compose.animation.scaleOut(
+                                    targetScale = 0.88f,
+                                    animationSpec = androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                                )
                     )
             } else {
-                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
-                        androidx.compose.animation.slideInHorizontally(animationSpec = androidx.compose.animation.core.tween(200)) { if (targetState == Page.CREATE) it / 3 else -it / 3 })
+                (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                        androidx.compose.animation.slideInHorizontally(
+                            animationSpec = androidx.compose.animation.core.spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                            )
+                        ) { if (targetState == Page.CREATE) it / 3 else -it / 3 })
                     .togetherWith(
                         androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)) +
-                                androidx.compose.animation.slideOutHorizontally(animationSpec = androidx.compose.animation.core.tween(160)) { if (targetState == Page.CREATE) -it / 3 else it / 3 }
+                                androidx.compose.animation.slideOutHorizontally(
+                                    animationSpec = androidx.compose.animation.core.tween(160)
+                                ) { if (targetState == Page.CREATE) -it / 3 else it / 3 }
                     )
             }
         },

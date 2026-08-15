@@ -41,6 +41,11 @@ import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.painterResource
@@ -287,7 +292,17 @@ fun PaintingPage(vm: PaintViewModel) {
         }
 
         var showExitSaveDialog by remember { mutableStateOf(false) }
+        var showDiscardConfirmDialog by remember { mutableStateOf(false) }
 
+        val requestExit: () -> Unit = {
+            if (vm.hasUnsavedChanges()) {
+                showExitSaveDialog = true
+            } else {
+                vm.goHome()
+            }
+        }
+
+        // Primary Exit Save Confirmation Dialog
         if (showExitSaveDialog) {
             val context = androidx.compose.ui.platform.LocalContext.current
             androidx.compose.ui.window.Dialog(onDismissRequest = { showExitSaveDialog = false }) {
@@ -325,7 +340,7 @@ fun PaintingPage(vm: PaintViewModel) {
                             Spacer(Modifier.width(4.dp))
                             androidx.compose.material3.TextButton(onClick = {
                                 showExitSaveDialog = false
-                                vm.goHome()
+                                showDiscardConfirmDialog = true
                             }) {
                                 Text("不保存", color = Color(0xFFFF5252), fontSize = 13.sp)
                             }
@@ -345,9 +360,154 @@ fun PaintingPage(vm: PaintViewModel) {
             }
         }
 
-        // BackHandler for Android system back button/gesture: close active panels first, then exit dialog
+        // Secondary Discard Confirmation Modal (with Discard Button positioned at the bottom of the screen)
+        if (showDiscardConfirmDialog) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showDiscardConfirmDialog = false },
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { showDiscardConfirmDialog = false }
+                        ),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {} // Consume click on modal content
+                            )
+                            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                            .background(Morandi.panel)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                            .navigationBarsPadding()
+                            .padding(horizontal = 24.dp, vertical = 20.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            // Top Drag Handle Indicator
+                            Box(
+                                modifier = Modifier
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Morandi.border.copy(alpha = 0.8f))
+                            )
+                            Spacer(Modifier.height(16.dp))
+
+                            // Warning Header
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.WarningAmber,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF5252),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "确认丢弃未保存的修改？",
+                                        color = Morandi.text,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "未保存的笔迹与图层调整将无法恢复",
+                                        color = Morandi.subText,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                text = "退出后，工程将恢复至上次保存的状态。若继续退出，当前画布上的所有新绘制内容都将被永久丢弃。",
+                                color = Morandi.subText,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            Spacer(Modifier.height(22.dp))
+
+                            // Top Action: Continue Editing (Cancel)
+                            androidx.compose.material3.Button(
+                                onClick = { showDiscardConfirmDialog = false },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Morandi.border.copy(alpha = 0.4f),
+                                    contentColor = Morandi.text
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                            ) {
+                                Text("继续编辑", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+
+                            // Bottom Action: Discard Changes & Exit (Pushed to bottom of screen)
+                            androidx.compose.material3.Button(
+                                onClick = {
+                                    showDiscardConfirmDialog = false
+                                    vm.goHome()
+                                },
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFFF5252),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "丢弃修改并退出",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
             when {
+                showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
                 brushPanelOpen -> brushPanelOpen = false
                 layerPanelOpen -> layerPanelOpen = false
@@ -358,7 +518,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 selectionPanelOpen -> selectionPanelOpen = false
                 selectionPropsOpen -> selectionPropsOpen = false
                 tool != Tool.BRUSH -> tool = Tool.BRUSH
-                else -> showExitSaveDialog = true
+                else -> requestExit()
             }
         }
 
@@ -368,7 +528,7 @@ fun PaintingPage(vm: PaintViewModel) {
             vm = vm,
             opacity = vm.uiOpacity,
             hazeState = hazeState,
-            onBack = { showExitSaveDialog = true },
+            onBack = requestExit,
             onRotateCw = {
                 rotation = (rotation + 90) % 360
                 flashIndicator()

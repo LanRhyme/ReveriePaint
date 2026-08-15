@@ -4727,56 +4727,106 @@ bool ReverieCore::loadRevp(const QString &path)
     const int w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
     const int h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
 
-    if (!newDocument(w, h)) {
+    if (w <= 0 || h <= 0) {
         return false;
     }
 
+    // Reset pipeline & stroke batch state
+    m_document.clear();
+    m_displayImage = QImage();
+    m_dirtyRect = QRect();
+    m_bitmapInited = false;
+    m_lastDirty = QRect();
+    endStrokeBatch();
+    m_strokeDevice = nullptr;
+    m_strokeBuffer = nullptr;
+    m_strokeSamples.clear();
+    m_strokeHadMove = false;
+    m_strokeBatchOpen = false;
+    m_drawing = false;
+    m_snapshotPending = false;
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+
+    if (!m_undoStore) {
+        m_undoStore = new KisSurrogateUndoStore();
+    }
+    m_undoStore->clear();
+    m_redoCount = 0;
+
+    const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
+    if (!cs) {
+        return false;
+    }
+
+    KisImageSP image = new KisImage(m_undoStore, w, h, cs, QStringLiteral("Untitled"));
+    image->setUndoStore(m_undoStore);
+    image->setResolution(72.0, 72.0);
+
     QJsonArray layersArray = meta["layers"].toArray();
     if (layersArray.isEmpty()) {
-        return true;
-    }
+        KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
+        KoColor white(QColor(Qt::white), cs);
+        bg->original()->fill(QRect(0, 0, w, h), white);
+        bg->original()->setDirty();
+        bg->setUserLocked(true);
+        bg->setAlphaLocked(true);
+        image->addNode(bg, image->rootLayer());
 
-    // Clear existing layer 1 if any, recreate full layer stack
-    while (m_layers.size() > 1) {
-        removeLayer(m_layers.size() - 1);
-    }
+        KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("颜料图层 1"), 255, cs);
+        paint->original()->fill(QRect(0, 0, w, h), KoColor(Qt::transparent, cs));
+        paint->original()->setDirty();
+        image->addNode(paint, image->rootLayer());
+    } else {
+        for (int i = 0; i < layersArray.size(); ++i) {
+            QJsonObject layerObj = layersArray[i].toObject();
+            const QString name = layerObj["name"].toString(i == 0 ? QStringLiteral("背景") : QString("图层 %1").arg(i));
+            const bool isBg = (i == 0 || layerObj["background"].toBool(false));
 
-    for (int i = 1; i < layersArray.size(); ++i) {
-        addLayer();
-    }
+            KisPaintLayerSP layer = new KisPaintLayer(image, name, 255, cs);
+            if (!layer) continue;
 
-    for (int i = 0; i < layersArray.size() && i < m_layers.size(); ++i) {
-        QJsonObject layerObj = layersArray[i].toObject();
-        const QString name = layerObj["name"].toString();
-        if (!name.isEmpty()) {
-            setLayerName(i, name);
-        }
-        setLayerVisible(i, layerObj["visible"].toBool(true));
-        setLayerOpacity(i, layerObj["opacity"].toDouble(1.0));
-        const QString blend = layerObj["blendMode"].toString("normal");
-        setLayerBlendMode(i, blend);
-        setLayerLocked(i, layerObj["locked"].toBool(false));
-        setLayerAlphaLocked(i, layerObj["alphaLocked"].toBool(false));
-        setLayerClipped(i, layerObj["clipped"].toBool(false));
+            const double opacity = layerObj["opacity"].toDouble(1.0);
+            layer->setOpacity(qBound(0, int(opacity * 255.0 + 0.5), 255));
+            layer->setVisible(layerObj["visible"].toBool(true));
+            const QString blend = layerObj["blendMode"].toString("normal");
+            layer->setCompositeOpId(blend);
+            layer->setUserLocked(layerObj["locked"].toBool(isBg));
+            layer->setAlphaLocked(layerObj["alphaLocked"].toBool(isBg));
 
-        const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
-        if (store->hasFile(layerFileName) && store->open(layerFileName)) {
-            QByteArray lData = store->read(store->size());
-            store->close();
-            QImage lImg;
-            if (lImg.loadFromData(lData, "PNG")) {
-                KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
-                if (dev) {
-                    const QImage conv = lImg.convertToFormat(QImage::Format_ARGB32_Premultiplied);
-                    dev->clear();
-                    dev->writeBytes(reinterpret_cast<const quint8 *>(conv.constBits()), 0, 0, conv.width(), conv.height());
-                    dev->setDirty();
+            const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
+            if (store->hasFile(layerFileName) && store->open(layerFileName)) {
+                QByteArray lData = store->read(store->size());
+                store->close();
+                QImage lImg;
+                if (lImg.loadFromData(lData, "PNG")) {
+                    KisPaintDeviceSP dev = layer->paintDevice();
+                    if (dev) {
+                        const QImage conv = lImg.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+                        dev->clear();
+                        dev->writeBytes(reinterpret_cast<const quint8 *>(conv.constBits()), 0, 0, conv.width(), conv.height());
+                        dev->setDirty();
+                    }
                 }
+            } else if (isBg) {
+                KoColor white(QColor(Qt::white), cs);
+                layer->original()->fill(QRect(0, 0, w, h), white);
+                layer->original()->setDirty();
             }
+
+            image->addNode(layer, image->rootLayer());
         }
     }
 
-    setCurrentLayer(qBound(0, 1, m_layers.size() - 1));
+    m_document = image.data();
+    m_docWidth = w;
+    m_docHeight = h;
+    recompositeProjection();
+    syncLayersFromImage();
+    m_undoStore->clear();
+    m_redoCount = 0;
+    m_currentLayer = qBound(0, 1, m_layers.size() - 1);
     markDirty();
     return true;
 }
@@ -4813,6 +4863,11 @@ bool ReverieCore::loadPng(const QString &path)
     memcpy(bytes.data(), conv.constBits(), size_t(iw) * ih * 4);
     dev->writeBytes(reinterpret_cast<const quint8 *>(bytes.constData()), 0, 0, iw, ih);
     dev->setDirty();
+    if (m_undoStore) {
+        m_undoStore->clear();
+    }
+    m_redoCount = 0;
+    recompositeProjection();
     markDirty();
     return true;
 }

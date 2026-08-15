@@ -33,10 +33,19 @@ class PaintViewModel : ViewModel() {
     var docHeight by mutableStateOf(1920)
     var docName by mutableStateOf("Untitled")
     var totalStrokes by mutableStateOf(0)
+    var isModified by mutableStateOf(false)
     var elapsedSeconds by mutableStateOf(0L)
     var canvasCreatedTime by mutableStateOf(System.currentTimeMillis())
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
     private var sessionStartTime = System.currentTimeMillis()
+
+    fun markModified() {
+        isModified = true
+    }
+
+    fun hasUnsavedChanges(): Boolean {
+        return isModified || (totalStrokes > 0) || ReverieCoreBridge.canUndo()
+    }
 
     // Brush state
     var brushSize by mutableStateOf(20.0)
@@ -570,6 +579,7 @@ class PaintViewModel : ViewModel() {
         }
         runCore(
             after = {
+                isModified = false
                 docName = name
                 refreshProjects()
                 onComplete?.invoke()
@@ -602,6 +612,7 @@ class PaintViewModel : ViewModel() {
     fun loadProject(p: com.reverie.paint.model.Project) {
         runCore(
             after = {
+                isModified = false
                 docWidth = coreW
                 docHeight = coreH
                 docName = p.name
@@ -891,6 +902,7 @@ class PaintViewModel : ViewModel() {
         sessionStartTime = System.currentTimeMillis()
         runCore(
             after = {
+                isModified = false
                 docWidth = w
                 docHeight = h
                 docName = actualName
@@ -1357,6 +1369,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun touchEnd() {
+        isModified = true
         totalStrokes++
         val now = System.currentTimeMillis()
         if (now > sessionStartTime) {
@@ -2040,6 +2053,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun notifyLayerChanged() {
+        isModified = true
         syncLayersFromNative()
         layerRevision++
         // Structural/attribute changes can shift layer indexes and invalidate

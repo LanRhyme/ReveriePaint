@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,9 +38,11 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +57,37 @@ import com.reverie.paint.ui.theme.Theme
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+
+// In-Memory LRU Cache for high-performance thumbnail rendering without disk jank
+private object ThumbnailCache {
+    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+    private val cacheSize = (maxMemory / 8).coerceAtLeast(1024 * 16)
+    private val lruCache = object : android.util.LruCache<String, android.graphics.Bitmap>(cacheSize) {
+        override fun sizeOf(key: String, bitmap: android.graphics.Bitmap): Int {
+            return bitmap.byteCount / 1024
+        }
+    }
+
+    fun get(path: String, lastModified: Long): android.graphics.Bitmap? {
+        if (path.isEmpty()) return null
+        val key = "$path:$lastModified"
+        val cached = lruCache.get(key)
+        if (cached != null && !cached.isRecycled) return cached
+        val file = File(path)
+        if (file.exists()) {
+            return try {
+                val bmp = BitmapFactory.decodeFile(path)
+                if (bmp != null) {
+                    lruCache.put(key, bmp)
+                }
+                bmp
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return null
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -356,61 +390,84 @@ fun HomePage(vm: PaintViewModel) {
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (currentFolder != null) {
-                                // Inside Folder
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(colors.panel.copy(alpha = 0.85f))
-                                        .border(1.dp, colors.border, RoundedCornerShape(20.dp))
-                                        .clickable {
-                                            vm.currentFolder = null
-                                            vm.refreshProjects()
+                            // Animated Header Title and Back Button Transition
+                            AnimatedContent(
+                                targetState = if (isSelectMode) "SELECT" else if (currentFolder != null) "FOLDER" else "GALLERY",
+                                transitionSpec = {
+                                    if (targetState == "FOLDER") {
+                                        (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220)))
+                                            .togetherWith(slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -it / 3 } + fadeOut(tween(160)))
+                                    } else if (initialState == "FOLDER") {
+                                        (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220)))
+                                            .togetherWith(slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { it / 3 } + fadeOut(tween(160)))
+                                    } else {
+                                        fadeIn(tween(200)).togetherWith(fadeOut(tween(160)))
+                                    }
+                                },
+                                label = "HeaderStateTransition"
+                            ) { state ->
+                                when (state) {
+                                    "FOLDER" -> {
+                                        val folder = currentFolder
+                                        if (folder != null) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(20.dp))
+                                                    .background(colors.panel.copy(alpha = 0.85f))
+                                                    .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+                                                    .clickable {
+                                                        vm.currentFolder = null
+                                                        vm.refreshProjects()
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                                    contentDescription = "返回",
+                                                    tint = colors.text,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    text = folder.name,
+                                                    color = colors.text,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                                Text(
+                                                    text = "(${displayProjects.size})",
+                                                    color = colors.subText,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "返回",
-                                        tint = colors.text,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = currentFolder.name,
-                                        color = colors.text,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        text = "(${displayProjects.size})",
-                                        color = colors.subText,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            } else if (isSelectMode) {
-                                Text(
-                                    text = "已选 ${selectedProjects.size} 项",
-                                    color = colors.text,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            } else {
-                                Column {
-                                    Text(
-                                        text = "画廊",
-                                        color = colors.text,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                    Text(
-                                        text = "${displayProjects.size} 个项目",
-                                        color = colors.subText,
-                                        fontSize = 11.sp
-                                    )
+                                    }
+                                    "SELECT" -> {
+                                        Text(
+                                            text = "已选 ${selectedProjects.size} 项",
+                                            color = colors.text,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                    else -> {
+                                        Column {
+                                            Text(
+                                                text = "画廊",
+                                                color = colors.text,
+                                                fontSize = 22.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 0.5.sp
+                                            )
+                                            Text(
+                                                text = "${displayProjects.size} 个项目",
+                                                color = colors.subText,
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
                                 }
                             }
 
@@ -535,19 +592,12 @@ fun HomePage(vm: PaintViewModel) {
                             }
                         }
 
-                        // Animated Folder vs Root Gallery Transition
+                        // Clean Animated Folder Transition with Staggered Per-Card Cascade Unfolding
                         AnimatedContent(
                             targetState = currentFolder,
                             transitionSpec = {
-                                if (targetState != null) {
-                                    // Entering folder
-                                    (fadeIn(tween(220)) + scaleIn(initialScale = 0.92f, animationSpec = tween(220)))
-                                        .togetherWith(fadeOut(tween(160)) + scaleOut(targetScale = 1.05f, animationSpec = tween(160)))
-                                } else {
-                                    // Exiting folder
-                                    (fadeIn(tween(220)) + scaleIn(initialScale = 1.05f, animationSpec = tween(220)))
-                                        .togetherWith(fadeOut(tween(160)) + scaleOut(targetScale = 0.92f, animationSpec = tween(160)))
-                                }
+                                (fadeIn(tween(220, easing = FastOutSlowInEasing)))
+                                    .togetherWith(fadeOut(tween(140, easing = FastOutSlowInEasing)))
                             },
                             modifier = Modifier.weight(1f),
                             label = "FolderTransition"
@@ -600,22 +650,91 @@ fun HomePage(vm: PaintViewModel) {
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
                                     contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp)
                                 ) {
-                                    items(displayProjects, key = { it.filePath }) { p ->
+                                    itemsIndexed(displayProjects, key = { _, it -> it.filePath }) { index, p ->
                                         val isSelected = selectedProjects.contains(p)
+
+                                        // Staggered cascade entrance physics for each individual painting card
+                                        val enterProgress = remember(targetFolder?.filePath, p.filePath) { Animatable(0f) }
+                                        LaunchedEffect(targetFolder?.filePath, p.filePath) {
+                                            val delayMs = (index * 25L).coerceAtMost(200L)
+                                            delay(delayMs)
+                                            enterProgress.animateTo(
+                                                targetValue = 1f,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            )
+                                        }
+
+                                        val progress = enterProgress.value
+                                        val itemScale = 0.74f + 0.26f * progress
+                                        val itemOffsetY = 28.dp * (1f - progress)
+                                        val initialFanAngle = remember(p.filePath) {
+                                            val hash = kotlin.math.abs(p.filePath.hashCode())
+                                            ((hash % 9) - 4).toFloat() * 1.5f // -6° to +6° fanned spread
+                                        }
+                                        val itemRotation = (1f - progress) * initialFanAngle
 
                                         val interactionSource = remember { MutableInteractionSource() }
                                         val isPressed by interactionSource.collectIsPressedAsState()
-                                        val scale by animateFloatAsState(
+                                        val cardPressScale by animateFloatAsState(
                                             targetValue = if (isPressed) 0.94f else 1.0f,
                                             animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
                                             label = "CardScaleAnim"
                                         )
 
-                                        Box {
+                                        // Organic tactile fan-out physics when pressing stack card
+                                        val fanBottomAngle by animateFloatAsState(
+                                            targetValue = if (isPressed) -12.5f else -7.0f,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanBottomAngle"
+                                        )
+                                        val fanBottomOffsetX by animateDpAsState(
+                                            targetValue = if (isPressed) (-12).dp else (-7).dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanBottomOffsetX"
+                                        )
+                                        val fanBottomOffsetY by animateDpAsState(
+                                            targetValue = if (isPressed) 7.dp else 4.dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanBottomOffsetY"
+                                        )
+
+                                        val fanMiddleAngle by animateFloatAsState(
+                                            targetValue = if (isPressed) 11.0f else 6.0f,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanMiddleAngle"
+                                        )
+                                        val fanMiddleOffsetX by animateDpAsState(
+                                            targetValue = if (isPressed) 11.dp else 6.dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanMiddleOffsetX"
+                                        )
+                                        val fanMiddleOffsetY by animateDpAsState(
+                                            targetValue = if (isPressed) (-5).dp else (-3).dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanMiddleOffsetY"
+                                        )
+
+                                        val fanTopAngle by animateFloatAsState(
+                                            targetValue = if (isPressed) -1.8f else -0.8f,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                            label = "FanTopAngle"
+                                        )
+
+                                        Box(
+                                            modifier = Modifier.graphicsLayer {
+                                                alpha = progress.coerceIn(0f, 1f)
+                                                scaleX = itemScale * cardPressScale
+                                                scaleY = itemScale * cardPressScale
+                                                translationY = itemOffsetY.toPx()
+                                                rotationZ = itemRotation
+                                            }
+                                        ) {
                                             Column(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .scale(scale)
                                                     .combinedClickable(
                                                         interactionSource = interactionSource,
                                                         indication = null,
@@ -637,18 +756,14 @@ fun HomePage(vm: PaintViewModel) {
                                                     )
                                             ) {
                                                 val thumb = remember(p.previewPath, p.lastModified) {
-                                                    if (p.previewPath.isNotEmpty() && File(p.previewPath).exists()) {
-                                                        BitmapFactory.decodeFile(p.previewPath)
-                                                    } else null
+                                                    ThumbnailCache.get(p.previewPath, p.lastModified)
                                                 }
 
                                                 if (p.isFolder) {
-                                                    // Procreate-style layered fan stack visual
+                                                    // Procreate-style loose layered fan stack visual
                                                     val subThumbs = remember(p.items) {
                                                         p.items.take(3).mapNotNull { item ->
-                                                            if (item.previewPath.isNotEmpty() && File(item.previewPath).exists()) {
-                                                                BitmapFactory.decodeFile(item.previewPath)
-                                                            } else null
+                                                            ThumbnailCache.get(item.previewPath, item.lastModified)
                                                         }
                                                     }
 
@@ -658,40 +773,68 @@ fun HomePage(vm: PaintViewModel) {
                                                             .aspectRatio(1f),
                                                         contentAlignment = Alignment.Center
                                                     ) {
-                                                        // Stacked layer 1 (bottom left tilt)
+                                                        // Stacked layer 1 (bottom left loose tilt & offset)
                                                         Box(
                                                             modifier = Modifier
-                                                                .fillMaxSize(0.85f)
-                                                                .rotate(-5f)
-                                                                .background(Color(0xFFE0E0E0))
-                                                                .border(0.5.dp, Color.Black.copy(alpha = 0.15f)),
+                                                                .fillMaxSize(0.86f)
+                                                                .offset(x = fanBottomOffsetX, y = fanBottomOffsetY)
+                                                                .rotate(fanBottomAngle)
+                                                                .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(Color(0xFFEDEDED))
+                                                                .border(0.5.dp, Color.Black.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
                                                             contentAlignment = Alignment.Center
                                                         ) {
                                                             if (subThumbs.size > 2) {
-                                                                Image(bitmap = subThumbs[2].asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                                                Image(
+                                                                    bitmap = subThumbs[2].asImageBitmap(),
+                                                                    contentDescription = null,
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier.fillMaxSize()
+                                                                )
+                                                                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.08f)))
+                                                            } else {
+                                                                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFE5E5E7)))
                                                             }
                                                         }
-                                                        // Stacked layer 2 (middle right tilt)
+
+                                                        // Stacked layer 2 (middle right loose tilt & offset)
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxSize(0.88f)
-                                                                .rotate(4f)
-                                                                .background(Color(0xFFEDEDED))
-                                                                .border(0.5.dp, Color.Black.copy(alpha = 0.2f)),
+                                                                .offset(x = fanMiddleOffsetX, y = fanMiddleOffsetY)
+                                                                .rotate(fanMiddleAngle)
+                                                                .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(Color(0xFFF3F3F3))
+                                                                .border(0.5.dp, Color.Black.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
                                                             contentAlignment = Alignment.Center
                                                         ) {
                                                             if (subThumbs.size > 1) {
-                                                                Image(bitmap = subThumbs[1].asImageBitmap(), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                                                Image(
+                                                                    bitmap = subThumbs[1].asImageBitmap(),
+                                                                    contentDescription = null,
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier.fillMaxSize()
+                                                                )
+                                                                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.04f)))
+                                                            } else {
+                                                                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFEEEEF0)))
                                                             }
                                                         }
+
                                                         // Foreground main folder cover
                                                         Box(
                                                             modifier = Modifier
                                                                 .fillMaxSize(0.91f)
+                                                                .rotate(fanTopAngle)
+                                                                .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
+                                                                .clip(RoundedCornerShape(8.dp))
                                                                 .background(Color.White)
-                                                                .border(0.5.dp, Color.Black.copy(alpha = 0.25f))
-                                                                .then(
-                                                                    if (isSelectMode && isSelected) Modifier.border(3.dp, colors.accent) else Modifier
+                                                                .border(
+                                                                    if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
+                                                                    if (isSelectMode && isSelected) colors.accent else Color.Black.copy(alpha = 0.18f),
+                                                                    RoundedCornerShape(8.dp)
                                                                 ),
                                                             contentAlignment = Alignment.Center
                                                         ) {
@@ -710,13 +853,13 @@ fun HomePage(vm: PaintViewModel) {
                                                                     Icon(
                                                                         Icons.Default.FolderCopy,
                                                                         contentDescription = null,
-                                                                        tint = Color.DarkGray,
+                                                                        tint = Color(0xFF757575),
                                                                         modifier = Modifier.size(36.dp)
                                                                     )
                                                                     Spacer(Modifier.height(4.dp))
                                                                     Text(
                                                                         "画集",
-                                                                        color = Color.Gray,
+                                                                        color = Color(0xFF9E9E9E),
                                                                         fontSize = 11.sp,
                                                                         fontWeight = FontWeight.Medium
                                                                     )
@@ -724,20 +867,31 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                        // Badge: Folder count
+                                                        // Badge: Folder count with layer icon pill
                                                         Box(
                                                             modifier = Modifier
                                                                 .align(Alignment.TopEnd)
-                                                                .padding(4.dp)
-                                                                .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(4.dp))
-                                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                .padding(6.dp)
+                                                                .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
+                                                                .clip(RoundedCornerShape(12.dp))
+                                                                .background(Color.Black.copy(alpha = 0.72f))
+                                                                .padding(horizontal = 7.dp, vertical = 3.dp)
                                                         ) {
-                                                            Text(
-                                                                text = "${p.items.size}",
-                                                                color = Color.White,
-                                                                fontSize = 10.sp,
-                                                                fontWeight = FontWeight.Bold
-                                                            )
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Icon(
+                                                                    Icons.Default.FolderCopy,
+                                                                    contentDescription = null,
+                                                                    tint = Color.White.copy(alpha = 0.85f),
+                                                                    modifier = Modifier.size(11.dp)
+                                                                )
+                                                                Spacer(Modifier.width(3.dp))
+                                                                Text(
+                                                                    text = "${p.items.size}",
+                                                                    color = Color.White,
+                                                                    fontSize = 10.sp,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            }
                                                         }
 
                                                         // Selection checkmark
@@ -758,58 +912,60 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
                                                     }
                                                 } else {
-                                                // Single artwork card (Pure Canvas Aesthetic without heavy bezel or format badge)
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .aspectRatio(1f)
-                                                        .background(Color.White)
-                                                        .then(
-                                                            if (isSelectMode && isSelected) {
-                                                                Modifier.border(3.dp, colors.accent)
-                                                            } else Modifier
-                                                        ),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    if (thumb != null) {
-                                                        Image(
-                                                            bitmap = thumb.asImageBitmap(),
-                                                            contentDescription = null,
-                                                            contentScale = ContentScale.Fit,
-                                                            modifier = Modifier.fillMaxSize()
-                                                        )
-                                                    } else {
-                                                        Box(
-                                                            modifier = Modifier.fillMaxSize(),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Icon(
-                                                                painterResource(R.drawable.ic_canvas_tab),
+                                                    // Single artwork card (Pure Canvas Aesthetic with realistic paper elevation)
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(1f)
+                                                            .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .background(Color.White)
+                                                            .border(
+                                                                if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
+                                                                if (isSelectMode && isSelected) colors.accent else Color.Black.copy(alpha = 0.12f),
+                                                                RoundedCornerShape(8.dp)
+                                                            ),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (thumb != null) {
+                                                            Image(
+                                                                bitmap = thumb.asImageBitmap(),
                                                                 contentDescription = null,
-                                                                tint = Color(0xFFB0B0B0),
-                                                                modifier = Modifier.size(36.dp)
+                                                                contentScale = ContentScale.Fit,
+                                                                modifier = Modifier.fillMaxSize()
                                                             )
+                                                        } else {
+                                                            Box(
+                                                                modifier = Modifier.fillMaxSize(),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    painterResource(R.drawable.ic_canvas_tab),
+                                                                    contentDescription = null,
+                                                                    tint = Color(0xFFB0B0B0),
+                                                                    modifier = Modifier.size(36.dp)
+                                                                )
+                                                            }
                                                         }
-                                                    }
 
-                                                    // Selection checkmark
-                                                    if (isSelectMode) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .align(Alignment.BottomEnd)
-                                                                .padding(6.dp)
-                                                                .size(22.dp)
-                                                                .clip(CircleShape)
-                                                                .background(if (isSelected) colors.accent else Color.Black.copy(alpha = 0.45f)),
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            if (isSelected) {
-                                                                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                        // Selection checkmark
+                                                        if (isSelectMode) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .align(Alignment.BottomEnd)
+                                                                    .padding(6.dp)
+                                                                    .size(22.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(if (isSelected) colors.accent else Color.Black.copy(alpha = 0.45f)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                if (isSelected) {
+                                                                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                                }
                                                             }
                                                         }
                                                     }
                                                 }
-                                            }
 
                                             Spacer(Modifier.height(8.dp))
                                             Text(
