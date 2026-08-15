@@ -362,6 +362,27 @@ void ReverieCore::setLayerVisible(int index, bool visible)
     }
 }
 
+// Direct visibility change WITHOUT the undo stack - used by solo mode so that
+// soloing/unsoloing a layer does not pollute the undo history (FolioLayers
+// behavior: solo is a temporary inspection state, not an undoable edit)
+void ReverieCore::setLayerVisibleDirect(int index, bool visible)
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (m_layers[index].visible != visible && m_layers[index].node) {
+        m_layers[index].node->setVisible(visible);
+        m_layers[index].visible = visible;
+        if (m_layers[index].background && m_document) {
+            const KoColorSpace *cs = m_document->colorSpace();
+            m_document->setDefaultProjectionColor(visible ? KoColor(Qt::white, cs) : KoColor(Qt::transparent, cs));
+        }
+        m_layers[index].node->setDirty(
+            QRect(0, 0, m_document->width(), m_document->height()));
+        markDirty();
+    }
+}
+
 bool ReverieCore::layerVisible(int index) const
 {
     if (index < 0 || index >= m_layers.size()) {

@@ -60,6 +60,8 @@ public:
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
     void setLayerVisible(int index, bool visible);
+    // Visibility change without the undo stack (solo mode only)
+    void setLayerVisibleDirect(int index, bool visible);
     bool layerLocked(int index) const;
     void setLayerLocked(int index, bool locked);
     bool layerAlphaLocked(int index) const;

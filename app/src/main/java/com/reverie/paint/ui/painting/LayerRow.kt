@@ -157,6 +157,8 @@ internal fun LayerRow(
     // triggers from small horizontal wiggles)
     val revealThresholdPx = with(density) { 20.dp.roundToPx() }
     val drawerPx = with(density) { drawerWidth.roundToPx() }
+    // Right-swipe (multi-select) follow distance cap before the row springs back
+    val selectMaxPx = with(density) { 64.dp.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
 
@@ -175,9 +177,11 @@ internal fun LayerRow(
                 withFrameNanos {}
             }
         } else {
+            // Spring with a light bounce so a right-swipe select (and the
+            // drawer close) springs back instead of sliding flat
             revealAnim.animateTo(
                 if (revealed) -drawerPx.toFloat() else 0f,
-                tween(220),
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
             )
         }
     }
@@ -204,6 +208,7 @@ internal fun LayerRow(
                         val startY = down.position.y
                         var swiping = false
                         var lastDx = 0f
+                        var selectTriggered = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
@@ -220,14 +225,22 @@ internal fun LayerRow(
                             }
                             if (swiping) {
                                 change.consume()
-                                if (dx > revealThresholdPx) {
-                                    // Right-swipe: multi-select toggle
-                                    onSelect()
-                                    break
+                                if (dx > 0) {
+                                    // Right-swipe: follow the finger, then
+                                    // toggle multi-select once past the
+                                    // threshold; on release the row springs
+                                    // back (bounce) to the closed position
+                                    fingerDx = dx.coerceIn(0f, selectMaxPx.toFloat())
+                                    if (dx > revealThresholdPx && !selectTriggered) {
+                                        selectTriggered = true
+                                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                        onSelect()
+                                    }
+                                } else {
+                                    lastDx = dx
+                                    // follow the finger, clamped to the drawer width
+                                    fingerDx = dx.coerceIn(-drawerPx.toFloat(), 0f)
                                 }
-                                lastDx = dx
-                                // follow the finger, clamped to the drawer width
-                                fingerDx = dx.coerceIn(-drawerPx.toFloat(), 0f)
                             }
                         }
                         if (swiping) {

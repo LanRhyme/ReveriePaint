@@ -462,7 +462,7 @@ void ReverieCore::soloLayer(int index)
         // Restore the pre-solo visibility (FolioLayers behavior)
         for (int i = 0; i < m_layers.size(); ++i) {
             if (i < m_layers[i].soloPrev.size()) {
-                setLayerVisible(i, m_layers[i].soloPrev[i]);
+                setLayerVisibleDirect(i, m_layers[i].soloPrev[i]);
             }
         }
         m_soloedLayer = -1;
@@ -472,7 +472,7 @@ void ReverieCore::soloLayer(int index)
     if (m_soloedLayer >= 0) {
         for (int i = 0; i < m_layers.size(); ++i) {
             if (i < m_layers[i].soloPrev.size()) {
-                setLayerVisible(i, m_layers[i].soloPrev[i]);
+                setLayerVisibleDirect(i, m_layers[i].soloPrev[i]);
             }
         }
     }
@@ -502,7 +502,7 @@ void ReverieCore::soloLayer(int index)
         keep.append(i);
     }
     for (int i = 0; i < m_layers.size(); ++i) {
-        setLayerVisible(i, keep.contains(i));
+        setLayerVisibleDirect(i, keep.contains(i));
     }
 }
 
