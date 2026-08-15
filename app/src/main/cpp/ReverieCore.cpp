@@ -309,7 +309,7 @@ void ReverieCore::syncLayersFromImage()
                 entry.locked = pl->userLocked();
                 entry.alphaLocked = pl->alphaLocked();
                 entry.colorLabel = pl->colorLabelIndex();
-                entry.clipped = false;  // our own flag, not a Krita property
+                entry.clipped = pl->alphaChannelDisabled();
                 entry.background = m_layers.isEmpty();  // first paint layer = bg
                 m_layers.append(entry);
             } else if (isGroup) {
@@ -324,6 +324,9 @@ void ReverieCore::syncLayersFromImage()
                 entry.isGroup = true;
                 entry.locked = node->userLocked();
                 entry.colorLabel = node->colorLabelIndex();
+                if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
+                    entry.clipped = l->alphaChannelDisabled();
+                }
                 m_layers.append(entry);
             }
             if (node->childCount() > 0) {
@@ -875,6 +878,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             paintLayer->setCompositeOpId(QStringLiteral("overlay"));
         } else if (type == LayerTypeMask) {
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
+            paintLayer->disableAlphaChannel(true);
         } else {
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
         }
@@ -887,9 +891,6 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     const int idx = indexOfNode(newNode.data());
     if (idx >= 0) {
         m_currentLayer = idx;
-        if (type == LayerTypeMask) {
-            m_layers[idx].clipped = true;
-        }
     }
     markDirty();
     return true;
@@ -1208,6 +1209,9 @@ bool ReverieCore::layerClipped(int index) const
     if (index < 0 || index >= m_layers.size()) {
         return false;
     }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        return layer->alphaChannelDisabled();
+    }
     return m_layers[index].clipped;
 }
 
@@ -1217,7 +1221,11 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
         return;
     }
     m_layers[index].clipped = clipped;
-    markDirty();
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        layer->disableAlphaChannel(clipped);
+        recompositeProjection();
+        markDirty();
+    }
 }
 
 static void flipDevice(KisPaintDeviceSP dev, bool horizontal)
@@ -5177,6 +5185,7 @@ bool ReverieCore::loadRevp(const QString &path)
             layer->setCompositeOpId(blend);
             layer->setUserLocked(layerObj["locked"].toBool(isBg));
             layer->setAlphaLocked(layerObj["alphaLocked"].toBool(isBg));
+            layer->disableAlphaChannel(layerObj["clipped"].toBool(false));
 
             const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
             if (store->hasFile(layerFileName) && store->open(layerFileName)) {
