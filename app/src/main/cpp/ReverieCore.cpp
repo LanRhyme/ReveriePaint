@@ -2169,34 +2169,45 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         }
         break;
     }
-    case 6: { // Invert
+    case 6: { // Invert / 反相: p1 = amount (0..100)
+        const double amt = (p1 > 0.0) ? qBound(0.0, p1 / 100.0, 1.0) : 1.0;
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *line = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint8 *px = line + x * 4;
-                    px[2] = 255 - px[2]; px[1] = 255 - px[1]; px[0] = 255 - px[0];
+                    if (px[3] == 0) continue;
+                    int invR = 255 - px[2], invG = 255 - px[1], invB = 255 - px[0];
+                    px[2] = quint8(qBound(0, int(px[2] * (1.0 - amt) + invR * amt), 255));
+                    px[1] = quint8(qBound(0, int(px[1] * (1.0 - amt) + invG * amt), 255));
+                    px[0] = quint8(qBound(0, int(px[0] * (1.0 - amt) + invB * amt), 255));
                 }
             }
         });
         break;
     }
-    case 7: { // Luminance to Alpha (Lineart Extraction / 亮度转透明度)
+    case 7: { // Luminance to Alpha / 提取线稿: p1 = threshold (0..255), p2 = invertLineColor (0 or 1)
+        const int thresh = (p1 > 0.0) ? qBound(0, int(p1), 255) : 255;
+        const bool whiteLine = (p2 > 0.5);
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *line = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint8 *px = line + x * 4;
                     int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
-                    int newAlpha = ((255 - lum) * px[3]) / 255;
+                    int targetAlpha = (lum < thresh) ? ((thresh - lum) * 255) / qMax(1, thresh) : 0;
+                    int newAlpha = (targetAlpha * px[3]) / 255;
                     px[3] = quint8(qBound(0, newAlpha, 255));
-                    px[2] = 0; px[1] = 0; px[0] = 0; // Pure black lineart
+                    quint8 lineC = whiteLine ? 255 : 0;
+                    px[2] = lineC; px[1] = lineC; px[0] = lineC;
                 }
             }
         });
         break;
     }
-    case 8: { // Find Edges (Sobel)
+    case 8: { // Find Edges (Sobel): p1 = strength (1..10), p2 = preserveColor (0 or 1)
+        const double strength = (p1 > 0.0) ? qBound(0.5, p1, 10.0) : 2.0;
+        const bool preserveColor = (p2 > 0.5);
         QImage tmp = img.copy();
         filterParallelFor(1, h - 1, [&](int startY, int endY) {
             const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
@@ -2204,35 +2215,69 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 1; x < w - 1; ++x) {
-                    int gx = 0, gy = 0;
+                    int grx = 0, gry = 0, ggx = 0, ggy = 0, gbx = 0, gby = 0;
                     for (int dy = -1; dy <= 1; ++dy) {
                         for (int dx = -1; dx <= 1; ++dx) {
                             const quint8 *p = tmp.constScanLine(y + dy) + (x + dx) * 4;
-                            int val = (p[2] + p[1] + p[0]) / 3;
-                            gx += val * kx[dy + 1][dx + 1];
-                            gy += val * ky[dy + 1][dx + 1];
+                            int k_x = kx[dy + 1][dx + 1];
+                            int k_y = ky[dy + 1][dx + 1];
+                            grx += p[2] * k_x; gry += p[2] * k_y;
+                            ggx += p[1] * k_x; ggy += p[1] * k_y;
+                            gbx += p[0] * k_x; gby += p[0] * k_y;
                         }
                     }
-                    int mag = qBound(0, int(sqrt(gx * gx + gy * gy)), 255);
+                    int magR = qBound(0, int(sqrt(grx * grx + gry * gry) * strength), 255);
+                    int magG = qBound(0, int(sqrt(ggx * ggx + ggy * ggy) * strength), 255);
+                    int magB = qBound(0, int(sqrt(gbx * gbx + gby * gby) * strength), 255);
                     quint8 *px = dst + x * 4;
-                    px[2] = mag; px[1] = mag; px[0] = mag;
+                    if (preserveColor) {
+                        px[2] = quint8(magR); px[1] = quint8(magG); px[0] = quint8(magB);
+                    } else {
+                        int mag = (magR * 299 + magG * 587 + magB * 114) / 1000;
+                        px[2] = quint8(mag); px[1] = quint8(mag); px[0] = quint8(mag);
+                    }
                 }
             }
         });
         break;
     }
-    case 9: { // Emboss / 浮雕
+    case 9: { // Emboss / 浮雕: p1 = depth (0.5..10.0), p2 = angle (0..360), p3 = preserveColor (0 or 1)
+        const double depth = (p1 > 0.0) ? qBound(0.5, p1, 10.0) : 2.0;
+        const double angleRad = p2 * M_PI / 180.0;
+        const bool preserveColor = (p3 > 0.5);
+        const int dx = qBound(-2, int(std::lround(cos(angleRad) * 1.4)), 2);
+        const int dy = qBound(-2, int(std::lround(sin(angleRad) * 1.4)), 2);
+
         QImage tmp = img.copy();
-        filterParallelFor(1, h - 1, [&](int startY, int endY) {
+        filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
-                for (int x = 1; x < w - 1; ++x) {
-                    const quint8 *p1 = tmp.constScanLine(y - 1) + (x - 1) * 4;
-                    const quint8 *p2 = tmp.constScanLine(y + 1) + (x + 1) * 4;
-                    int diff = ((p1[2] + p1[1] + p1[0]) - (p2[2] + p2[1] + p2[0])) / 3 + 128;
-                    int v = qBound(0, diff, 255);
+                for (int x = 0; x < w; ++x) {
+                    int x1 = qBound(0, x - dx, w - 1);
+                    int y1 = qBound(0, y - dy, h - 1);
+                    int x2 = qBound(0, x + dx, w - 1);
+                    int y2 = qBound(0, y + dy, h - 1);
+                    const quint8 *p1 = tmp.constScanLine(y1) + x1 * 4;
+                    const quint8 *p2 = tmp.constScanLine(y2) + x2 * 4;
+                    const quint8 *p0 = tmp.constScanLine(y) + x * 4;
+
+                    int dr = int((p1[2] - p2[2]) * depth);
+                    int dg = int((p1[1] - p2[1]) * depth);
+                    int db = int((p1[0] - p2[0]) * depth);
+
                     quint8 *px = dst + x * 4;
-                    px[2] = v; px[1] = v; px[0] = v;
+                    if (preserveColor) {
+                        px[2] = quint8(qBound(0, p0[2] + dr, 255));
+                        px[1] = quint8(qBound(0, p0[1] + dg, 255));
+                        px[0] = quint8(qBound(0, p0[0] + db, 255));
+                    } else {
+                        int lumDiff = (dr * 299 + dg * 587 + db * 114) / 1000;
+                        int v = qBound(0, 128 + lumDiff, 255);
+                        px[2] = quint8(v);
+                        px[1] = quint8(v);
+                        px[0] = quint8(v);
+                    }
+                    px[3] = p0[3];
                 }
             }
         });
@@ -2274,14 +2319,18 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 12: { // Grayscale / 灰度
+    case 12: { // Desaturate / 去色 (灰度化): p1 = amount (0..100)
+        const double amt = (p1 > 0.0) ? qBound(0.0, p1 / 100.0, 1.0) : 1.0;
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *line = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
                     int g = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
-                    px[2] = quint8(g); px[1] = quint8(g); px[0] = quint8(g);
+                    px[2] = quint8(qBound(0, int(px[2] * (1.0 - amt) + g * amt), 255));
+                    px[1] = quint8(qBound(0, int(px[1] * (1.0 - amt) + g * amt), 255));
+                    px[0] = quint8(qBound(0, int(px[0] * (1.0 - amt) + g * amt), 255));
                 }
             }
         });

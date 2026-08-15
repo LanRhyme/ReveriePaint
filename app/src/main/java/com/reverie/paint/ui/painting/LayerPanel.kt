@@ -27,9 +27,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -1251,166 +1259,66 @@ private fun LayerDetailPage(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-
-                val bgColors = listOf(
-                    0xFFFFFFFF.toInt() to "纯白",
-                    0xFFFFFDF5.toInt() to "暖白",
-                    0xFFF5F3EF.toInt() to "羊皮纸",
-                    0xFFEAE6E1.toInt() to "暖灰",
-                    0xFFDCE2E6.toInt() to "冷灰",
-                    0xFF2B2D30.toInt() to "炭黑",
-                    0xFF000000.toInt() to "纯黑",
-                    0xFFFDF0ED.toInt() to "樱粉",
-                    0xFFEFF5EC.toInt() to "灰绿",
-                    0xFFEDF3F8.toInt() to "天青",
-                    0xFFF7F2E7.toInt() to "杏仁",
-                    0xFFECEAF2.toInt() to "淡紫",
-                )
-
                 var currentColor by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
-                var hVal by remember { mutableFloatStateOf(0f) }
-                var sVal by remember { mutableFloatStateOf(0f) }
-                var vVal by remember { mutableFloatStateOf(1f) }
-                var lastUpdateNs by remember { mutableLongStateOf(0L) }
+                var showBgColorPicker by remember { mutableStateOf(false) }
 
-                fun updateHsv(h: Float, s: Float, v: Float, commit: Boolean = false) {
-                    hVal = h.coerceIn(0f, 360f)
-                    sVal = s.coerceIn(0f, 1f)
-                    vVal = v.coerceIn(0f, 1f)
-                    val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hVal, sVal, vVal))
-                    currentColor = colorInt
-                    if (commit) {
-                        vm.setBackgroundColor(colorInt, commit = true)
-                    } else {
-                        val now = System.nanoTime()
-                        if (now - lastUpdateNs > 20_000_000L) {
-                            lastUpdateNs = now
-                            vm.setBackgroundColor(colorInt, commit = false)
-                        }
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    bgColors.chunked(6).forEach { rowColors ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            rowColors.forEach { (cInt, _) ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(cInt))
-                                        .border(
-                                            width = if (currentColor == cInt) 2.5.dp else 1.dp,
-                                            color = if (currentColor == cInt) Morandi.accent else Morandi.border,
-                                            shape = CircleShape
-                                        )
-                                        .clickable {
-                                            val hsv = FloatArray(3)
-                                            android.graphics.Color.colorToHSV(cInt, hsv)
-                                            updateHsv(hsv[0], hsv[1], hsv[2], commit = true)
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (currentColor == cInt) {
-                                        Box(
-                                            Modifier
-                                                .size(8.dp)
-                                                .clip(CircleShape)
-                                                .background(if (cInt == 0xFFFFFFFF.toInt() || cInt == 0xFFFFFDF5.toInt()) Morandi.accent else Color.White)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Live preview and hex info bar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                        .noRippleClickable { showBgColorPicker = true }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
                         Box(
                             modifier = Modifier
-                                .size(20.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(Color(currentColor))
-                                .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
+                                .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp))
                         )
-                        Text(
-                            String.format("#%06X", 0xFFFFFF and currentColor),
-                            color = Morandi.text,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                        Column {
+                            Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(String.format("#%06X", 0xFFFFFF and currentColor), color = Morandi.subText, fontSize = 11.sp)
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("点击取色", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Icon(
+                            painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                    Text(
-                        "H:${hVal.roundToInt()}° S:${(sVal * 100).roundToInt()}% V:${(vVal * 100).roundToInt()}%",
-                        color = Morandi.subText,
-                        fontSize = 11.sp
-                    )
                 }
 
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
-
-                Text("自定义 HSV 色彩调节", color = Morandi.subText, fontSize = 12.sp)
-
-                // H (色相)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("H", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
-                    ReSlider(
-                        value = (hVal / 360f).coerceIn(0f, 1f),
-                        onValue = {
-                            updateHsv(it * 360f, sVal, vVal, commit = false)
+                if (showBgColorPicker) {
+                    CompactColorPickerDialog(
+                        title = "设置背景颜色",
+                        initialColor = Color(currentColor),
+                        onColorSelected = { col ->
+                            val cInt = android.graphics.Color.argb(
+                                255,
+                                (col.red * 255).toInt(),
+                                (col.green * 255).toInt(),
+                                (col.blue * 255).toInt()
+                            )
+                            currentColor = cInt
+                            vm.setBackgroundColor(cInt, commit = true)
                         },
-                        onRelease = {
-                            updateHsv(hVal, sVal, vVal, commit = true)
-                        },
-                        modifier = Modifier.weight(1f)
+                        onDismiss = { showBgColorPicker = false }
                     )
-                    Text("${hVal.roundToInt()}°", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
-                }
-
-                // S (饱和度)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("S", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
-                    ReSlider(
-                        value = sVal.coerceIn(0f, 1f),
-                        onValue = {
-                            updateHsv(hVal, it, vVal, commit = false)
-                        },
-                        onRelease = {
-                            updateHsv(hVal, sVal, vVal, commit = true)
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text("${(sVal * 100).roundToInt()}%", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
-                }
-
-                // V (明度)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("V", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
-                    ReSlider(
-                        value = vVal.coerceIn(0f, 1f),
-                        onValue = {
-                            updateHsv(hVal, sVal, it, commit = false)
-                        },
-                        onRelease = {
-                            updateHsv(hVal, sVal, vVal, commit = true)
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text("${(vVal * 100).roundToInt()}%", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
                 }
             }
         }
@@ -2425,12 +2333,201 @@ private val GRADIENT_PRESETS = listOf(
     ),
 )
 
-private val SWATCH_COLORS = listOf(
-    Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFF78909C), Color(0xFFD32F2F),
-    Color(0xFFE91E63), Color(0xFF9C27B0), Color(0xFF3F51B5), Color(0xFF2196F3),
-    Color(0xFF00BCD4), Color(0xFF009688), Color(0xFF4CAF50), Color(0xFF8BC34A),
-    Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFFFF5722), Color(0xFF795548),
-)
+@Composable
+fun CompactColorPickerDialog(
+    title: String = "选取颜色",
+    initialColor: Color,
+    onColorSelected: (Color) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val hsv = remember {
+        val arr = FloatArray(3)
+        android.graphics.Color.colorToHSV(
+            android.graphics.Color.argb(
+                (initialColor.alpha * 255).toInt(),
+                (initialColor.red * 255).toInt(),
+                (initialColor.green * 255).toInt(),
+                (initialColor.blue * 255).toInt()
+            ),
+            arr
+        )
+        arr
+    }
+    var hue by remember { mutableFloatStateOf(hsv[0]) }
+    var sat by remember { mutableFloatStateOf(hsv[1]) }
+    var valB by remember { mutableFloatStateOf(hsv[2]) }
+
+    val currentColor = remember(hue, sat, valB) {
+        val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, valB))
+        Color(colorInt)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Morandi.panel,
+            border = BorderStroke(1.dp, Morandi.border),
+            modifier = Modifier.width(300.dp).padding(4.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(title, color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(currentColor)
+                            .border(1.5.dp, Morandi.border, RoundedCornerShape(8.dp))
+                    )
+                }
+
+                // 2D Saturation-Value Canvas
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                        .pointerInput(hue) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    sat = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                    valB = (1f - (offset.y / size.height.toFloat())).coerceIn(0f, 1f)
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    sat = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                    valB = (1f - (change.position.y / size.height.toFloat())).coerceIn(0f, 1f)
+                                }
+                            )
+                        }
+                ) {
+                    val pureHueColor = remember(hue) {
+                        Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+                    }
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(
+                            Brush.horizontalGradient(listOf(Color.White, pureHueColor))
+                        )
+                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(
+                            Brush.verticalGradient(listOf(Color.Transparent, Color.Black))
+                        )
+                    )
+                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                        val w = maxWidth
+                        val h = maxHeight
+                        val handleX = w * sat - 8.dp
+                        val handleY = h * (1f - valB) - 8.dp
+                        Box(
+                            modifier = Modifier
+                                .offset(x = handleX, y = handleY)
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .border(2.dp, if (valB > 0.5f && sat < 0.5f) Color.Black else Color.White, CircleShape)
+                        )
+                    }
+                }
+
+                // Hue Spectrum Slider
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.Red, Color.Yellow, Color.Green,
+                                    Color.Cyan, Color.Blue, Color.Magenta, Color.Red
+                                )
+                            )
+                        )
+                        .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    hue = (offset.x / size.width.toFloat()).coerceIn(0f, 1f) * 360f
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    hue = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f) * 360f
+                                }
+                            )
+                        }
+                )
+
+                // Fast Swatch Palette
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    listOf(
+                        Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFFE53935), Color(0xFFFB8C00),
+                        Color(0xFFFFD600), Color(0xFF43A047), Color(0xFF1E88E5), Color(0xFF8E24AA)
+                    ).forEach { sw ->
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(CircleShape)
+                                .background(sw)
+                                .border(1.dp, Morandi.border, CircleShape)
+                                .clickable {
+                                    val arr = FloatArray(3)
+                                    android.graphics.Color.colorToHSV(
+                                        android.graphics.Color.argb(255, (sw.red * 255).toInt(), (sw.green * 255).toInt(), (sw.blue * 255).toInt()),
+                                        arr
+                                    )
+                                    hue = arr[0]
+                                    sat = arr[1]
+                                    valB = arr[2]
+                                }
+                        )
+                    }
+                }
+
+                // Hex readout and dialog actions
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val hex = String.format("#%02X%02X%02X", (currentColor.red * 255).toInt(), (currentColor.green * 255).toInt(), (currentColor.blue * 255).toInt())
+                    Text(hex, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = onDismiss,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text("取消", color = Morandi.subText, fontSize = 12.sp)
+                        }
+                        Button(
+                            onClick = {
+                                onColorSelected(currentColor)
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Morandi.accent),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                        ) {
+                            Text("确定", color = Color.White, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 private fun generateGradientLUTFromStops(stops: List<CustomGradStop>, reverse: Boolean): IntArray {
     val sorted = stops.sortedBy { it.pos }
@@ -2475,6 +2572,7 @@ private fun CustomGradientEditor(
     onGradientChanged: () -> Unit
 ) {
     var selectedStopId by remember { mutableLongStateOf(stops.firstOrNull()?.id ?: 0L) }
+    var showColorPicker by remember { mutableStateOf(false) }
     val currentOnGradientChanged by rememberUpdatedState(onGradientChanged)
 
     val sortedStops = remember(stops.size, stops.map { it.pos to it.color.value }) {
@@ -2586,7 +2684,11 @@ private fun CustomGradientEditor(
                                 .size(handleSizeDp)
                                 .clip(CircleShape)
                                 .background(Morandi.bg)
-                                .border(2.dp, if (isSel) Morandi.accent else Color.White, CircleShape),
+                                .border(2.dp, if (isSel) Morandi.accent else Color.White, CircleShape)
+                                .clickable {
+                                    selectedStopId = stop.id
+                                    showColorPicker = true
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
@@ -2604,7 +2706,13 @@ private fun CustomGradientEditor(
         // Active Stop Color & Position Controls
         if (activeStop != null) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                    .noRippleClickable { showColorPicker = true }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -2614,17 +2722,20 @@ private fun CustomGradientEditor(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .size(24.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(activeStop.color)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
+                            .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp))
                     )
-                    Text(
-                        "色标位置: ${(activeStop.pos * 100).roundToInt()}%",
-                        color = Morandi.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Column {
+                        Text(
+                            "当前色标: ${(activeStop.pos * 100).roundToInt()}%",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text("点击打开取色面板", color = Morandi.accent, fontSize = 11.sp)
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2632,13 +2743,13 @@ private fun CustomGradientEditor(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.panelHi)
+                                .background(Morandi.panel)
                                 .noRippleClickable {
                                     stops.remove(activeStop)
                                     selectedStopId = stops.first().id
                                     currentOnGradientChanged()
                                 }
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text("删除色标", color = Color(0xFFFF5252), fontSize = 11.sp)
                         }
@@ -2647,89 +2758,26 @@ private fun CustomGradientEditor(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (reverse) Morandi.accent else Morandi.panelHi)
+                            .background(if (reverse) Morandi.accent else Morandi.panel)
                             .noRippleClickable(onReverseToggle)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(if (reverse) "已反转" else "反转", color = if (reverse) Color.White else Morandi.subText, fontSize = 11.sp)
                     }
                 }
             }
 
-            // Quick Color Palette Swatches (compact 2 rows of 8)
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    SWATCH_COLORS.take(8).forEach { swatch ->
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(swatch)
-                                .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
-                                .noRippleClickable {
-                                    activeStop.color = swatch
-                                    currentOnGradientChanged()
-                                }
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    SWATCH_COLORS.drop(8).forEach { swatch ->
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(swatch)
-                                .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
-                                .noRippleClickable {
-                                    activeStop.color = swatch
-                                    currentOnGradientChanged()
-                                }
-                        )
-                    }
-                }
+            if (showColorPicker) {
+                CompactColorPickerDialog(
+                    title = "设置色标颜色",
+                    initialColor = activeStop.color,
+                    onColorSelected = { newCol ->
+                        activeStop.color = newCol
+                        currentOnGradientChanged()
+                    },
+                    onDismiss = { showColorPicker = false }
+                )
             }
-
-            // RGB Channel Sliders for Fine Tuning (compact heights)
-            FilterSliderRow(
-                label = "红色 (R)",
-                value = activeStop.color.red * 255f,
-                valueRange = 0f..255f,
-                valueText = "${(activeStop.color.red * 255).roundToInt()}",
-                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Red)),
-                onValue = {
-                    activeStop.color = activeStop.color.copy(red = it / 255f)
-                    currentOnGradientChanged()
-                }
-            )
-            FilterSliderRow(
-                label = "绿色 (G)",
-                value = activeStop.color.green * 255f,
-                valueRange = 0f..255f,
-                valueText = "${(activeStop.color.green * 255).roundToInt()}",
-                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Green)),
-                onValue = {
-                    activeStop.color = activeStop.color.copy(green = it / 255f)
-                    currentOnGradientChanged()
-                }
-            )
-            FilterSliderRow(
-                label = "蓝色 (B)",
-                value = activeStop.color.blue * 255f,
-                valueRange = 0f..255f,
-                valueText = "${(activeStop.color.blue * 255).roundToInt()}",
-                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Blue)),
-                onValue = {
-                    activeStop.color = activeStop.color.copy(blue = it / 255f)
-                    currentOnGradientChanged()
-                }
-            )
         }
 
         Text("载入经典预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
@@ -2879,6 +2927,17 @@ private fun FilterAdjustPage(
     var scanlineSpacing by remember { mutableFloatStateOf(4f) }
     var scanlineIntensity by remember { mutableFloatStateOf(40f) }
 
+    // Enhanced filter states
+    var invertAmt by remember { mutableFloatStateOf(100f) }
+    var lineartThresh by remember { mutableFloatStateOf(240f) }
+    var lineartWhiteLine by remember { mutableStateOf(false) }
+    var sobelStrength by remember { mutableFloatStateOf(2.0f) }
+    var sobelPreserveColor by remember { mutableStateOf(false) }
+    var embossDepth by remember { mutableFloatStateOf(2.0f) }
+    var embossAngle by remember { mutableFloatStateOf(45f) }
+    var embossPreserveColor by remember { mutableStateOf(true) }
+    var desaturateAmt by remember { mutableFloatStateOf(100f) }
+
     fun sendCurvesPreview() {
         if (!isPreview) return
         val lutMaster = calculateMonotoneCubicSplineLUT(curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
@@ -2915,13 +2974,13 @@ private fun FilterAdjustPage(
             3 -> vm.applyFilterPreview(index, 3, motionAngle.toDouble(), motionDist.toDouble(), 0.0, 0.0)
             4 -> vm.applyFilterPreview(index, 4, sharpenAmt.toDouble(), 0.0, 0.0, 0.0)
             5 -> vm.applyFilterPreview(index, 5, mosaicSize.toDouble(), 0.0, 0.0, 0.0)
-            6 -> vm.applyFilterPreview(index, 6, 0.0, 0.0, 0.0, 0.0)
-            7 -> vm.applyFilterPreview(index, 7, 0.0, 0.0, 0.0, 0.0)
-            8 -> vm.applyFilterPreview(index, 8, 0.0, 0.0, 0.0, 0.0)
-            9 -> vm.applyFilterPreview(index, 9, 0.0, 0.0, 0.0, 0.0)
+            6 -> vm.applyFilterPreview(index, 6, invertAmt.toDouble(), 0.0, 0.0, 0.0)
+            7 -> vm.applyFilterPreview(index, 7, lineartThresh.toDouble(), if (lineartWhiteLine) 1.0 else 0.0, 0.0, 0.0)
+            8 -> vm.applyFilterPreview(index, 8, sobelStrength.toDouble(), if (sobelPreserveColor) 1.0 else 0.0, 0.0, 0.0)
+            9 -> vm.applyFilterPreview(index, 9, embossDepth.toDouble(), embossAngle.toDouble(), if (embossPreserveColor) 1.0 else 0.0, 0.0)
             10 -> vm.applyFilterPreview(index, 10, noiseAmt.toDouble(), 0.0, 0.0, 0.0)
             11 -> vm.applyFilterPreview(index, 11, glitchOffset.toDouble(), 0.0, 0.0, 0.0)
-            12 -> vm.applyFilter(index, 0)
+            12 -> vm.applyFilterPreview(index, 12, desaturateAmt.toDouble(), 0.0, 0.0, 0.0)
             14 -> vm.applyFilterPreview(index, 14, levelBlack.toDouble(), levelWhite.toDouble(), levelGamma.toDouble(), 0.0)
             15 -> vm.applyFilterPreview(index, 15, tempVal.toDouble(), tintVal.toDouble(), 0.0, 0.0)
             16 -> vm.applyFilterPreview(index, 16, thresholdVal.toDouble(), 0.0, 0.0, 0.0)
@@ -3600,6 +3659,127 @@ private fun FilterAdjustPage(
                         valueRange = 1f..30f,
                         valueText = "${defocusRadius.roundToInt()} px",
                         onValue = { defocusRadius = it; sendPreview() }
+                    )
+                }
+                6 -> { // Invert
+                    FilterSliderRow(
+                        label = "反相强度",
+                        value = invertAmt,
+                        valueRange = 0f..100f,
+                        valueText = "${invertAmt.roundToInt()}%",
+                        onValue = { invertAmt = it; sendPreview() }
+                    )
+                }
+                7 -> { // Lineart Extraction
+                    FilterSliderRow(
+                        label = "线稿提取门限",
+                        value = lineartThresh,
+                        valueRange = 0f..255f,
+                        valueText = "${lineartThresh.roundToInt()}",
+                        onValue = { lineartThresh = it; sendPreview() }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("反转线稿色彩 (生成白色线稿)", color = Morandi.text, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (lineartWhiteLine) Morandi.accent else Morandi.panelHi)
+                                .noRippleClickable {
+                                    lineartWhiteLine = !lineartWhiteLine
+                                    sendPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (lineartWhiteLine) "白色" else "黑色",
+                                color = if (lineartWhiteLine) Color.White else Morandi.subText,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                8 -> { // Sobel
+                    FilterSliderRow(
+                        label = "边缘灵敏度",
+                        value = sobelStrength,
+                        valueRange = 0.5f..10.0f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", sobelStrength),
+                        onValue = { sobelStrength = it; sendPreview() }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("彩色边缘模式", color = Morandi.text, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (sobelPreserveColor) Morandi.accent else Morandi.panelHi)
+                                .noRippleClickable {
+                                    sobelPreserveColor = !sobelPreserveColor
+                                    sendPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (sobelPreserveColor) "彩色" else "黑白",
+                                color = if (sobelPreserveColor) Color.White else Morandi.subText,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                9 -> { // Emboss / 浮雕
+                    FilterSliderRow(
+                        label = "浮雕深度",
+                        value = embossDepth,
+                        valueRange = 0.5f..10.0f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", embossDepth),
+                        onValue = { embossDepth = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "光影投射角度",
+                        value = embossAngle,
+                        valueRange = 0f..360f,
+                        valueText = "${embossAngle.roundToInt()}°",
+                        onValue = { embossAngle = it; sendPreview() }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("保留原色 (彩色浮雕)", color = Morandi.text, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (embossPreserveColor) Morandi.accent else Morandi.panelHi)
+                                .noRippleClickable {
+                                    embossPreserveColor = !embossPreserveColor
+                                    sendPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (embossPreserveColor) "保留原色" else "经典灰阶",
+                                color = if (embossPreserveColor) Color.White else Morandi.subText,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                12 -> { // Desaturate
+                    FilterSliderRow(
+                        label = "去色强度",
+                        value = desaturateAmt,
+                        valueRange = 0f..100f,
+                        valueText = "${desaturateAmt.roundToInt()}%",
+                        onValue = { desaturateAmt = it; sendPreview() }
                     )
                 }
                 else -> {
