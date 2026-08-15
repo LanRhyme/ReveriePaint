@@ -2118,36 +2118,44 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 4: { // Sharpen: strength (0.1..3.0)
+    case 4: { // Sharpen: strength (0.1..3.0) via Alpha-weighted Unsharp Masking
         const double strength = qBound(0.1, p1, 3.0);
         QImage tmp = img.copy();
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
-                const quint8 *srcCenterRow = tmp.constScanLine(y);
-                const quint8 *srcTopRow = tmp.constScanLine(qBound(0, y - 1, h - 1));
-                const quint8 *srcBottomRow = tmp.constScanLine(qBound(0, y + 1, h - 1));
                 for (int x = 0; x < w; ++x) {
-                    const quint8 *pC = srcCenterRow + x * 4;
+                    const quint8 *pC = tmp.constScanLine(y) + x * 4;
                     quint8 *px = dst + x * 4;
                     if (pC[3] == 0) {
                         px[0] = 0; px[1] = 0; px[2] = 0; px[3] = 0;
                         continue;
                     }
-                    int xL = qBound(0, x - 1, w - 1) * 4;
-                    int xR = qBound(0, x + 1, w - 1) * 4;
-                    const quint8 *pT = srcTopRow + x * 4;
-                    const quint8 *pB = srcBottomRow + x * 4;
-                    const quint8 *pL = srcCenterRow + xL;
-                    const quint8 *pR = srcCenterRow + xR;
+                    int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        int ny = qBound(0, y + dy, h - 1);
+                        const quint8 *row = tmp.constScanLine(ny);
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            int nx = qBound(0, x + dx, w - 1);
+                            const quint8 *p = row + nx * 4;
+                            int a = p[3];
+                            sumA += a;
+                            sumR += p[2] * a;
+                            sumG += p[1] * a;
+                            sumB += p[0] * a;
+                        }
+                    }
+                    int blurR = (sumA > 0) ? (sumR / sumA) : pC[2];
+                    int blurG = (sumA > 0) ? (sumG / sumA) : pC[1];
+                    int blurB = (sumA > 0) ? (sumB / sumA) : pC[0];
 
-                    int lapR = 4 * pC[2] - pT[2] - pB[2] - pL[2] - pR[2];
-                    int lapG = 4 * pC[1] - pT[1] - pB[1] - pL[1] - pR[1];
-                    int lapB = 4 * pC[0] - pT[0] - pB[0] - pL[0] - pR[0];
+                    int diffR = pC[2] - blurR;
+                    int diffG = pC[1] - blurG;
+                    int diffB = pC[0] - blurB;
 
-                    px[2] = quint8(qBound(0, int(pC[2] + lapR * strength), 255));
-                    px[1] = quint8(qBound(0, int(pC[1] + lapG * strength), 255));
-                    px[0] = quint8(qBound(0, int(pC[0] + lapB * strength), 255));
+                    px[2] = quint8(qBound(0, int(pC[2] + diffR * strength), 255));
+                    px[1] = quint8(qBound(0, int(pC[1] + diffG * strength), 255));
+                    px[0] = quint8(qBound(0, int(pC[0] + diffB * strength), 255));
                     px[3] = pC[3];
                 }
             }
@@ -2215,9 +2223,9 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 8: { // Find Edges (Sobel): p1 = strength (0.5..10), p2 = preserveColor (0 or 1)
+    case 8: { // Find Edges (Sobel): p1 = strength (0.5..10), p2 = mode (0: 白底黑线线稿, 1: 黑底彩色边缘, 2: 透明线稿)
         const double strength = (p1 > 0.0) ? qBound(0.5, p1, 10.0) : 2.0;
-        const bool preserveColor = (p2 > 0.5);
+        const int mode = int(p2 + 0.5);
         QImage tmp = img.copy();
         filterParallelFor(0, h, [&](int startY, int endY) {
             const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
@@ -2244,17 +2252,27 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
                     int magG = qBound(0, int(sqrt(ggx * ggx + ggy * ggy) * strength), 255);
                     int magB = qBound(0, int(sqrt(gbx * gbx + gby * gby) * strength), 255);
                     int magA = qBound(0, int(sqrt(gax * gax + gay * gay) * strength), 255);
-                    const quint8 *pOrig = tmp.constScanLine(y) + x * 4;
+                    int mag = (magR * 299 + magG * 587 + magB * 114) / 1000;
+                    mag = qMax(mag, magA);
+
                     quint8 *px = dst + x * 4;
-                    int maxEdge = qMax(qMax(magR, magG), qMax(magB, magA));
-                    int finalA = qMax(int(pOrig[3]), maxEdge);
-                    if (preserveColor) {
-                        px[2] = quint8(magR); px[1] = quint8(magG); px[0] = quint8(magB);
-                    } else {
-                        int mag = (magR * 299 + magG * 587 + magB * 114) / 1000;
-                        px[2] = quint8(mag); px[1] = quint8(mag); px[0] = quint8(mag);
+                    if (mode == 0) { // 白底黑线 (线稿)
+                        int lineVal = qBound(0, 255 - mag, 255);
+                        px[2] = quint8(lineVal);
+                        px[1] = quint8(lineVal);
+                        px[0] = quint8(lineVal);
+                        px[3] = 255;
+                    } else if (mode == 1) { // 黑底彩色边缘 (轮廓高亮)
+                        px[2] = quint8(magR);
+                        px[1] = quint8(magG);
+                        px[0] = quint8(magB);
+                        px[3] = 255;
+                    } else { // 透明背景黑线 (提取透明线稿)
+                        px[2] = 0;
+                        px[1] = 0;
+                        px[0] = 0;
+                        px[3] = quint8(qBound(0, mag, 255));
                     }
-                    px[3] = quint8(qBound(0, finalA, 255));
                 }
             }
         });
@@ -2264,40 +2282,62 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         const double depth = (p1 > 0.0) ? qBound(0.5, p1, 10.0) : 2.0;
         const double angleRad = p2 * M_PI / 180.0;
         const bool preserveColor = (p3 > 0.5);
-        const double cosA = cos(angleRad);
-        const double sinA = sin(angleRad);
+
+        // Light vector in 3D: (cosA, sinA, 1.0)
+        const double lx = cos(angleRad);
+        const double ly = sin(angleRad);
+        const double lz = 1.0 / qMax(0.2, depth * 0.4);
+        const double lLen = sqrt(lx * lx + ly * ly + lz * lz);
+        const double nlx = lx / lLen;
+        const double nly = ly / lLen;
+        const double nlz = lz / lLen;
 
         QImage tmp = img.copy();
         filterParallelFor(0, h, [&](int startY, int endY) {
+            const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
+            const int ky[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
-                    double dr = 0.0, dg = 0.0, db = 0.0;
+                    double gx = 0.0, gy = 0.0;
                     for (int dy = -1; dy <= 1; ++dy) {
                         int ny = qBound(0, y + dy, h - 1);
                         const quint8 *row = tmp.constScanLine(ny);
                         for (int dx = -1; dx <= 1; ++dx) {
-                            if (dx == 0 && dy == 0) continue;
                             int nx = qBound(0, x + dx, w - 1);
                             const quint8 *p = row + nx * 4;
-                            double weight = (dx * cosA + dy * sinA);
-                            dr += p[2] * weight;
-                            dg += p[1] * weight;
-                            db += p[0] * weight;
+                            double lum = (p[2] * 299 + p[1] * 587 + p[0] * 114) / 1000.0;
+                            gx += lum * kx[dy + 1][dx + 1];
+                            gy += lum * ky[dy + 1][dx + 1];
                         }
                     }
+                    gx /= 8.0;
+                    gy /= 8.0;
+
+                    // Surface normal N = (-gx, -gy, 1.0)
+                    double nx = -gx;
+                    double ny = -gy;
+                    double nz = 1.0;
+                    double nLen = sqrt(nx * nx + ny * ny + nz * nz);
+                    double dot = (nx * nlx + ny * nly + nz * nlz) / nLen;
+                    double diffuse = qBound(0.0, (dot + 1.0) * 0.5, 1.0);
+
                     const quint8 *p0 = tmp.constScanLine(y) + x * 4;
                     quint8 *px = dst + x * 4;
+                    if (p0[3] == 0) {
+                        px[0] = 0; px[1] = 0; px[2] = 0; px[3] = 0;
+                        continue;
+                    }
                     if (preserveColor) {
-                        px[2] = quint8(qBound(0, int(p0[2] + dr * depth * 0.5), 255));
-                        px[1] = quint8(qBound(0, int(p0[1] + dg * depth * 0.5), 255));
-                        px[0] = quint8(qBound(0, int(p0[0] + db * depth * 0.5), 255));
+                        double factor = 0.3 + diffuse * 0.9;
+                        px[2] = quint8(qBound(0, int(p0[2] * factor), 255));
+                        px[1] = quint8(qBound(0, int(p0[1] * factor), 255));
+                        px[0] = quint8(qBound(0, int(p0[0] * factor), 255));
                     } else {
-                        double lumDiff = (dr * 299 + dg * 587 + db * 114) / 1000.0;
-                        int v = qBound(0, int(128 + lumDiff * depth * 0.5), 255);
-                        px[2] = quint8(v);
-                        px[1] = quint8(v);
-                        px[0] = quint8(v);
+                        int grayVal = qBound(0, int(diffuse * 255.0), 255);
+                        px[2] = quint8(grayVal);
+                        px[1] = quint8(grayVal);
+                        px[0] = quint8(grayVal);
                     }
                     px[3] = p0[3];
                 }
@@ -2481,51 +2521,66 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 18: { // Bloom / 辉光: p1=threshold(0..255), p2=radius(1..50), p3=intensity(0.1..3.0)
+    case 18: { // Bloom / 辉光: p1=threshold(0..255), p2=radius(1..60), p3=intensity(0.1..3.0)
         const int thresh = qBound(0, int(p1), 255);
-        const int rad = qBound(1, int(p2), 50);
+        const int rad = qBound(1, int(p2), 60);
         const double intensity = qBound(0.1, p3, 3.0);
         QVector<quint32> glow(w * h, 0);
         QVector<quint32> tmp(w * h, 0);
         const quint32 *srcData = reinterpret_cast<const quint32 *>(img.constBits());
+
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 for (int x = 0; x < w; ++x) {
                     quint32 c = srcData[y * w + x];
                     int a = (c >> 24) & 0xFF;
+                    if (a == 0) continue;
                     int r = (c >> 16) & 0xFF;
                     int g = (c >> 8) & 0xFF;
                     int b = c & 0xFF;
                     int lum = (r * 299 + g * 587 + b * 114) / 1000;
-                    if (lum >= thresh && a > 0) {
-                        int glowA = (thresh < 255) ? (a * (lum - thresh + 1)) / (256 - thresh) : a;
-                        glow[y * w + x] = (quint32(qBound(1, glowA, 255)) << 24) | (c & 0x00FFFFFF);
+                    if (lum >= thresh) {
+                        double weight = (thresh < 255) ? double(lum - thresh) / double(255 - thresh) : 1.0;
+                        int ga = qBound(1, int(a * weight), 255);
+                        int gr = int(r * weight);
+                        int gg = int(g * weight);
+                        int gb = int(b * weight);
+                        glow[y * w + x] = (quint32(ga) << 24) | (quint32(gr) << 16) | (quint32(gg) << 8) | quint32(gb);
                     }
                 }
             }
         });
+
         int rBox = qMax(1, int(rad * 0.577));
         boxBlurH(glow.constData(), tmp.data(), w, h, rBox);
         boxBlurV(tmp.constData(), glow.data(), w, h, rBox);
         boxBlurH(glow.constData(), tmp.data(), w, h, rBox);
         boxBlurV(tmp.constData(), glow.data(), w, h, rBox);
+        boxBlurH(glow.constData(), tmp.data(), w, h, rBox);
+        boxBlurV(tmp.constData(), glow.data(), w, h, rBox);
+
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint32 gPix = glow[y * w + x];
                     int ga = (gPix >> 24) & 0xFF;
-                    int gr = (gPix >> 16) & 0xFF;
-                    int gg = (gPix >> 8) & 0xFF;
-                    int gb = gPix & 0xFF;
                     quint8 *px = dst + x * 4;
                     if (ga > 0) {
-                        double gScale = (ga / 255.0) * intensity;
-                        px[2] = quint8(qBound(0, int(px[2] + gr * gScale), 255));
-                        px[1] = quint8(qBound(0, int(px[1] + gg * gScale), 255));
-                        px[0] = quint8(qBound(0, int(px[0] + gb * gScale), 255));
-                        int finalAlpha = qMax(int(px[3]), int(ga * qMin(1.0, intensity)));
-                        px[3] = quint8(qBound(0, finalAlpha, 255));
+                        int gr = (gPix >> 16) & 0xFF;
+                        int gg = (gPix >> 8) & 0xFF;
+                        int gb = gPix & 0xFF;
+                        double gFactor = (double(ga) / 255.0) * intensity;
+                        int addR = int(gr * gFactor);
+                        int addG = int(gg * gFactor);
+                        int addB = int(gb * gFactor);
+
+                        // Screen blend for organic luminous highlights
+                        px[2] = quint8(qBound(0, 255 - ((255 - px[2]) * qMax(0, 255 - addR)) / 255, 255));
+                        px[1] = quint8(qBound(0, 255 - ((255 - px[1]) * qMax(0, 255 - addG)) / 255, 255));
+                        px[0] = quint8(qBound(0, 255 - ((255 - px[0]) * qMax(0, 255 - addB)) / 255, 255));
+                        int newA = qMax(int(px[3]), qMin(255, int(ga * intensity)));
+                        px[3] = quint8(qBound(0, newA, 255));
                     }
                 }
             }
@@ -2761,14 +2816,19 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 25: { // Edge Glow / Neon (边缘霓虹发光): p1 = strength (1.0..5.0)
-        const double strength = qBound(1.0, p1, 5.0);
+    case 25: { // Edge Glow / Neon (边缘霓虹发光): p1 = strength (0.5..5.0), p2 = radius (1..30), p3 = hueMode (0: 原色, 1: 青蓝, 2: 粉紫, 3: 炫金)
+        const double strength = (p1 > 0.0) ? qBound(0.5, p1, 5.0) : 2.5;
+        const int rad = (p2 > 0.0) ? qBound(1, int(p2), 30) : 8;
+        const int hueMode = int(p3 + 0.5);
+
         QImage tmp = img.copy();
+        QVector<quint32> glow(w * h, 0);
+        QVector<quint32> buf(w * h, 0);
+
         filterParallelFor(0, h, [&](int startY, int endY) {
             const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
             const int ky[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
             for (int y = startY; y < endY; ++y) {
-                quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     int gx = 0, gy = 0, gax = 0, gay = 0;
                     for (int dy = -1; dy <= 1; ++dy) {
@@ -2777,29 +2837,73 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
                         for (int dx = -1; dx <= 1; ++dx) {
                             int nx = qBound(0, x + dx, w - 1);
                             const quint8 *p = row + nx * 4;
-                            int val = (p[2] * 299 + p[1] * 587 + p[0] * 114) / 1000;
-                            int k_x = kx[dy + 1][dx + 1];
-                            int k_y = ky[dy + 1][dx + 1];
-                            gx += val * k_x;
-                            gy += val * k_y;
-                            gax += p[3] * k_x;
-                            gay += p[3] * k_y;
+                            int lum = (p[2] * 299 + p[1] * 587 + p[0] * 114) / 1000;
+                            gx += lum * kx[dy + 1][dx + 1];
+                            gy += lum * ky[dy + 1][dx + 1];
+                            gax += p[3] * kx[dy + 1][dx + 1];
+                            gay += p[3] * ky[dy + 1][dx + 1];
                         }
                     }
-                    int magColor = int(sqrt(gx * gx + gy * gy) * strength);
-                    int magAlpha = int(sqrt(gax * gax + gay * gay) * strength);
-                    int mag = qBound(0, qMax(magColor, magAlpha), 255);
-                    const quint8 *srcP = tmp.constScanLine(y) + x * 4;
+                    int magLum = int(sqrt(gx * gx + gy * gy) * strength);
+                    int magA = int(sqrt(gax * gax + gay * gay) * strength);
+                    int mag = qBound(0, qMax(magLum, magA), 255);
+                    if (mag > 0) {
+                        const quint8 *pOrig = tmp.constScanLine(y) + x * 4;
+                        int nr, ng, nb;
+                        if (hueMode == 1) { // 赛博青蓝 (Cyan #00F5FF)
+                            nr = 0; ng = 245; nb = 255;
+                        } else if (hueMode == 2) { // 霓虹粉紫 (Magenta #FF1493)
+                            nr = 255; ng = 20; nb = 147;
+                        } else if (hueMode == 3) { // 炫彩金黄 (Gold #FFD700)
+                            nr = 255; ng = 215; nb = 0;
+                        } else { // 原色增强
+                            int maxC = qMax(qMax(int(pOrig[2]), int(pOrig[1])), int(pOrig[0]));
+                            if (maxC > 10) {
+                                nr = qBound(0, (pOrig[2] * 255) / maxC, 255);
+                                ng = qBound(0, (pOrig[1] * 255) / maxC, 255);
+                                nb = qBound(0, (pOrig[0] * 255) / maxC, 255);
+                            } else {
+                                nr = 0; ng = 230; nb = 255;
+                            }
+                        }
+                        glow[y * w + x] = (quint32(mag) << 24) | (quint32(nr) << 16) | (quint32(ng) << 8) | quint32(nb);
+                    }
+                }
+            }
+        });
+
+        int rBox = qMax(1, int(rad * 0.577));
+        boxBlurH(glow.constData(), buf.data(), w, h, rBox);
+        boxBlurV(buf.constData(), glow.data(), w, h, rBox);
+        boxBlurH(glow.constData(), buf.data(), w, h, rBox);
+        boxBlurV(buf.constData(), glow.data(), w, h, rBox);
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *dst = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint32 gPix = glow[y * w + x];
+                    int ga = (gPix >> 24) & 0xFF;
+                    const quint8 *pOrig = tmp.constScanLine(y) + x * 4;
                     quint8 *px = dst + x * 4;
-                    double edgeFactor = mag / 255.0;
-                    // Neon Edge effect: boost saturated color on edges, blend with original
-                    int nr = qMin(255, int(srcP[2] + (255 - srcP[2] / 2) * edgeFactor));
-                    int ng = qMin(255, int(srcP[1] + (255 - srcP[1] / 2) * edgeFactor));
-                    int nb = qMin(255, int(srcP[0] + (255 - srcP[0] / 2) * edgeFactor));
-                    px[2] = quint8(nr);
-                    px[1] = quint8(ng);
-                    px[0] = quint8(nb);
-                    px[3] = quint8(qMax(int(srcP[3]), mag));
+                    if (ga > 0) {
+                        int gr = (gPix >> 16) & 0xFF;
+                        int gg = (gPix >> 8) & 0xFF;
+                        int gb = gPix & 0xFF;
+                        double gFactor = double(ga) / 255.0;
+                        int addR = int(gr * gFactor);
+                        int addG = int(gg * gFactor);
+                        int addB = int(gb * gFactor);
+
+                        // Screen blend neon glow over artwork
+                        px[2] = quint8(qBound(0, 255 - ((255 - pOrig[2]) * (255 - addR)) / 255, 255));
+                        px[1] = quint8(qBound(0, 255 - ((255 - pOrig[1]) * (255 - addG)) / 255, 255));
+                        px[0] = quint8(qBound(0, 255 - ((255 - pOrig[0]) * (255 - addB)) / 255, 255));
+                        int newA = qMax(int(pOrig[3]), ga);
+                        px[3] = quint8(qBound(0, newA, 255));
+                    } else {
+                        px[2] = pOrig[2]; px[1] = pOrig[1]; px[0] = pOrig[0]; px[3] = pOrig[3];
+                    }
                 }
             }
         });

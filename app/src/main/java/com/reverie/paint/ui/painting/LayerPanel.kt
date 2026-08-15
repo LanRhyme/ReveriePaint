@@ -2893,9 +2893,9 @@ private fun FilterAdjustPage(
     var thresholdVal by remember { mutableFloatStateOf(128f) }
     var posterizeLevels by remember { mutableFloatStateOf(4f) }
 
-    var bloomThresh by remember { mutableFloatStateOf(180f) }
-    var bloomRadius by remember { mutableFloatStateOf(15f) }
-    var bloomIntensity by remember { mutableFloatStateOf(1.2f) }
+    var bloomThresh by remember { mutableFloatStateOf(40f) }
+    var bloomRadius by remember { mutableFloatStateOf(16f) }
+    var bloomIntensity by remember { mutableFloatStateOf(1.5f) }
 
     var shadowAngle by remember { mutableFloatStateOf(45f) }
     var shadowDist by remember { mutableFloatStateOf(12f) }
@@ -2907,7 +2907,9 @@ private fun FilterAdjustPage(
     var halftoneDotSize by remember { mutableFloatStateOf(10f) }
     var exposureVal by remember { mutableFloatStateOf(0f) }
     var exposureGamma by remember { mutableFloatStateOf(1.0f) }
-    var edgeGlowStrength by remember { mutableFloatStateOf(2.0f) }
+    var edgeGlowStrength by remember { mutableFloatStateOf(2.5f) }
+    var edgeGlowRadius by remember { mutableFloatStateOf(8f) }
+    var edgeGlowHue by remember { mutableIntStateOf(0) }
     var defocusRadius by remember { mutableFloatStateOf(8f) }
     var lumOpacityInvert by remember { mutableStateOf(false) }
 
@@ -2932,7 +2934,7 @@ private fun FilterAdjustPage(
     var lineartThresh by remember { mutableFloatStateOf(240f) }
     var lineartWhiteLine by remember { mutableStateOf(false) }
     var sobelStrength by remember { mutableFloatStateOf(2.0f) }
-    var sobelPreserveColor by remember { mutableStateOf(false) }
+    var sobelMode by remember { mutableIntStateOf(0) }
     var embossDepth by remember { mutableFloatStateOf(2.0f) }
     var embossAngle by remember { mutableFloatStateOf(45f) }
     var embossPreserveColor by remember { mutableStateOf(true) }
@@ -2976,7 +2978,7 @@ private fun FilterAdjustPage(
             5 -> vm.applyFilterPreview(index, 5, mosaicSize.toDouble(), 0.0, 0.0, 0.0)
             6 -> vm.applyFilterPreview(index, 6, invertAmt.toDouble(), 0.0, 0.0, 0.0)
             7 -> vm.applyFilterPreview(index, 7, lineartThresh.toDouble(), if (lineartWhiteLine) 1.0 else 0.0, 0.0, 0.0)
-            8 -> vm.applyFilterPreview(index, 8, sobelStrength.toDouble(), if (sobelPreserveColor) 1.0 else 0.0, 0.0, 0.0)
+            8 -> vm.applyFilterPreview(index, 8, sobelStrength.toDouble(), sobelMode.toDouble(), 0.0, 0.0)
             9 -> vm.applyFilterPreview(index, 9, embossDepth.toDouble(), embossAngle.toDouble(), if (embossPreserveColor) 1.0 else 0.0, 0.0)
             10 -> vm.applyFilterPreview(index, 10, noiseAmt.toDouble(), 0.0, 0.0, 0.0)
             11 -> vm.applyFilterPreview(index, 11, glitchOffset.toDouble(), 0.0, 0.0, 0.0)
@@ -2992,7 +2994,7 @@ private fun FilterAdjustPage(
             22 -> vm.applyFilterPreview(index, 22, radialBlurAmt.toDouble(), 0.5, 0.5, 0.0)
             23 -> vm.applyFilterPreview(index, 23, halftoneDotSize.toDouble(), 0.0, 0.0, 0.0)
             24 -> vm.applyFilterPreview(index, 24, exposureVal.toDouble(), exposureGamma.toDouble(), 0.0, 0.0)
-            25 -> vm.applyFilterPreview(index, 25, edgeGlowStrength.toDouble(), 0.0, 0.0, 0.0)
+            25 -> vm.applyFilterPreview(index, 25, edgeGlowStrength.toDouble(), edgeGlowRadius.toDouble(), edgeGlowHue.toDouble(), 0.0)
             26 -> vm.applyFilterPreview(index, 26, defocusRadius.toDouble(), 0.0, 0.0, 0.0)
             27 -> vm.applyFilterPreview(index, 27, shadowBoost.toDouble(), highlightReduce.toDouble(), 0.0, 0.0)
             28 -> vm.applyFilterPreview(index, 28, vibranceAmt.toDouble(), 0.0, 0.0, 0.0)
@@ -3533,12 +3535,12 @@ private fun FilterAdjustPage(
                     FilterSliderRow(
                         label = "泛光扩散半径",
                         value = bloomRadius,
-                        valueRange = 1f..50f,
+                        valueRange = 1f..60f,
                         valueText = "${bloomRadius.roundToInt()} px",
                         onValue = { bloomRadius = it; sendPreview() }
                     )
                     FilterSliderRow(
-                        label = "辉光强度",
+                        label = "辉光发光强度",
                         value = bloomIntensity,
                         valueRange = 0.1f..3.0f,
                         valueText = String.format(Locale.getDefault(), "%.1f", bloomIntensity),
@@ -3647,10 +3649,41 @@ private fun FilterAdjustPage(
                     FilterSliderRow(
                         label = "荧光发光强度",
                         value = edgeGlowStrength,
-                        valueRange = 1.0f..5.0f,
+                        valueRange = 0.5f..5.0f,
                         valueText = String.format(Locale.getDefault(), "%.1f", edgeGlowStrength),
                         onValue = { edgeGlowStrength = it; sendPreview() }
                     )
+                    FilterSliderRow(
+                        label = "霓虹扩散半径",
+                        value = edgeGlowRadius,
+                        valueRange = 1f..30f,
+                        valueText = "${edgeGlowRadius.roundToInt()} px",
+                        onValue = { edgeGlowRadius = it; sendPreview() }
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("霓虹色彩模式", color = Morandi.text, fontSize = 12.sp)
+                        val hueNames = listOf("原色增强", "赛博青蓝", "霓虹粉紫", "炫彩金黄")
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Morandi.panelHi)
+                                .noRippleClickable {
+                                    edgeGlowHue = (edgeGlowHue + 1) % 4
+                                    sendPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                hueNames.getOrElse(edgeGlowHue) { "原色增强" },
+                                color = Morandi.accent,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
                 }
                 26 -> { // Defocus Blur
                     FilterSliderRow(
@@ -3715,20 +3748,21 @@ private fun FilterAdjustPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("彩色边缘模式", color = Morandi.text, fontSize = 12.sp)
+                        Text("边缘提取模式", color = Morandi.text, fontSize = 12.sp)
+                        val sobelModes = listOf("白底黑线", "黑底彩色", "透明线稿")
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (sobelPreserveColor) Morandi.accent else Morandi.panelHi)
+                                .background(Morandi.panelHi)
                                 .noRippleClickable {
-                                    sobelPreserveColor = !sobelPreserveColor
+                                    sobelMode = (sobelMode + 1) % 3
                                     sendPreview()
                                 }
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                if (sobelPreserveColor) "彩色" else "黑白",
-                                color = if (sobelPreserveColor) Color.White else Morandi.subText,
+                                sobelModes.getOrElse(sobelMode) { "白底黑线" },
+                                color = Morandi.accent,
                                 fontSize = 11.sp
                             )
                         }
