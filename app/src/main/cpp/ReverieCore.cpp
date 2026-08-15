@@ -2742,6 +2742,219 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
+    case 27: { // Shadows & Highlights (阴影与高光): p1 = shadows boost(0..100), p2 = highlights reduce(0..100)
+        const double sBoost = qBound(0.0, p1 / 100.0, 1.0);
+        const double hReduce = qBound(0.0, p2 / 100.0, 1.0);
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    int r = px[2], g = px[1], b = px[0];
+                    double lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255.0;
+
+                    // Shadow factor (strongest at lum=0, fades to 0 at lum=0.7)
+                    double sFactor = sBoost * qMax(0.0, 1.0 - lum / 0.7);
+                    // Highlight factor (strongest at lum=1, fades to 0 at lum=0.3)
+                    double hFactor = hReduce * qMax(0.0, (lum - 0.3) / 0.7);
+
+                    double scale = 1.0 + sFactor * 0.8 - hFactor * 0.5;
+                    px[2] = quint8(qBound(0, int(r * scale), 255));
+                    px[1] = quint8(qBound(0, int(g * scale), 255));
+                    px[0] = quint8(qBound(0, int(b * scale), 255));
+                }
+            }
+        });
+        break;
+    }
+    case 28: { // Vibrance (自然饱和度): p1 = vibrance (-100..100)
+        const double vib = qBound(-1.0, p1 / 100.0, 1.0);
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    int r = px[2], g = px[1], b = px[0];
+                    int maxC = qMax(r, qMax(g, b));
+                    int minC = qMin(r, qMin(g, b));
+                    if (maxC == minC) continue;
+                    double sat = double(maxC - minC) / double(maxC);
+                    // Vibrance boosts unsaturated colors more
+                    double amt = vib * (1.0 - sat);
+                    double lum = (r * 0.299 + g * 0.587 + b * 0.114);
+                    px[2] = quint8(qBound(0, int(lum + (r - lum) * (1.0 + amt)), 255));
+                    px[1] = quint8(qBound(0, int(lum + (g - lum) * (1.0 + amt)), 255));
+                    px[0] = quint8(qBound(0, int(lum + (b - lum) * (1.0 + amt)), 255));
+                }
+            }
+        });
+        break;
+    }
+    case 29: { // Color to Alpha (颜色转透明度): p1 = targetColor(0xRRGGBB), p2 = tolerance(0..100), p3 = smoothness(0..50)
+        const quint32 target = (quint32)p1;
+        const int tr = (target >> 16) & 0xFF;
+        const int tg = (target >> 8) & 0xFF;
+        const int tb = target & 0xFF;
+        const double tol = qBound(0.0, p2, 100.0) * 4.41; // max dist is ~441
+        const double smooth = qMax(1.0, p3 * 4.41);
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    int dr = px[2] - tr;
+                    int dg = px[1] - tg;
+                    int db = px[0] - tb;
+                    double dist = sqrt(dr * dr + dg * dg + db * db);
+                    if (dist <= tol) {
+                        px[3] = 0;
+                    } else if (dist < tol + smooth) {
+                        double factor = (dist - tol) / smooth;
+                        px[3] = quint8(px[3] * factor);
+                    }
+                }
+            }
+        });
+        break;
+    }
+    case 31: { // Water Ripple / Waves (水波纹扭曲): p1 = amplitude(1..30), p2 = frequency(1..50)
+        const double amp = qBound(1.0, p1, 30.0);
+        const double freq = qBound(1.0, p2, 50.0);
+        const double lambda = (w + h) / (freq * 2.0);
+        QVector<quint32> buffer(w * h);
+        memcpy(buffer.data(), img.constBits(), w * h * 4);
+        const quint32 *srcData = buffer.constData();
+        quint32 *dstData = reinterpret_cast<quint32 *>(img.bits());
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    double offX = amp * sin((2.0 * M_PI * y) / lambda);
+                    double offY = amp * cos((2.0 * M_PI * x) / lambda);
+                    int sx = qBound(0, int(std::lround(x + offX)), w - 1);
+                    int sy = qBound(0, int(std::lround(y + offY)), h - 1);
+                    dstData[y * w + x] = srcData[sy * w + sx];
+                }
+            }
+        });
+        break;
+    }
+    case 32: { // Twirl / Swirl (旋涡扭曲): p1 = angle(-360..360), p2 = radius(10..300)
+        const double maxAngleRad = (p1 * M_PI) / 180.0;
+        const double maxRadius = qBound(10.0, p2, 500.0);
+        const double cx = w * 0.5;
+        const double cy = h * 0.5;
+        QVector<quint32> buffer(w * h);
+        memcpy(buffer.data(), img.constBits(), w * h * 4);
+        const quint32 *srcData = buffer.constData();
+        quint32 *dstData = reinterpret_cast<quint32 *>(img.bits());
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    double dx = x - cx;
+                    double dy = y - cy;
+                    double dist = sqrt(dx * dx + dy * dy);
+                    if (dist < maxRadius) {
+                        double factor = 1.0 - (dist / maxRadius);
+                        double angle = maxAngleRad * factor * factor;
+                        double cosA = cos(angle);
+                        double sinA = sin(angle);
+                        double rx = cx + (dx * cosA - dy * sinA);
+                        double ry = cy + (dx * sinA + dy * cosA);
+                        int sx = qBound(0, int(std::lround(rx)), w - 1);
+                        int sy = qBound(0, int(std::lround(ry)), h - 1);
+                        dstData[y * w + x] = srcData[sy * w + sx];
+                    } else {
+                        dstData[y * w + x] = srcData[y * w + x];
+                    }
+                }
+            }
+        });
+        break;
+    }
+    case 33: { // Surface Blur / Bilateral Filter (保边平滑磨皮): p1 = radius(1..15), p2 = threshold(5..80)
+        const int rad = qBound(1, int(p1), 15);
+        const double threshSq = qMax(1.0, p2 * p2);
+        QVector<quint32> buffer(w * h);
+        memcpy(buffer.data(), img.constBits(), w * h * 4);
+        const quint32 *srcData = buffer.constData();
+        quint32 *dstData = reinterpret_cast<quint32 *>(img.bits());
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    quint32 centerPix = srcData[y * w + x];
+                    int ca = (centerPix >> 24) & 0xFF;
+                    if (ca == 0) {
+                        dstData[y * w + x] = 0;
+                        continue;
+                    }
+                    int cr = (centerPix >> 16) & 0xFF;
+                    int cg = (centerPix >> 8) & 0xFF;
+                    int cb = centerPix & 0xFF;
+
+                    double sumWeight = 0.0;
+                    double sumR = 0.0, sumG = 0.0, sumB = 0.0;
+
+                    for (int dy = -rad; dy <= rad; ++dy) {
+                        int ny = qBound(0, y + dy, h - 1);
+                        for (int dx = -rad; dx <= rad; ++dx) {
+                            int nx = qBound(0, x + dx, w - 1);
+                            quint32 p = srcData[ny * w + nx];
+                            int pr = (p >> 16) & 0xFF;
+                            int pg = (p >> 8) & 0xFF;
+                            int pb = p & 0xFF;
+                            int pa = (p >> 24) & 0xFF;
+                            if (pa == 0) continue;
+
+                            double spatialDistSq = dx * dx + dy * dy;
+                            double colorDistSq = (pr - cr) * (pr - cr) + (pg - cg) * (pg - cg) + (pb - cb) * (pb - cb);
+                            if (colorDistSq <= threshSq * 3.0) {
+                                double wVal = exp(-colorDistSq / threshSq);
+                                sumWeight += wVal;
+                                sumR += pr * wVal;
+                                sumG += pg * wVal;
+                                sumB += pb * wVal;
+                            }
+                        }
+                    }
+                    if (sumWeight > 0.0) {
+                        int fr = qBound(0, int(sumR / sumWeight), 255);
+                        int fg = qBound(0, int(sumG / sumWeight), 255);
+                        int fb = qBound(0, int(sumB / sumWeight), 255);
+                        dstData[y * w + x] = (quint32(ca) << 24) | (quint32(fr) << 16) | (quint32(fg) << 8) | quint32(fb);
+                    } else {
+                        dstData[y * w + x] = centerPix;
+                    }
+                }
+            }
+        });
+        break;
+    }
+    case 34: { // Scanlines / CRT (扫描线与CRT): p1 = spacing(2..12), p2 = intensity(0..100)
+        const int spacing = qBound(2, int(p1), 12);
+        const double intensity = qBound(0.0, p2 / 100.0, 1.0);
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                bool isScanline = (y % spacing == 0);
+                double darkFactor = isScanline ? (1.0 - intensity * 0.6) : 1.0;
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    px[2] = quint8(qBound(0, int(px[2] * darkFactor), 255));
+                    px[1] = quint8(qBound(0, int(px[1] * darkFactor), 255));
+                    px[0] = quint8(qBound(0, int(px[0] * darkFactor), 255));
+                }
+            }
+        });
+        break;
+    }
     default:
         break;
     }

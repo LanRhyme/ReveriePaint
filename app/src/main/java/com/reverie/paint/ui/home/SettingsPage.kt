@@ -47,8 +47,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -617,7 +619,9 @@ private fun PressureCurveEditor(
     onPointsChanged: (List<Offset>) -> Unit
 ) {
     val colors = Theme.current
-    var draggingPointIdx by remember { mutableStateOf(-1) }
+    val currentPoints by rememberUpdatedState(points)
+    val currentOnPointsChanged by rememberUpdatedState(onPointsChanged)
+    var draggingPointIdx by remember { mutableIntStateOf(-1) }
 
     Box(
         modifier = Modifier
@@ -626,24 +630,26 @@ private fun PressureCurveEditor(
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF1E2022))
             .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .pointerInput(points) {
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     val w = size.width.toFloat()
                     val h = size.height.toFloat()
                     val touchOffset = down.position
+                    val pts = currentPoints
 
-                    // Find nearest point within 48dp
+                    // Find nearest point within 40dp
+                    val hitRadiusSq = (36f * density).let { it * it }
                     var minD = Float.MAX_VALUE
                     var foundIdx = -1
-                    points.forEachIndexed { idx, pt ->
+                    pts.forEachIndexed { idx, pt ->
                         val px = pt.x * w
                         val py = (1f - pt.y) * h
                         val dx = touchOffset.x - px
                         val dy = touchOffset.y - py
                         val d = dx * dx + dy * dy
-                        if (d < 48f * 48f && d < minD) {
+                        if (d <= hitRadiusSq && d < minD) {
                             minD = d
                             foundIdx = idx
                         }
@@ -656,10 +662,10 @@ private fun PressureCurveEditor(
                             (touchOffset.x / w).coerceIn(0.01f, 0.99f),
                             (1f - touchOffset.y / h).coerceIn(0f, 1f)
                         )
-                        val updated = (points + newPt).sortedBy { it.x }
+                        val updated = (pts + newPt).sortedBy { it.x }
                         activeIdx = updated.indexOf(newPt)
                         draggingPointIdx = activeIdx
-                        onPointsChanged(updated)
+                        currentOnPointsChanged(updated)
                     } else {
                         draggingPointIdx = activeIdx
                     }
@@ -671,13 +677,14 @@ private fun PressureCurveEditor(
                         if (!change.pressed) break
                         change.consume()
 
-                        val curX = if (activeIdx == 0) 0f else if (activeIdx == points.size - 1) 1f else (change.position.x / w).coerceIn(0f, 1f)
-                        val curY = (1f - change.position.y / h).coerceIn(0f, 1f)
-
-                        val list = points.toMutableList()
-                        if (activeIdx in list.indices) {
-                            list[activeIdx] = Offset(curX, curY)
-                            onPointsChanged(list.sortedBy { it.x })
+                        val curList = currentPoints.toMutableList()
+                        if (activeIdx in curList.indices) {
+                            val minX = if (activeIdx == 0) 0f else (curList[activeIdx - 1].x + 0.01f).coerceAtMost(1f)
+                            val maxX = if (activeIdx == curList.size - 1) 1f else (curList[activeIdx + 1].x - 0.01f).coerceAtLeast(0f)
+                            val curX = (change.position.x / w).coerceIn(minX, maxX)
+                            val curY = (1f - change.position.y / h).coerceIn(0f, 1f)
+                            curList[activeIdx] = Offset(curX, curY)
+                            currentOnPointsChanged(curList)
                         }
                     }
                     draggingPointIdx = -1

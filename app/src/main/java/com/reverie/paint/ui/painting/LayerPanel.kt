@@ -69,6 +69,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1870,6 +1871,8 @@ private fun FiltersPage(
                 filters = listOf(
                     FilterItemDef(13, "曲线 (颜色调整)", true, "交互式多通道RGB调色曲线"),
                     FilterItemDef(14, "色阶", true, "黑场、白场与中间调伽马调整"),
+                    FilterItemDef(27, "阴影与高光", true, "暗部提亮与高光过曝抑制"),
+                    FilterItemDef(28, "自然饱和度 (Vibrance)", true, "保护肤色与低饱和度色彩提升"),
                     FilterItemDef(0, "HSV 色相/饱和度/明度/对比度", true, "色相偏移与明暗饱和度"),
                     FilterItemDef(1, "色彩平衡", true, "青红、洋绿、黄蓝平衡"),
                     FilterItemDef(15, "色温与色调", true, "冷暖色温与绿-洋红色调"),
@@ -1885,6 +1888,7 @@ private fun FiltersPage(
                 iconRes = R.drawable.ic_brush,
                 filters = listOf(
                     FilterItemDef(21, "油画效果 (Kuwahara)", true, "基于局部方差的写生油画质感"),
+                    FilterItemDef(34, "扫描线与 CRT 风格", true, "复古显像管扫描光栅效果"),
                     FilterItemDef(5, "马赛克 / 像素化", true, "网格块状像素化"),
                     FilterItemDef(17, "色调分离", true, "色彩阶数离散量化"),
                     FilterItemDef(10, "杂色 / 噪点", true, "胶片颗粒感噪点添加"),
@@ -1893,13 +1897,24 @@ private fun FiltersPage(
             ),
             FilterCategoryDef(
                 id = "blur",
-                name = "模糊",
+                name = "模糊与平滑",
                 iconRes = R.drawable.ic_smudge,
                 filters = listOf(
+                    FilterItemDef(33, "保边平滑 (Surface Blur)", true, "磨皮降噪且保留清晰轮廓边缘"),
                     FilterItemDef(2, "高斯模糊", true, "Alpha加权多核高斯平滑"),
                     FilterItemDef(3, "动感模糊", true, "任意角度线性积分模糊"),
                     FilterItemDef(22, "径向/缩放模糊", true, "中心辐射聚焦模糊"),
                     FilterItemDef(26, "散焦模糊 (镜头光圈)", true, "圆形弥散斑镜头虚化"),
+                )
+            ),
+            FilterCategoryDef(
+                id = "distort",
+                name = "空间与扭曲",
+                iconRes = R.drawable.ic_crop,
+                filters = listOf(
+                    FilterItemDef(31, "水波纹 / 涟漪扭曲", true, "正弦水面波浪波动畸变"),
+                    FilterItemDef(32, "旋涡扭曲 (Swirl)", true, "中心渐进旋转扭曲"),
+                    FilterItemDef(11, "色散错位 (Glitch)", true, "红蓝RGB通道错位色散"),
                 )
             ),
             FilterCategoryDef(
@@ -1920,10 +1935,10 @@ private fun FiltersPage(
                 name = "映射与通道",
                 iconRes = R.drawable.ic_gradient,
                 filters = listOf(
-                    FilterItemDef(30, "渐变映射", true, "灰度映射至多色阶调调色板"),
+                    FilterItemDef(30, "渐变映射 (自定义调色板)", true, "灰度映射至多色阶调调色板"),
+                    FilterItemDef(29, "颜色转透明度 (抠图)", true, "指定颜色转透明并羽化边缘"),
                     FilterItemDef(20, "亮度转不透明度", true, "明度保留色彩并调制Alpha通道"),
                     FilterItemDef(7, "亮度转透明度 (提取线稿)", false, "纯黑线稿透明化提取"),
-                    FilterItemDef(11, "色散错位 (Glitch)", true, "红蓝RGB通道错位色散"),
                 )
             ),
         )
@@ -2141,6 +2156,7 @@ private fun RealCurvesGraph(
         mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))
     }
     var selectedIndex by remember { mutableIntStateOf(-1) }
+    val currentOnCurveChanged by rememberUpdatedState(onCurveChanged)
 
     val channelColor = when (activeChannel) {
         1 -> Color(0xFFFF5252) // Red
@@ -2158,75 +2174,61 @@ private fun RealCurvesGraph(
                 .background(Morandi.panelHi)
                 .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                 .pointerInput(activeChannel) {
-                    detectTapGestures(
-                        onDoubleTap = { tapOffset ->
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            val px = (tapOffset.x / w) * 255f
-                            val py = (1f - tapOffset.y / h) * 255f
-                            val closeIdx = points.indexOfFirst {
-                                val dx = (it.x / 255f) * w - tapOffset.x
-                                val dy = ((1f - it.y / 255f) * h) - tapOffset.y
-                                (dx * dx + dy * dy) <= 32f * 32f
-                            }
-                            if (closeIdx > 0 && closeIdx < points.size - 1) {
-                                points.removeAt(closeIdx)
-                                selectedIndex = -1
-                                onCurveChanged()
-                            }
-                        },
-                        onTap = { tapOffset ->
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            val px = ((tapOffset.x / w) * 255f).coerceIn(0f, 255f)
-                            val py = ((1f - tapOffset.y / h) * 255f).coerceIn(0f, 255f)
-                            val closeIdx = points.indexOfFirst {
-                                val dx = (it.x / 255f) * w - tapOffset.x
-                                val dy = ((1f - it.y / 255f) * h) - tapOffset.y
-                                (dx * dx + dy * dy) <= 24f * 24f
-                            }
-                            if (closeIdx >= 0) {
-                                selectedIndex = closeIdx
-                            } else {
-                                points.add(Offset(px, py))
-                                points.sortBy { it.x }
-                                selectedIndex = points.indexOfFirst { it.x == px && it.y == py }
-                                onCurveChanged()
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        val w = size.width.toFloat()
+                        val h = size.height.toFloat()
+                        val touchOffset = down.position
+
+                        // Touch hit radius: 36dp
+                        val hitRadiusSq = (36f * density).let { it * it }
+                        var minD = Float.MAX_VALUE
+                        var foundIdx = -1
+                        points.forEachIndexed { idx, pt ->
+                            val px = (pt.x / 255f) * w
+                            val py = (1f - pt.y / 255f) * h
+                            val dx = touchOffset.x - px
+                            val dy = touchOffset.y - py
+                            val d = dx * dx + dy * dy
+                            if (d <= hitRadiusSq && d < minD) {
+                                minD = d
+                                foundIdx = idx
                             }
                         }
-                    )
-                }
-                .pointerInput(activeChannel) {
-                    detectDragGestures(
-                        onDragStart = { startOffset ->
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            val closeIdx = points.indexOfFirst {
-                                val dx = (it.x / 255f) * w - startOffset.x
-                                val dy = ((1f - it.y / 255f) * h) - startOffset.y
-                                (dx * dx + dy * dy) <= 30f * 30f
-                            }
-                            selectedIndex = closeIdx
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            if (selectedIndex >= 0 && selectedIndex < points.size) {
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-                                val cur = points[selectedIndex]
-                                val newX = if (selectedIndex == 0) 0f
-                                           else if (selectedIndex == points.size - 1) 255f
-                                           else (cur.x + (dragAmount.x / w) * 255f).coerceIn(0f, 255f)
-                                val newY = (cur.y - (dragAmount.y / h) * 255f).coerceIn(0f, 255f)
-                                points[selectedIndex] = Offset(newX, newY)
-                                onCurveChanged()
-                            }
-                        },
-                        onDragEnd = {
+
+                        var activeIdx = foundIdx
+                        if (activeIdx == -1) {
+                            // Add new point at touched location
+                            val newX = ((touchOffset.x / w) * 255f).coerceIn(1f, 254f)
+                            val newY = ((1f - touchOffset.y / h) * 255f).coerceIn(0f, 255f)
+                            val newPt = Offset(newX, newY)
+                            points.add(newPt)
                             points.sortBy { it.x }
-                            onCurveChanged()
+                            activeIdx = points.indexOf(newPt)
+                            selectedIndex = activeIdx
+                            currentOnCurveChanged()
+                        } else {
+                            selectedIndex = activeIdx
                         }
-                    )
+
+                        // Drag loop
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+
+                            if (activeIdx in points.indices) {
+                                val minX = if (activeIdx == 0) 0f else (points[activeIdx - 1].x + 1f).coerceAtMost(255f)
+                                val maxX = if (activeIdx == points.size - 1) 255f else (points[activeIdx + 1].x - 1f).coerceAtLeast(0f)
+                                val curX = ((change.position.x / w) * 255f).coerceIn(minX, maxX)
+                                val curY = ((1f - change.position.y / h) * 255f).coerceIn(0f, 255f)
+                                points[activeIdx] = Offset(curX, curY)
+                                currentOnCurveChanged()
+                            }
+                        }
+                    }
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -2293,7 +2295,6 @@ private fun RealCurvesGraph(
                     val cy = (1f - pt.y / 255f) * h
                     val isSel = (idx == selectedIndex)
 
-                    // Point Shadow/Outer Ring
                     drawCircle(
                         color = if (isSel) channelColor else Morandi.bg,
                         radius = if (isSel) 7.dp.toPx() else 5.dp.toPx(),
@@ -2308,7 +2309,7 @@ private fun RealCurvesGraph(
             }
         }
 
-        // Coordinate Readout & Point Info
+        // Coordinate Readout & Actions
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2316,14 +2317,32 @@ private fun RealCurvesGraph(
         ) {
             val selPt = if (selectedIndex in points.indices) points[selectedIndex] else null
             if (selPt != null) {
-                Text(
-                    "输入: ${selPt.x.roundToInt()}  输出: ${selPt.y.roundToInt()}",
-                    color = Morandi.text,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "输入: ${selPt.x.roundToInt()}  输出: ${selPt.y.roundToInt()}",
+                        color = Morandi.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (selectedIndex > 0 && selectedIndex < points.size - 1) {
+                        Text(
+                            "删除点",
+                            color = Color(0xFFFF5252),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.noRippleClickable {
+                                points.removeAt(selectedIndex)
+                                selectedIndex = -1
+                                currentOnCurveChanged()
+                            }
+                        )
+                    }
+                }
             } else {
-                Text("点击添加控制点，双击控制点删除", color = Morandi.subText, fontSize = 11.sp)
+                Text("点击添加控制点，拖拽平滑调整", color = Morandi.subText, fontSize = 11.sp)
             }
 
             Text(
@@ -2335,7 +2354,7 @@ private fun RealCurvesGraph(
                     points.clear()
                     points.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
                     selectedIndex = -1
-                    onCurveChanged()
+                    currentOnCurveChanged()
                 }
             )
         }
@@ -2343,8 +2362,14 @@ private fun RealCurvesGraph(
 }
 
 // ---------------------------------------------------------------------------
-// Gradient Map Presets & Component
+// Custom Gradient Map Presets & Editor Component
 // ---------------------------------------------------------------------------
+
+data class CustomGradStop(
+    val id: Long,
+    var pos: Float, // 0.0 .. 1.0
+    var color: Color
+)
 
 private val GRADIENT_PRESETS = listOf(
     "日落暖金" to listOf(
@@ -2396,8 +2421,15 @@ private val GRADIENT_PRESETS = listOf(
     ),
 )
 
-private fun generateGradientLUT(stops: List<Pair<Float, Color>>, reverse: Boolean): IntArray {
-    val sorted = stops.sortedBy { it.first }
+private val SWATCH_COLORS = listOf(
+    Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFF78909C), Color(0xFFD32F2F),
+    Color(0xFFE91E63), Color(0xFF9C27B0), Color(0xFF3F51B5), Color(0xFF2196F3),
+    Color(0xFF00BCD4), Color(0xFF009688), Color(0xFF4CAF50), Color(0xFF8BC34A),
+    Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFFFF5722), Color(0xFF795548),
+)
+
+private fun generateGradientLUTFromStops(stops: List<CustomGradStop>, reverse: Boolean): IntArray {
+    val sorted = stops.sortedBy { it.pos }
     val lut = IntArray(256)
     if (sorted.isEmpty()) {
         for (i in 0..255) lut[i] = (0xFF shl 24) or (i shl 16) or (i shl 8) or i
@@ -2406,19 +2438,19 @@ private fun generateGradientLUT(stops: List<Pair<Float, Color>>, reverse: Boolea
     for (i in 0..255) {
         val t = if (reverse) (255 - i) / 255f else i / 255f
         val col = when {
-            t <= sorted.first().first -> sorted.first().second
-            t >= sorted.last().first -> sorted.last().second
+            t <= sorted.first().pos -> sorted.first().color
+            t >= sorted.last().pos -> sorted.last().color
             else -> {
-                val idx = sorted.indexOfFirst { it.first >= t }.coerceAtLeast(1)
+                val idx = sorted.indexOfFirst { it.pos >= t }.coerceAtLeast(1)
                 val s0 = sorted[idx - 1]
                 val s1 = sorted[idx]
-                val span = s1.first - s0.first
-                val factor = if (span > 0f) (t - s0.first) / span else 0f
+                val span = s1.pos - s0.pos
+                val factor = if (span > 0f) (t - s0.pos) / span else 0f
                 Color(
-                    red = s0.second.red + factor * (s1.second.red - s0.second.red),
-                    green = s0.second.green + factor * (s1.second.green - s0.second.green),
-                    blue = s0.second.blue + factor * (s1.second.blue - s0.second.blue),
-                    alpha = s0.second.alpha + factor * (s1.second.alpha - s0.second.alpha),
+                    red = s0.color.red + factor * (s1.color.red - s0.color.red),
+                    green = s0.color.green + factor * (s1.color.green - s0.color.green),
+                    blue = s0.color.blue + factor * (s1.color.blue - s0.color.blue),
+                    alpha = s0.color.alpha + factor * (s1.color.alpha - s0.color.alpha),
                 )
             }
         }
@@ -2429,6 +2461,301 @@ private fun generateGradientLUT(stops: List<Pair<Float, Color>>, reverse: Boolea
         lut[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
     }
     return lut
+}
+
+@Composable
+private fun CustomGradientEditor(
+    stops: MutableList<CustomGradStop>,
+    reverse: Boolean,
+    onReverseToggle: () -> Unit,
+    onGradientChanged: () -> Unit
+) {
+    var selectedStopId by remember { mutableLongStateOf(stops.firstOrNull()?.id ?: 0L) }
+    val currentOnGradientChanged by rememberUpdatedState(onGradientChanged)
+
+    val sortedStops = remember(stops.toList(), stops.map { it.pos to it.color }) {
+        stops.sortedBy { it.pos }
+    }
+
+    val gradientBrush = remember(sortedStops, reverse) {
+        val list = if (reverse) sortedStops.reversed().map { (1f - it.pos) to it.color } else sortedStops.map { it.pos to it.color }
+        Brush.horizontalGradient(list.map { it.second })
+    }
+
+    val activeStop = stops.find { it.id == selectedStopId } ?: stops.firstOrNull()
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Gradient Track with Drag Handles
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // Interactive Gradient Strip
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(gradientBrush)
+                    .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                    .pointerInput(Unit) {
+                        detectTapGestures { tapOffset ->
+                            val pos = (tapOffset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            // Sample color at pos
+                            val sorted = stops.sortedBy { it.pos }
+                            val col = when {
+                                pos <= sorted.first().pos -> sorted.first().color
+                                pos >= sorted.last().pos -> sorted.last().color
+                                else -> {
+                                    val idx = sorted.indexOfFirst { it.pos >= pos }.coerceAtLeast(1)
+                                    val s0 = sorted[idx - 1]
+                                    val s1 = sorted[idx]
+                                    val span = s1.pos - s0.pos
+                                    val factor = if (span > 0f) (pos - s0.pos) / span else 0f
+                                    Color(
+                                        red = s0.color.red + factor * (s1.color.red - s0.color.red),
+                                        green = s0.color.green + factor * (s1.color.green - s0.color.green),
+                                        blue = s0.color.blue + factor * (s1.color.blue - s0.color.blue),
+                                        alpha = 1f
+                                    )
+                                }
+                            }
+                            val newStop = CustomGradStop(System.currentTimeMillis(), pos, col)
+                            stops.add(newStop)
+                            selectedStopId = newStop.id
+                            currentOnGradientChanged()
+                        }
+                    }
+            )
+
+            // Stop handles row
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(28.dp)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            val w = size.width.toFloat()
+                            val touchX = down.position.x
+
+                            val hitRadius = 24f * density
+                            val nearest = stops.minByOrNull { kotlin.math.abs(it.pos * w - touchX) }
+                            if (nearest != null && kotlin.math.abs(nearest.pos * w - touchX) <= hitRadius) {
+                                selectedStopId = nearest.id
+                                val targetStop = nearest
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+                                    change.consume()
+
+                                    targetStop.pos = (change.position.x / w).coerceIn(0f, 1f)
+                                    currentOnGradientChanged()
+                                }
+                            }
+                        }
+                    }
+            ) {
+                stops.forEach { stop ->
+                    val isSel = (stop.id == selectedStopId)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = (LocalDensity.current.run { (stop.pos * 100).dp }) - 10.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.bg)
+                            .border(2.dp, if (isSel) Morandi.accent else Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(stop.color)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Active Stop Color & Position Controls
+        if (activeStop != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(5.dp))
+                            .background(activeStop.color)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(5.dp))
+                    )
+                    Text(
+                        "色标位置: ${(activeStop.pos * 100).roundToInt()}%",
+                        color = Morandi.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (stops.size > 2) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Morandi.panelHi)
+                                .noRippleClickable {
+                                    stops.remove(activeStop)
+                                    selectedStopId = stops.first().id
+                                    currentOnGradientChanged()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text("删除色标", color = Color(0xFFFF5252), fontSize = 11.sp)
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (reverse) Morandi.accent else Morandi.panelHi)
+                            .noRippleClickable(onReverseToggle)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(if (reverse) "已反转" else "反转", color = if (reverse) Color.White else Morandi.subText, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // Quick Color Palette Swatches
+            Text("自定义当前色标颜色", color = Morandi.subText, fontSize = 11.sp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                SWATCH_COLORS.take(8).forEach { swatch ->
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(swatch)
+                            .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
+                            .noRippleClickable {
+                                activeStop.color = swatch
+                                currentOnGradientChanged()
+                            }
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                SWATCH_COLORS.drop(8).forEach { swatch ->
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(swatch)
+                            .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
+                            .noRippleClickable {
+                                activeStop.color = swatch
+                                currentOnGradientChanged()
+                            }
+                    )
+                }
+            }
+
+            // RGB Channel Sliders for Fine Tuning
+            FilterSliderRow(
+                label = "红色 (R)",
+                value = activeStop.color.red * 255f,
+                valueRange = 0f..255f,
+                valueText = "${(activeStop.color.red * 255).roundToInt()}",
+                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Red)),
+                onValue = {
+                    activeStop.color = activeStop.color.copy(red = it / 255f)
+                    currentOnGradientChanged()
+                }
+            )
+            FilterSliderRow(
+                label = "绿色 (G)",
+                value = activeStop.color.green * 255f,
+                valueRange = 0f..255f,
+                valueText = "${(activeStop.color.green * 255).roundToInt()}",
+                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Green)),
+                onValue = {
+                    activeStop.color = activeStop.color.copy(green = it / 255f)
+                    currentOnGradientChanged()
+                }
+            )
+            FilterSliderRow(
+                label = "蓝色 (B)",
+                value = activeStop.color.blue * 255f,
+                valueRange = 0f..255f,
+                valueText = "${(activeStop.color.blue * 255).roundToInt()}",
+                gradient = Brush.horizontalGradient(listOf(Color.Black, Color.Blue)),
+                onValue = {
+                    activeStop.color = activeStop.color.copy(blue = it / 255f)
+                    currentOnGradientChanged()
+                }
+            )
+        }
+
+        Text("载入经典预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+
+        // Preset Palettes Grid
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            GRADIENT_PRESETS.chunked(2).forEach { rowPresets ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    rowPresets.forEach { (name, presetStops) ->
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                                .noRippleClickable {
+                                    stops.clear()
+                                    presetStops.forEachIndexed { i, p ->
+                                        stops.add(CustomGradStop(System.currentTimeMillis() + i, p.first, p.second))
+                                    }
+                                    selectedStopId = stops.first().id
+                                    currentOnGradientChanged()
+                                }
+                                .padding(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp, 16.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Brush.horizontalGradient(presetStops.map { it.second }))
+                            )
+                            Text(
+                                name,
+                                color = Morandi.text,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Normal,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2457,8 +2784,15 @@ private fun FilterAdjustPage(
     }
     var activeCurveChannel by remember { mutableIntStateOf(0) }
 
-    // Gradient Map state
-    var selectedGradientPreset by remember { mutableIntStateOf(0) }
+    // Custom Gradient Map state
+    val customGradStops = remember {
+        mutableStateListOf(
+            CustomGradStop(1L, 0.0f, Color(0xFF2C0B38)),
+            CustomGradStop(2L, 0.35f, Color(0xFFB82E55)),
+            CustomGradStop(3L, 0.7f, Color(0xFFE88A35)),
+            CustomGradStop(4L, 1.0f, Color(0xFFFFF6A5))
+        )
+    }
     var reverseGradient by remember { mutableStateOf(false) }
 
     // Standard Sliders
@@ -2506,6 +2840,22 @@ private fun FilterAdjustPage(
     var defocusRadius by remember { mutableFloatStateOf(8f) }
     var lumOpacityInvert by remember { mutableStateOf(false) }
 
+    // New filters state
+    var shadowBoost by remember { mutableFloatStateOf(30f) }
+    var highlightReduce by remember { mutableFloatStateOf(30f) }
+    var vibranceAmt by remember { mutableFloatStateOf(40f) }
+    var colorToAlphaTarget by remember { mutableIntStateOf(0xFFFFFF) }
+    var colorToAlphaTol by remember { mutableFloatStateOf(20f) }
+    var colorToAlphaSmooth by remember { mutableFloatStateOf(15f) }
+    var rippleAmp by remember { mutableFloatStateOf(10f) }
+    var rippleFreq by remember { mutableFloatStateOf(12f) }
+    var twirlAngle by remember { mutableFloatStateOf(90f) }
+    var twirlRadius by remember { mutableFloatStateOf(150f) }
+    var surfaceBlurRadius by remember { mutableFloatStateOf(6f) }
+    var surfaceBlurThresh by remember { mutableFloatStateOf(25f) }
+    var scanlineSpacing by remember { mutableFloatStateOf(4f) }
+    var scanlineIntensity by remember { mutableFloatStateOf(40f) }
+
     fun sendCurvesPreview() {
         if (!isPreview) return
         val lutMaster = calculateMonotoneCubicSplineLUT(curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
@@ -2527,8 +2877,7 @@ private fun FilterAdjustPage(
 
     fun sendGradientMapPreview() {
         if (!isPreview) return
-        val stops = GRADIENT_PRESETS[selectedGradientPreset.coerceIn(0, GRADIENT_PRESETS.size - 1)].second
-        val lut = generateGradientLUT(stops, reverseGradient)
+        val lut = generateGradientLUTFromStops(customGradStops, reverseGradient)
         vm.applyGradientMapPreview(index, lut)
     }
 
@@ -2563,6 +2912,13 @@ private fun FilterAdjustPage(
             24 -> vm.applyFilterPreview(index, 24, exposureVal.toDouble(), exposureGamma.toDouble(), 0.0, 0.0)
             25 -> vm.applyFilterPreview(index, 25, edgeGlowStrength.toDouble(), 0.0, 0.0, 0.0)
             26 -> vm.applyFilterPreview(index, 26, defocusRadius.toDouble(), 0.0, 0.0, 0.0)
+            27 -> vm.applyFilterPreview(index, 27, shadowBoost.toDouble(), highlightReduce.toDouble(), 0.0, 0.0)
+            28 -> vm.applyFilterPreview(index, 28, vibranceAmt.toDouble(), 0.0, 0.0, 0.0)
+            29 -> vm.applyFilterPreview(index, 29, colorToAlphaTarget.toDouble(), colorToAlphaTol.toDouble(), colorToAlphaSmooth.toDouble(), 0.0)
+            31 -> vm.applyFilterPreview(index, 31, rippleAmp.toDouble(), rippleFreq.toDouble(), 0.0, 0.0)
+            32 -> vm.applyFilterPreview(index, 32, twirlAngle.toDouble(), twirlRadius.toDouble(), 0.0, 0.0)
+            33 -> vm.applyFilterPreview(index, 33, surfaceBlurRadius.toDouble(), surfaceBlurThresh.toDouble(), 0.0, 0.0)
+            34 -> vm.applyFilterPreview(index, 34, scanlineSpacing.toDouble(), scanlineIntensity.toDouble(), 0.0, 0.0)
         }
     }
 
@@ -2628,7 +2984,15 @@ private fun FilterAdjustPage(
                                 list.clear()
                                 list.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
                             }
-                            selectedGradientPreset = 0
+                            customGradStops.clear()
+                            customGradStops.addAll(
+                                listOf(
+                                    CustomGradStop(1L, 0.0f, Color(0xFF2C0B38)),
+                                    CustomGradStop(2L, 0.35f, Color(0xFFB82E55)),
+                                    CustomGradStop(3L, 0.7f, Color(0xFFE88A35)),
+                                    CustomGradStop(4L, 1.0f, Color(0xFFFFF6A5))
+                                )
+                            )
                             reverseGradient = false
                             hue = 0f; sat = 1f; bright = 1f; contrast = 1f
                             cr = 0f; mg = 0f; yb = 0f
@@ -2640,6 +3004,11 @@ private fun FilterAdjustPage(
                             shadowAngle = 45f; shadowDist = 12f; shadowRadius = 10f; shadowOpacity = 0.6f
                             oilRadius = 3f; radialBlurAmt = 15f; halftoneDotSize = 10f; exposureVal = 0f; exposureGamma = 1.0f
                             edgeGlowStrength = 2.0f; defocusRadius = 8f; lumOpacityInvert = false
+                            shadowBoost = 30f; highlightReduce = 30f; vibranceAmt = 40f
+                            colorToAlphaTarget = 0xFFFFFF; colorToAlphaTol = 20f; colorToAlphaSmooth = 15f
+                            rippleAmp = 10f; rippleFreq = 12f; twirlAngle = 90f; twirlRadius = 150f
+                            surfaceBlurRadius = 6f; surfaceBlurThresh = 25f
+                            scanlineSpacing = 4f; scanlineIntensity = 40f
                             sendPreview()
                         },
                     contentAlignment = Alignment.Center
@@ -2748,95 +3117,144 @@ private fun FilterAdjustPage(
                         onCurveChanged = { sendCurvesPreview() }
                     )
                 }
-                30 -> { // Gradient Map
-                    val curStops = GRADIENT_PRESETS[selectedGradientPreset.coerceIn(0, GRADIENT_PRESETS.size - 1)].second
-                    val gradientBrush = remember(selectedGradientPreset, reverseGradient) {
-                        val activeStops = if (reverseGradient) curStops.reversed().map { (1f - it.first) to it.second } else curStops
-                        Brush.horizontalGradient(activeStops.map { it.second })
-                    }
-
-                    // Continuous Gradient Strip
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(gradientBrush)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                30 -> { // Custom Gradient Map
+                    CustomGradientEditor(
+                        stops = customGradStops,
+                        reverse = reverseGradient,
+                        onReverseToggle = {
+                            reverseGradient = !reverseGradient
+                            sendGradientMapPreview()
+                        },
+                        onGradientChanged = { sendGradientMapPreview() }
                     )
-
+                }
+                27 -> { // Shadows & Highlights
+                    FilterSliderRow(
+                        label = "暗部提亮",
+                        value = shadowBoost,
+                        valueRange = 0f..100f,
+                        valueText = "${shadowBoost.roundToInt()}%",
+                        onValue = { shadowBoost = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "高光抑制",
+                        value = highlightReduce,
+                        valueRange = 0f..100f,
+                        valueText = "${highlightReduce.roundToInt()}%",
+                        onValue = { highlightReduce = it; sendPreview() }
+                    )
+                }
+                28 -> { // Vibrance
+                    FilterSliderRow(
+                        label = "自然饱和度",
+                        value = vibranceAmt,
+                        valueRange = -100f..100f,
+                        valueText = "${vibranceAmt.roundToInt()}%",
+                        onValue = { vibranceAmt = it; sendPreview() }
+                    )
+                }
+                29 -> { // Color to Alpha
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("反向渐变", color = Morandi.text, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (reverseGradient) Morandi.accent else Morandi.panelHi)
-                                .noRippleClickable {
-                                    reverseGradient = !reverseGradient
-                                    sendGradientMapPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                if (reverseGradient) "已反转" else "正常",
-                                color = if (reverseGradient) Color.White else Morandi.subText,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    Text("渐变预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-
-                    // Preset Palettes Grid
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        GRADIENT_PRESETS.chunked(2).forEach { rowPresets ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                rowPresets.forEach { (name, stops) ->
-                                    val idx = GRADIENT_PRESETS.indexOfFirst { it.first == name }
-                                    val isSel = (selectedGradientPreset == idx)
-                                    Row(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Morandi.panelHi)
-                                            .border(
-                                                1.5.dp,
-                                                if (isSel) Morandi.accent else Morandi.border,
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .noRippleClickable {
-                                                selectedGradientPreset = idx
-                                                sendGradientMapPreview()
-                                            }
-                                            .padding(6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp, 16.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Brush.horizontalGradient(stops.map { it.second }))
-                                        )
-                                        Text(
-                                            name,
-                                            color = if (isSel) Morandi.accent else Morandi.text,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
-                                            maxLines = 1
-                                        )
-                                    }
+                        Text("目标抠像色彩", color = Morandi.text, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("白" to 0xFFFFFF, "黑" to 0x000000, "绿" to 0x00FF00, "蓝" to 0x0000FF).forEach { (lbl, col) ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (colorToAlphaTarget == col) Morandi.accent else Morandi.panelHi)
+                                        .noRippleClickable {
+                                            colorToAlphaTarget = col
+                                            sendPreview()
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(lbl, color = if (colorToAlphaTarget == col) Color.White else Morandi.text, fontSize = 11.sp)
                                 }
                             }
                         }
                     }
+                    FilterSliderRow(
+                        label = "颜色容差",
+                        value = colorToAlphaTol,
+                        valueRange = 0f..100f,
+                        valueText = "${colorToAlphaTol.roundToInt()}",
+                        onValue = { colorToAlphaTol = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "羽化过渡",
+                        value = colorToAlphaSmooth,
+                        valueRange = 0f..50f,
+                        valueText = "${colorToAlphaSmooth.roundToInt()}",
+                        onValue = { colorToAlphaSmooth = it; sendPreview() }
+                    )
+                }
+                31 -> { // Water Ripple
+                    FilterSliderRow(
+                        label = "波动幅度",
+                        value = rippleAmp,
+                        valueRange = 1f..30f,
+                        valueText = "${rippleAmp.roundToInt()} px",
+                        onValue = { rippleAmp = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "波浪频率",
+                        value = rippleFreq,
+                        valueRange = 1f..50f,
+                        valueText = "${rippleFreq.roundToInt()}",
+                        onValue = { rippleFreq = it; sendPreview() }
+                    )
+                }
+                32 -> { // Twirl / Swirl
+                    FilterSliderRow(
+                        label = "旋涡旋转角度",
+                        value = twirlAngle,
+                        valueRange = -360f..360f,
+                        valueText = "${twirlAngle.roundToInt()}°",
+                        onValue = { twirlAngle = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "旋涡作用半径",
+                        value = twirlRadius,
+                        valueRange = 20f..400f,
+                        valueText = "${twirlRadius.roundToInt()} px",
+                        onValue = { twirlRadius = it; sendPreview() }
+                    )
+                }
+                33 -> { // Surface Blur
+                    FilterSliderRow(
+                        label = "保边平滑半径",
+                        value = surfaceBlurRadius,
+                        valueRange = 1f..15f,
+                        valueText = "${surfaceBlurRadius.roundToInt()} px",
+                        onValue = { surfaceBlurRadius = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "边缘对比阈值",
+                        value = surfaceBlurThresh,
+                        valueRange = 5f..80f,
+                        valueText = "${surfaceBlurThresh.roundToInt()}",
+                        onValue = { surfaceBlurThresh = it; sendPreview() }
+                    )
+                }
+                34 -> { // Scanlines
+                    FilterSliderRow(
+                        label = "扫描线间距",
+                        value = scanlineSpacing,
+                        valueRange = 2f..12f,
+                        valueText = "${scanlineSpacing.roundToInt()} px",
+                        onValue = { scanlineSpacing = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "扫描光栅浓度",
+                        value = scanlineIntensity,
+                        valueRange = 0f..100f,
+                        valueText = "${scanlineIntensity.roundToInt()}%",
+                        onValue = { scanlineIntensity = it; sendPreview() }
+                    )
                 }
                 0 -> { // HSBC
                     FilterSliderRow(
