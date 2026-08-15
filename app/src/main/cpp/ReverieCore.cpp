@@ -1507,24 +1507,29 @@ bool ReverieCore::moveLayerRelative(int fromIndex, int targetIndex, bool placeAb
     }
 
     KisNodeSP parent;
-    KisNodeSP aboveThis;
+    quint32 newIndex = 0;
 
     if (dst.isGroup && !placeAbove) {
-        // Drop directly into the group at the bottom
+        // Drop directly into the group at its very bottom (last position)
         parent = target;
-        aboveThis = KisNodeSP();
+        newIndex = target->childCount();
     } else {
         parent = target->parent() ? target->parent() : KisNodeSP(m_document->root());
+        int targetIdxInParent = parent->index(target);
+        if (targetIdxInParent < 0) targetIdxInParent = 0;
+
         if (placeAbove) {
-            aboveThis = target;
+            // Place visually ABOVE target (same index as target, pushing target down)
+            newIndex = quint32(targetIdxInParent);
         } else {
-            aboveThis = target->prevSibling();
+            // Place visually BELOW target (index after target)
+            newIndex = quint32(targetIdxInParent + 1);
         }
     }
 
     if (!parent) parent = m_document->root();
 
-    pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, aboveThis));
+    pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, newIndex));
     syncLayersFromImage();
     const int idx = indexOfNode(node.data());
     if (idx >= 0) m_currentLayer = idx;
