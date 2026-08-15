@@ -1844,17 +1844,24 @@ private fun FiltersPage(
     val filters = remember {
         listOf(
             FilterItemDef(0, "色相/饱和度/明度/对比度", true),
+            FilterItemDef(13, "曲线", true),
+            FilterItemDef(14, "色阶", true),
+            FilterItemDef(15, "色温与色调", true),
             FilterItemDef(1, "色彩平衡", true),
             FilterItemDef(2, "高斯模糊", true),
             FilterItemDef(3, "动感模糊", true),
             FilterItemDef(4, "锐化", true),
+            FilterItemDef(18, "泛光/辉光", true),
+            FilterItemDef(19, "投影", true),
             FilterItemDef(5, "马赛克", true),
+            FilterItemDef(16, "阈值 (二值化)", true),
+            FilterItemDef(17, "色调分离", true),
             FilterItemDef(6, "反相", false),
-            FilterItemDef(7, "亮度转透明度", false),
+            FilterItemDef(7, "亮度转透明度 (提取线稿)", false),
             FilterItemDef(8, "查找边缘", false),
             FilterItemDef(9, "浮雕", false),
             FilterItemDef(10, "杂色", true),
-            FilterItemDef(11, "色散", true),
+            FilterItemDef(11, "色散错位", true),
             FilterItemDef(12, "灰度", false),
         )
     }
@@ -1946,6 +1953,38 @@ private fun FilterAdjustPage(
     var noiseAmt by remember { mutableFloatStateOf(20f) }
     var glitchOffset by remember { mutableFloatStateOf(8f) }
 
+    // Curves
+    var curveShadow by remember { mutableFloatStateOf(64f) }
+    var curveMid by remember { mutableFloatStateOf(128f) }
+    var curveHigh by remember { mutableFloatStateOf(192f) }
+    var curveChannel by remember { mutableIntStateOf(0) }
+
+    // Levels
+    var levelBlack by remember { mutableFloatStateOf(0f) }
+    var levelWhite by remember { mutableFloatStateOf(255f) }
+    var levelGamma by remember { mutableFloatStateOf(1.0f) }
+
+    // Color Temperature & Tint
+    var tempVal by remember { mutableFloatStateOf(0f) }
+    var tintVal by remember { mutableFloatStateOf(0f) }
+
+    // Threshold
+    var thresholdVal by remember { mutableFloatStateOf(128f) }
+
+    // Posterize
+    var posterizeLevels by remember { mutableFloatStateOf(4f) }
+
+    // Bloom / Glow
+    var bloomThresh by remember { mutableFloatStateOf(180f) }
+    var bloomRadius by remember { mutableFloatStateOf(15f) }
+    var bloomIntensity by remember { mutableFloatStateOf(1.2f) }
+
+    // Drop Shadow
+    var shadowAngle by remember { mutableFloatStateOf(45f) }
+    var shadowDist by remember { mutableFloatStateOf(12f) }
+    var shadowRadius by remember { mutableFloatStateOf(10f) }
+    var shadowOpacity by remember { mutableFloatStateOf(0.6f) }
+
     fun sendPreview() {
         if (!isPreview) return
         when (filterId) {
@@ -1962,6 +2001,13 @@ private fun FilterAdjustPage(
             10 -> vm.applyFilterPreview(index, 10, noiseAmt.toDouble(), 0.0, 0.0, 0.0)
             11 -> vm.applyFilterPreview(index, 11, glitchOffset.toDouble(), 0.0, 0.0, 0.0)
             12 -> vm.applyFilter(index, 0)
+            13 -> vm.applyFilterPreview(index, 13, curveShadow.toDouble(), curveMid.toDouble(), curveHigh.toDouble(), curveChannel.toDouble())
+            14 -> vm.applyFilterPreview(index, 14, levelBlack.toDouble(), levelWhite.toDouble(), levelGamma.toDouble(), 0.0)
+            15 -> vm.applyFilterPreview(index, 15, tempVal.toDouble(), tintVal.toDouble(), 0.0, 0.0)
+            16 -> vm.applyFilterPreview(index, 16, thresholdVal.toDouble(), 0.0, 0.0, 0.0)
+            17 -> vm.applyFilterPreview(index, 17, posterizeLevels.toDouble(), 0.0, 0.0, 0.0)
+            18 -> vm.applyFilterPreview(index, 18, bloomThresh.toDouble(), bloomRadius.toDouble(), bloomIntensity.toDouble(), 0.0)
+            19 -> vm.applyFilterPreview(index, 19, shadowAngle.toDouble(), shadowDist.toDouble(), shadowRadius.toDouble(), shadowOpacity.toDouble())
         }
     }
 
@@ -2027,6 +2073,13 @@ private fun FilterAdjustPage(
                             cr = 0f; mg = 0f; yb = 0f
                             blurRadius = 8f; motionAngle = 0f; motionDist = 12f
                             sharpenAmt = 1.0f; mosaicSize = 10f; noiseAmt = 20f; glitchOffset = 8f
+                            curveShadow = 64f; curveMid = 128f; curveHigh = 192f; curveChannel = 0
+                            levelBlack = 0f; levelWhite = 255f; levelGamma = 1.0f
+                            tempVal = 0f; tintVal = 0f
+                            thresholdVal = 128f
+                            posterizeLevels = 4f
+                            bloomThresh = 180f; bloomRadius = 15f; bloomIntensity = 1.2f
+                            shadowAngle = 45f; shadowDist = 12f; shadowRadius = 10f; shadowOpacity = 0.6f
                             sendPreview()
                         },
                     contentAlignment = Alignment.Center
@@ -2210,6 +2263,166 @@ private fun FilterAdjustPage(
                         valueRange = 1f..40f,
                         valueText = "${glitchOffset.roundToInt()} px",
                         onValue = { glitchOffset = it; sendPreview() }
+                    )
+                }
+                13 -> { // Curves
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("RGB" to 0, "红" to 1, "绿" to 2, "蓝" to 3).forEach { (name, ch) ->
+                            val isSel = curveChannel == ch
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSel) Morandi.accent else Morandi.panelHi)
+                                    .noRippleClickable { curveChannel = ch; sendPreview() }
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    name,
+                                    color = if (isSel) Color.White else Morandi.subText,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                    FilterSliderRow(
+                        label = "暗部控制点",
+                        value = curveShadow,
+                        valueRange = 0f..255f,
+                        valueText = "${curveShadow.roundToInt()}",
+                        onValue = { curveShadow = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "中间调控制点",
+                        value = curveMid,
+                        valueRange = 0f..255f,
+                        valueText = "${curveMid.roundToInt()}",
+                        onValue = { curveMid = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "高光控制点",
+                        value = curveHigh,
+                        valueRange = 0f..255f,
+                        valueText = "${curveHigh.roundToInt()}",
+                        onValue = { curveHigh = it; sendPreview() }
+                    )
+                }
+                14 -> { // Levels
+                    FilterSliderRow(
+                        label = "输入黑场",
+                        value = levelBlack,
+                        valueRange = 0f..254f,
+                        valueText = "${levelBlack.roundToInt()}",
+                        onValue = { levelBlack = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "输入白场",
+                        value = levelWhite,
+                        valueRange = (levelBlack + 1f)..255f,
+                        valueText = "${levelWhite.roundToInt()}",
+                        onValue = { levelWhite = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "中间调灰度 (Gamma)",
+                        value = levelGamma,
+                        valueRange = 0.1f..3.0f,
+                        valueText = String.format(Locale.getDefault(), "%.2f", levelGamma),
+                        onValue = { levelGamma = it; sendPreview() }
+                    )
+                }
+                15 -> { // Temperature & Tint
+                    FilterSliderRow(
+                        label = "色温 (冷 - 暖)",
+                        value = tempVal,
+                        valueRange = -100f..100f,
+                        valueText = "${tempVal.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color(0xFF4A90E2), Color(0xFFF5A623))),
+                        onValue = { tempVal = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "色调 (绿 - 洋红)",
+                        value = tintVal,
+                        valueRange = -100f..100f,
+                        valueText = "${tintVal.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color(0xFF50E3C2), Color(0xFFBD10E0))),
+                        onValue = { tintVal = it; sendPreview() }
+                    )
+                }
+                16 -> { // Threshold
+                    FilterSliderRow(
+                        label = "黑白阈值",
+                        value = thresholdVal,
+                        valueRange = 1f..255f,
+                        valueText = "${thresholdVal.roundToInt()}",
+                        gradient = Brush.horizontalGradient(listOf(Color.Black, Color.White)),
+                        onValue = { thresholdVal = it; sendPreview() }
+                    )
+                }
+                17 -> { // Posterize
+                    FilterSliderRow(
+                        label = "色阶分离层数",
+                        value = posterizeLevels,
+                        valueRange = 2f..32f,
+                        valueText = "${posterizeLevels.roundToInt()} 层",
+                        onValue = { posterizeLevels = it; sendPreview() }
+                    )
+                }
+                18 -> { // Bloom
+                    FilterSliderRow(
+                        label = "辉光亮度门限",
+                        value = bloomThresh,
+                        valueRange = 0f..255f,
+                        valueText = "${bloomThresh.roundToInt()}",
+                        onValue = { bloomThresh = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "泛光扩散半径",
+                        value = bloomRadius,
+                        valueRange = 1f..50f,
+                        valueText = "${bloomRadius.roundToInt()} px",
+                        onValue = { bloomRadius = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "辉光强度",
+                        value = bloomIntensity,
+                        valueRange = 0.1f..3.0f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", bloomIntensity),
+                        onValue = { bloomIntensity = it; sendPreview() }
+                    )
+                }
+                19 -> { // Drop Shadow
+                    FilterSliderRow(
+                        label = "投影角度",
+                        value = shadowAngle,
+                        valueRange = 0f..360f,
+                        valueText = "${shadowAngle.roundToInt()}°",
+                        onValue = { shadowAngle = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "投影距离",
+                        value = shadowDist,
+                        valueRange = 0f..50f,
+                        valueText = "${shadowDist.roundToInt()} px",
+                        onValue = { shadowDist = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "阴影模糊半径",
+                        value = shadowRadius,
+                        valueRange = 1f..40f,
+                        valueText = "${shadowRadius.roundToInt()} px",
+                        onValue = { shadowRadius = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "阴影不透明度",
+                        value = shadowOpacity,
+                        valueRange = 0f..1f,
+                        valueText = "${(shadowOpacity * 100).roundToInt()}%",
+                        onValue = { shadowOpacity = it; sendPreview() }
                     )
                 }
                 else -> {

@@ -928,7 +928,7 @@ fun PaintingPage(vm: PaintViewModel) {
 
         // ---- Transform indicator (top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = showIndicator,
+            visible = showIndicator && !vm.isFilterAdjustActive,
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) +
                     androidx.compose.animation.slideInVertically(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)) { -it },
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(250)) +
