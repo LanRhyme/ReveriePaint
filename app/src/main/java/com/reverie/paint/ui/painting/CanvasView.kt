@@ -1140,7 +1140,7 @@ fun CanvasView(
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         val aBmp = previewBmp.asAndroidBitmap()
                         val b = tfState.bounds
-                        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.DITHER_FLAG)
 
                         for (r in 0..2) {
                             for (c in 0..2) {
@@ -1180,12 +1180,14 @@ fun CanvasView(
                                     }
                                     nativeCanvas.clipPath(clipPath)
                                     nativeCanvas.concat(m)
-                                    nativeCanvas.drawBitmap(
-                                        aBmp,
-                                        null,
-                                        android.graphics.RectF(-image.width / 2f, -image.height / 2f, image.width / 2f, image.height / 2f),
-                                        p
+                                    val cellSrcRect = android.graphics.Rect(
+                                        (b.left + b.width * (c / 3f)).toInt().coerceIn(0, aBmp.width),
+                                        (b.top + b.height * (r / 3f)).toInt().coerceIn(0, aBmp.height),
+                                        (b.left + b.width * ((c + 1) / 3f)).toInt().coerceIn(0, aBmp.width),
+                                        (b.top + b.height * ((r + 1) / 3f)).toInt().coerceIn(0, aBmp.height)
                                     )
+                                    val cellDstRect = android.graphics.RectF(sLeft, sTop, sRight, sBottom)
+                                    nativeCanvas.drawBitmap(aBmp, cellSrcRect, cellDstRect, p)
                                     nativeCanvas.restore()
                                 }
                             }
@@ -1215,28 +1217,42 @@ fun CanvasView(
                         if (m.setPolyToPoly(src, 0, dst, 0, 4)) {
                             nativeCanvas.save()
                             nativeCanvas.concat(m)
-                            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
-                            nativeCanvas.drawBitmap(
-                                aBmp,
-                                null,
-                                android.graphics.RectF(-image.width / 2f, -image.height / 2f, image.width / 2f, image.height / 2f),
-                                p
+                            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.DITHER_FLAG)
+                            val srcRect = android.graphics.Rect(
+                                b.left.toInt().coerceIn(0, aBmp.width),
+                                b.top.toInt().coerceIn(0, aBmp.height),
+                                b.right.toInt().coerceIn(0, aBmp.width),
+                                b.bottom.toInt().coerceIn(0, aBmp.height)
                             )
+                            val dstRect = android.graphics.RectF(
+                                b.left * scX - image.width / 2f,
+                                b.top * scY - image.height / 2f,
+                                b.right * scX - image.width / 2f,
+                                b.bottom * scY - image.height / 2f
+                            )
+                            nativeCanvas.drawBitmap(aBmp, srcRect, dstRect, p)
                             nativeCanvas.restore()
                         }
                     } else {
                         // Standard / Free / Move Affine Transform
                         val c = tfState.bounds.center
+                        val b = tfState.bounds
                         withTransform({
                             translate(c.x * scX - image.width / 2f + tfState.tx * scX, c.y * scY - image.height / 2f + tfState.ty * scY)
                             rotate(tfState.rotation, pivot = Offset.Zero)
                             scale(tfState.scaleX, tfState.scaleY, pivot = Offset.Zero)
                             translate(-c.x * scX + image.width / 2f, -c.y * scY + image.height / 2f)
                         }) {
+                            val srcOffset = androidx.compose.ui.unit.IntOffset(b.left.toInt().coerceIn(0, previewBmp.width), b.top.toInt().coerceIn(0, previewBmp.height))
+                            val srcSize = androidx.compose.ui.unit.IntSize(b.width.toInt().coerceAtLeast(1), b.height.toInt().coerceAtLeast(1))
+                            val dstOffset = androidx.compose.ui.unit.IntOffset((b.left * scX - image.width / 2f).toInt(), (b.top * scY - image.height / 2f).toInt())
+                            val dstSize = androidx.compose.ui.unit.IntSize((b.width * scX).toInt().coerceAtLeast(1), (b.height * scY).toInt().coerceAtLeast(1))
                             drawImage(
                                 image = previewBmp,
-                                dstSize = androidx.compose.ui.unit.IntSize(image.width, image.height),
-                                dstOffset = androidx.compose.ui.unit.IntOffset((-image.width / 2f).toInt(), (-image.height / 2f).toInt()),
+                                srcOffset = srcOffset,
+                                srcSize = srcSize,
+                                dstOffset = dstOffset,
+                                dstSize = dstSize,
                                 filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
                             )
                         }
