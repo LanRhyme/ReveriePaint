@@ -1787,8 +1787,8 @@ private fun FiltersPage(
                     FilterItemDef(15, "色温与色调", true, "冷暖色温与绿-洋红色调"),
                     FilterItemDef(24, "曝光度与伽马", true, "线性曝光值与伽马曲线"),
                     FilterItemDef(16, "阈值 (黑白二值化)", true, "明度门限黑白分割"),
-                    FilterItemDef(12, "去色 (灰度化)", false, "转为黑白灰度图"),
-                    FilterItemDef(6, "反相 (底片效果)", false, "反转通道颜色"),
+                    FilterItemDef(12, "去色 (灰度化)", true, "转为黑白灰度图"),
+                    FilterItemDef(6, "反相 (底片效果)", true, "反转通道颜色"),
                 )
             ),
             FilterCategoryDef(
@@ -1834,9 +1834,9 @@ private fun FiltersPage(
                     FilterItemDef(4, "锐化", true, "拉普拉斯边缘对比度锐化"),
                     FilterItemDef(18, "泛光 / 辉光 (Bloom)", true, "高光溢出扩散光晕"),
                     FilterItemDef(19, "投影效果 (Drop Shadow)", true, "自定义角度与模糊阴影"),
-                    FilterItemDef(8, "查找边缘 (Sobel)", false, "轮廓边缘检测提取"),
+                    FilterItemDef(8, "查找边缘 (Sobel)", true, "轮廓边缘检测提取"),
                     FilterItemDef(25, "边缘霓虹发光", true, "边缘高亮荧光发光"),
-                    FilterItemDef(9, "浮雕效果", false, "立体凹凸光影浮雕"),
+                    FilterItemDef(9, "浮雕效果", true, "立体凹凸光影浮雕"),
                 )
             ),
             FilterCategoryDef(
@@ -1847,7 +1847,7 @@ private fun FiltersPage(
                     FilterItemDef(30, "渐变映射 (自定义调色板)", true, "灰度映射至多色阶调调色板"),
                     FilterItemDef(29, "颜色转透明度 (抠图)", true, "指定颜色转透明并羽化边缘"),
                     FilterItemDef(20, "亮度转不透明度", true, "明度保留色彩并调制Alpha通道"),
-                    FilterItemDef(7, "亮度转透明度 (提取线稿)", false, "纯黑线稿透明化提取"),
+                    FilterItemDef(7, "亮度转透明度 (提取线稿)", true, "纯黑线稿透明化提取"),
                 )
             ),
         )
