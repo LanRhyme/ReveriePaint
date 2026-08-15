@@ -41,11 +41,27 @@ import kotlinx.coroutines.launch
     }
 
 
-    /** (Re)generate layer thumbnails on the render thread. Throttled. */
+    private var thumbRefreshJob: Job? = null
+
+    /** (Re)generate layer thumbnails on the render thread. Throttled; a burst
+     * of triggers inside the window (rapid consecutive undo/redo) is debounced
+     * and merged into a single refresh instead of being dropped. */
     internal fun PaintViewModel.refreshLayerThumbs(force: Boolean = false) {
         val now = System.nanoTime()
-        if (!force && now - lastThumbRefreshNs < 400_000_000L) return
+        if (!force && now - lastThumbRefreshNs < 400_000_000L) {
+            thumbRefreshJob?.cancel()
+            thumbRefreshJob = viewModelScope.launch {
+                delay(400)
+                lastThumbRefreshNs = System.nanoTime()
+                doRefreshLayerThumbs()
+            }
+            return
+        }
         lastThumbRefreshNs = now
+        doRefreshLayerThumbs()
+    }
+
+    private fun PaintViewModel.doRefreshLayerThumbs() {
         val n = ReverieCoreBridge.layerCount()
         if (n <= 0) return
         runCore(after = {}) {
@@ -64,16 +80,21 @@ import kotlinx.coroutines.launch
         }
     }
 
-    internal fun PaintViewModel.notifyLayerChanged() {
+    internal fun PaintViewModel.notifyLayerChanged(
+        forceThumbs: Boolean = true,
+        immediateRender: Boolean = true,
+    ) {
         isModified = true
         onPaintingActivity()
         syncLayersFromNative()
         layerRevision++
         // Structural/attribute changes can shift layer indexes and invalidate
         // index-keyed thumbnails, so force a fresh render (the 400ms throttle
-        // would otherwise skip it and show another layer's stale thumbnail)
-        refreshLayerThumbs(force = true)
-        scheduleRender(immediate = true)
+        // would otherwise skip it and show another layer's stale thumbnail).
+        // Undo/redo passes forceThumbs=false + immediateRender=false so a fast
+        // undo chain merges into one thumbnail refresh and one frame render.
+        refreshLayerThumbs(force = forceThumbs)
+        scheduleRender(immediate = immediateRender)
     }
 
     internal fun PaintViewModel.addLayer() {

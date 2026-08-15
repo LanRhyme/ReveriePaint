@@ -275,7 +275,11 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.undo() {
         runCore(after = {
-            notifyLayerChanged()
+            // Rapid consecutive undo merges into one frame render (16ms
+            // scheduleRender throttle) and one thumbnail refresh (400ms
+            // debounce); rendering every intermediate state starves the
+            // render thread and makes the undo chain laggy/stuck
+            notifyLayerChanged(forceThumbs = false, immediateRender = false)
             refreshSelection()
         }) {
             if (ReverieCoreBridge.canUndo()) {
@@ -286,7 +290,7 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.redo() {
         runCore(after = {
-            notifyLayerChanged()
+            notifyLayerChanged(forceThumbs = false, immediateRender = false)
             refreshSelection()
         }) {
             if (ReverieCoreBridge.canRedo()) {
