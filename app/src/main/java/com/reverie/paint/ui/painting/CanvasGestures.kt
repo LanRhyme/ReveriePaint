@@ -87,13 +87,13 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
     tool: Tool,
     vm: PaintViewModel,
     tfState: TransformState,
-    viewW: Int,
-    viewH: Int,
-    latestZoom: Float,
-    latestRotation: Float,
-    latestPanX: Float,
-    latestPanY: Float,
-    latestFitScale: Float,
+    viewW: () -> Int,
+    viewH: () -> Int,
+    latestZoom: () -> Float,
+    latestRotation: () -> Float,
+    latestPanX: () -> Float,
+    latestPanY: () -> Float,
+    latestFitScale: () -> Float,
     zoom: Float,
     fitScale: Float,
     liveShapeStart: androidx.compose.runtime.MutableState<Offset?>,
@@ -127,10 +127,10 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         val docH = image.height
 
 
-                        var localZoom = latestZoom
-                        var localRotation = latestRotation
-                        var localPanX = latestPanX
-                        var localPanY = latestPanY
+                        var localZoom = latestZoom()
+                        var localRotation = latestRotation()
+                        var localPanX = latestPanX()
+                        var localPanY = latestPanY()
                         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
                         val pointClickTool =
                             tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH || tool == Tool.SELECT_POLYGON
@@ -165,12 +165,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         val firstImage =
                             widgetToImage(
                                 down.position,
-                                viewW,
-                                viewH,
+                                viewW(),
+                                viewH(),
                                 localPanX,
                                 localPanY,
                                 localZoom,
-                                latestFitScale,
+                                latestFitScale(),
                                 localRotation,
                                 image.width,
                                 image.height,
@@ -286,12 +286,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                 pickerInitialColor.value = parseColor(refHex)
                                 val sampleImage = widgetToImage(
                                     sampleScreenPos,
-                                    viewW,
-                                    viewH,
+                                    viewW(),
+                                    viewH(),
                                     localPanX,
                                     localPanY,
                                     localZoom,
-                                    latestFitScale,
+                                    latestFitScale(),
                                     localRotation,
                                     image.width,
                                     image.height,
@@ -380,8 +380,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                     // the PREVIOUS centroid by dRot, scale by k,
                                     // then place the new center so that point
                                     // lands under the current centroid.
-                                    val centerX = viewW / 2f + localPanX
-                                    val centerY = viewH / 2f + localPanY
+                                    val centerX = viewW() / 2f + localPanX
+                                    val centerY = viewH() / 2f + localPanY
                                     val vx = prevCentroid.x - centerX
                                     val vy = prevCentroid.y - centerY
                                     val radians = Math.toRadians(dRot.toDouble())
@@ -392,8 +392,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
                                     localZoom = (localZoom * k).coerceIn(0.05f, 32f)
                                     localRotation += dRot
-                                    localPanX = centroid.x - k * rx - viewW / 2f
-                                    localPanY = centroid.y - k * ry - viewH / 2f
+                                    localPanX = centroid.x - k * rx - viewW() / 2f
+                                    localPanY = centroid.y - k * ry - viewH() / 2f
 
                                     prevCentroid = centroid
                                     prevDistance = distance
@@ -421,12 +421,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                             val imagePos =
                                 widgetToImage(
                                     point.position,
-                                    viewW,
-                                    viewH,
+                                    viewW(),
+                                    viewH(),
                                     localPanX,
                                     localPanY,
                                     localZoom,
-                                    latestFitScale,
+                                    latestFitScale(),
                                     localRotation,
                                     image.width,
                                     image.height,
@@ -579,12 +579,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                             pickerScreenPos.value = sampleScreenPos
                                             val sampleImage = widgetToImage(
                                                 sampleScreenPos,
-                                                viewW,
-                                                viewH,
+                                                viewW(),
+                                                viewH(),
                                                 localPanX,
                                                 localPanY,
                                                 localZoom,
-                                                latestFitScale,
+                                                latestFitScale(),
                                                 localRotation,
                                                 image.width,
                                                 image.height,
@@ -814,12 +814,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                                     for (h in point.historical) {
                                                         val histPos = widgetToImage(
                                                             h.position,
-                                                            viewW,
-                                                            viewH,
+                                                            viewW(),
+                                                            viewH(),
                                                             localPanX,
                                                             localPanY,
                                                             localZoom,
-                                                            latestFitScale,
+                                                            latestFitScale(),
                                                             localRotation,
                                                             image.width,
                                                             image.height,
