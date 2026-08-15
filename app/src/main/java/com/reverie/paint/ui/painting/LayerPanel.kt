@@ -494,7 +494,7 @@ private fun LayerListView(
         val selLayer = vm.layers.getOrNull(selectedIndex)
         val isBg = selLayer?.isBackground ?: true
 
-        // Top actions: + new layer | folder group | lock layer | lock alpha | multiply | merge down | select
+        // Top actions: + new paint layer | folder group | more layers (menu) | lock layer | lock alpha | clip mask | merge down
         Row(
             modifier =
                 Modifier
@@ -503,31 +503,28 @@ private fun LayerListView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TopIcon(
+                resId = R.drawable.ic_plus,
+                desc = "添加颜料图层",
+                onClick = { vm.addLayer() }
+            )
+            TopIcon(
+                resId = R.drawable.ic_folder,
+                desc = "添加图层组",
+                onClick = { vm.addGroupLayer() }
+            )
             Box {
-                TopIcon(R.drawable.ic_plus, "新建图层") {
-                    showNewLayerMenu = true
-                }
+                TopIcon(
+                    resId = R.drawable.ic_layers,
+                    desc = "更多图层类型",
+                    active = showNewLayerMenu,
+                    onClick = { showNewLayerMenu = true }
+                )
                 DropdownMenu(
                     expanded = showNewLayerMenu,
                     onDismissRequest = { showNewLayerMenu = false },
                     modifier = Modifier.background(Morandi.panel).border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("颜料图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_brush), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
-                        onClick = {
-                            vm.addLayerWithType("", 0)
-                            showNewLayerMenu = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("图层组", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_folder), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
-                        onClick = {
-                            vm.addLayerWithType("", 1)
-                            showNewLayerMenu = false
-                        }
-                    )
                     DropdownMenuItem(
                         text = { Text("填充图层", color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = { Icon(painterResource(R.drawable.ic_fill), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
@@ -564,11 +561,6 @@ private fun LayerListView(
             }
 
             TopIcon(
-                resId = R.drawable.ic_folder,
-                desc = "新建图层组",
-                onClick = { vm.addGroupLayer() }
-            )
-            TopIcon(
                 resId = R.drawable.ic_lock,
                 desc = "锁定图层",
                 active = selLayer?.locked == true,
@@ -591,14 +583,13 @@ private fun LayerListView(
                 }
             )
             TopIcon(
-                resId = R.drawable.ic_layerstack,
-                desc = "设为正片叠底",
-                active = selLayer?.blendMode == "multiply",
+                resId = R.drawable.ic_clip,
+                desc = "设为剪切蒙版",
+                active = selLayer?.clipped == true,
                 enabled = !isBg,
                 onClick = {
                     if (selectedIndex >= 0 && !isBg) {
-                        val nextMode = if (selLayer?.blendMode == "multiply") "normal" else "multiply"
-                        vm.setLayerBlendMode(selectedIndex, nextMode)
+                        vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
                     }
                 }
             )
@@ -609,15 +600,6 @@ private fun LayerListView(
                 onClick = {
                     if (selectedIndex > 0 && !isBg) {
                         vm.mergeDown(selectedIndex)
-                    }
-                }
-            )
-            TopIcon(
-                resId = R.drawable.ic_select,
-                desc = "创建选区",
-                onClick = {
-                    if (selectedIndex >= 0) {
-                        vm.selectionFromLayer(selectedIndex)
                     }
                 }
             )
@@ -1376,7 +1358,7 @@ private fun LayerDetailPage(
                 OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) { vm.removeLayer(index) }
                 OpItem(R.drawable.ic_flip_h, "水平翻转") { vm.flipLayerHorizontal(index) }
                 OpItem(R.drawable.ic_flip_v, "垂直翻转") { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 1) { vm.mergeDown(index) }
+                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) { vm.mergeDown(index) }
                 OpItem(R.drawable.ic_eye, "独显此图层") { vm.soloLayer(index) }
                 OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
@@ -1385,8 +1367,8 @@ private fun LayerDetailPage(
                 OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
-                OpToggle(R.drawable.ic_layerstack, "设为正片叠底", layer?.blendMode == "multiply", enabled = !isBg) {
-                    vm.setLayerBlendMode(index, if (layer?.blendMode == "multiply") "normal" else "multiply")
+                OpToggle(R.drawable.ic_clip, "设为剪切蒙版", layer?.clipped == true, enabled = !isBg) {
+                    vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
                 OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
             }
