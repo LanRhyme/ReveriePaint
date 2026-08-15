@@ -390,8 +390,13 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
         var isLongPressPickerActive = false
 
         fun sampleColorAtScreenPos(screenPos: Offset) {
-            val targetOffset = Offset(-48.dp.toPx(), -48.dp.toPx())
-            val samplePos = screenPos + targetOffset
+            val samplePos =
+                if (vm.eyedropperOffsetEnabled) {
+                    val targetOffset = Offset(-48.dp.toPx(), -48.dp.toPx())
+                    screenPos + targetOffset
+                } else {
+                    screenPos
+                }
             pickerScreenPos.value = samplePos
             val sampleImage =
                 widgetToImage(
@@ -431,7 +436,163 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
         while (true) {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
-            if (pressed.isEmpty()) break
+            if (pressed.isEmpty()) {
+                val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
+                val tapMaxDistPx = 36.dp.toPx()
+
+                val isTwoFingerTap =
+                    (maxFingerCount == 2) && vm.gestureTwoFingerUndo && (gestureDurationMs < 360L) &&
+                        (maxFingerMovement < tapMaxDistPx)
+                val isThreeFingerTap =
+                    (maxFingerCount >= 3) && vm.gestureThreeFingerRedo && (gestureDurationMs < 400L) &&
+                        (maxFingerMovement < tapMaxDistPx * 1.3f)
+
+                if (isLongPressPickerActive) {
+                    val r = (pickerCurrentColor.value.red * 255).toInt().coerceIn(0, 255)
+                    val g = (pickerCurrentColor.value.green * 255).toInt().coerceIn(0, 255)
+                    val b = (pickerCurrentColor.value.blue * 255).toInt().coerceIn(0, 255)
+                    val hex = String.format("#%02X%02X%02X", r, g, b)
+                    vm.updateBrushColor(hex)
+                    vm.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                    pickerActive.value = false
+                    isLongPressPickerActive = false
+                } else if (isTwoFingerTap) {
+                    if (transformStarted) {
+                        onTransform(startZoom, startRot, startPanX, startPanY)
+                    }
+                    if (strokeStarted) {
+                        vm.touchCancel()
+                        strokeStarted = false
+                    }
+                    vm.undo()
+                } else if (isThreeFingerTap) {
+                    if (transformStarted) {
+                        onTransform(startZoom, startRot, startPanX, startPanY)
+                    }
+                    if (strokeStarted) {
+                        vm.touchCancel()
+                        strokeStarted = false
+                    }
+                    vm.redo()
+                } else if (!transformStarted) {
+                    pendingTap?.let { tap ->
+                        if (tool == Tool.TEXT) {
+                            onTextRequested(tap.x, tap.y)
+                        }
+                    }
+                    when {
+                        tool == Tool.MAGICWAND ||
+                            tool == Tool.SELECT_SIMILAR ||
+                            tool == Tool.FILL -> {
+                            Unit
+                        }
+
+                        tool == Tool.TRANSFORM -> {
+                            tfState.handle = -1
+                        }
+
+                        tool == Tool.CROP -> {
+                            Unit
+                        }
+
+                        tool == Tool.MEASURE -> {
+                            Unit
+                        }
+
+                        shapeTool -> {
+                            val kind =
+                                when (tool) {
+                                    Tool.RECT -> 1
+                                    Tool.ELLIPSE -> 2
+                                    else -> 0
+                                }
+                            vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
+                        }
+
+                        pointClickTool -> {
+                            Unit
+                        }
+
+                        twoPointTool -> {
+                            val x1 = firstImage.x.toInt()
+                            val y1 = firstImage.y.toInt()
+                            val x2 = shapeEnd.x.toInt()
+                            val y2 = shapeEnd.y.toInt()
+                            when (tool) {
+                                Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
+                                Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
+                                Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
+                                else -> Unit
+                            }
+                        }
+
+                        trackSelectTool -> {
+                            gestureEnded = true
+                            if (lassoPoints.size >= 3) {
+                                val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                vm.previewLassoSync(points)
+                                vm.lassoSelect(points)
+                            }
+                        }
+
+                        tool == Tool.MOVE -> {
+                            val dx = tfState.tx.toInt()
+                            val dy = tfState.ty.toInt()
+                            tfState.tx = 0f
+                            tfState.ty = 0f
+                            vm.transformPreviewBitmap = null
+                            if (dx != 0 || dy != 0) {
+                                val b = vm.contentBounds()
+                                if (b != null && b[2] > 0 && b[3] > 0) {
+                                    tfState.bounds =
+                                        androidx.compose.ui.geometry.Rect(
+                                            b[0].toFloat(),
+                                            b[1].toFloat(),
+                                            (b[0] + b[2]).toFloat(),
+                                            (b[1] + b[3]).toFloat(),
+                                        )
+                                }
+                                vm.moveLayerContent(dx, dy)
+                            } else {
+                                vm.startTransformPreview()
+                            }
+                        }
+
+                        tool == Tool.LASSO -> {
+                            gestureEnded = true
+                            if (lassoPoints.size >= 3) {
+                                val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                                vm.previewLassoSync(points)
+                                vm.selectPolygon(points)
+                            }
+                        }
+
+                        tool == Tool.PICKER -> {
+                            val r = (pickerCurrentColor.value.red * 255).toInt().coerceIn(0, 255)
+                            val g = (pickerCurrentColor.value.green * 255).toInt().coerceIn(0, 255)
+                            val b = (pickerCurrentColor.value.blue * 255).toInt().coerceIn(0, 255)
+                            val hex = String.format("#%02X%02X%02X", r, g, b)
+                            vm.updateBrushColor(hex)
+                        }
+
+                        strokeStarted -> {
+                            vm.touchEnd()
+                        }
+
+                        mode == GestureMode.STROKE -> {
+                            vm.touchStart(
+                                firstImage.x,
+                                firstImage.y,
+                                if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0,
+                            )
+                            vm.touchEnd()
+                        }
+                    }
+
+                    pickerActive.value = false
+                }
+                break
+            }
 
             maxFingerCount = maxOf(maxFingerCount, pressed.size)
             for (p in pressed) {
@@ -1026,161 +1187,6 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
             liveShapeStart.value = null
             liveShapeEnd.value = null
-
-            val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
-            val tapMaxDistPx = 36.dp.toPx()
-
-            val isTwoFingerTap =
-                (maxFingerCount == 2) && vm.gestureTwoFingerUndo && (gestureDurationMs < 360L) &&
-                    (maxFingerMovement < tapMaxDistPx)
-            val isThreeFingerTap =
-                (maxFingerCount >= 3) && vm.gestureThreeFingerRedo && (gestureDurationMs < 400L) &&
-                    (maxFingerMovement < tapMaxDistPx * 1.3f)
-
-            if (isLongPressPickerActive) {
-                val r = (pickerCurrentColor.value.red * 255).toInt().coerceIn(0, 255)
-                val g = (pickerCurrentColor.value.green * 255).toInt().coerceIn(0, 255)
-                val b = (pickerCurrentColor.value.blue * 255).toInt().coerceIn(0, 255)
-                val hex = String.format("#%02X%02X%02X", r, g, b)
-                vm.updateBrushColor(hex)
-                vm.showActionToast("已吸取颜色", R.drawable.ic_picker)
-                pickerActive.value = false
-                isLongPressPickerActive = false
-            } else if (isTwoFingerTap) {
-                if (transformStarted) {
-                    onTransform(startZoom, startRot, startPanX, startPanY)
-                }
-                if (strokeStarted) {
-                    vm.touchCancel()
-                    strokeStarted = false
-                }
-                vm.undo()
-            } else if (isThreeFingerTap) {
-                if (transformStarted) {
-                    onTransform(startZoom, startRot, startPanX, startPanY)
-                }
-                if (strokeStarted) {
-                    vm.touchCancel()
-                    strokeStarted = false
-                }
-                vm.redo()
-            } else if (!transformStarted) {
-                pendingTap?.let { tap ->
-                    if (tool == Tool.TEXT) {
-                        onTextRequested(tap.x, tap.y)
-                    }
-                }
-                when {
-                    tool == Tool.MAGICWAND ||
-                        tool == Tool.SELECT_SIMILAR ||
-                        tool == Tool.FILL -> {
-                        Unit
-                    }
-
-                    tool == Tool.TRANSFORM -> {
-                        tfState.handle = -1
-                    }
-
-                    tool == Tool.CROP -> {
-                        Unit
-                    }
-
-                    tool == Tool.MEASURE -> {
-                        Unit
-                    }
-
-                    shapeTool -> {
-                        val kind =
-                            when (tool) {
-                                Tool.RECT -> 1
-                                Tool.ELLIPSE -> 2
-                                else -> 0
-                            }
-                        vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
-                    }
-
-                    pointClickTool -> {
-                        Unit
-                    }
-
-                    twoPointTool -> {
-                        val x1 = firstImage.x.toInt()
-                        val y1 = firstImage.y.toInt()
-                        val x2 = shapeEnd.x.toInt()
-                        val y2 = shapeEnd.y.toInt()
-                        when (tool) {
-                            Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
-                            Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
-                            Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
-                            else -> Unit
-                        }
-                    }
-
-                    trackSelectTool -> {
-                        gestureEnded = true
-                        if (lassoPoints.size >= 3) {
-                            val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                            vm.previewLassoSync(points)
-                            vm.lassoSelect(points)
-                        }
-                    }
-
-                    tool == Tool.MOVE -> {
-                        val dx = tfState.tx.toInt()
-                        val dy = tfState.ty.toInt()
-                        tfState.tx = 0f
-                        tfState.ty = 0f
-                        vm.transformPreviewBitmap = null
-                        if (dx != 0 || dy != 0) {
-                            val b = vm.contentBounds()
-                            if (b != null && b[2] > 0 && b[3] > 0) {
-                                tfState.bounds =
-                                    androidx.compose.ui.geometry.Rect(
-                                        b[0].toFloat(),
-                                        b[1].toFloat(),
-                                        (b[0] + b[2]).toFloat(),
-                                        (b[1] + b[3]).toFloat(),
-                                    )
-                            }
-                            vm.moveLayerContent(dx, dy)
-                        } else {
-                            vm.startTransformPreview()
-                        }
-                    }
-
-                    tool == Tool.LASSO -> {
-                        gestureEnded = true
-                        if (lassoPoints.size >= 3) {
-                            val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                            vm.previewLassoSync(points)
-                            vm.selectPolygon(points)
-                        }
-                    }
-
-                    tool == Tool.PICKER -> {
-                        val r = (pickerCurrentColor.value.red * 255).toInt().coerceIn(0, 255)
-                        val g = (pickerCurrentColor.value.green * 255).toInt().coerceIn(0, 255)
-                        val b = (pickerCurrentColor.value.blue * 255).toInt().coerceIn(0, 255)
-                        val hex = String.format("#%02X%02X%02X", r, g, b)
-                        vm.updateBrushColor(hex)
-                    }
-
-                    strokeStarted -> {
-                        vm.touchEnd()
-                    }
-
-                    mode == GestureMode.STROKE -> {
-                        vm.touchStart(
-                            firstImage.x,
-                            firstImage.y,
-                            if (stylus) down.pressure.coerceIn(0f, 1f).toDouble() else 1.0,
-                        )
-                        vm.touchEnd()
-                    }
-                }
-
-                pickerActive.value = false
-            }
         }
     }
 }
