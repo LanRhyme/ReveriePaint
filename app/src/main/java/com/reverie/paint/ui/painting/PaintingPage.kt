@@ -969,13 +969,21 @@ fun PaintingPage(vm: PaintViewModel) {
         }
 
         // More Settings full-screen overlay (stays inside painting page, back returns to canvas)
-        if (vm.moreSettingsOpen) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.moreSettingsOpen,
+            enter =
+                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 5 },
+            exit =
+                fadeOut(tween(180)) +
+                    slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 4 },
+            modifier = Modifier.zIndex(500f),
+        ) {
             Box(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .background(Morandi.canvasBg)
-                        .zIndex(500f),
+                        .background(Morandi.canvasBg),
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Top bar with back button (no bottom navigation bar here)
