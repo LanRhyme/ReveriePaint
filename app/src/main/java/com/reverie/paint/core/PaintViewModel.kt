@@ -33,6 +33,7 @@ class PaintViewModel : ViewModel() {
     var docHeight by mutableStateOf(1920)
     var docName by mutableStateOf("Untitled")
     var totalStrokes by mutableStateOf(0)
+    var initialStrokeCount by mutableStateOf(0)
     var isModified by mutableStateOf(false)
     var elapsedSeconds by mutableStateOf(0L)
     var canvasCreatedTime by mutableStateOf(System.currentTimeMillis())
@@ -44,7 +45,8 @@ class PaintViewModel : ViewModel() {
     }
 
     fun hasUnsavedChanges(): Boolean {
-        return isModified || (totalStrokes > 0) || ReverieCoreBridge.canUndo()
+        val strokesAdded = totalStrokes > initialStrokeCount
+        return isModified || strokesAdded || ReverieCoreBridge.canUndo()
     }
 
     // Brush state
@@ -579,6 +581,7 @@ class PaintViewModel : ViewModel() {
         }
         runCore(
             after = {
+                initialStrokeCount = totalStrokes
                 isModified = false
                 docName = name
                 refreshProjects()
@@ -612,12 +615,13 @@ class PaintViewModel : ViewModel() {
     fun loadProject(p: com.reverie.paint.model.Project) {
         runCore(
             after = {
+                initialStrokeCount = p.strokeCount
+                totalStrokes = p.strokeCount
                 isModified = false
                 docWidth = coreW
                 docHeight = coreH
                 docName = p.name
                 currentProjectFile = p.filePath
-                totalStrokes = p.strokeCount
                 elapsedSeconds = p.elapsedSeconds
                 canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
                 sessionStartTime = System.currentTimeMillis()
@@ -902,6 +906,8 @@ class PaintViewModel : ViewModel() {
         sessionStartTime = System.currentTimeMillis()
         runCore(
             after = {
+                initialStrokeCount = 0
+                totalStrokes = 0
                 isModified = false
                 docWidth = w
                 docHeight = h
