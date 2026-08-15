@@ -489,6 +489,12 @@ void ReverieCore::soloLayer(int index)
     const int td = m_layers[index].depth;
     QVector<int> keep;
     keep.append(index);
+    // Keep the background (index 0) visible: on mobile the white canvas is the
+    // background layer, so hiding it turns the canvas into a transparent
+    // checkerboard which reads as a broken render
+    if (!m_layers.isEmpty() && m_layers[0].background) {
+        keep.append(0);
+    }
     // Ancestors: nearest preceding entries with strictly decreasing depth
     int curDepth = td;
     for (int i = index - 1; i >= 0 && curDepth > 0; --i) {

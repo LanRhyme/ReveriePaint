@@ -206,7 +206,7 @@ internal fun LayerRow(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
                         val startY = down.position.y
-                        var swiping = false
+                        var gestureSwiping = false
                         var lastDx = 0f
                         var selectTriggered = false
                         while (true) {
@@ -215,15 +215,20 @@ internal fun LayerRow(
                             if (change == null || change.changedToUpIgnoreConsumed()) break
                             val dx = change.position.x - startX
                             val dy = change.position.y - startY
-                            if (!swiping) {
+                            if (!gestureSwiping) {
                                 // Only treat it as a swipe when the movement is
                                 // clearly horizontal (prevents vertical list
                                 // scrolling and small wiggles from revealing)
                                 if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 1.2f) {
+                                    gestureSwiping = true
+                                    // Flip the outer remember state so the
+                                    // LaunchedEffect follow-loop (snapTo the
+                                    // finger each frame) actually runs - the
+                                    // gesture's local var shadows it otherwise
                                     swiping = true
                                 }
                             }
-                            if (swiping) {
+                            if (gestureSwiping) {
                                 change.consume()
                                 if (dx > 0) {
                                     // Right-swipe: follow the finger, then
@@ -243,7 +248,7 @@ internal fun LayerRow(
                                 }
                             }
                         }
-                        if (swiping) {
+                        if (gestureSwiping) {
                             // reveal only on a deliberate swipe past the
                             // threshold; otherwise the row animates back
                             if (lastDx < -revealThresholdPx) {
