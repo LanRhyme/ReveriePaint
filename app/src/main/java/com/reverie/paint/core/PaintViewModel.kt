@@ -228,6 +228,9 @@ class PaintViewModel : ViewModel() {
 
     var settingsInitialSubPage by mutableStateOf("MAIN")
 
+    // 图层面板多选（右滑选中）
+    var selectedLayerIndices by mutableStateOf<Set<Int>>(emptySet())
+
     // 绘画页内的“更多设置”全屏覆盖层（不退出画布）
     var moreSettingsOpen by mutableStateOf(false)
 

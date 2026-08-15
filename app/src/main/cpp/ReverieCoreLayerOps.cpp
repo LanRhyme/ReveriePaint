@@ -466,19 +466,43 @@ void ReverieCore::soloLayer(int index)
             }
         }
         m_soloedLayer = -1;
-    } else {
-        // Record the current visibility of every layer, then show only this
-        // one (the background is hidden too, revealing the transparent grid)
-        for (LayerEntry &e : m_layers) {
-            e.soloPrev.clear();
-            e.soloPrev.append(e.visible);
-        }
-        m_soloedLayer = index;
+        return;
+    }
+    // Solo another layer while one is active: restore the previous solo first
+    if (m_soloedLayer >= 0) {
         for (int i = 0; i < m_layers.size(); ++i) {
-            if (i != index) {
-                setLayerVisible(i, false);
+            if (i < m_layers[i].soloPrev.size()) {
+                setLayerVisible(i, m_layers[i].soloPrev[i]);
             }
         }
+    }
+    // Record the current visibility of every layer, then show only the
+    // target plus its ancestor groups and descendants (FolioLayers behavior:
+    // a child inside a group stays visible only if its parent group is,
+    // and soloing a group keeps the members visible)
+    for (LayerEntry &e : m_layers) {
+        e.soloPrev.clear();
+        e.soloPrev.append(e.visible);
+    }
+    m_soloedLayer = index;
+
+    const int td = m_layers[index].depth;
+    QVector<int> keep;
+    keep.append(index);
+    // Ancestors: nearest preceding entries with strictly decreasing depth
+    int curDepth = td;
+    for (int i = index - 1; i >= 0 && curDepth > 0; --i) {
+        if (m_layers[i].depth < curDepth) {
+            keep.append(i);
+            curDepth = m_layers[i].depth;
+        }
+    }
+    // Descendants: contiguous following entries with depth > td
+    for (int i = index + 1; i < m_layers.size() && m_layers[i].depth > td; ++i) {
+        keep.append(i);
+    }
+    for (int i = 0; i < m_layers.size(); ++i) {
+        setLayerVisible(i, keep.contains(i));
     }
 }
 

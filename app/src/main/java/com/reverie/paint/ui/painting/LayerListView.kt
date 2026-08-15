@@ -3,10 +3,10 @@ package com.reverie.paint.ui.painting
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -14,46 +14,26 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import java.util.Locale
-import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -63,11 +43,20 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,53 +64,60 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.zIndex
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeChild
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
-
 
 private val drawerWidth = 132.dp
 private val rowHeight = 48.dp
@@ -165,6 +161,7 @@ internal fun LayerListView(
     val displayRows =
         remember(vm.layers, collapsedGroupNames) {
             val n = vm.layers.size
+
             fun collectBlock(
                 lo: Int,
                 hi: Int,
@@ -221,7 +218,7 @@ internal fun LayerListView(
         if (pendingOrder != null) {
             android.util.Log.d(
                 "LayerPanel",
-                "RELEASE pending=${pendingOrder} real=${displayRows.map { it.name }}",
+                "RELEASE pending=$pendingOrder real=${displayRows.map { it.name }}",
             )
             pendingOrder = null
         }
@@ -336,64 +333,99 @@ internal fun LayerListView(
             TopIcon(
                 resId = R.drawable.ic_plus,
                 desc = "添加颜料图层",
-                onClick = { vm.addLayer() }
+                onClick = { vm.addLayer() },
             )
             TopIcon(
                 resId = R.drawable.ic_folder,
                 desc = "添加图层组",
-                onClick = { vm.addGroupLayer() }
+                onClick = { vm.addGroupLayer() },
             )
             Box {
                 TopIcon(
                     resId = R.drawable.ic_layers,
                     desc = "更多图层类型",
                     active = showNewLayerMenu,
-                    onClick = { showNewLayerMenu = true }
+                    onClick = { showNewLayerMenu = true },
                 )
                 DropdownMenu(
                     expanded = showNewLayerMenu,
                     onDismissRequest = { showNewLayerMenu = false },
-                    modifier = Modifier.background(Morandi.panel).border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                    modifier = Modifier.background(Morandi.panel).border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
                 ) {
                     DropdownMenuItem(
                         text = { Text("填充图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_fill), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_fill),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         onClick = {
                             vm.addLayerWithType("", 2, vm.brushColor.toInt())
                             showNewLayerMenu = false
-                        }
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("调整图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_sliders), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_sliders),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         onClick = {
                             vm.addLayerWithType("", 3)
                             showNewLayerMenu = false
-                        }
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("矢量图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_polyline), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_polyline),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         onClick = {
                             vm.addLayerWithType("", 4)
                             showNewLayerMenu = false
-                        }
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("克隆图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_copy),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         onClick = {
                             vm.addLayerWithType("", 5)
                             showNewLayerMenu = false
-                        }
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("盖印可见图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = { Icon(painterResource(R.drawable.ic_layers), null, tint = Morandi.icon, modifier = Modifier.size(16.dp)) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_layers),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
                         onClick = {
                             vm.stampVisibleLayers()
                             showNewLayerMenu = false
-                        }
+                        },
                     )
                 }
             }
@@ -407,7 +439,7 @@ internal fun LayerListView(
                     if (selectedIndex >= 0 && !isBg) {
                         vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
                     }
-                }
+                },
             )
             TopIcon(
                 resId = R.drawable.ic_grid,
@@ -418,7 +450,7 @@ internal fun LayerListView(
                     if (selectedIndex >= 0 && !isBg) {
                         vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
                     }
-                }
+                },
             )
             TopIcon(
                 resId = R.drawable.ic_clip,
@@ -429,7 +461,7 @@ internal fun LayerListView(
                     if (selectedIndex >= 0 && !isBg) {
                         vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
                     }
-                }
+                },
             )
             TopIcon(
                 resId = R.drawable.ic_merge_down,
@@ -439,7 +471,7 @@ internal fun LayerListView(
                     if (selectedIndex > 0 && !isBg) {
                         vm.mergeDown(selectedIndex)
                     }
-                }
+                },
             )
         }
 
@@ -484,11 +516,11 @@ internal fun LayerListView(
                             }
                         },
             ) {
-            // Key by a STABLE identity (depth+name): indices change after a
-            // native move lands, so an index-keyed list makes animateItem
-            // play a phantom swap animation even when the visible order is
-            // already correct
-            items(displayList, key = { "${it.depth}:${it.name}" }) { layer ->
+                // Key by a STABLE identity (depth+name): indices change after a
+                // native move lands, so an index-keyed list makes animateItem
+                // play a phantom swap animation even when the visible order is
+                // already correct
+                items(displayList, key = { "${it.depth}:${it.name}" }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,
@@ -497,8 +529,11 @@ internal fun LayerListView(
                         onToggleCollapse = {
                             revealedIndex = null
                             collapsedGroupNames =
-                                if (layer.name in collapsedGroupNames) collapsedGroupNames - layer.name
-                                else collapsedGroupNames + layer.name
+                                if (layer.name in collapsedGroupNames) {
+                                    collapsedGroupNames - layer.name
+                                } else {
+                                    collapsedGroupNames + layer.name
+                                }
                         },
                         revealed = layer.index == revealedIndex,
                         onReveal = { revealedIndex = layer.index },
@@ -514,28 +549,36 @@ internal fun LayerListView(
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
                         isDragging = draggingFrom == layer.index,
                         dragFingerY = dragFingerY,
+                        multiSelected = layer.index in vm.selectedLayerIndices,
+                        onSelect = {
+                            revealedIndex = null
+                            vm.toggleLayerSelection(layer.index)
+                        },
                         onClick = {
                             revealedIndex = null
+                            vm.clearLayerSelection()
                             if (layer.index == selectedIndex) {
                                 onOpenDetail(layer.index)
                             } else {
+                                // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
+                                vm.cancelSoloIfSwitchingLayer()
                                 selectedIndex = layer.index
                                 vm.setCurrentLayer(layer.index)
                             }
                         },
-                            modifier =
-                                Modifier.animateItem(
-                                    // Smooth non-bouncy parting animation
-                                    // (the drag flicker was the thumbnail
-                                    // index cache going empty after moves,
-                                    // not this animation)
-                                    placementSpec = tween(220),
-                                    fadeInSpec = tween(120),
-                                    fadeOutSpec = tween(120),
-                                ),
-                        )
+                        modifier =
+                            Modifier.animateItem(
+                                // Smooth non-bouncy parting animation
+                                // (the drag flicker was the thumbnail
+                                // index cache going empty after moves,
+                                // not this animation)
+                                placementSpec = tween(220),
+                                fadeInSpec = tween(120),
+                                fadeOutSpec = tween(120),
+                            ),
+                    )
+                }
             }
-        }
 
             // After release the overlay glides into the drop slot (settleTo)
             LaunchedEffect(settling, settleTo, settleFrom) {
@@ -560,11 +603,13 @@ internal fun LayerListView(
                             Modifier
                                 .offset {
                                     val y =
-                                        if (settling && settleTo != null) settleAnim.value
-                                        else dragFingerY - listTop - rowPx / 2f
+                                        if (settling && settleTo != null) {
+                                            settleAnim.value
+                                        } else {
+                                            dragFingerY - listTop - rowPx / 2f
+                                        }
                                     IntOffset(0, y.roundToInt())
-                                }
-                                .fillMaxWidth()
+                                }.fillMaxWidth()
                                 .height(rowHeight)
                                 .graphicsLayer {
                                     scaleX = 1.05f
@@ -592,4 +637,3 @@ internal fun LayerListView(
         }
     }
 }
-
