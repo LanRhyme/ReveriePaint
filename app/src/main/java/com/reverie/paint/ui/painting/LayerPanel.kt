@@ -94,6 +94,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.mutableStateListOf
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReSlider
@@ -1831,7 +1841,15 @@ private fun BlendModesPage(
 data class FilterItemDef(
     val id: Int,
     val name: String,
-    val hasSliders: Boolean
+    val hasSliders: Boolean,
+    val desc: String = ""
+)
+
+data class FilterCategoryDef(
+    val id: String,
+    val name: String,
+    val iconRes: Int,
+    val filters: List<FilterItemDef>
 )
 
 @Composable
@@ -1841,32 +1859,78 @@ private fun FiltersPage(
     onBack: () -> Unit,
     onSelectFilter: (Int, String) -> Unit,
 ) {
-    val filters = remember {
+    var selectedCategory by remember { mutableStateOf<FilterCategoryDef?>(null) }
+
+    val categories = remember {
         listOf(
-            FilterItemDef(0, "色相/饱和度/明度/对比度", true),
-            FilterItemDef(13, "曲线", true),
-            FilterItemDef(14, "色阶", true),
-            FilterItemDef(15, "色温与色调", true),
-            FilterItemDef(1, "色彩平衡", true),
-            FilterItemDef(2, "高斯模糊", true),
-            FilterItemDef(3, "动感模糊", true),
-            FilterItemDef(4, "锐化", true),
-            FilterItemDef(18, "泛光/辉光", true),
-            FilterItemDef(19, "投影", true),
-            FilterItemDef(5, "马赛克", true),
-            FilterItemDef(16, "阈值 (二值化)", true),
-            FilterItemDef(17, "色调分离", true),
-            FilterItemDef(6, "反相", false),
-            FilterItemDef(7, "亮度转透明度 (提取线稿)", false),
-            FilterItemDef(8, "查找边缘", false),
-            FilterItemDef(9, "浮雕", false),
-            FilterItemDef(10, "杂色", true),
-            FilterItemDef(11, "色散错位", true),
-            FilterItemDef(12, "灰度", false),
+            FilterCategoryDef(
+                id = "color",
+                name = "调整图像/颜色",
+                iconRes = R.drawable.ic_image_adjust,
+                filters = listOf(
+                    FilterItemDef(13, "曲线 (颜色调整)", true, "交互式多通道RGB调色曲线"),
+                    FilterItemDef(14, "色阶", true, "黑场、白场与中间调伽马调整"),
+                    FilterItemDef(0, "HSV 色相/饱和度/明度/对比度", true, "色相偏移与明暗饱和度"),
+                    FilterItemDef(1, "色彩平衡", true, "青红、洋绿、黄蓝平衡"),
+                    FilterItemDef(15, "色温与色调", true, "冷暖色温与绿-洋红色调"),
+                    FilterItemDef(24, "曝光度与伽马", true, "线性曝光值与伽马曲线"),
+                    FilterItemDef(16, "阈值 (黑白二值化)", true, "明度门限黑白分割"),
+                    FilterItemDef(12, "去色 (灰度化)", false, "转为黑白灰度图"),
+                    FilterItemDef(6, "反相 (底片效果)", false, "反转通道颜色"),
+                )
+            ),
+            FilterCategoryDef(
+                id = "artistic",
+                name = "艺术效果",
+                iconRes = R.drawable.ic_brush,
+                filters = listOf(
+                    FilterItemDef(21, "油画效果 (Kuwahara)", true, "基于局部方差的写生油画质感"),
+                    FilterItemDef(5, "马赛克 / 像素化", true, "网格块状像素化"),
+                    FilterItemDef(17, "色调分离", true, "色彩阶数离散量化"),
+                    FilterItemDef(10, "杂色 / 噪点", true, "胶片颗粒感噪点添加"),
+                    FilterItemDef(23, "半色调网点", true, "印刷漫画网点风格"),
+                )
+            ),
+            FilterCategoryDef(
+                id = "blur",
+                name = "模糊",
+                iconRes = R.drawable.ic_smudge,
+                filters = listOf(
+                    FilterItemDef(2, "高斯模糊", true, "Alpha加权多核高斯平滑"),
+                    FilterItemDef(3, "动感模糊", true, "任意角度线性积分模糊"),
+                    FilterItemDef(22, "径向/缩放模糊", true, "中心辐射聚焦模糊"),
+                    FilterItemDef(26, "散焦模糊 (镜头光圈)", true, "圆形弥散斑镜头虚化"),
+                )
+            ),
+            FilterCategoryDef(
+                id = "enhance",
+                name = "图像增强",
+                iconRes = R.drawable.ic_magicwand,
+                filters = listOf(
+                    FilterItemDef(4, "锐化", true, "拉普拉斯边缘对比度锐化"),
+                    FilterItemDef(18, "泛光 / 辉光 (Bloom)", true, "高光溢出扩散光晕"),
+                    FilterItemDef(19, "投影效果 (Drop Shadow)", true, "自定义角度与模糊阴影"),
+                    FilterItemDef(8, "查找边缘 (Sobel)", false, "轮廓边缘检测提取"),
+                    FilterItemDef(25, "边缘霓虹发光", true, "边缘高亮荧光发光"),
+                    FilterItemDef(9, "浮雕效果", false, "立体凹凸光影浮雕"),
+                )
+            ),
+            FilterCategoryDef(
+                id = "map",
+                name = "映射与通道",
+                iconRes = R.drawable.ic_gradient,
+                filters = listOf(
+                    FilterItemDef(30, "渐变映射", true, "灰度映射至多色阶调调色板"),
+                    FilterItemDef(20, "亮度转不透明度", true, "明度保留色彩并调制Alpha通道"),
+                    FilterItemDef(7, "亮度转透明度 (提取线稿)", false, "纯黑线稿透明化提取"),
+                    FilterItemDef(11, "色散错位 (Glitch)", true, "红蓝RGB通道错位色散"),
+                )
+            ),
         )
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Top Header
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1877,7 +1941,13 @@ private fun FiltersPage(
                     Modifier
                         .size(32.dp)
                         .clip(RoundedCornerShape(7.dp))
-                        .noRippleClickable(onBack),
+                        .noRippleClickable {
+                            if (selectedCategory != null) {
+                                selectedCategory = null
+                            } else {
+                                onBack()
+                            }
+                        },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -1887,41 +1957,482 @@ private fun FiltersPage(
                     modifier = Modifier.size(18.dp),
                 )
             }
-            Text("滤镜", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(
+                text = selectedCategory?.name ?: "滤镜库",
+                color = Morandi.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-        Column(
-            modifier = Modifier
-                .heightIn(max = 500.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            filters.forEach { item ->
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .noRippleClickable {
-                                onSelectFilter(item.id, item.name)
-                            }.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+
+        AnimatedContent(
+            targetState = selectedCategory,
+            label = "FilterNav"
+        ) { category ->
+            if (category == null) {
+                // Category List (Level 1)
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Text(item.name, color = Morandi.text, fontSize = 13.sp)
-                    Icon(
-                        painterResource(R.drawable.ic_chevron),
-                        contentDescription = null,
-                        tint = Morandi.subText.copy(alpha = 0.5f),
-                        modifier = Modifier.size(14.dp)
-                    )
+                    categories.forEach { cat ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .noRippleClickable { selectedCategory = cat }
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.accent.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painterResource(cat.iconRes),
+                                        contentDescription = null,
+                                        tint = Morandi.accent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(cat.name, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text("${cat.filters.size} 个滤镜", color = Morandi.subText, fontSize = 11.sp)
+                                }
+                            }
+                            Icon(
+                                painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.subText.copy(alpha = 0.5f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
+                    }
                 }
-                Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
+            } else {
+                // Category Filters (Level 2)
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 480.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    category.filters.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .noRippleClickable {
+                                    onSelectFilter(item.id, item.name)
+                                }.padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                if (item.desc.isNotEmpty()) {
+                                    Text(item.desc, color = Morandi.subText, fontSize = 11.sp)
+                                }
+                            }
+                            Icon(
+                                painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.subText.copy(alpha = 0.5f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
+                    }
+                }
             }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Filter Adjust Page (HuaShijie Pro slider controls matching user screenshot)
+// Real Interactive 2D Curves Graph Component
+// ---------------------------------------------------------------------------
+
+private fun calculateMonotoneCubicSplineLUT(points: List<Offset>): ByteArray {
+    val sorted = points.sortedBy { it.x }.distinctBy { it.x.toInt() }
+    val lut = ByteArray(256)
+    if (sorted.isEmpty()) {
+        for (i in 0..255) lut[i] = i.toByte()
+        return lut
+    }
+    if (sorted.size == 1) {
+        val y = sorted[0].y.coerceIn(0f, 255f).toInt().toByte()
+        for (i in 0..255) lut[i] = y
+        return lut
+    }
+    val n = sorted.size
+    val x = sorted.map { it.x.coerceIn(0f, 255f) }
+    val y = sorted.map { it.y.coerceIn(0f, 255f) }
+    val d = FloatArray(n - 1)
+    val m = FloatArray(n)
+    for (i in 0 until n - 1) {
+        val dx = x[i + 1] - x[i]
+        d[i] = if (dx != 0f) (y[i + 1] - y[i]) / dx else 0f
+    }
+    m[0] = d[0]
+    for (i in 1 until n - 1) {
+        m[i] = (d[i - 1] + d[i]) * 0.5f
+    }
+    m[n - 1] = d[n - 2]
+    for (i in 0 until n - 1) {
+        if (d[i] == 0f) {
+            m[i] = 0f
+            m[i + 1] = 0f
+        } else {
+            val a = m[i] / d[i]
+            val b = m[i + 1] / d[i]
+            val s = a * a + b * b
+            if (s > 9f) {
+                val tau = 3f / kotlin.math.sqrt(s)
+                m[i] = tau * a * d[i]
+                m[i + 1] = tau * b * d[i]
+            }
+        }
+    }
+    var seg = 0
+    for (i in 0..255) {
+        val curX = i.toFloat()
+        if (curX <= x[0]) {
+            lut[i] = y[0].toInt().coerceIn(0, 255).toByte()
+            continue
+        }
+        if (curX >= x[n - 1]) {
+            lut[i] = y[n - 1].toInt().coerceIn(0, 255).toByte()
+            continue
+        }
+        while (seg < n - 2 && curX > x[seg + 1]) {
+            seg++
+        }
+        val h = x[seg + 1] - x[seg]
+        val t = if (h != 0f) (curX - x[seg]) / h else 0f
+        val t2 = t * t
+        val t3 = t2 * t
+        val h00 = 2f * t3 - 3f * t2 + 1f
+        val h10 = t3 - 2f * t2 + t
+        val h01 = -2f * t3 + 3f * t2
+        val h11 = t3 - t2
+        val curY = h00 * y[seg] + h10 * h * m[seg] + h01 * y[seg + 1] + h11 * h * m[seg + 1]
+        lut[i] = curY.toInt().coerceIn(0, 255).toByte()
+    }
+    return lut
+}
+
+@Composable
+private fun RealCurvesGraph(
+    channelPoints: SnapshotStateMap<Int, MutableList<Offset>>,
+    activeChannel: Int,
+    onCurveChanged: () -> Unit
+) {
+    val points = channelPoints.getOrPut(activeChannel) {
+        mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))
+    }
+    var selectedIndex by remember { mutableIntStateOf(-1) }
+
+    val channelColor = when (activeChannel) {
+        1 -> Color(0xFFFF5252) // Red
+        2 -> Color(0xFF4CAF50) // Green
+        3 -> Color(0xFF448AFF) // Blue
+        else -> Morandi.accent // RGB / Master
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.2f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Morandi.panelHi)
+                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                .pointerInput(activeChannel) {
+                    detectTapGestures(
+                        onDoubleTap = { tapOffset ->
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            val px = (tapOffset.x / w) * 255f
+                            val py = (1f - tapOffset.y / h) * 255f
+                            val closeIdx = points.indexOfFirst {
+                                val dx = (it.x / 255f) * w - tapOffset.x
+                                val dy = ((1f - it.y / 255f) * h) - tapOffset.y
+                                (dx * dx + dy * dy) <= 32f * 32f
+                            }
+                            if (closeIdx > 0 && closeIdx < points.size - 1) {
+                                points.removeAt(closeIdx)
+                                selectedIndex = -1
+                                onCurveChanged()
+                            }
+                        },
+                        onTap = { tapOffset ->
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            val px = ((tapOffset.x / w) * 255f).coerceIn(0f, 255f)
+                            val py = ((1f - tapOffset.y / h) * 255f).coerceIn(0f, 255f)
+                            val closeIdx = points.indexOfFirst {
+                                val dx = (it.x / 255f) * w - tapOffset.x
+                                val dy = ((1f - it.y / 255f) * h) - tapOffset.y
+                                (dx * dx + dy * dy) <= 24f * 24f
+                            }
+                            if (closeIdx >= 0) {
+                                selectedIndex = closeIdx
+                            } else {
+                                points.add(Offset(px, py))
+                                points.sortBy { it.x }
+                                selectedIndex = points.indexOfFirst { it.x == px && it.y == py }
+                                onCurveChanged()
+                            }
+                        }
+                    )
+                }
+                .pointerInput(activeChannel) {
+                    detectDragGestures(
+                        onDragStart = { startOffset ->
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            val closeIdx = points.indexOfFirst {
+                                val dx = (it.x / 255f) * w - startOffset.x
+                                val dy = ((1f - it.y / 255f) * h) - startOffset.y
+                                (dx * dx + dy * dy) <= 30f * 30f
+                            }
+                            selectedIndex = closeIdx
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            if (selectedIndex >= 0 && selectedIndex < points.size) {
+                                val w = size.width.toFloat()
+                                val h = size.height.toFloat()
+                                val cur = points[selectedIndex]
+                                val newX = if (selectedIndex == 0) 0f
+                                           else if (selectedIndex == points.size - 1) 255f
+                                           else (cur.x + (dragAmount.x / w) * 255f).coerceIn(0f, 255f)
+                                val newY = (cur.y - (dragAmount.y / h) * 255f).coerceIn(0f, 255f)
+                                points[selectedIndex] = Offset(newX, newY)
+                                onCurveChanged()
+                            }
+                        },
+                        onDragEnd = {
+                            points.sortBy { it.x }
+                            onCurveChanged()
+                        }
+                    )
+                }
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+
+                // 4x4 Grid
+                for (i in 1..3) {
+                    val gx = (w / 4f) * i
+                    val gy = (h / 4f) * i
+                    drawLine(Morandi.border.copy(alpha = 0.6f), Offset(gx, 0f), Offset(gx, h), strokeWidth = 1f)
+                    drawLine(Morandi.border.copy(alpha = 0.6f), Offset(0f, gy), Offset(w, gy), strokeWidth = 1f)
+                }
+
+                // Reference Diagonal Line (y = x)
+                drawLine(
+                    color = Morandi.subText.copy(alpha = 0.3f),
+                    start = Offset(0f, h),
+                    end = Offset(w, 0f),
+                    strokeWidth = 1.5f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                )
+
+                // Render Monotone Spline Curve
+                val lut = calculateMonotoneCubicSplineLUT(points)
+                val curvePath = Path()
+                val fillPath = Path()
+                fillPath.moveTo(0f, h)
+
+                for (i in 0..255) {
+                    val px = (i / 255f) * w
+                    val py = (1f - (lut[i].toInt() and 0xFF) / 255f) * h
+                    if (i == 0) {
+                        curvePath.moveTo(px, py)
+                        fillPath.lineTo(px, py)
+                    } else {
+                        curvePath.lineTo(px, py)
+                        fillPath.lineTo(px, py)
+                    }
+                }
+                fillPath.lineTo(w, h)
+                fillPath.close()
+
+                // Area gradient fill
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        listOf(channelColor.copy(alpha = 0.25f), channelColor.copy(alpha = 0.02f)),
+                        startY = 0f,
+                        endY = h
+                    )
+                )
+
+                // Curve stroke line
+                drawPath(
+                    path = curvePath,
+                    color = channelColor,
+                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+
+                // Control Points
+                points.forEachIndexed { idx, pt ->
+                    val cx = (pt.x / 255f) * w
+                    val cy = (1f - pt.y / 255f) * h
+                    val isSel = (idx == selectedIndex)
+
+                    // Point Shadow/Outer Ring
+                    drawCircle(
+                        color = if (isSel) channelColor else Morandi.bg,
+                        radius = if (isSel) 7.dp.toPx() else 5.dp.toPx(),
+                        center = Offset(cx, cy)
+                    )
+                    drawCircle(
+                        color = if (isSel) Color.White else channelColor,
+                        radius = if (isSel) 4.5.dp.toPx() else 3.5.dp.toPx(),
+                        center = Offset(cx, cy)
+                    )
+                }
+            }
+        }
+
+        // Coordinate Readout & Point Info
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val selPt = if (selectedIndex in points.indices) points[selectedIndex] else null
+            if (selPt != null) {
+                Text(
+                    "输入: ${selPt.x.roundToInt()}  输出: ${selPt.y.roundToInt()}",
+                    color = Morandi.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            } else {
+                Text("点击添加控制点，双击控制点删除", color = Morandi.subText, fontSize = 11.sp)
+            }
+
+            Text(
+                "重置此通道",
+                color = Morandi.accent,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.noRippleClickable {
+                    points.clear()
+                    points.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
+                    selectedIndex = -1
+                    onCurveChanged()
+                }
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gradient Map Presets & Component
+// ---------------------------------------------------------------------------
+
+private val GRADIENT_PRESETS = listOf(
+    "日落暖金" to listOf(
+        0.0f to Color(0xFF2C0B38),
+        0.35f to Color(0xFFB82E55),
+        0.7f to Color(0xFFE88A35),
+        1.0f to Color(0xFFFFF6A5)
+    ),
+    "赛博霓虹" to listOf(
+        0.0f to Color(0xFF0F052A),
+        0.4f to Color(0xFF8A148D),
+        0.8f to Color(0xFF00E5FF),
+        1.0f to Color(0xFFFFFFFF)
+    ),
+    "深海幽蓝" to listOf(
+        0.0f to Color(0xFF061426),
+        0.45f to Color(0xFF0A4F6B),
+        0.8f to Color(0xFF26A69A),
+        1.0f to Color(0xFFE0F7FA)
+    ),
+    "复古怀旧" to listOf(
+        0.0f to Color(0xFF2E1C0C),
+        0.4f to Color(0xFF704E2E),
+        0.75f to Color(0xFFC4A47C),
+        1.0f to Color(0xFFFBF4E8)
+    ),
+    "烈焰熔岩" to listOf(
+        0.0f to Color(0xFF100000),
+        0.3f to Color(0xFF800000),
+        0.65f to Color(0xFFFF4500),
+        1.0f to Color(0xFFFFFF80)
+    ),
+    "梦幻粉紫" to listOf(
+        0.0f to Color(0xFF2D1436),
+        0.45f to Color(0xFF8B5E83),
+        0.8f to Color(0xFFE8B4B8),
+        1.0f to Color(0xFFFFF0F5)
+    ),
+    "森系翠绿" to listOf(
+        0.0f to Color(0xFF0A2218),
+        0.4f to Color(0xFF1B5E3C),
+        0.75f to Color(0xFF7CB342),
+        1.0f to Color(0xFFF1F8E9)
+    ),
+    "黑白胶片" to listOf(
+        0.0f to Color(0xFF000000),
+        0.5f to Color(0xFF808080),
+        1.0f to Color(0xFFFFFFFF)
+    ),
+)
+
+private fun generateGradientLUT(stops: List<Pair<Float, Color>>, reverse: Boolean): IntArray {
+    val sorted = stops.sortedBy { it.first }
+    val lut = IntArray(256)
+    if (sorted.isEmpty()) {
+        for (i in 0..255) lut[i] = (0xFF shl 24) or (i shl 16) or (i shl 8) or i
+        return lut
+    }
+    for (i in 0..255) {
+        val t = if (reverse) (255 - i) / 255f else i / 255f
+        val col = when {
+            t <= sorted.first().first -> sorted.first().second
+            t >= sorted.last().first -> sorted.last().second
+            else -> {
+                val idx = sorted.indexOfFirst { it.first >= t }.coerceAtLeast(1)
+                val s0 = sorted[idx - 1]
+                val s1 = sorted[idx]
+                val span = s1.first - s0.first
+                val factor = if (span > 0f) (t - s0.first) / span else 0f
+                Color(
+                    red = s0.second.red + factor * (s1.second.red - s0.second.red),
+                    green = s0.second.green + factor * (s1.second.green - s0.second.green),
+                    blue = s0.second.blue + factor * (s1.second.blue - s0.second.blue),
+                    alpha = s0.second.alpha + factor * (s1.second.alpha - s0.second.alpha),
+                )
+            }
+        }
+        val a = (col.alpha * 255).toInt().coerceIn(0, 255)
+        val r = (col.red * 255).toInt().coerceIn(0, 255)
+        val g = (col.green * 255).toInt().coerceIn(0, 255)
+        val b = (col.blue * 255).toInt().coerceIn(0, 255)
+        lut[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
+    }
+    return lut
+}
+
+// ---------------------------------------------------------------------------
+// Filter Adjust Page (All Filter Controls)
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -1935,7 +2446,22 @@ private fun FilterAdjustPage(
 ) {
     var isPreview by remember { mutableStateOf(true) }
 
-    // Filter params
+    // Curves state: channel -> list of control points
+    val curveChannels = remember {
+        mutableStateMapOf<Int, MutableList<Offset>>(
+            0 to mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f)), // Master RGB
+            1 to mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f)), // Red
+            2 to mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f)), // Green
+            3 to mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))  // Blue
+        )
+    }
+    var activeCurveChannel by remember { mutableIntStateOf(0) }
+
+    // Gradient Map state
+    var selectedGradientPreset by remember { mutableIntStateOf(0) }
+    var reverseGradient by remember { mutableStateOf(false) }
+
+    // Standard Sliders
     var hue by remember { mutableFloatStateOf(0f) }
     var sat by remember { mutableFloatStateOf(1f) }
     var bright by remember { mutableFloatStateOf(1f) }
@@ -1953,41 +2479,64 @@ private fun FilterAdjustPage(
     var noiseAmt by remember { mutableFloatStateOf(20f) }
     var glitchOffset by remember { mutableFloatStateOf(8f) }
 
-    // Curves
-    var curveShadow by remember { mutableFloatStateOf(64f) }
-    var curveMid by remember { mutableFloatStateOf(128f) }
-    var curveHigh by remember { mutableFloatStateOf(192f) }
-    var curveChannel by remember { mutableIntStateOf(0) }
-
-    // Levels
     var levelBlack by remember { mutableFloatStateOf(0f) }
     var levelWhite by remember { mutableFloatStateOf(255f) }
     var levelGamma by remember { mutableFloatStateOf(1.0f) }
 
-    // Color Temperature & Tint
     var tempVal by remember { mutableFloatStateOf(0f) }
     var tintVal by remember { mutableFloatStateOf(0f) }
-
-    // Threshold
     var thresholdVal by remember { mutableFloatStateOf(128f) }
-
-    // Posterize
     var posterizeLevels by remember { mutableFloatStateOf(4f) }
 
-    // Bloom / Glow
     var bloomThresh by remember { mutableFloatStateOf(180f) }
     var bloomRadius by remember { mutableFloatStateOf(15f) }
     var bloomIntensity by remember { mutableFloatStateOf(1.2f) }
 
-    // Drop Shadow
     var shadowAngle by remember { mutableFloatStateOf(45f) }
     var shadowDist by remember { mutableFloatStateOf(12f) }
     var shadowRadius by remember { mutableFloatStateOf(10f) }
     var shadowOpacity by remember { mutableFloatStateOf(0.6f) }
 
+    var oilRadius by remember { mutableFloatStateOf(3f) }
+    var radialBlurAmt by remember { mutableFloatStateOf(15f) }
+    var halftoneDotSize by remember { mutableFloatStateOf(10f) }
+    var exposureVal by remember { mutableFloatStateOf(0f) }
+    var exposureGamma by remember { mutableFloatStateOf(1.0f) }
+    var edgeGlowStrength by remember { mutableFloatStateOf(2.0f) }
+    var defocusRadius by remember { mutableFloatStateOf(8f) }
+    var lumOpacityInvert by remember { mutableStateOf(false) }
+
+    fun sendCurvesPreview() {
+        if (!isPreview) return
+        val lutMaster = calculateMonotoneCubicSplineLUT(curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutR = calculateMonotoneCubicSplineLUT(curveChannels[1] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutG = calculateMonotoneCubicSplineLUT(curveChannels[2] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutB = calculateMonotoneCubicSplineLUT(curveChannels[3] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+
+        val finalR = ByteArray(256)
+        val finalG = ByteArray(256)
+        val finalB = ByteArray(256)
+        for (i in 0..255) {
+            val mVal = lutMaster[i].toInt() and 0xFF
+            finalR[i] = lutR[mVal]
+            finalG[i] = lutG[mVal]
+            finalB[i] = lutB[mVal]
+        }
+        vm.applyCurvesLUTPreview(index, finalR, finalG, finalB)
+    }
+
+    fun sendGradientMapPreview() {
+        if (!isPreview) return
+        val stops = GRADIENT_PRESETS[selectedGradientPreset.coerceIn(0, GRADIENT_PRESETS.size - 1)].second
+        val lut = generateGradientLUT(stops, reverseGradient)
+        vm.applyGradientMapPreview(index, lut)
+    }
+
     fun sendPreview() {
         if (!isPreview) return
         when (filterId) {
+            13 -> sendCurvesPreview()
+            30 -> sendGradientMapPreview()
             0 -> vm.applyFilterPreview(index, 0, hue.toDouble(), sat.toDouble(), bright.toDouble(), contrast.toDouble())
             1 -> vm.applyFilterPreview(index, 1, cr.toDouble(), mg.toDouble(), yb.toDouble(), 0.0)
             2 -> vm.applyFilterPreview(index, 2, blurRadius.toDouble(), 0.0, 0.0, 0.0)
@@ -2001,13 +2550,19 @@ private fun FilterAdjustPage(
             10 -> vm.applyFilterPreview(index, 10, noiseAmt.toDouble(), 0.0, 0.0, 0.0)
             11 -> vm.applyFilterPreview(index, 11, glitchOffset.toDouble(), 0.0, 0.0, 0.0)
             12 -> vm.applyFilter(index, 0)
-            13 -> vm.applyFilterPreview(index, 13, curveShadow.toDouble(), curveMid.toDouble(), curveHigh.toDouble(), curveChannel.toDouble())
             14 -> vm.applyFilterPreview(index, 14, levelBlack.toDouble(), levelWhite.toDouble(), levelGamma.toDouble(), 0.0)
             15 -> vm.applyFilterPreview(index, 15, tempVal.toDouble(), tintVal.toDouble(), 0.0, 0.0)
             16 -> vm.applyFilterPreview(index, 16, thresholdVal.toDouble(), 0.0, 0.0, 0.0)
             17 -> vm.applyFilterPreview(index, 17, posterizeLevels.toDouble(), 0.0, 0.0, 0.0)
             18 -> vm.applyFilterPreview(index, 18, bloomThresh.toDouble(), bloomRadius.toDouble(), bloomIntensity.toDouble(), 0.0)
             19 -> vm.applyFilterPreview(index, 19, shadowAngle.toDouble(), shadowDist.toDouble(), shadowRadius.toDouble(), shadowOpacity.toDouble())
+            20 -> vm.applyFilterPreview(index, 20, if (lumOpacityInvert) 1.0 else 0.0, 0.0, 0.0, 0.0)
+            21 -> vm.applyFilterPreview(index, 21, oilRadius.toDouble(), 0.0, 0.0, 0.0)
+            22 -> vm.applyFilterPreview(index, 22, radialBlurAmt.toDouble(), 0.5, 0.5, 0.0)
+            23 -> vm.applyFilterPreview(index, 23, halftoneDotSize.toDouble(), 0.0, 0.0, 0.0)
+            24 -> vm.applyFilterPreview(index, 24, exposureVal.toDouble(), exposureGamma.toDouble(), 0.0, 0.0)
+            25 -> vm.applyFilterPreview(index, 25, edgeGlowStrength.toDouble(), 0.0, 0.0, 0.0)
+            26 -> vm.applyFilterPreview(index, 26, defocusRadius.toDouble(), 0.0, 0.0, 0.0)
         }
     }
 
@@ -2069,17 +2624,22 @@ private fun FilterAdjustPage(
                         .size(28.dp)
                         .clip(RoundedCornerShape(6.dp))
                         .noRippleClickable {
+                            curveChannels.forEach { (_, list) ->
+                                list.clear()
+                                list.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
+                            }
+                            selectedGradientPreset = 0
+                            reverseGradient = false
                             hue = 0f; sat = 1f; bright = 1f; contrast = 1f
                             cr = 0f; mg = 0f; yb = 0f
                             blurRadius = 8f; motionAngle = 0f; motionDist = 12f
                             sharpenAmt = 1.0f; mosaicSize = 10f; noiseAmt = 20f; glitchOffset = 8f
-                            curveShadow = 64f; curveMid = 128f; curveHigh = 192f; curveChannel = 0
                             levelBlack = 0f; levelWhite = 255f; levelGamma = 1.0f
-                            tempVal = 0f; tintVal = 0f
-                            thresholdVal = 128f
-                            posterizeLevels = 4f
+                            tempVal = 0f; tintVal = 0f; thresholdVal = 128f; posterizeLevels = 4f
                             bloomThresh = 180f; bloomRadius = 15f; bloomIntensity = 1.2f
                             shadowAngle = 45f; shadowDist = 12f; shadowRadius = 10f; shadowOpacity = 0.6f
+                            oilRadius = 3f; radialBlurAmt = 15f; halftoneDotSize = 10f; exposureVal = 0f; exposureGamma = 1.0f
+                            edgeGlowStrength = 2.0f; defocusRadius = 8f; lumOpacityInvert = false
                             sendPreview()
                         },
                     contentAlignment = Alignment.Center
@@ -2135,14 +2695,149 @@ private fun FilterAdjustPage(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        // Sliders content based on filter type
+        // Filter Content Body
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 6.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             when (filterId) {
+                13 -> { // Real 2D Curves Graph
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("RGB" to 0, "红 (R)" to 1, "绿 (G)" to 2, "蓝 (B)" to 3).forEach { (name, ch) ->
+                            val isSel = (activeCurveChannel == ch)
+                            val chColor = when (ch) {
+                                1 -> Color(0xFFFF5252)
+                                2 -> Color(0xFF4CAF50)
+                                3 -> Color(0xFF448AFF)
+                                else -> Morandi.accent
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSel) chColor.copy(alpha = 0.25f) else Morandi.panelHi)
+                                    .border(
+                                        1.dp,
+                                        if (isSel) chColor else Color.Transparent,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .noRippleClickable {
+                                        activeCurveChannel = ch
+                                    }
+                                    .padding(vertical = 5.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    name,
+                                    color = if (isSel) chColor else Morandi.subText,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    RealCurvesGraph(
+                        channelPoints = curveChannels,
+                        activeChannel = activeCurveChannel,
+                        onCurveChanged = { sendCurvesPreview() }
+                    )
+                }
+                30 -> { // Gradient Map
+                    val curStops = GRADIENT_PRESETS[selectedGradientPreset.coerceIn(0, GRADIENT_PRESETS.size - 1)].second
+                    val gradientBrush = remember(selectedGradientPreset, reverseGradient) {
+                        val activeStops = if (reverseGradient) curStops.reversed().map { (1f - it.first) to it.second } else curStops
+                        Brush.horizontalGradient(activeStops.map { it.second })
+                    }
+
+                    // Continuous Gradient Strip
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(gradientBrush)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("反向渐变", color = Morandi.text, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (reverseGradient) Morandi.accent else Morandi.panelHi)
+                                .noRippleClickable {
+                                    reverseGradient = !reverseGradient
+                                    sendGradientMapPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (reverseGradient) "已反转" else "正常",
+                                color = if (reverseGradient) Color.White else Morandi.subText,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Text("渐变预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+
+                    // Preset Palettes Grid
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GRADIENT_PRESETS.chunked(2).forEach { rowPresets ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                rowPresets.forEach { (name, stops) ->
+                                    val idx = GRADIENT_PRESETS.indexOfFirst { it.first == name }
+                                    val isSel = (selectedGradientPreset == idx)
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Morandi.panelHi)
+                                            .border(
+                                                1.5.dp,
+                                                if (isSel) Morandi.accent else Morandi.border,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .noRippleClickable {
+                                                selectedGradientPreset = idx
+                                                sendGradientMapPreview()
+                                            }
+                                            .padding(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp, 16.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Brush.horizontalGradient(stops.map { it.second }))
+                                        )
+                                        Text(
+                                            name,
+                                            color = if (isSel) Morandi.accent else Morandi.text,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 0 -> { // HSBC
                     FilterSliderRow(
                         label = "色相",
@@ -2265,53 +2960,6 @@ private fun FilterAdjustPage(
                         onValue = { glitchOffset = it; sendPreview() }
                     )
                 }
-                13 -> { // Curves
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("RGB" to 0, "红" to 1, "绿" to 2, "蓝" to 3).forEach { (name, ch) ->
-                            val isSel = curveChannel == ch
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) Morandi.accent else Morandi.panelHi)
-                                    .noRippleClickable { curveChannel = ch; sendPreview() }
-                                    .padding(vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    name,
-                                    color = if (isSel) Color.White else Morandi.subText,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                    FilterSliderRow(
-                        label = "暗部控制点",
-                        value = curveShadow,
-                        valueRange = 0f..255f,
-                        valueText = "${curveShadow.roundToInt()}",
-                        onValue = { curveShadow = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "中间调控制点",
-                        value = curveMid,
-                        valueRange = 0f..255f,
-                        valueText = "${curveMid.roundToInt()}",
-                        onValue = { curveMid = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "高光控制点",
-                        value = curveHigh,
-                        valueRange = 0f..255f,
-                        valueText = "${curveHigh.roundToInt()}",
-                        onValue = { curveHigh = it; sendPreview() }
-                    )
-                }
                 14 -> { // Levels
                     FilterSliderRow(
                         label = "输入黑场",
@@ -2423,6 +3071,92 @@ private fun FilterAdjustPage(
                         valueRange = 0f..1f,
                         valueText = "${(shadowOpacity * 100).roundToInt()}%",
                         onValue = { shadowOpacity = it; sendPreview() }
+                    )
+                }
+                20 -> { // Luminance to Opacity
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("反转亮度关系 (暗部不透明)", color = Morandi.text, fontSize = 12.sp)
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (lumOpacityInvert) Morandi.accent else Morandi.panelHi)
+                                .noRippleClickable {
+                                    lumOpacityInvert = !lumOpacityInvert
+                                    sendPreview()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (lumOpacityInvert) "反转" else "默认",
+                                color = if (lumOpacityInvert) Color.White else Morandi.subText,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                21 -> { // Oil Paint
+                    FilterSliderRow(
+                        label = "写生油画半径",
+                        value = oilRadius,
+                        valueRange = 1f..8f,
+                        valueText = "${oilRadius.roundToInt()} px",
+                        onValue = { oilRadius = it; sendPreview() }
+                    )
+                }
+                22 -> { // Radial / Zoom Blur
+                    FilterSliderRow(
+                        label = "聚焦辐射强度",
+                        value = radialBlurAmt,
+                        valueRange = 1f..50f,
+                        valueText = "${radialBlurAmt.roundToInt()}",
+                        onValue = { radialBlurAmt = it; sendPreview() }
+                    )
+                }
+                23 -> { // Halftone
+                    FilterSliderRow(
+                        label = "网点单元大小",
+                        value = halftoneDotSize,
+                        valueRange = 4f..24f,
+                        valueText = "${halftoneDotSize.roundToInt()} px",
+                        onValue = { halftoneDotSize = it; sendPreview() }
+                    )
+                }
+                24 -> { // Exposure & Gamma
+                    FilterSliderRow(
+                        label = "曝光值 (EV)",
+                        value = exposureVal,
+                        valueRange = -3.0f..3.0f,
+                        valueText = String.format(Locale.getDefault(), "%+.1f EV", exposureVal),
+                        onValue = { exposureVal = it; sendPreview() }
+                    )
+                    FilterSliderRow(
+                        label = "伽马校正",
+                        value = exposureGamma,
+                        valueRange = 0.2f..3.0f,
+                        valueText = String.format(Locale.getDefault(), "%.2f", exposureGamma),
+                        onValue = { exposureGamma = it; sendPreview() }
+                    )
+                }
+                25 -> { // Edge Glow
+                    FilterSliderRow(
+                        label = "荧光发光强度",
+                        value = edgeGlowStrength,
+                        valueRange = 1.0f..5.0f,
+                        valueText = String.format(Locale.getDefault(), "%.1f", edgeGlowStrength),
+                        onValue = { edgeGlowStrength = it; sendPreview() }
+                    )
+                }
+                26 -> { // Defocus Blur
+                    FilterSliderRow(
+                        label = "光圈散焦半径",
+                        value = defocusRadius,
+                        valueRange = 1f..30f,
+                        valueText = "${defocusRadius.roundToInt()} px",
+                        onValue = { defocusRadius = it; sendPreview() }
                     )
                 }
                 else -> {

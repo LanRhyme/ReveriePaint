@@ -125,6 +125,8 @@ public:
     void applyFilter(int index, int filterId);
     void beginFilterPreview(int index);
     void applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4);
+    void applyCurvesLUTPreview(int index, const quint8 *lutR, const quint8 *lutG, const quint8 *lutB);
+    void applyGradientMapPreview(int index, const quint32 *gradientLut256);
     void commitFilter(int index, const QString &filterName);
     void cancelFilter(int index);
 

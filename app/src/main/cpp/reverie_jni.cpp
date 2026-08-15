@@ -1009,6 +1009,28 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyFilterPreview(JNIEnv *, jobje
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyCurvesLUTPreview(JNIEnv *env, jobject, jint index, jbyteArray lutR, jbyteArray lutG, jbyteArray lutB)
+{
+    if (!lutR || !lutG || !lutB) return;
+    jbyte *r = env->GetByteArrayElements(lutR, nullptr);
+    jbyte *g = env->GetByteArrayElements(lutG, nullptr);
+    jbyte *b = env->GetByteArrayElements(lutB, nullptr);
+    core()->applyCurvesLUTPreview(index, reinterpret_cast<const quint8 *>(r), reinterpret_cast<const quint8 *>(g), reinterpret_cast<const quint8 *>(b));
+    env->ReleaseByteArrayElements(lutR, r, JNI_ABORT);
+    env->ReleaseByteArrayElements(lutG, g, JNI_ABORT);
+    env->ReleaseByteArrayElements(lutB, b, JNI_ABORT);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyGradientMapPreview(JNIEnv *env, jobject, jint index, jintArray gradientLut)
+{
+    if (!gradientLut) return;
+    jint *lut = env->GetIntArrayElements(gradientLut, nullptr);
+    core()->applyGradientMapPreview(index, reinterpret_cast<const quint32 *>(lut));
+    env->ReleaseIntArrayElements(gradientLut, lut, JNI_ABORT);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_commitFilter(JNIEnv *env, jobject, jint index, jstring filterName)
 {
     QString fn = QStringLiteral("Filter");

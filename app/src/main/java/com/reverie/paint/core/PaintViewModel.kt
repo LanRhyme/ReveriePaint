@@ -2508,6 +2508,28 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun applyCurvesLUTPreview(index: Int, lutR: ByteArray, lutG: ByteArray, lutB: ByteArray) {
+        filterPreviewJob?.cancel()
+        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
+            runCore(after = {
+                scheduleRender(immediate = true)
+            }) {
+                ReverieCoreBridge.applyCurvesLUTPreview(index, lutR, lutG, lutB)
+            }
+        }
+    }
+
+    fun applyGradientMapPreview(index: Int, gradientLut: IntArray) {
+        filterPreviewJob?.cancel()
+        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
+            runCore(after = {
+                scheduleRender(immediate = true)
+            }) {
+                ReverieCoreBridge.applyGradientMapPreview(index, gradientLut)
+            }
+        }
+    }
+
     fun commitFilter(index: Int, filterName: String) {
         isFilterAdjustActive = false
         filterPreviewJob?.cancel()

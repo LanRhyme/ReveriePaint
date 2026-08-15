@@ -383,7 +383,8 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
     external fun beginFilterPreview(index: Int)
 
     external fun applyFilterPreview(index: Int, filterType: Int, p1: Double, p2: Double, p3: Double, p4: Double)
-
+    external fun applyCurvesLUTPreview(index: Int, lutR: ByteArray, lutG: ByteArray, lutB: ByteArray)
+    external fun applyGradientMapPreview(index: Int, gradientLut: IntArray)
     external fun commitFilter(index: Int, filterName: String)
 
     external fun cancelFilter(index: Int)
