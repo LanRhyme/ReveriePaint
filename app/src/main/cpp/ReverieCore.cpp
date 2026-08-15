@@ -2517,26 +2517,27 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 21: { // Oil Paint / Kuwahara filter: p1 = radius (1..8)
-        const int rad = qBound(1, int(p1), 8);
-        QImage tmp = img.copy();
+    case 21: { // Oil Paint / Kuwahara filter: p1 = radius (1..5)
+        const int rad = qBound(1, int(p1), 5);
+        QVector<quint32> buffer(w * h);
+        memcpy(buffer.data(), img.constBits(), w * h * 4);
+        const quint32 *src = buffer.constData();
+
         filterParallelFor(0, h, [&](int startY, int endY) {
+            const int quadBounds[4][4] = {
+                {-rad, 0, -rad, 0},
+                {0, rad, -rad, 0},
+                {-rad, 0, 0, rad},
+                {0, rad, 0, rad}
+            };
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint8 *target = dst + x * 4;
                     if (target[3] == 0) continue;
 
-                    // 4 quadrants: (dx, dy) in [-rad, 0] or [0, rad]
                     int minVar = 0x7FFFFFFF;
                     int bestR = target[2], bestG = target[1], bestB = target[0];
-
-                    const int quadBounds[4][4] = {
-                        {-rad, 0, -rad, 0},
-                        {0, rad, -rad, 0},
-                        {-rad, 0, 0, rad},
-                        {0, rad, 0, rad}
-                    };
 
                     for (int q = 0; q < 4; ++q) {
                         int qx0 = quadBounds[q][0], qx1 = quadBounds[q][1];
@@ -2546,11 +2547,13 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
 
                         for (int dy = qy0; dy <= qy1; ++dy) {
                             int ny = qBound(0, y + dy, h - 1);
-                            const quint8 *row = tmp.constScanLine(ny);
+                            int rowOff = ny * w;
                             for (int dx = qx0; dx <= qx1; ++dx) {
                                 int nx = qBound(0, x + dx, w - 1);
-                                const quint8 *p = row + nx * 4;
-                                int r = p[2], g = p[1], b = p[0];
+                                quint32 c = src[rowOff + nx];
+                                int r = (c >> 16) & 0xFF;
+                                int g = (c >> 8) & 0xFF;
+                                int b = c & 0xFF;
                                 sumR += r; sumG += g; sumB += b;
                                 sumSqR += r * r; sumSqG += g * g; sumSqB += b * b;
                                 count++;
@@ -2697,49 +2700,13 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
     case 26: { // Lens / Defocus Blur: p1 = radius (1..30)
         const int rad = qBound(1, int(p1), 30);
         QVector<quint32> buffer(w * h);
+        QVector<quint32> tmp(w * h);
         memcpy(buffer.data(), img.constBits(), w * h * 4);
-        const quint32 *srcData = buffer.constData();
-        quint32 *dstData = reinterpret_cast<quint32 *>(img.bits());
-        const double radSq = rad * rad;
-
-        filterParallelFor(0, h, [&](int startY, int endY) {
-            for (int y = startY; y < endY; ++y) {
-                for (int x = 0; x < w; ++x) {
-                    int sumA = 0, sumRA = 0, sumGA = 0, sumBA = 0;
-                    int count = 0;
-                    for (int dy = -rad; dy <= rad; ++dy) {
-                        for (int dx = -rad; dx <= rad; ++dx) {
-                            if (dx * dx + dy * dy <= radSq) {
-                                int nx = qBound(0, x + dx, w - 1);
-                                int ny = qBound(0, y + dy, h - 1);
-                                quint32 c = srcData[ny * w + nx];
-                                int a = (c >> 24) & 0xFF;
-                                int r = (c >> 16) & 0xFF;
-                                int g = (c >> 8) & 0xFF;
-                                int b = c & 0xFF;
-                                sumA += a;
-                                sumRA += r * a;
-                                sumGA += g * a;
-                                sumBA += b * a;
-                                count++;
-                            }
-                        }
-                    }
-                    if (sumA > 0 && count > 0) {
-                        int finalA = sumA / count;
-                        int finalR = qBound(0, sumRA / sumA, 255);
-                        int finalG = qBound(0, sumGA / sumA, 255);
-                        int finalB = qBound(0, sumBA / sumA, 255);
-                        dstData[y * w + x] = (quint32(finalA) << 24) |
-                                             (quint32(finalR) << 16) |
-                                             (quint32(finalG) << 8) |
-                                             quint32(finalB);
-                    } else {
-                        dstData[y * w + x] = 0;
-                    }
-                }
-            }
-        });
+        int rBox = qMax(1, int(rad * 0.7));
+        boxBlurH(buffer.constData(), tmp.data(), w, h, rBox);
+        boxBlurV(tmp.constData(), buffer.data(), w, h, rBox);
+        boxBlurH(buffer.constData(), tmp.data(), w, h, rBox);
+        boxBlurV(tmp.constData(), reinterpret_cast<quint32 *>(img.bits()), w, h, rBox);
         break;
     }
     case 27: { // Shadows & Highlights (阴影与高光): p1 = shadows boost(0..100), p2 = highlights reduce(0..100)
@@ -2877,9 +2844,9 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         });
         break;
     }
-    case 33: { // Surface Blur / Bilateral Filter (保边平滑磨皮): p1 = radius(1..15), p2 = threshold(5..80)
-        const int rad = qBound(1, int(p1), 15);
-        const double threshSq = qMax(1.0, p2 * p2);
+    case 33: { // Surface Blur / Bilateral Filter (保边平滑磨皮): p1 = radius(1..6), p2 = threshold(5..80)
+        const int rad = qBound(1, int(p1), 6);
+        const double maxDistSq = qMax(1.0, p2 * p2 * 3.0);
         QVector<quint32> buffer(w * h);
         memcpy(buffer.data(), img.constBits(), w * h * 4);
         const quint32 *srcData = buffer.constData();
@@ -2903,19 +2870,20 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
 
                     for (int dy = -rad; dy <= rad; ++dy) {
                         int ny = qBound(0, y + dy, h - 1);
+                        int rowOff = ny * w;
                         for (int dx = -rad; dx <= rad; ++dx) {
                             int nx = qBound(0, x + dx, w - 1);
-                            quint32 p = srcData[ny * w + nx];
+                            quint32 p = srcData[rowOff + nx];
+                            int pa = (p >> 24) & 0xFF;
+                            if (pa == 0) continue;
                             int pr = (p >> 16) & 0xFF;
                             int pg = (p >> 8) & 0xFF;
                             int pb = p & 0xFF;
-                            int pa = (p >> 24) & 0xFF;
-                            if (pa == 0) continue;
 
-                            double spatialDistSq = dx * dx + dy * dy;
                             double colorDistSq = (pr - cr) * (pr - cr) + (pg - cg) * (pg - cg) + (pb - cb) * (pb - cb);
-                            if (colorDistSq <= threshSq * 3.0) {
-                                double wVal = exp(-colorDistSq / threshSq);
+                            if (colorDistSq <= maxDistSq) {
+                                double diff = 1.0 - (colorDistSq / maxDistSq);
+                                double wVal = diff * diff;
                                 sumWeight += wVal;
                                 sumR += pr * wVal;
                                 sumG += pg * wVal;

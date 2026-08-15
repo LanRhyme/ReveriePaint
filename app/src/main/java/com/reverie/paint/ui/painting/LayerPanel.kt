@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
@@ -2365,11 +2366,14 @@ private fun RealCurvesGraph(
 // Custom Gradient Map Presets & Editor Component
 // ---------------------------------------------------------------------------
 
-data class CustomGradStop(
+class CustomGradStop(
     val id: Long,
-    var pos: Float, // 0.0 .. 1.0
-    var color: Color
-)
+    initialPos: Float,
+    initialColor: Color
+) {
+    var pos by mutableFloatStateOf(initialPos)
+    var color by mutableStateOf(initialColor)
+}
 
 private val GRADIENT_PRESETS = listOf(
     "日落暖金" to listOf(
@@ -2473,7 +2477,7 @@ private fun CustomGradientEditor(
     var selectedStopId by remember { mutableLongStateOf(stops.firstOrNull()?.id ?: 0L) }
     val currentOnGradientChanged by rememberUpdatedState(onGradientChanged)
 
-    val sortedStops = remember(stops.toList(), stops.map { it.pos to it.color }) {
+    val sortedStops = remember(stops.size, stops.map { it.pos to it.color.value }) {
         stops.sortedBy { it.pos }
     }
 
@@ -2491,16 +2495,16 @@ private fun CustomGradientEditor(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(36.dp)
+                    .height(32.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(gradientBrush)
                     .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                     .pointerInput(Unit) {
                         detectTapGestures { tapOffset ->
                             val pos = (tapOffset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                            // Sample color at pos
                             val sorted = stops.sortedBy { it.pos }
                             val col = when {
+                                sorted.isEmpty() -> Color.White
                                 pos <= sorted.first().pos -> sorted.first().color
                                 pos >= sorted.last().pos -> sorted.last().color
                                 else -> {
@@ -2526,54 +2530,72 @@ private fun CustomGradientEditor(
             )
 
             // Stop handles row
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(28.dp)
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            down.consume()
-                            val w = size.width.toFloat()
-                            val touchX = down.position.x
+            ) {
+                val totalWidthPx = constraints.maxWidth.toFloat()
+                val density = LocalDensity.current
+                val handleSizeDp = 20.dp
+                val handleSizePx = with(density) { handleSizeDp.toPx() }
+                val travelPx = (totalWidthPx - handleSizePx).coerceAtLeast(1f)
 
-                            val hitRadius = 24f * density
-                            val nearest = stops.minByOrNull { kotlin.math.abs(it.pos * w - touchX) }
-                            if (nearest != null && kotlin.math.abs(nearest.pos * w - touchX) <= hitRadius) {
-                                selectedStopId = nearest.id
-                                val targetStop = nearest
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                down.consume()
+                                val touchX = down.position.x
 
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!change.pressed) break
-                                    change.consume()
+                                val hitRadius = 28f * density.density
+                                val nearest = stops.minByOrNull {
+                                    val hCenter = it.pos * travelPx + handleSizePx * 0.5f
+                                    kotlin.math.abs(hCenter - touchX)
+                                }
+                                if (nearest != null) {
+                                    val hCenter = nearest.pos * travelPx + handleSizePx * 0.5f
+                                    if (kotlin.math.abs(hCenter - touchX) <= hitRadius) {
+                                        selectedStopId = nearest.id
+                                        val targetStop = nearest
 
-                                    targetStop.pos = (change.position.x / w).coerceIn(0f, 1f)
-                                    currentOnGradientChanged()
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!change.pressed) break
+                                            change.consume()
+
+                                            val newPos = ((change.position.x - handleSizePx * 0.5f) / travelPx).coerceIn(0f, 1f)
+                                            targetStop.pos = newPos
+                                            currentOnGradientChanged()
+                                        }
+                                    }
                                 }
                             }
                         }
-                    }
-            ) {
-                stops.forEach { stop ->
-                    val isSel = (stop.id == selectedStopId)
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .offset(x = (LocalDensity.current.run { (stop.pos * 100).dp }) - 10.dp)
-                            .size(20.dp)
-                            .clip(CircleShape)
-                            .background(Morandi.bg)
-                            .border(2.dp, if (isSel) Morandi.accent else Color.White, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
+                ) {
+                    stops.forEach { stop ->
+                        val isSel = (stop.id == selectedStopId)
+                        val offsetPx = (stop.pos * travelPx).roundToInt()
                         Box(
                             modifier = Modifier
-                                .size(12.dp)
+                                .align(Alignment.CenterStart)
+                                .offset { androidx.compose.ui.unit.IntOffset(offsetPx, 0) }
+                                .size(handleSizeDp)
                                 .clip(CircleShape)
-                                .background(stop.color)
-                        )
+                                .background(Morandi.bg)
+                                .border(2.dp, if (isSel) Morandi.accent else Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .clip(CircleShape)
+                                    .background(stop.color)
+                            )
+                        }
                     }
                 }
             }
@@ -2592,10 +2614,10 @@ private fun CustomGradientEditor(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(4.dp))
                             .background(activeStop.color)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(5.dp))
+                            .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
                     )
                     Text(
                         "色标位置: ${(activeStop.pos * 100).roundToInt()}%",
@@ -2634,46 +2656,47 @@ private fun CustomGradientEditor(
                 }
             }
 
-            // Quick Color Palette Swatches
-            Text("自定义当前色标颜色", color = Morandi.subText, fontSize = 11.sp)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                SWATCH_COLORS.take(8).forEach { swatch ->
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(swatch)
-                            .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
-                            .noRippleClickable {
-                                activeStop.color = swatch
-                                currentOnGradientChanged()
-                            }
-                    )
+            // Quick Color Palette Swatches (compact 2 rows of 8)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    SWATCH_COLORS.take(8).forEach { swatch ->
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(swatch)
+                                .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
+                                .noRippleClickable {
+                                    activeStop.color = swatch
+                                    currentOnGradientChanged()
+                                }
+                        )
+                    }
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                SWATCH_COLORS.drop(8).forEach { swatch ->
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(swatch)
-                            .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
-                            .noRippleClickable {
-                                activeStop.color = swatch
-                                currentOnGradientChanged()
-                            }
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    SWATCH_COLORS.drop(8).forEach { swatch ->
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(swatch)
+                                .border(1.5.dp, if (activeStop.color == swatch) Morandi.accent else Color.Transparent, CircleShape)
+                                .noRippleClickable {
+                                    activeStop.color = swatch
+                                    currentOnGradientChanged()
+                                }
+                        )
+                    }
                 }
             }
 
-            // RGB Channel Sliders for Fine Tuning
+            // RGB Channel Sliders for Fine Tuning (compact heights)
             FilterSliderRow(
                 label = "红色 (R)",
                 value = activeStop.color.red * 255f,
@@ -2711,8 +2734,8 @@ private fun CustomGradientEditor(
 
         Text("载入经典预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
 
-        // Preset Palettes Grid
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Preset Palettes Grid (compact 2-column layout)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             GRADIENT_PRESETS.chunked(2).forEach { rowPresets ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2722,9 +2745,9 @@ private fun CustomGradientEditor(
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.panelHi)
-                                .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                                .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                                 .noRippleClickable {
                                     stops.clear()
                                     presetStops.forEachIndexed { i, p ->
@@ -2733,20 +2756,20 @@ private fun CustomGradientEditor(
                                     selectedStopId = stops.first().id
                                     currentOnGradientChanged()
                                 }
-                                .padding(6.dp),
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(24.dp, 16.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .size(20.dp, 12.dp)
+                                    .clip(RoundedCornerShape(3.dp))
                                     .background(Brush.horizontalGradient(presetStops.map { it.second }))
                             )
                             Text(
                                 name,
                                 color = Morandi.text,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontWeight = FontWeight.Normal,
                                 maxLines = 1
                             )
@@ -3068,6 +3091,8 @@ private fun FilterAdjustPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(max = 420.dp)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
