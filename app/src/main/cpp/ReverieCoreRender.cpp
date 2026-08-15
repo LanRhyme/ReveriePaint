@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreRender.cpp - Rendering: composite projection to bitmap, flood fill, color pick, shapes
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)

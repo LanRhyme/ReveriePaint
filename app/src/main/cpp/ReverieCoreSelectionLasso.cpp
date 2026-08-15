@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreSelectionLasso.cpp - Lasso tools: magnetic lasso, free lasso select/fill/clear
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to, int radius)

@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreIO.cpp - File I/O: PSD save/load, thumbnails, project serialization
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 bool ReverieCore::savePng(const QString &path)

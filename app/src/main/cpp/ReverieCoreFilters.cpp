@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreFilters.cpp - Filter entry points: applyFilter, beginFilterPreview, commitFilter, cancelFilter
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::applyFilter(int index, int filterId)

@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreFilterPreviewFx.cpp - Filter preview FX cases (19-34): shadow, neon, ripple, twirl, scanlines...
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreInternal.h"
 

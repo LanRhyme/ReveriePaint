@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreDocument.cpp - Document lifecycle: create/open/resize/close, doc metrics and display pipeline
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 #include <future>

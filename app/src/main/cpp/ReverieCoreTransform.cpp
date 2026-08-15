@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreTransform.cpp - Transforms: free/perspective/distort/warp mesh preview and commit
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 bool ReverieCore::applyPerspectiveTransform(

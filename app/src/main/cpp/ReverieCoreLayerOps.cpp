@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreLayerOps.cpp - Layer operations: copy, merge, rasterize, flatten, flip, pass-through, solo, background
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::flipLayerHorizontal(int index)

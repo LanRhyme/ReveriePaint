@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreStroke.cpp - Stroke batching: touchStart/Move/End/Cancel, undo command push, stroke blending
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)

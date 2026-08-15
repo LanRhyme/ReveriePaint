@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreFilterPreview.cpp - Filter preview dispatch (color filters 0-18) on the backup device
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 

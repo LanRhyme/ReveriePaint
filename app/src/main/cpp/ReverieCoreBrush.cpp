@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreBrush.cpp - Brush engine: paintop registration, pressure response, brush lifecycle
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::registerPaintOps()

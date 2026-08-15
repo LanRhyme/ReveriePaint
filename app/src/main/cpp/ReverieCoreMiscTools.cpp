@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreMiscTools.cpp - Misc tools: crop, draw text, liquify
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)

@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreLayers.cpp - Layer list management: add/remove/reorder, visibility, blend modes, groups, masks, locking
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 int ReverieCore::indexOfNode(KisNode *node) const

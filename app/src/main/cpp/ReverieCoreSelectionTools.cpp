@@ -1,3 +1,8 @@
+/* ============================================================
+ * ReverieCoreSelectionTools.cpp - Selection tools: magic wand, select-similar, contiguous fill, color-distance
+ * (part of the ReverieCore module split; shared helpers live in
+ * ReverieCoreInternal.h, public API in ReverieCore.h)
+ * ============================================================ */
 #include "ReverieCoreInternal.h"
 
 void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
