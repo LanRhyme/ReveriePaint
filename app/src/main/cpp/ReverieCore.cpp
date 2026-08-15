@@ -101,12 +101,17 @@
 #include <KisImageResolutionProxy.h>
 #include <kis_node_facade.h>
 #include <kis_layer.h>
-#include <kis_base_node.h>
 #include <KoCompositeOpRegistry.h>
 #include <kis_paint_layer.h>
 #include <kis_group_layer.h>
 #include <kis_layer.h>
 #include <kis_node.h>
+#include <KisInterstrokeDataTransactionWrapperFactory.h>
+#include <KisInterstrokeDataFactory.h>
+#include <KisInterstrokeData.h>
+#include <QThread>
+#include <algorithm>
+#include <future>
 
 ReverieCore::ReverieCore()
 {
@@ -1860,6 +1865,94 @@ void ReverieCore::beginFilterPreview(int index)
     KisPainter::copyAreaOptimized(QPoint(0, 0), dev, m_filterBackupDevice, QRect(0, 0, m_docWidth, m_docHeight));
 }
 
+template <typename F>
+static void filterParallelFor(int start, int end, F &&func) {
+    const int numThreads = std::max(1, std::min(int(QThread::idealThreadCount()), 8));
+    if (numThreads <= 1 || (end - start) < 64) {
+        func(start, end);
+        return;
+    }
+    std::vector<std::future<void>> futures;
+    futures.reserve(numThreads);
+    const int chunkSize = (end - start + numThreads - 1) / numThreads;
+    for (int t = 0; t < numThreads; ++t) {
+        int s = start + t * chunkSize;
+        int e = qMin(end, s + chunkSize);
+        if (s < e) {
+            futures.push_back(std::async(std::launch::async, [s, e, &func]() {
+                func(s, e);
+            }));
+        }
+    }
+    for (auto &f : futures) {
+        f.get();
+    }
+}
+
+static void boxBlurH(const quint32 *src, quint32 *dst, int w, int h, int r) {
+    filterParallelFor(0, h, [&](int startY, int endY) {
+        const float invCount = 1.0f / float(2 * r + 1);
+        for (int y = startY; y < endY; ++y) {
+            const quint32 *srcRow = src + y * w;
+            quint32 *dstRow = dst + y * w;
+            int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+            for (int i = -r; i <= r; ++i) {
+                int ix = qBound(0, i, w - 1);
+                quint32 c = srcRow[ix];
+                sumA += (c >> 24) & 0xFF;
+                sumR += (c >> 16) & 0xFF;
+                sumG += (c >> 8) & 0xFF;
+                sumB += c & 0xFF;
+            }
+            for (int x = 0; x < w; ++x) {
+                dstRow[x] = (quint32(sumA * invCount) << 24) |
+                            (quint32(sumR * invCount) << 16) |
+                            (quint32(sumG * invCount) << 8) |
+                            quint32(sumB * invCount);
+                int nextX = qBound(0, x + r + 1, w - 1);
+                int prevX = qBound(0, x - r, w - 1);
+                quint32 cNext = srcRow[nextX];
+                quint32 cPrev = srcRow[prevX];
+                sumA += int((cNext >> 24) & 0xFF) - int((cPrev >> 24) & 0xFF);
+                sumR += int((cNext >> 16) & 0xFF) - int((cPrev >> 16) & 0xFF);
+                sumG += int((cNext >> 8) & 0xFF) - int((cPrev >> 8) & 0xFF);
+                sumB += int(cNext & 0xFF) - int(cPrev & 0xFF);
+            }
+        }
+    });
+}
+
+static void boxBlurV(const quint32 *src, quint32 *dst, int w, int h, int r) {
+    filterParallelFor(0, w, [&](int startX, int endX) {
+        const float invCount = 1.0f / float(2 * r + 1);
+        for (int x = startX; x < endX; ++x) {
+            int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+            for (int i = -r; i <= r; ++i) {
+                int iy = qBound(0, i, h - 1);
+                quint32 c = src[iy * w + x];
+                sumA += (c >> 24) & 0xFF;
+                sumR += (c >> 16) & 0xFF;
+                sumG += (c >> 8) & 0xFF;
+                sumB += c & 0xFF;
+            }
+            for (int y = 0; y < h; ++y) {
+                dst[y * w + x] = (quint32(sumA * invCount) << 24) |
+                                 (quint32(sumR * invCount) << 16) |
+                                 (quint32(sumG * invCount) << 8) |
+                                 quint32(sumB * invCount);
+                int nextY = qBound(0, y + r + 1, h - 1);
+                int prevY = qBound(0, y - r, h - 1);
+                quint32 cNext = src[nextY * w + x];
+                quint32 cPrev = src[prevY * w + x];
+                sumA += int((cNext >> 24) & 0xFF) - int((cPrev >> 24) & 0xFF);
+                sumR += int((cNext >> 16) & 0xFF) - int((cPrev >> 16) & 0xFF);
+                sumG += int((cNext >> 8) & 0xFF) - int((cPrev >> 8) & 0xFF);
+                sumB += int(cNext & 0xFF) - int(cPrev & 0xFF);
+            }
+        }
+    });
+}
+
 void ReverieCore::applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4)
 {
     if (!isLayerEditable(index)) return;
@@ -1881,126 +1974,130 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         const double vScale = qMax(0.0, p3);
         const double cScale = qMax(0.0, p4);
 
-        for (int y = 0; y < h; ++y) {
-            quint8 *line = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                quint8 *px = line + x * 4;
-                if (px[3] == 0) continue; // Skip transparent
-                int r = px[2], g = px[1], b = px[0];
-                QColor col(r, g, b);
-                float qh = 0.0f, qs = 0.0f, qv = 0.0f;
-                col.getHsvF(&qh, &qs, &qv);
-                if (qh >= 0.0f) {
-                    qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
-                } else if (hShift != 0.0) {
-                    qh = fmodf(float(hShift) / 360.0f + 1.0f, 1.0f);
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue; // Skip transparent
+                    int r = px[2], g = px[1], b = px[0];
+                    QColor col(r, g, b);
+                    float qh = 0.0f, qs = 0.0f, qv = 0.0f;
+                    col.getHsvF(&qh, &qs, &qv);
+                    if (qh >= 0.0f) {
+                        qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
+                    } else if (hShift != 0.0) {
+                        qh = fmodf(float(hShift) / 360.0f + 1.0f, 1.0f);
+                    }
+                    qs = qBound(0.0f, qs * float(sScale), 1.0f);
+                    qv = qBound(0.0f, qv * float(vScale), 1.0f);
+                    col.setHsvF(qh, qs, qv);
+                    r = col.red(); g = col.green(); b = col.blue();
+                    if (cScale != 1.0) {
+                        r = qBound(0, int((r - 128) * cScale + 128), 255);
+                        g = qBound(0, int((g - 128) * cScale + 128), 255);
+                        b = qBound(0, int((b - 128) * cScale + 128), 255);
+                    }
+                    px[2] = quint8(r); px[1] = quint8(g); px[0] = quint8(b);
                 }
-                qs = qBound(0.0f, qs * float(sScale), 1.0f);
-                qv = qBound(0.0f, qv * float(vScale), 1.0f);
-                col.setHsvF(qh, qs, qv);
-                r = col.red(); g = col.green(); b = col.blue();
-                if (cScale != 1.0) {
-                    r = qBound(0, int((r - 128) * cScale + 128), 255);
-                    g = qBound(0, int((g - 128) * cScale + 128), 255);
-                    b = qBound(0, int((b - 128) * cScale + 128), 255);
-                }
-                px[2] = quint8(r); px[1] = quint8(g); px[0] = quint8(b);
             }
-        }
+        });
         break;
     }
     case 1: { // Color Balance: Cyan-Red (-100..100), Magenta-Green (-100..100), Yellow-Blue (-100..100)
         const int cr = int(p1 * 1.28);
         const int mg = int(p2 * 1.28);
         const int yb = int(p3 * 1.28);
-        for (int y = 0; y < h; ++y) {
-            quint8 *line = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                quint8 *px = line + x * 4;
-                if (px[3] == 0) continue;
-                px[2] = quint8(qBound(0, px[2] + cr, 255));
-                px[1] = quint8(qBound(0, px[1] + mg, 255));
-                px[0] = quint8(qBound(0, px[0] + yb, 255));
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    px[2] = quint8(qBound(0, px[2] + cr, 255));
+                    px[1] = quint8(qBound(0, px[1] + mg, 255));
+                    px[0] = quint8(qBound(0, px[0] + yb, 255));
+                }
             }
-        }
+        });
         break;
     }
-    case 2: { // Gaussian / Box Blur: radius (1..50)
-        const int rad = qBound(1, int(p1), 50);
-        QImage tmp = img;
-        const int step = (rad > 8) ? 2 : 1;
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                int r = 0, g = 0, b = 0, a = 0, count = 0;
-                for (int dx = -rad; dx <= rad; dx += step) {
-                    int nx = qBound(0, x + dx, w - 1);
-                    const quint8 *p = tmp.constScanLine(y) + nx * 4;
-                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
-                    count++;
-                }
-                quint8 *dst = img.scanLine(y) + x * 4;
-                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
-            }
-        }
-        tmp = img;
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                int r = 0, g = 0, b = 0, a = 0, count = 0;
-                for (int dy = -rad; dy <= rad; dy += step) {
-                    int ny = qBound(0, y + dy, h - 1);
-                    const quint8 *p = tmp.constScanLine(ny) + x * 4;
-                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
-                    count++;
-                }
-                quint8 *dst = img.scanLine(y) + x * 4;
-                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
-            }
-        }
+    case 2: { // Gaussian Blur: radius (1..100) via 3-pass fast sliding-window Box Blur
+        const int rad = qBound(1, int(p1), 100);
+        QVector<quint32> buffer(w * h);
+        quint32 *imgData = reinterpret_cast<quint32 *>(img.bits());
+        quint32 *tmpData = buffer.data();
+
+        int r = qMax(1, int(rad * 0.577)); // equivalent sigma matching
+        boxBlurH(imgData, tmpData, w, h, r);
+        boxBlurV(tmpData, imgData, w, h, r);
+        boxBlurH(imgData, tmpData, w, h, r);
+        boxBlurV(tmpData, imgData, w, h, r);
+        boxBlurH(imgData, tmpData, w, h, r);
+        boxBlurV(tmpData, imgData, w, h, r);
         break;
     }
-    case 3: { // Motion Blur: angle (0..360), distance (1..50)
+    case 3: { // Motion Blur: angle (0..360), distance (1..100)
         const double angleRad = p1 * M_PI / 180.0;
-        const int dist = qBound(1, int(p2), 50);
-        const double dx = cos(angleRad), dy = sin(angleRad);
-        QImage tmp = img;
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
-                int r = 0, g = 0, b = 0, a = 0, count = 0;
-                for (int s = -dist; s <= dist; ++s) {
-                    int nx = qBound(0, int(x + s * dx + 0.5), w - 1);
-                    int ny = qBound(0, int(y + s * dy + 0.5), h - 1);
-                    const quint8 *p = tmp.constScanLine(ny) + nx * 4;
-                    r += p[2]; g += p[1]; b += p[0]; a += p[3];
-                    count++;
+        const int dist = qBound(1, int(p2), 100);
+        const double dirX = cos(angleRad);
+        const double dirY = sin(angleRad);
+
+        QVector<quint32> buffer(w * h);
+        memcpy(buffer.data(), img.constBits(), w * h * 4);
+        const quint32 *srcData = buffer.constData();
+        quint32 *dstData = reinterpret_cast<quint32 *>(img.bits());
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    int sumA = 0, sumR = 0, sumG = 0, sumB = 0;
+                    int count = 0;
+                    for (int s = -dist; s <= dist; ++s) {
+                        int nx = qBound(0, int(std::lround(x + s * dirX)), w - 1);
+                        int ny = qBound(0, int(std::lround(y + s * dirY)), h - 1);
+                        quint32 c = srcData[ny * w + nx];
+                        sumA += (c >> 24) & 0xFF;
+                        sumR += (c >> 16) & 0xFF;
+                        sumG += (c >> 8) & 0xFF;
+                        sumB += c & 0xFF;
+                        count++;
+                    }
+                    if (count > 0) {
+                        dstData[y * w + x] = (quint32(sumA / count) << 24) |
+                                             (quint32(sumR / count) << 16) |
+                                             (quint32(sumG / count) << 8) |
+                                             quint32(sumB / count);
+                    }
                 }
-                quint8 *dst = img.scanLine(y) + x * 4;
-                dst[2] = r / count; dst[1] = g / count; dst[0] = b / count; dst[3] = a / count;
             }
-        }
+        });
         break;
     }
     case 4: { // Sharpen: strength (0.1..3.0)
         const double strength = qBound(0.1, p1, 3.0);
-        QImage tmp = img;
-        for (int y = 0; y < h; ++y) {
-            quint8 *dst = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                int r = 0, g = 0, b = 0;
-                for (int dy = -1; dy <= 1; ++dy) {
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        int nx = qBound(0, x + dx, w - 1);
-                        int ny = qBound(0, y + dy, h - 1);
-                        const quint8 *p = tmp.constScanLine(ny) + nx * 4;
-                        double k = (dx == 0 && dy == 0) ? (1.0 + 4.0 * strength) : (-strength);
-                        r += int(k * p[2]); g += int(k * p[1]); b += int(k * p[0]);
+        QImage tmp = img.copy();
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *dst = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    int r = 0, g = 0, b = 0;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            int nx = qBound(0, x + dx, w - 1);
+                            int ny = qBound(0, y + dy, h - 1);
+                            const quint8 *p = tmp.constScanLine(ny) + nx * 4;
+                            double k = (dx == 0 && dy == 0) ? (1.0 + 4.0 * strength) : (-strength);
+                            r += int(k * p[2]); g += int(k * p[1]); b += int(k * p[0]);
+                        }
                     }
+                    quint8 *px = dst + x * 4;
+                    px[2] = quint8(qBound(0, r, 255));
+                    px[1] = quint8(qBound(0, g, 255));
+                    px[0] = quint8(qBound(0, b, 255));
                 }
-                quint8 *px = dst + x * 4;
-                px[2] = quint8(qBound(0, r, 255));
-                px[1] = quint8(qBound(0, g, 255));
-                px[0] = quint8(qBound(0, b, 255));
             }
-        }
+        });
         break;
     }
     case 5: { // Mosaic / Pixelate: blockSize (2..64)
@@ -2029,96 +2126,108 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
         break;
     }
     case 6: { // Invert
-        for (int y = 0; y < h; ++y) {
-            quint8 *line = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                quint8 *px = line + x * 4;
-                px[2] = 255 - px[2]; px[1] = 255 - px[1]; px[0] = 255 - px[0];
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    px[2] = 255 - px[2]; px[1] = 255 - px[1]; px[0] = 255 - px[0];
+                }
             }
-        }
+        });
         break;
     }
     case 7: { // Luminance to Alpha (Lineart Extraction / 亮度转透明度)
-        for (int y = 0; y < h; ++y) {
-            quint8 *line = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                quint8 *px = line + x * 4;
-                int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
-                int newAlpha = ((255 - lum) * px[3]) / 255;
-                px[3] = quint8(qBound(0, newAlpha, 255));
-                px[2] = 0; px[1] = 0; px[0] = 0; // Pure black lineart
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
+                    int newAlpha = ((255 - lum) * px[3]) / 255;
+                    px[3] = quint8(qBound(0, newAlpha, 255));
+                    px[2] = 0; px[1] = 0; px[0] = 0; // Pure black lineart
+                }
             }
-        }
+        });
         break;
     }
     case 8: { // Find Edges (Sobel)
-        QImage tmp = img;
-        for (int y = 1; y < h - 1; ++y) {
-            quint8 *dst = img.scanLine(y);
-            for (int x = 1; x < w - 1; ++x) {
-                int gx = 0, gy = 0;
-                const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
-                const int ky[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
-                for (int dy = -1; dy <= 1; ++dy) {
-                    for (int dx = -1; dx <= 1; ++dx) {
-                        const quint8 *p = tmp.constScanLine(y + dy) + (x + dx) * 4;
-                        int val = (p[2] + p[1] + p[0]) / 3;
-                        gx += val * kx[dy + 1][dx + 1];
-                        gy += val * ky[dy + 1][dx + 1];
+        QImage tmp = img.copy();
+        filterParallelFor(1, h - 1, [&](int startY, int endY) {
+            const int kx[3][3] = {{-1, 0, 1}, {-2, 0, 2}, {-1, 0, 1}};
+            const int ky[3][3] = {{-1, -2, -1}, {0, 0, 0}, {1, 2, 1}};
+            for (int y = startY; y < endY; ++y) {
+                quint8 *dst = img.scanLine(y);
+                for (int x = 1; x < w - 1; ++x) {
+                    int gx = 0, gy = 0;
+                    for (int dy = -1; dy <= 1; ++dy) {
+                        for (int dx = -1; dx <= 1; ++dx) {
+                            const quint8 *p = tmp.constScanLine(y + dy) + (x + dx) * 4;
+                            int val = (p[2] + p[1] + p[0]) / 3;
+                            gx += val * kx[dy + 1][dx + 1];
+                            gy += val * ky[dy + 1][dx + 1];
+                        }
                     }
+                    int mag = qBound(0, int(sqrt(gx * gx + gy * gy)), 255);
+                    quint8 *px = dst + x * 4;
+                    px[2] = mag; px[1] = mag; px[0] = mag;
                 }
-                int mag = qBound(0, int(sqrt(gx * gx + gy * gy)), 255);
-                quint8 *px = dst + x * 4;
-                px[2] = mag; px[1] = mag; px[0] = mag;
             }
-        }
+        });
         break;
     }
     case 9: { // Emboss / 浮雕
-        QImage tmp = img;
-        for (int y = 1; y < h - 1; ++y) {
-            quint8 *dst = img.scanLine(y);
-            for (int x = 1; x < w - 1; ++x) {
-                const quint8 *p1 = tmp.constScanLine(y - 1) + (x - 1) * 4;
-                const quint8 *p2 = tmp.constScanLine(y + 1) + (x + 1) * 4;
-                int diff = ((p1[2] + p1[1] + p1[0]) - (p2[2] + p2[1] + p2[0])) / 3 + 128;
-                int v = qBound(0, diff, 255);
-                quint8 *px = dst + x * 4;
-                px[2] = v; px[1] = v; px[0] = v;
+        QImage tmp = img.copy();
+        filterParallelFor(1, h - 1, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *dst = img.scanLine(y);
+                for (int x = 1; x < w - 1; ++x) {
+                    const quint8 *p1 = tmp.constScanLine(y - 1) + (x - 1) * 4;
+                    const quint8 *p2 = tmp.constScanLine(y + 1) + (x + 1) * 4;
+                    int diff = ((p1[2] + p1[1] + p1[0]) - (p2[2] + p2[1] + p2[0])) / 3 + 128;
+                    int v = qBound(0, diff, 255);
+                    quint8 *px = dst + x * 4;
+                    px[2] = v; px[1] = v; px[0] = v;
+                }
             }
-        }
+        });
         break;
     }
     case 10: { // Noise / 杂色
         const int amt = qBound(1, int(p1), 100);
-        for (int y = 0; y < h; ++y) {
-            quint8 *line = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                quint8 *px = line + x * 4;
-                if (px[3] == 0) continue;
-                int noise = (rand() % (amt * 2 + 1)) - amt;
-                px[2] = quint8(qBound(0, px[2] + noise, 255));
-                px[1] = quint8(qBound(0, px[1] + noise, 255));
-                px[0] = quint8(qBound(0, px[0] + noise, 255));
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    if (px[3] == 0) continue;
+                    int noise = (rand() % (amt * 2 + 1)) - amt;
+                    px[2] = quint8(qBound(0, px[2] + noise, 255));
+                    px[1] = quint8(qBound(0, px[1] + noise, 255));
+                    px[0] = quint8(qBound(0, px[0] + noise, 255));
+                }
             }
-        }
+        });
         break;
     }
     case 11: { // Glitch / 色散错位
         const int offset = qBound(1, int(p1), 40);
-        QImage tmp = img;
-        for (int y = 0; y < h; ++y) {
-            quint8 *dst = img.scanLine(y);
-            for (int x = 0; x < w; ++x) {
-                int rx = qBound(0, x + offset, w - 1);
-                int bx = qBound(0, x - offset, w - 1);
-                const quint8 *pr = tmp.constScanLine(y) + rx * 4;
-                const quint8 *pb = tmp.constScanLine(y) + bx * 4;
-                quint8 *px = dst + x * 4;
-                px[2] = pr[2]; // Red
-                px[0] = pb[0]; // Blue
+        QImage tmp = img.copy();
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *dst = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    int rx = qBound(0, x + offset, w - 1);
+                    int bx = qBound(0, x - offset, w - 1);
+                    const quint8 *pr = tmp.constScanLine(y) + rx * 4;
+                    const quint8 *pb = tmp.constScanLine(y) + bx * 4;
+                    quint8 *px = dst + x * 4;
+                    px[2] = pr[2]; // Red
+                    px[0] = pb[0]; // Blue
+                }
             }
-        }
+        });
         break;
     }
     default:
@@ -3021,8 +3130,16 @@ void ReverieCore::flushStrokeBatch()
         // never reach this point, so they never create an undo command.
         if (m_snapshotPending && !m_strokeTxnActive) {
             delete m_strokeTxn;
+            KisInterstrokeDataFactory *interstrokeDataFactory = nullptr;
+            if (m_brushPreset) {
+                interstrokeDataFactory = KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset);
+            }
+            KisInterstrokeDataTransactionWrapperFactory *wrapper = nullptr;
+            if (interstrokeDataFactory) {
+                wrapper = new KisInterstrokeDataTransactionWrapperFactory(interstrokeDataFactory, true);
+            }
             m_strokeTxn = new KisTransaction(
-                kundo2_i18n("Stroke"), target);
+                kundo2_i18n("Stroke"), target, nullptr, -1, wrapper);
             m_strokeTxnActive = true;
         }
         m_snapshotPending = false;
@@ -3045,6 +3162,17 @@ void ReverieCore::flushStrokeBatch()
         // and drive its async dab pipeline synchronously (the fake executor
         // runs the rendering jobs inline, exactly like Krita's own tests).
         if (m_brushPreset && m_strokePainter) {
+            std::unique_ptr<KisInterstrokeDataFactory> factory(
+                KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset));
+            if (factory) {
+                if (!target->interstrokeData() || !factory->isCompatible(target->interstrokeData().data())) {
+                    KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(toQShared(factory->create(target)));
+                    if (cmd) {
+                        cmd->redo();
+                        delete cmd;
+                    }
+                }
+            }
             m_strokePainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
             const int layerIndex = qBound(0, m_currentLayer, m_layers.size() - 1);
             // Create the op through the registry so the preset's own paintop

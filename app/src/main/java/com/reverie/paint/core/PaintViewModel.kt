@@ -18,6 +18,7 @@ import java.io.File
 import java.util.zip.ZipFile
 import org.json.JSONObject
 import org.json.JSONArray
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -2485,27 +2486,39 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    var isFilterAdjustActive by mutableStateOf(false)
+
+    private var filterPreviewJob: kotlinx.coroutines.Job? = null
+
     fun beginFilterPreview(index: Int) {
+        isFilterAdjustActive = true
         runCore(render = false) {
             ReverieCoreBridge.beginFilterPreview(index)
         }
     }
 
     fun applyFilterPreview(index: Int, filterType: Int, p1: Double = 0.0, p2: Double = 0.0, p3: Double = 0.0, p4: Double = 0.0) {
-        runCore(after = {
-            scheduleRender(immediate = true)
-        }) {
-            ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
+        filterPreviewJob?.cancel()
+        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
+            runCore(after = {
+                scheduleRender(immediate = true)
+            }) {
+                ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
+            }
         }
     }
 
     fun commitFilter(index: Int, filterName: String) {
+        isFilterAdjustActive = false
+        filterPreviewJob?.cancel()
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.commitFilter(index, filterName)
         }
     }
 
     fun cancelFilter(index: Int) {
+        isFilterAdjustActive = false
+        filterPreviewJob?.cancel()
         runCore(after = {
             scheduleRender(immediate = true)
             notifyLayerChanged()

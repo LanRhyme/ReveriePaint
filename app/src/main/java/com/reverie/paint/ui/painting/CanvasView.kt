@@ -296,6 +296,7 @@ fun CanvasView(
                         val stylus = down.type == androidx.compose.ui.input.pointer.PointerType.Stylus || down.type == androidx.compose.ui.input.pointer.PointerType.Eraser
                         var mode =
                             when {
+                                vm.isFilterAdjustActive -> GestureMode.PAN
                                 vm.penOnlyMode && !stylus && (tool == Tool.BRUSH || tool == Tool.ERASER) -> GestureMode.PAN
                                 tool == Tool.FILL || tool == Tool.TEXT ||
                                     tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR ||

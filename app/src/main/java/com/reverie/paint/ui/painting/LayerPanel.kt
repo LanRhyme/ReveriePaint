@@ -161,12 +161,18 @@ fun LayerPanel(
 
     val panelShape = RoundedCornerShape(14.dp)
 
+    val isFilterAdjust = view is LayerView.FilterAdjust
+
     Box(
         modifier =
-            modifier
-                .fillMaxSize()
-                .background(Color.Transparent)
-                .noRippleClickable(onClose),
+            if (isFilterAdjust) {
+                modifier.fillMaxSize().background(Color.Transparent)
+            } else {
+                modifier
+                    .fillMaxSize()
+                    .background(Color.Transparent)
+                    .noRippleClickable(onClose)
+            },
     ) {
         Column(
             modifier =
@@ -2149,7 +2155,7 @@ private fun FilterAdjustPage(
                     FilterSliderRow(
                         label = "模糊半径",
                         value = blurRadius,
-                        valueRange = 1f..50f,
+                        valueRange = 1f..100f,
                         valueText = "${blurRadius.roundToInt()} px",
                         onValue = { blurRadius = it; sendPreview() }
                     )
@@ -2165,7 +2171,7 @@ private fun FilterAdjustPage(
                     FilterSliderRow(
                         label = "模糊距离",
                         value = motionDist,
-                        valueRange = 1f..50f,
+                        valueRange = 1f..100f,
                         valueText = "${motionDist.roundToInt()} px",
                         onValue = { motionDist = it; sendPreview() }
                     )
