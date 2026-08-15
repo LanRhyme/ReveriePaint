@@ -120,10 +120,11 @@ bool ReverieCore::newDocument(int width, int height)
         return false;
     }
 
-    // Release any previous document. m_document is a KisSharedPtr: calling
-    // delete on the raw pointer would corrupt its refcount (double-free on
-    // destruction), so let the shared pointer release it instead.
+    // Release any previous document. KisImage destructor frees its owned undo store,
+    // so m_undoStore must be reset to nullptr to prevent dangling pointer access.
     m_document.clear();
+    m_undoStore = nullptr;
+
     // Reset the display pipeline: a new document (possibly same size as the
     // previous one) must not inherit stale display pixels or skip the first
     // full bitmap copy.
@@ -148,17 +149,11 @@ bool ReverieCore::newDocument(int width, int height)
     m_lastPressure = 1.0;
     m_strokeColor = QColor();
     m_strokeOpacity = 1.0;
-    // Krita-native undo store: create once per process, reset per document.
-    // The store owns a KUndo2Stack of tile-level KisTransactionData /
-    // node commands, so undo/redo is memory-efficient and covers every
-    // operation type (strokes, fills, shapes, layer structure, attributes).
+    // Krita-native undo store: fresh instance per document (owned by KisImage).
     delete m_strokeTxn;
     m_strokeTxn = nullptr;
     m_strokeTxnActive = false;
-    if (!m_undoStore) {
-        m_undoStore = new KisSurrogateUndoStore();
-    }
-    m_undoStore->clear();
+    m_undoStore = new KisSurrogateUndoStore();
     m_redoCount = 0;
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
@@ -4733,6 +4728,7 @@ bool ReverieCore::loadRevp(const QString &path)
 
     // Reset pipeline & stroke batch state
     m_document.clear();
+    m_undoStore = nullptr;
     m_displayImage = QImage();
     m_dirtyRect = QRect();
     m_bitmapInited = false;
@@ -4748,11 +4744,7 @@ bool ReverieCore::loadRevp(const QString &path)
     delete m_strokeTxn;
     m_strokeTxn = nullptr;
     m_strokeTxnActive = false;
-
-    if (!m_undoStore) {
-        m_undoStore = new KisSurrogateUndoStore();
-    }
-    m_undoStore->clear();
+    m_undoStore = new KisSurrogateUndoStore();
     m_redoCount = 0;
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
@@ -4824,7 +4816,6 @@ bool ReverieCore::loadRevp(const QString &path)
     m_docHeight = h;
     recompositeProjection();
     syncLayersFromImage();
-    m_undoStore->clear();
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
     markDirty();
