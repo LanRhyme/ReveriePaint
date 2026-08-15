@@ -4559,6 +4559,17 @@ bool ReverieCore::exportPsd(const QString &path)
 
     // 4. Layer & mask section
     if (haveLayers && image->rootLayer()) {
+        for (int i = 0; i < m_layers.size(); ++i) {
+            const LayerEntry &e = m_layers[i];
+            if (e.node) {
+                e.node->setVisible(e.visible);
+                e.node->setOpacity(qBound(0, int(layerOpacity(i) * 255.0 + 0.5), 255));
+                QString blend = layerBlendMode(i).trimmed();
+                if (!blend.isEmpty()) {
+                    e.node->setCompositeOpId(blend);
+                }
+            }
+        }
         PSDLayerMaskSection layerSection(header);
         layerSection.hasTransparency = true;
         if (!layerSection.write(file, image->rootLayer(), psd_compression_type::RLE)) {
@@ -4824,8 +4835,192 @@ bool ReverieCore::loadRevp(const QString &path)
 
 bool ReverieCore::saveKra(const QString &path)
 {
-    // Save .kra project format (standard Krita ZIP container with meta, preview, and layer devices)
-    return saveRevp(path);
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+
+    QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Write, "application/x-krita", KoStore::Zip));
+    if (!store || store->bad()) {
+        return false;
+    }
+
+    // 1. mimetype (must be first file, uncompressed)
+    if (store->open("mimetype")) {
+        store->write(QByteArray("application/x-krita"));
+        store->close();
+    }
+
+    // 2. maindoc.xml - standard Krita XML specification with layer hierarchies, inherit-alpha & blend modes
+    QString xml = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                 "<!DOCTYPE DOC PUBLIC '-//KDE//DTD create 1.2//EN' 'http://www.calligra.org/DTD/kra-1.2.dtd'>\n"
+                                 "<DOC xmlns=\"http://www.calligra.org/DTD/kra\" syntaxVersion=\"2\" editor=\"Krita\" mime=\"application/x-krita\">\n"
+                                 " <IMAGE name=\"%1\" width=\"%2\" height=\"%3\" mime=\"application/x-krita\" description=\"\" x-res=\"72\" y-res=\"72\">\n"
+                                 "  <layers>\n")
+                      .arg(image->objectName().isEmpty() ? QStringLiteral("Artwork") : image->objectName())
+                      .arg(image->width())
+                      .arg(image->height());
+
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        const int opacityVal = qBound(0, int(layerOpacity(i) * 255.0 + 0.5), 255);
+        QString blend = layerBlendMode(i).trimmed();
+        if (blend.isEmpty()) blend = QStringLiteral("normal");
+
+        // Convert blend modes to standard Krita composite op IDs
+        if (blend == QStringLiteral("正片叠底") || blend.compare("multiply", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("multiply");
+        } else if (blend == QStringLiteral("正常") || blend.compare("normal", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("normal");
+        } else if (blend == QStringLiteral("滤色") || blend.compare("screen", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("screen");
+        } else if (blend == QStringLiteral("叠加") || blend.compare("overlay", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("overlay");
+        } else if (blend == QStringLiteral("变暗") || blend.compare("darken", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("darken");
+        } else if (blend == QStringLiteral("变亮") || blend.compare("lighten", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("lighten");
+        } else if (blend == QStringLiteral("颜色减淡") || blend == QStringLiteral("dodge") || blend.compare("color_dodge", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("color_dodge");
+        } else if (blend == QStringLiteral("颜色加深") || blend == QStringLiteral("burn") || blend.compare("color_burn", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("color_burn");
+        } else if (blend == QStringLiteral("线性减淡") || blend == QStringLiteral("增加") || blend.compare("linear_dodge", Qt::CaseInsensitive) == 0 || blend.compare("add", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("linear_dodge");
+        } else if (blend == QStringLiteral("线性加深") || blend.compare("linear_burn", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("linear_burn");
+        } else if (blend == QStringLiteral("强光") || blend.compare("hard_light", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("hard_light");
+        } else if (blend == QStringLiteral("柔光") || blend.compare("soft_light", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("soft_light");
+        } else if (blend == QStringLiteral("差值") || blend.compare("difference", Qt::CaseInsensitive) == 0) {
+            blend = QStringLiteral("difference");
+        }
+
+        // Inherit alpha (剪贴蒙版 / 继承透明度)
+        const QString inheritAlphaStr = e.clipped ? QStringLiteral("1") : QStringLiteral("0");
+        const QString visibleStr = e.visible ? QStringLiteral("1") : QStringLiteral("0");
+        const QString lockedStr = (e.locked || e.background) ? QStringLiteral("1") : QStringLiteral("0");
+        const QString alphaLockedStr = (e.alphaLocked || e.background) ? QStringLiteral("1") : QStringLiteral("0");
+        const QString layerFileNameKra = QString("layer%1").arg(i);
+
+        QString safeName = e.name;
+        safeName.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+
+        xml += QStringLiteral("   <layer name=\"%1\" opacity=\"%2\" compositeop=\"%3\" visible=\"%4\" locked=\"%5\" lockalpha=\"%6\" inherit-alpha=\"%7\" filename=\"%8\" colormodelname=\"RGBA\" channelformat=\"U8\" nodetype=\"paintlayer\" x=\"0\" y=\"0\" />\n")
+                   .arg(safeName)
+                   .arg(opacityVal)
+                   .arg(blend)
+                   .arg(visibleStr)
+                   .arg(lockedStr)
+                   .arg(alphaLockedStr)
+                   .arg(inheritAlphaStr)
+                   .arg(layerFileNameKra);
+    }
+
+    xml += QStringLiteral("  </layers>\n"
+                          " </IMAGE>\n"
+                          "</DOC>\n");
+
+    if (store->open("maindoc.xml")) {
+        store->write(xml.toUtf8());
+        store->close();
+    }
+
+    // 3. Merged Preview & mergedimage.png
+    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    if (!comp.isNull()) {
+        if (store->open("preview.png")) {
+            QByteArray thumbBytes;
+            QBuffer tbuf(&thumbBytes);
+            tbuf.open(QIODevice::WriteOnly);
+            const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            thumb.save(&tbuf, "PNG");
+            store->write(thumbBytes);
+            store->close();
+        }
+        if (store->open("mergedimage.png")) {
+            QByteArray compBytes;
+            QBuffer cbuf(&compBytes);
+            cbuf.open(QIODevice::WriteOnly);
+            comp.save(&cbuf, "PNG");
+            store->write(compBytes);
+            store->close();
+        }
+    }
+
+    // 4. Save layer image devices as PNGs
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+
+        const QRect bounds = dev->exactBounds();
+        QImage layerImg;
+        if (!bounds.isEmpty()) {
+            layerImg = dev->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+        } else {
+            layerImg = QImage(image->width(), image->height(), QImage::Format_ARGB32_Premultiplied);
+            layerImg.fill(Qt::transparent);
+        }
+
+        QByteArray lBytes;
+        QBuffer lBuf(&lBytes);
+        lBuf.open(QIODevice::WriteOnly);
+        layerImg.save(&lBuf, "PNG");
+
+        const QString l1 = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
+        if (store->open(l1)) {
+            store->write(lBytes);
+            store->close();
+        }
+        const QString l2 = QString("layer%1.png").arg(i);
+        if (store->open(l2)) {
+            store->write(lBytes);
+            store->close();
+        }
+    }
+
+    // 5. Also write meta.json for roundtrip
+    QJsonObject meta;
+    meta["version"] = 1;
+    meta["appName"] = "ReveriePaint";
+    meta["width"] = image->width();
+    meta["height"] = image->height();
+    meta["colorMode"] = "RGB";
+    meta["colorDepth"] = 8;
+    meta["xRes"] = image->xRes();
+    meta["yRes"] = image->yRes();
+    meta["createdTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    meta["modifiedTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    QJsonArray layersArray;
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        QJsonObject layerObj;
+        layerObj["index"] = i;
+        layerObj["name"] = e.name;
+        layerObj["visible"] = e.visible;
+        layerObj["opacity"] = layerOpacity(i);
+        layerObj["blendMode"] = layerBlendMode(i);
+        layerObj["locked"] = e.locked;
+        layerObj["alphaLocked"] = e.alphaLocked;
+        layerObj["clipped"] = e.clipped;
+        layerObj["isGroup"] = e.isGroup;
+        layerObj["depth"] = e.depth;
+        layerObj["colorLabel"] = e.colorLabel;
+        layerObj["background"] = e.background;
+        layersArray.append(layerObj);
+    }
+    meta["layers"] = layersArray;
+
+    if (store->open("meta.json")) {
+        QJsonDocument doc(meta);
+        store->write(doc.toJson(QJsonDocument::Indented));
+        store->close();
+    }
+
+    return store->close();
 }
 
 bool ReverieCore::loadPng(const QString &path)
