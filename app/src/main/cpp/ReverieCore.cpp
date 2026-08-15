@@ -303,11 +303,8 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
-    const QRect full(0, 0, image->width(), image->height());
-    KisRefreshSubtreeWalker walker(full);
-    walker.collectRects(image->rootLayer(), full);
-    KisAsyncMerger merger;
-    merger.startMerge(walker);
+    image->refreshGraphAsync();
+    image->waitForDone();
 }
 
 void ReverieCore::syncLayersFromImage()
