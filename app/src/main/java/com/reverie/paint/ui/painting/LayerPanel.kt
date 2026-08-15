@@ -1251,9 +1251,23 @@ private fun LayerDetailPage(
                 )
 
                 var currentColor by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
-                var rVal by remember { mutableFloatStateOf(1f) }
-                var gVal by remember { mutableFloatStateOf(1f) }
-                var bVal by remember { mutableFloatStateOf(1f) }
+                var hVal by remember { mutableFloatStateOf(0f) }
+                var sVal by remember { mutableFloatStateOf(0f) }
+                var vVal by remember { mutableFloatStateOf(1f) }
+                var lastUpdateNs by remember { mutableLongStateOf(0L) }
+
+                fun updateHsv(h: Float, s: Float, v: Float, immediate: Boolean = false) {
+                    hVal = h.coerceIn(0f, 360f)
+                    sVal = s.coerceIn(0f, 1f)
+                    vVal = v.coerceIn(0f, 1f)
+                    val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hVal, sVal, vVal))
+                    currentColor = colorInt
+                    val now = System.nanoTime()
+                    if (immediate || now - lastUpdateNs > 35_000_000L) {
+                        lastUpdateNs = now
+                        vm.setBackgroundColor(colorInt)
+                    }
+                }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     bgColors.chunked(6).forEach { rowColors ->
@@ -1273,11 +1287,9 @@ private fun LayerDetailPage(
                                             shape = CircleShape
                                         )
                                         .clickable {
-                                            currentColor = cInt
-                                            rVal = android.graphics.Color.red(cInt) / 255f
-                                            gVal = android.graphics.Color.green(cInt) / 255f
-                                            bVal = android.graphics.Color.blue(cInt) / 255f
-                                            vm.setBackgroundColor(cInt)
+                                            val hsv = FloatArray(3)
+                                            android.graphics.Color.colorToHSV(cInt, hsv)
+                                            updateHsv(hsv[0], hsv[1], hsv[2], immediate = true)
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -1295,53 +1307,79 @@ private fun LayerDetailPage(
                     }
                 }
 
+                // Live preview and hex info bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panelHi)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(currentColor))
+                                .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
+                        )
+                        Text(
+                            String.format("#%06X", 0xFFFFFF and currentColor),
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Text(
+                        "H:${hVal.roundToInt()}° S:${(sVal * 100).roundToInt()}% V:${(vVal * 100).roundToInt()}%",
+                        color = Morandi.subText,
+                        fontSize = 11.sp
+                    )
+                }
+
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
 
-                Text("自定义 RGB 调节", color = Morandi.subText, fontSize = 12.sp)
+                Text("自定义 HSV 色彩调节", color = Morandi.subText, fontSize = 12.sp)
 
+                // H (色相)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("R", color = Color(0xFFE57373), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    Text("H", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
                     ReSlider(
-                        value = rVal,
+                        value = (hVal / 360f).coerceIn(0f, 1f),
                         onValue = {
-                            rVal = it
-                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
-                            currentColor = newC
-                            vm.setBackgroundColor(newC)
+                            updateHsv(it * 360f, sVal, vVal)
                         },
                         modifier = Modifier.weight(1f)
                     )
-                    Text("${(rVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                    Text("${hVal.roundToInt()}°", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
                 }
 
+                // S (饱和度)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("G", color = Color(0xFF81C784), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    Text("S", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
                     ReSlider(
-                        value = gVal,
+                        value = sVal.coerceIn(0f, 1f),
                         onValue = {
-                            gVal = it
-                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
-                            currentColor = newC
-                            vm.setBackgroundColor(newC)
+                            updateHsv(hVal, it, vVal)
                         },
                         modifier = Modifier.weight(1f)
                     )
-                    Text("${(gVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                    Text("${(sVal * 100).roundToInt()}%", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
                 }
 
+                // V (明度)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Text("B", color = Color(0xFF64B5F6), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    Text("V", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
                     ReSlider(
-                        value = bVal,
+                        value = vVal.coerceIn(0f, 1f),
                         onValue = {
-                            bVal = it
-                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
-                            currentColor = newC
-                            vm.setBackgroundColor(newC)
+                            updateHsv(hVal, sVal, it)
                         },
                         modifier = Modifier.weight(1f)
                     )
-                    Text("${(bVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                    Text("${(vVal * 100).roundToInt()}%", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(36.dp))
                 }
             }
         }
