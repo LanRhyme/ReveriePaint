@@ -39,6 +39,8 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Full workspace canvas with one shared forward and inverse transform
@@ -433,10 +435,32 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
         var initialDistance = 1f
         var initialAngle = 0f
 
-        while (true) {
+        val pickerJob =
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate).launch {
+                    kotlinx.coroutines.delay(eyedropperDelayMs)
+                    // 长按不动（无 move 事件）时也激活取色器：到点后若手指仍按住
+                    // 且未移动超限、未进入双指变换，则呼出取色浮窗
+                    if (canLongPressPick && !isLongPressPickerActive && !transformStarted && maxFingerCount <= 1) {
+                        if (maxFingerMovement <= eyedropperMaxMovePx) {
+                            isLongPressPickerActive = true
+                            if (strokeStarted) {
+                                vm.touchCancel()
+                                strokeStarted = false
+                            }
+                            pendingTap = null
+                            mode = GestureMode.NONE
+                            pickerActive.value = true
+                            val refHex = vm.brushColor
+                            pickerInitialColor.value = parseColor(refHex)
+                            sampleColorAtScreenPos(previousSinglePoint)
+                        }
+                    }
+                }
+            while (true) {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
             if (pressed.isEmpty()) {
+                    pickerJob.cancel()
                 val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
                 val tapMaxDistPx = 36.dp.toPx()
 
@@ -1188,5 +1212,6 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
             liveShapeStart.value = null
             liveShapeEnd.value = null
         }
+            pickerJob.cancel()
     }
 }
