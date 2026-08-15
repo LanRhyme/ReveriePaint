@@ -184,7 +184,21 @@ add_library(reverie_jni SHARED
     reverie_jni_brush.cpp
     reverie_jni_tools.cpp
     reverie_jni_io.cpp
-    ReverieCore.cpp
+    ReverieCoreDocument.cpp
+    ReverieCoreLayers.cpp
+    ReverieCoreLayerOps.cpp
+    ReverieCoreFilters.cpp
+    ReverieCoreFilterPreview.cpp
+    ReverieCoreFilterPreviewFx.cpp
+    ReverieCoreSelection.cpp
+    ReverieCoreSelectionTools.cpp
+    ReverieCoreSelectionLasso.cpp
+    ReverieCoreBrush.cpp
+    ReverieCoreStroke.cpp
+    ReverieCoreRender.cpp
+    ReverieCoreTransform.cpp
+    ReverieCoreMiscTools.cpp
+    ReverieCoreIO.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_image_data.cpp
 )
