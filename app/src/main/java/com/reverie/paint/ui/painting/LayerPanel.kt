@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -931,7 +932,11 @@ private fun LayerRowContent(
             Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .border(1.dp, Morandi.border.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
+                .border(
+                    width = if (layer.colorLabel > 0) 2.dp else 1.dp,
+                    color = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Morandi.border.copy(alpha = 0.7f),
+                    shape = RoundedCornerShape(6.dp)
+                ),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())
             vm.thumbFor(layer.index, layer.name)?.let { thumb ->
@@ -1166,11 +1171,55 @@ private fun LayerDetailPage(
                 .background(Morandi.border),
         )
 
+        // Krita 8-color label picker
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            val currentLabel = layer?.colorLabel ?: 0
+            for (label in 0..8) {
+                val color = layerLabelColor(label)
+                val isSelected = currentLabel == label
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (label == 0) Morandi.panelHi else color)
+                        .border(
+                            width = if (isSelected) 2.dp else 1.dp,
+                            color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
+                            shape = CircleShape
+                        )
+                        .clickable { vm.setLayerColorLabel(index, label) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (label == 0) {
+                        Box(Modifier.size(8.dp).clip(CircleShape).background(Morandi.subText.copy(alpha = 0.5f)))
+                    } else if (isSelected) {
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(Color.White))
+                    }
+                }
+            }
+        }
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
+                .height(1.dp)
+                .background(Morandi.border),
+        )
+
         if (layer?.isGroup == true) {
             // Group-specific page
             Column {
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
                 OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) { vm.removeLayer(index) }
+                OpItem(R.drawable.ic_eye, "独显/隔离此图层组") { vm.soloLayer(index) }
+                OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
+                    vm.setLayerLocked(index, !(layer?.locked == true))
+                }
             }
         } else {
             // Vertical operation list
@@ -1181,18 +1230,19 @@ private fun LayerDetailPage(
                 OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) { vm.removeLayer(index) }
                 OpItem(R.drawable.ic_flip_h, "水平翻转") { vm.flipLayerHorizontal(index) }
                 OpItem(R.drawable.ic_flip_v, "垂直翻转") { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_reference, "参考", enabled = false) {}
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg) { vm.mergeDown(index) }
-                OpItem(R.drawable.ic_refresh, "统一图层可见性", enabled = false) {}
-                OpItem(R.drawable.ic_clip, "添加图层蒙版", enabled = false) {}
-                OpItem(R.drawable.ic_select, "创建选区") { vm.selectionFromLayer(index) }
-                OpToggle(R.drawable.ic_lock, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg) {
+                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 1) { vm.mergeDown(index) }
+                OpItem(R.drawable.ic_eye, "独显此图层") { vm.soloLayer(index) }
+                OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
+                OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
+                    vm.setLayerLocked(index, !(layer?.locked == true))
+                }
+                OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
-                OpToggle(R.drawable.ic_clip, "设为剪贴蒙版", layer?.clipped == true, enabled = !isBg) {
-                    vm.setLayerClipped(index, !(layer?.clipped == true))
+                OpToggle(R.drawable.ic_layerstack, "设为正片叠底", layer?.blendMode == "multiply", enabled = !isBg) {
+                    vm.setLayerBlendMode(index, if (layer?.blendMode == "multiply") "normal" else "multiply")
                 }
-                OpItem(R.drawable.ic_sliders, "滤镜") { onOpenFilters() }
+                OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
             }
         }
     }
