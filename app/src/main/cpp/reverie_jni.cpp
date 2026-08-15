@@ -1193,21 +1193,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreview(JNIEnv *env,
             info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
             AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
 
-            QImage dest((uchar *)pixels, info.width, info.height, info.stride, QImage::Format_RGBA8888);
-            
-            QImage src = outImage;
-            if (src.format() != QImage::Format_RGBA8888) {
-                src = src.convertToFormat(QImage::Format_RGBA8888);
+            if (outImage.width() == (int)info.width && outImage.height() == (int)info.height) {
+                memcpy(pixels, outImage.constBits(), size_t(info.width) * info.height * 4);
+            } else {
+                QImage scaled = outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                memcpy(pixels, scaled.constBits(), size_t(info.width) * info.height * 4);
             }
-            
-            if (src.size() != dest.size()) {
-                src = src.scaled(dest.size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-            }
-            
-            QPainter painter(&dest);
-            painter.setCompositionMode(QPainter::CompositionMode_Source);
-            painter.drawImage(0, 0, src);
-            
             AndroidBitmap_unlockPixels(env, bitmap);
             return JNI_TRUE;
         }

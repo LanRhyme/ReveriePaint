@@ -202,8 +202,6 @@ bool ReverieCore::newDocument(int width, int height)
         markDirty();
         return true;
     }
-    paint->original()->fill(QRect(0, 0, width, height), KoColor(Qt::transparent, cs));
-    paint->original()->setDirty();
     image->addNode(paint, image->rootLayer());
 
     m_document = image.data();
@@ -820,15 +818,15 @@ int ReverieCore::addLayer(const QString &name)
     if (!image) {
         return -1;
     }
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
     const KoColorSpace *cs = image->colorSpace();
     const QString layerName = name.isEmpty() ? defaultPaintLayerName(m_layers) : name;
     KisPaintLayerSP newLayer = new KisPaintLayer(image, layerName, 255, cs);
     if (!newLayer) {
         return -1;
     }
-    newLayer->original()->fill(QRect(0, 0, image->width(), image->height()),
-                               KoColor(Qt::transparent, cs));
-    newLayer->original()->setDirty();
 
     // Insert directly above the current layer (inside its group if any)
     KisNodeSP above;
@@ -880,6 +878,9 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     if (!image) {
         return false;
     }
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
     const int count = m_layers.size();
     QString finalName = name;
     if (finalName.isEmpty()) {
@@ -917,10 +918,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
             paintLayer->original()->setDirty();
         } else if (type == LayerTypeAdjustment) {
-            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
             paintLayer->setCompositeOpId(QStringLiteral("overlay"));
-        } else {
-            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::transparent, cs));
         }
         newNode = paintLayer;
     }
@@ -4373,6 +4371,7 @@ bool ReverieCore::applyPerspectiveTransform(
         device->clearSelection(m_selection);
 
         KisPerspectiveTransformWorker workerSel(temp, tf, false, 0);
+        workerSel.setForceSubPixelTranslation(true);
         workerSel.run(KisPerspectiveTransformWorker::Bilinear);
 
         KisPainter p2(device);
@@ -4382,6 +4381,7 @@ bool ReverieCore::applyPerspectiveTransform(
         p2.end();
 
         KisPerspectiveTransformWorker workerMask(m_selection->pixelSelection(), tf, false, 0);
+        workerMask.setForceSubPixelTranslation(true);
         workerMask.run(KisPerspectiveTransformWorker::Bilinear);
         m_selection->updateProjection();
     } else {
@@ -4394,6 +4394,7 @@ bool ReverieCore::applyPerspectiveTransform(
         tmp->makeCloneFromRough(src, src->extent());
 
         KisPerspectiveTransformWorker worker(tmp, tf, false, 0);
+        worker.setForceSubPixelTranslation(true);
         worker.run(KisPerspectiveTransformWorker::Bilinear);
 
         KisPainter painter(device);
@@ -4622,11 +4623,26 @@ bool ReverieCore::startTransformPreview(QImage* outImage)
     } else {
         KisPainter p0(m_previewTempDevice);
         p0.bitBlt(bounds.topLeft(), device, bounds);
+        p0.end();
         device->clear();
     }
 
     if (outImage) {
-        *outImage = m_previewTempDevice->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+        const int iw = image->width();
+        const int ih = image->height();
+        QImage qimg(iw, ih, QImage::Format_RGBA8888);
+        qimg.fill(0);
+        
+        QRect ext = m_previewTempDevice->exactBounds().intersected(QRect(0, 0, iw, ih));
+        if (!ext.isEmpty()) {
+            QByteArray raw;
+            raw.resize(size_t(ext.width()) * ext.height() * 4);
+            m_previewTempDevice->readBytes(reinterpret_cast<quint8 *>(raw.data()), ext.x(), ext.y(), ext.width(), ext.height());
+            quint8 *dst = qimg.bits() + size_t(ext.y()) * (iw * 4) + size_t(ext.x()) * 4;
+            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), ext.width() * 4,
+                               dst, iw * 4, ext.width(), ext.height());
+        }
+        *outImage = qimg;
     }
 
     device->setDirty();
