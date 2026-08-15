@@ -963,6 +963,29 @@ fun CanvasView(
                                                 strokeStarted = true
                                                 vm.touchMove(imagePos.x, imagePos.y, startP)
                                             } else {
+                                                if (point.historical.isNotEmpty()) {
+                                                    for (h in point.historical) {
+                                                        val histPos = widgetToImage(
+                                                            h.position,
+                                                            viewW,
+                                                            viewH,
+                                                            localPanX,
+                                                            localPanY,
+                                                            localZoom,
+                                                            latestFitScale,
+                                                            localRotation,
+                                                            image.width,
+                                                            image.height,
+                                                            vm.docWidth,
+                                                            vm.docHeight,
+                                                        )
+                                                        if (stylus) {
+                                                            vm.touchMove(histPos.x, histPos.y, smoothedPressure.toDouble())
+                                                        } else {
+                                                            vm.touchMove(histPos.x, histPos.y, 1.0)
+                                                        }
+                                                    }
+                                                }
                                                 if (stylus) {
                                                     val rawP = point.pressure.coerceIn(0f, 1f)
                                                     if (rawP > 0f) {
