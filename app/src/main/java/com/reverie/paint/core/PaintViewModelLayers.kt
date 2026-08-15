@@ -89,6 +89,9 @@ internal fun PaintViewModel.notifyLayerChanged(
     isModified = true
     onPaintingActivity()
     syncLayersFromNative()
+    // Mirror the C++ solo raw-mode flag into Compose state so the solo
+    // floating panel's chips re-highlight immediately after a toggle
+    soloRawMode = ReverieCoreBridge.layerSoloRawMode()
     layerRevision++
     // Structural/attribute changes can shift layer indexes and invalidate
     // index-keyed thumbnails, so force a fresh render (the 400ms throttle
@@ -388,10 +391,6 @@ internal fun PaintViewModel.layerSoloed(i: Int) = ReverieCoreBridge.layerSoloed(
 /** 是否处于独显模式（任意层被独显） */
 val PaintViewModel.soloActive: Boolean
     get() = layers.any { layerSoloed(it.index) }
-
-/** 独显浮窗：当前是否为“取消所有效果”纯净原色模式 */
-val PaintViewModel.soloRawMode: Boolean
-    get() = ReverieCoreBridge.layerSoloRawMode()
 
 /** 独显浮窗：常规 ↔ 取消所有效果 切换 */
 internal fun PaintViewModel.toggleSoloRawMode() {

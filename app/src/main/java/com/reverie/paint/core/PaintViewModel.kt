@@ -231,6 +231,10 @@ class PaintViewModel : ViewModel() {
     // 图层面板多选（右滑选中）
     var selectedLayerIndices by mutableStateOf<Set<Int>>(emptySet())
 
+    // 独显浮窗的“取消所有效果”模式（C++ 状态，经 notifyLayerChanged 同步为
+    // Compose state，保证点击后 chip 高亮即时刷新）
+    var soloRawMode by mutableStateOf(false)
+
     // 绘画页内的“更多设置”全屏覆盖层（不退出画布）
     var moreSettingsOpen by mutableStateOf(false)
 
