@@ -51,7 +51,7 @@ import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import androidx.compose.ui.unit.sp
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.ReSlider

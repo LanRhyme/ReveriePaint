@@ -13,7 +13,7 @@ import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
 import dev.chrisbanes.haze.HazeState
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 
 /** Crop tool options: shows the pending crop size and commits / cancels */
 @Composable

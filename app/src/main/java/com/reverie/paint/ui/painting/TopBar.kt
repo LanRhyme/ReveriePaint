@@ -23,7 +23,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import androidx.compose.ui.graphics.Color
 import com.reverie.paint.R
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.theme.Morandi
 

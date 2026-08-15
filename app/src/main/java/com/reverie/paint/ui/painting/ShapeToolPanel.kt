@@ -10,7 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.components.ReButton
 import com.reverie.paint.ui.components.ReSwitch

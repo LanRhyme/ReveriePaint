@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
  */
 class PaintViewModel : ViewModel() {
     var currentPage by mutableStateOf(Page.HOME)
-        private set
+        internal set
 
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
@@ -48,11 +48,11 @@ class PaintViewModel : ViewModel() {
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
 
     // Active drawing duration tracking (1-minute idle threshold)
-    private var lastActiveTimeMs = 0L
-    private var lastTickTimeMs = 0L
-    private var activeMillisAccumulator = 0L
-    private val IDLE_THRESHOLD_MS = 60_000L
-    private var timerJob: Job? = null
+    internal var lastActiveTimeMs = 0L
+    internal var lastTickTimeMs = 0L
+    internal var activeMillisAccumulator = 0L
+    internal val IDLE_THRESHOLD_MS = 60_000L
+    internal var timerJob: Job? = null
 
     fun onPaintingActivity() {
         val now = System.currentTimeMillis()
@@ -66,7 +66,7 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private fun tickPaintingTimer() {
+    internal fun tickPaintingTimer() {
         val now = System.currentTimeMillis()
         if (lastActiveTimeMs > 0L) {
             val deltaFromActive = now - lastActiveTimeMs
@@ -93,7 +93,7 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private fun startPaintingTimer() {
+    internal fun startPaintingTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
             while (isActive) {
@@ -105,7 +105,7 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private fun stopPaintingTimer() {
+    internal fun stopPaintingTimer() {
         tickPaintingTimer()
         timerJob?.cancel()
         timerJob = null
@@ -150,13 +150,13 @@ class PaintViewModel : ViewModel() {
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
     // current brush.
-    private val brushParams: MutableMap<String, BrushParams> = mutableMapOf()
+    internal val brushParams: MutableMap<String, BrushParams> = mutableMapOf()
 
     // Display bitmap (updated in place via renderToBuffer).
     // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
     // so referential equality would never notify Compose to repaint.
     var displayBitmap by mutableStateOf<Bitmap?>(null, neverEqualPolicy())
-        private set
+        internal set
 
     // Layer panel. A revision state forces Compose to re-read the native
     // layer getters after add/remove/select/visibility operations.
@@ -183,13 +183,13 @@ class PaintViewModel : ViewModel() {
         val presetScrollOffset: Int = 0
     )
     var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())
-        private set
+        internal set
         
     var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(emptyList())
-        private set
+        internal set
         
     var currentToolId by mutableStateOf("brush")
-        private set
+        internal set
         
     // UI Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
@@ -216,7 +216,7 @@ class PaintViewModel : ViewModel() {
     )
     
     var colorPickerMode by mutableStateOf("SQUARE")
-        private set
+        internal set
 
     var settingsInitialSubPage by mutableStateOf("MAIN")
 
@@ -337,7 +337,7 @@ class PaintViewModel : ViewModel() {
     /** Immersive mode (fullscreen + hidden system bars), persisted in prefs.
      *  The actual window changes are applied by MainActivity.applyImmersive. */
     var immersiveMode by mutableStateOf(false)
-        private set
+        internal set
 
     fun updateUiOpacity(v: Float) {
         uiOpacity = v
@@ -461,18 +461,18 @@ class PaintViewModel : ViewModel() {
     // Document size as known by the C++ core (written on the render thread,
     // read there too; Compose-facing docWidth/docHeight are mirrored via
     // the main handler after document creation).
-    private var coreW = 1080
-    private var coreH = 1920
-    private var viewResizeSignal = 0
+    internal var coreW = 1080
+    internal var coreH = 1920
+    internal var viewResizeSignal = 0
 
     // High-performance direct native canvas rendering:
     // Render buffer is kept at full native document resolution (or clamped to GPU texture limit e.g. 4096)
     // for pixel-perfect 1:1 Krita projection alignment with 0 scaling artifacts.
-    private var renderW = 1080
-    private var renderH = 1920
+    internal var renderW = 1080
+    internal var renderH = 1920
 
     var displayRevision by mutableLongStateOf(0L)
-        private set
+        internal set
 
     /** Report the visible canvas size (device px); keep render buffer at full native resolution */
     fun setRenderViewport(viewW: Int, viewH: Int) {
@@ -491,12 +491,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private var renderThread: HandlerThread? = null
-    private var renderHandler: Handler? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
+    internal var renderThread: HandlerThread? = null
+    internal var renderHandler: Handler? = null
+    internal val mainHandler = Handler(Looper.getMainLooper())
 
-    private var renderBmp: Bitmap? = null
-    private var renderScheduled = false
+    internal var renderBmp: Bitmap? = null
+    internal var renderScheduled = false
 
     init {
         startRenderThread()
@@ -509,7 +509,7 @@ class PaintViewModel : ViewModel() {
         super.onCleared()
     }
 
-    private fun startRenderThread() {
+    internal fun startRenderThread() {
         val thread = HandlerThread("reverie-render")
         thread.start()
         renderThread = thread
@@ -522,7 +522,7 @@ class PaintViewModel : ViewModel() {
      * All core mutation must go through here so it never races with the
      * projection recomposition running on the render thread.
      */
-    private fun runCore(
+    internal fun runCore(
         render: Boolean = true,
         after: (() -> Unit)? = null,
         op: () -> Unit,
@@ -535,9 +535,9 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private val RENDER_TOKEN = Any()
+    internal val RENDER_TOKEN = Any()
 
-    private fun scheduleRender(immediate: Boolean = false) {
+    internal fun scheduleRender(immediate: Boolean = false) {
         val h = renderHandler ?: return
         if (immediate) {
             // touchEnd / undo / structural changes: render right away and
@@ -562,7 +562,7 @@ class PaintViewModel : ViewModel() {
         )
     }
 
-    private fun doRender() {
+    internal fun doRender() {
         renderScheduled = false
         val w = renderW
         val h = renderH
@@ -583,16 +583,16 @@ class PaintViewModel : ViewModel() {
     }
 
     var layers by mutableStateOf(listOf<LayerUiState>())
-        private set
+        internal set
 
     var currentLayerIndex by mutableStateOf(-1)
-        private set
+        internal set
 
     val layerCount: Int get() = layers.size
 
     /** Mirror all native layer state into [layers] / [currentLayerIndex].
      * Must run on the main thread after any C++ layer mutation. */
-    private fun syncLayersFromNative() {
+    internal fun syncLayersFromNative() {
         val n = ReverieCoreBridge.layerCount()
         val list = ArrayList<LayerUiState>(n)
         for (i in 0 until n) {
@@ -618,1155 +618,16 @@ class PaintViewModel : ViewModel() {
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
     }
 
-    fun projectDir(): java.io.File {
-        val extDir = appContext.getExternalFilesDir("projects")
-        if (extDir != null) {
-            if (!extDir.exists()) extDir.mkdirs()
-            return extDir
-        }
-        val intDir = java.io.File(appContext.filesDir, "projects")
-        if (!intDir.exists()) intDir.mkdirs()
-        return intDir
-    }
+    internal fun isAppContextReady(): Boolean = ::appContext.isInitialized
+
 
     var currentProjectFile by mutableStateOf<String?>(null)
-
-    // Blocking loading overlay state (used during canvas loading, saving, creating)
     var isBlockingLoading by mutableStateOf(false)
     var blockingLoadingMessage by mutableStateOf("")
-
-    fun saveProject(name: String, onComplete: (() -> Unit)? = null) {
-        tickPaintingTimer()
-        isBlockingLoading = true
-        blockingLoadingMessage = "正在保存作品..."
-        runCore(
-            after = {
-                initialStrokeCount = totalStrokes
-                isModified = false
-                docName = name
-                refreshProjects()
-                isBlockingLoading = false
-                onComplete?.invoke()
-            },
-        ) {
-            val fileToSave = currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true }
-                ?: File(projectDir(), "$name.revp")
-            
-            // If the name changed and we had a path, adjust destination file
-            val finalFile = if (fileToSave.nameWithoutExtension != name) {
-                File(fileToSave.parentFile, "$name.revp")
-            } else {
-                fileToSave
-            }
-            currentProjectFile = finalFile.absolutePath
-
-            val extraJson = """
-                {
-                    "strokeCount": $totalStrokes,
-                    "elapsedSeconds": $elapsedSeconds,
-                    "createdTime": $canvasCreatedTime,
-                    "colorMode": "$colorMode",
-                    "layerCount": ${layers.size}
-                }
-            """.trimIndent()
-            ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson)
-        }
-    }
-
-    fun loadProject(p: com.reverie.paint.model.Project) {
-        stopPaintingTimer()
-        // Navigate to painting page first, then show loading overlay while reading native file
-        currentPage = Page.PAINTING
-        isBlockingLoading = true
-        blockingLoadingMessage = "正在载入画布..."
-        runCore(
-            after = {
-                initialStrokeCount = p.strokeCount
-                totalStrokes = p.strokeCount
-                isModified = false
-                docWidth = coreW
-                docHeight = coreH
-                docName = p.name
-                currentProjectFile = p.filePath
-                elapsedSeconds = p.elapsedSeconds
-                canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
-                colorMode = p.colorMode
-                isBlockingLoading = false
-                startPaintingTimer()
-            },
-        ) {
-            val file = java.io.File(p.filePath)
-            if (file.exists()) {
-                val ok = if (file.extension.equals("revp", ignoreCase = true) || file.extension.equals("kra", ignoreCase = true)) {
-                    ReverieCoreBridge.loadRevp(file.absolutePath)
-                } else {
-                    ReverieCoreBridge.loadPng(file.absolutePath)
-                }
-                if (ok) {
-                    coreW = ReverieCoreBridge.docWidth()
-                    coreH = ReverieCoreBridge.docHeight()
-                    renderW = coreW
-                    renderH = coreH
-                    renderBmp = null
-                    syncLayersFromNative()
-                    ReverieCoreBridge.setBrushColor(brushColor)
-                }
-            }
-        }
-    }
-
-    // Current folder stack navigation: null means Root, otherwise the folder Project
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
-
-    fun createFolder(name: String) {
-        val root = projectDir()
-        val folder = File(root, name.trim())
-        if (!folder.exists()) {
-            folder.mkdirs()
-        }
-        refreshProjects()
-    }
-
-    fun moveProjectToFolder(p: com.reverie.paint.model.Project, targetFolderName: String?) {
-        val srcFile = File(p.filePath)
-        if (!srcFile.exists()) return
-        val root = projectDir()
-        val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
-        if (!destDir.exists()) destDir.mkdirs()
-        val destFile = File(destDir, srcFile.name)
-        srcFile.renameTo(destFile)
-        refreshProjects()
-    }
-
-    fun deleteProject(p: com.reverie.paint.model.Project) {
-        if (p.isFolder) {
-            val dir = File(p.filePath)
-            if (dir.exists() && dir.isDirectory) {
-                dir.deleteRecursively()
-            }
-        } else {
-            val file = File(p.filePath)
-            if (file.exists()) file.delete()
-        }
-        refreshProjects()
-    }
-
-    fun renameProject(p: com.reverie.paint.model.Project, newName: String) {
-        val file = File(p.filePath)
-        if (file.exists()) {
-            val target = if (p.isFolder) {
-                File(file.parentFile, newName.trim())
-            } else {
-                File(file.parentFile, "${newName.trim()}.${file.extension}")
-            }
-            file.renameTo(target)
-        }
-        refreshProjects()
-    }
-
-    private fun parseProjectFromFile(f: File): com.reverie.paint.model.Project {
-        var w = 1080
-        var h = 1920
-        var strokes = 0
-        var elapsed = 0L
-        var layerCount = 1
-        var colorModeStr = "RGB 8位"
-        var previewPath = ""
-
-        val ext = f.extension.lowercase()
-        if (ext == "revp" || ext == "kra") {
-            try {
-                val zip = ZipFile(f)
-                try {
-                    val metaEntry = zip.getEntry("meta.json")
-                    if (metaEntry != null) {
-                        val stream = zip.getInputStream(metaEntry)
-                        val text = stream.bufferedReader().use { it.readText() }
-                        val json = JSONObject(text)
-                        w = json.optInt("width", 1080)
-                        h = json.optInt("height", 1920)
-                        strokes = json.optInt("strokeCount", 0)
-                        elapsed = json.optLong("elapsedSeconds", 0L)
-                        colorModeStr = json.optString("colorMode", "RGB 8位")
-                        layerCount = json.optJSONArray("layers")?.length() ?: 1
-                    }
-                    val prevEntry = zip.getEntry("thumbnail.png") ?: zip.getEntry("preview.png")
-                    if (prevEntry != null) {
-                        val cacheThumb = File(appContext.cacheDir, "${f.nameWithoutExtension}_thumb.png")
-                        if (!cacheThumb.exists() || cacheThumb.lastModified() < f.lastModified()) {
-                            zip.getInputStream(prevEntry).use { input ->
-                                cacheThumb.outputStream().use { output -> input.copyTo(output) }
-                            }
-                        }
-                        previewPath = cacheThumb.absolutePath
-                    }
-                } finally {
-                    zip.close()
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("ReveriePaint", "Failed to parse revp metadata: ${f.name}", e)
-            }
-        } else if (ext == "png") {
-            previewPath = f.absolutePath
-        }
-
-        return com.reverie.paint.model.Project(
-            name = f.nameWithoutExtension,
-            width = w,
-            height = h,
-            filePath = f.absolutePath,
-            previewPath = previewPath,
-            strokeCount = strokes,
-            elapsedSeconds = elapsed,
-            lastModified = f.lastModified(),
-            layerCount = layerCount,
-            colorMode = colorModeStr,
-            fileSize = f.length(),
-            isFolder = false
-        )
-    }
-
-    fun refreshProjects() {
-        val rootDir = projectDir()
-        if (!rootDir.exists()) {
-            projects = emptyList()
-            return
-        }
-
-        // If currently inside a folder, read projects inside that subfolder
-        val folder = currentFolder
-        if (folder != null && folder.isFolder) {
-            val dir = File(folder.filePath)
-            if (!dir.exists()) {
-                currentFolder = null
-                refreshProjects()
-                return
-            }
-            val files: Array<File> = dir.listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
-                ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
-
-            val list = files.map { parseProjectFromFile(it) }
-            projects = list
-            return
-        }
-
-        // Root level: read both standalone files and folders (画集)
-        val list = mutableListOf<com.reverie.paint.model.Project>()
-        val allEntries: Array<File> = rootDir.listFiles()
-            ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
-
-        for (entry in allEntries) {
-            if (entry.isDirectory) {
-                // Folder / Stack (画集)
-                val subFiles: Array<File> = entry.listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
-                    ?.sortedByDescending { it.lastModified() }?.toTypedArray() ?: emptyArray()
-
-                val subProjects = subFiles.map { parseProjectFromFile(it) }
-                val topThumb = subProjects.firstOrNull()?.previewPath ?: ""
-                val topModified = maxOf(entry.lastModified(), subProjects.maxOfOrNull { it.lastModified } ?: 0L)
-
-                list.add(
-                    com.reverie.paint.model.Project(
-                        name = entry.name,
-                        filePath = entry.absolutePath,
-                        previewPath = topThumb,
-                        lastModified = topModified,
-                        isFolder = true,
-                        folderPath = entry.absolutePath,
-                        items = subProjects
-                    )
-                )
-            } else if (entry.isFile && entry.extension.lowercase() in listOf("revp", "kra", "png")) {
-                list.add(parseProjectFromFile(entry))
-            }
-        }
-        projects = list
-    }
-
-    /**
-     * Export the current artwork into various formats:
-     * PNG, JPG, PSD, TIFF, KRA, REVP
-     */
-    fun exportDocument(
-        format: String,
-        targetFile: java.io.File,
-        onSuccess: (java.io.File) -> Unit,
-        onError: (String) -> Unit = {}
-    ) {
-        val fmt = format.lowercase()
-        runCore(render = false) {
-            val ok = when (fmt) {
-                "png" -> ReverieCoreBridge.savePng(targetFile.absolutePath)
-                "jpg", "jpeg" -> ReverieCoreBridge.exportJpg(targetFile.absolutePath, 95)
-                "psd" -> ReverieCoreBridge.exportPsd(targetFile.absolutePath)
-                "kra" -> ReverieCoreBridge.saveKra(targetFile.absolutePath)
-                "revp" -> {
-                    val extraJson = """
-                        {
-                            "strokeCount": $totalStrokes,
-                            "elapsedSeconds": $elapsedSeconds,
-                            "createdTime": $canvasCreatedTime,
-                            "colorMode": "$colorMode",
-                            "layerCount": ${layers.size}
-                        }
-                    """.trimIndent()
-                    ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson)
-                }
-                "tiff", "tif" -> {
-                    // Export TIFF via bitmap compression or lossless PNG container fallback
-                    val tempPng = java.io.File(appContext.cacheDir, "temp_tiff.png")
-                    if (ReverieCoreBridge.savePng(tempPng.absolutePath)) {
-                        val bmp = android.graphics.BitmapFactory.decodeFile(tempPng.absolutePath)
-                        if (bmp != null) {
-                            targetFile.outputStream().use { out ->
-                                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-                            }
-                            true
-                        } else false
-                    } else false
-                }
-                else -> ReverieCoreBridge.savePng(targetFile.absolutePath)
-            }
-            mainHandler.post {
-                if (ok && targetFile.exists() && targetFile.length() > 0) {
-                    onSuccess(targetFile)
-                } else {
-                    onError("导出 $format 失败")
-                }
-            }
-        }
-    }
-
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
-
-    fun goHome() {
-        stopPaintingTimer()
-        currentPage = Page.HOME
-    }
-
-    fun goCreate() {
-        stopPaintingTimer()
-        currentPage = Page.CREATE
-    }
-
-    fun generateNextProjectName(): String {
-        val root = projectDir()
-        val existingFiles = (root.listFiles() ?: emptyArray()).map { it.nameWithoutExtension.lowercase() }.toSet()
-        var index = 1
-        var candidate = "未命名作品"
-        if (!existingFiles.contains(candidate.lowercase())) {
-            return candidate
-        }
-        while (existingFiles.contains("未命名作品 $index".lowercase())) {
-            index++
-        }
-        return "未命名作品 $index"
-    }
-
-    fun startPainting(
-        w: Int,
-        h: Int,
-        name: String? = null,
-    ) {
-        val actualName = name?.ifBlank { null } ?: generateNextProjectName()
-        currentProjectFile = null // Reset so new artwork won't overwrite previous project file
-        totalStrokes = 0
-        elapsedSeconds = 0L
-        canvasCreatedTime = System.currentTimeMillis()
-        stopPaintingTimer()
-        currentPage = Page.PAINTING
-        isBlockingLoading = true
-        blockingLoadingMessage = "正在创建画布..."
-        runCore(
-            after = {
-                initialStrokeCount = 0
-                totalStrokes = 0
-                isModified = false
-                docWidth = w
-                docHeight = h
-                docName = actualName
-                isBlockingLoading = false
-                startPaintingTimer()
-            },
-        ) {
-            if (ReverieCoreBridge.newDocument(w, h)) {
-                coreW = w
-                coreH = h
-                renderW = w
-                renderH = h
-                renderBmp = null
-                syncLayersFromNative()
-                ReverieCoreBridge.setBrushColor(brushColor)
-            }
-        }
-    }
-
-    fun openProject(p: com.reverie.paint.model.Project) {
-        loadProject(p)
-    }
-
-    fun refreshDisplay() {
-        scheduleRender(immediate = true)
-    }
-
-    fun loadBrushPresets() {
-        loadBrushParams()
-        // Copy the bundled presets from assets to filesDir once
-        val dir = java.io.File(appContext.filesDir, "paintoppresets")
-        val assets = appContext.assets
-        try {
-            if (!dir.exists()) dir.mkdirs()
-            for (name in assets.list("paintoppresets") ?: emptyArray()) {
-                val target = java.io.File(dir, name)
-                if (!target.exists()) {
-                    assets.open("paintoppresets/$name").use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "preset copy failed", e)
-        }
-        android.util.Log.d("ReveriePaint", "loadBrushPresets files=" + (dir.list()?.size ?: -1))
-        // Copy the bundled brush resource files (.gbr/.gih/.png/.svg) from
-        // assets to filesDir once, so presets can resolve their
-        // brush_definition files via the shared KisLocalStrokeResources.
-        val brushDir = java.io.File(appContext.filesDir, "brushes")
-        try {
-            if (!brushDir.exists()) brushDir.mkdirs()
-            for (name in assets.list("brushes") ?: emptyArray()) {
-                val target = java.io.File(brushDir, name)
-                if (!target.exists()) {
-                    assets.open("brushes/$name").use { input ->
-                        target.outputStream().use { output -> input.copyTo(output) }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "brush copy failed", e)
-        }
-        // Restore persisted user brush groups and custom order
-        loadBrushGroups()
-        val orderJson = prefs().getString("brush_order", null)
-        brushOrder = if (orderJson != null) {
-            runCatching {
-                val arr = org.json.JSONArray(orderJson)
-                (0 until arr.length()).map { arr.getString(it) }
-            }.getOrDefault(emptyList())
-        } else emptyList()
-        // Build the list on the render thread (JNI reads), but assign the
-        // Compose state on the MAIN thread: mutableStateOf written from the
-        // render HandlerThread is not reliably visible to composition.
-        val list = ArrayList<BrushPresetInfo>()
-        runCore(after = {
-            android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
-            brushPresets = list.toList()
-            if (brushPresets.isNotEmpty()) {
-                val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
-                val savedToolState = toolBrushStates[savedToolId]
-                val targetIndex = if (savedToolState != null && savedToolState.presetIndex in brushPresets.indices) {
-                    savedToolState.presetIndex
-                } else {
-                    val savedPresetIdx = prefs().getInt("last_brush_preset_index", 0)
-                    if (savedPresetIdx in brushPresets.indices) savedPresetIdx else 0
-                }
-                applyTool(savedToolId)
-                selectBrushPreset(targetIndex)
-            }
-        }) {
-            android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
-            val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
-            android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
-            val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
-            android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
-            list.clear()
-            for (i in 0 until n) {
-                val nm = ReverieCoreBridge.brushPresetName(i)
-                list.add(
-                    BrushPresetInfo(
-                        index = i,
-                        name = nm,
-                        thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
-                        group = userBrushGroups[nm] ?: inferBrushGroup(nm),
-                    )
-                )
-            }
-            android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
-        }
-    }
-
-    // ---- User-defined brush groups ----------------------------------
-    private fun prefs() =
-        appContext.getSharedPreferences("brush_groups", android.content.Context.MODE_PRIVATE)
-
-    private fun loadBrushGroups() {
-        val groupsJson = prefs().getString("user_groups", null)
-        val customsJson = prefs().getString("custom_groups", null)
-        userBrushGroups = if (groupsJson != null) {
-            runCatching {
-                val arr = org.json.JSONArray(groupsJson)
-                (0 until arr.length()).associate { i ->
-                    val o = arr.getJSONObject(i)
-                    o.getString("n") to o.getString("g")
-                }
-            }.getOrDefault(emptyMap())
-        } else emptyMap()
-        customBrushGroups = if (customsJson != null) {
-            runCatching {
-                val arr = org.json.JSONArray(customsJson)
-                (0 until arr.length()).map { arr.getString(it) }
-            }.getOrDefault(emptyList())
-        } else emptyList()
-    }
-
-    private fun saveBrushGroups() {
-        try {
-            val arr = org.json.JSONArray()
-            for ((n, g) in userBrushGroups) {
-                arr.put(org.json.JSONObject().put("n", n).put("g", g))
-            }
-            val cust = org.json.JSONArray()
-            for (g in customBrushGroups) cust.put(g)
-            prefs().edit()
-                .putString("user_groups", arr.toString())
-                .putString("custom_groups", cust.toString())
-                .apply()
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "saveBrushGroups failed", e)
-        }
-    }
-
-    /** Create a new user brush group. Returns false if the name exists. */
-    fun createBrushGroup(name: String): Boolean {
-        val n = name.trim()
-        if (n.isEmpty()) return false
-        if (customBrushGroups.contains(n) || n == "全部") return false
-        customBrushGroups = customBrushGroups + n
-        saveBrushGroups()
-        return true
-    }
-
-    /** Move a preset into a group (or back to its inferred group). */
-    fun moveBrushToGroup(presetName: String, group: String) {
-        userBrushGroups = userBrushGroups + (presetName to group)
-        saveBrushGroups()
-        // Refresh the displayed group of this preset
-        brushPresets = brushPresets.map {
-            if (it.name == presetName) it.copy(group = group) else it
-        }
-    }
-
-    private fun saveBrushOrder() {
-        try {
-            val arr = org.json.JSONArray()
-            for (n in brushOrder) arr.put(n)
-            prefs().edit().putString("brush_order", arr.toString()).apply()
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "saveBrushOrder failed", e)
-        }
-    }
-
-    /** Move a preset up/down within its current list position. */
-    fun moveBrushUp(presetName: String) {
-        reorderBrush(presetName, -1)
-    }
-
-    fun moveBrushDown(presetName: String) {
-        reorderBrush(presetName, 1)
-    }
-
-    private fun reorderBrush(presetName: String, delta: Int) {
-        val cur = brushPresets
-        val idx = cur.indexOfFirst { it.name == presetName }
-        val to = idx + delta
-        if (idx < 0 || to < 0 || to >= cur.size) return
-        val newList = cur.toMutableList()
-        val t = newList[idx]
-        newList[idx] = newList[to]
-        newList[to] = t
-        brushPresets = newList
-        brushOrder = newList.map { it.name }
-        saveBrushOrder()
-    }
-
-    fun updateBrushFlow(v: Double) {
-        brushFlow = v
-        saveBrushParam()
-        ReverieCoreBridge.setBrushFlow(v)
-    }
-
-    fun resetBrushParams() {
-        val preset = brushPresets.getOrNull(brushPresetIndex) ?: return
-        brushParams.remove(preset.name)
-        persistBrushParams()
-        
-        updateBrushSpacing(0.1)
-        updateBrushAngle(0.0)
-        updateBrushScatter(0.0)
-        updateBrushFade(0.0)
-        updateBrushSoftness(0.5)
-        updateBrushRatio(1.0)
-        updateBrushSharpness(0.0)
-        updateBrushRotation(0.0)
-
-        runCore(after = {
-            val d = ReverieCoreBridge.brushPresetDefaults(brushPresetIndex)
-            if (d != null && d.size >= 3) {
-                brushSize = d[0]
-                brushOpacity = d[1].coerceIn(0.0, 1.0)
-                brushFlow = d[2].coerceIn(0.0, 1.0)
-            }
-        }) {
-            ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
-        }
-    }
-
-    fun updateBrushSpacing(v: Double) {
-        brushSpacing = v
-        ReverieCoreBridge.setBrushSpacing(v)
-    }
-
-    fun updateBrushAngle(v: Double) {
-        brushAngle = v
-        ReverieCoreBridge.setBrushAngle(v)
-    }
-
-    fun updateBrushScatter(v: Double) {
-        brushScatter = v
-        ReverieCoreBridge.setBrushScatter(v)
-    }
-
-    fun updateBrushFade(v: Double) {
-        brushFade = v
-        ReverieCoreBridge.setBrushFade(v)
-    }
-
-    fun updateBrushSoftness(v: Double) {
-        brushSoftness = v
-        ReverieCoreBridge.setBrushSoftness(v)
-    }
-
-    fun updateBrushRatio(v: Double) {
-        brushRatio = v
-        ReverieCoreBridge.setBrushRatio(v)
-    }
-
-    fun updateBrushSharpness(v: Double) {
-        brushSharpness = v
-        ReverieCoreBridge.setBrushSharpness(v)
-    }
-
-    fun updateBrushRotation(v: Double) {
-        brushRotation = v
-        ReverieCoreBridge.setBrushRotation(v)
-    }
-
-    fun updateBrushCompositeOp(op: String) {
-        brushCompositeOp = op
-        ReverieCoreBridge.setBrushCompositeOp(op)
-    }
-
-    private fun saveBrushParam() {
-        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
-        brushParams[name] = BrushParams(brushSize, brushOpacity, brushFlow)
-        persistBrushParams()
-    }
-
-    private fun persistBrushParams() {
-        try {
-            val json = org.json.JSONArray()
-            for ((name, p) in brushParams) {
-                val o = org.json.JSONObject()
-                o.put("n", name)
-                o.put("s", p.size)
-                o.put("o", p.opacity)
-                o.put("f", p.flow)
-                json.put(o)
-            }
-            prefs().edit().putString("brush_params", json.toString()).apply()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun persistToolBrushStates() {
-        try {
-            val json = org.json.JSONArray()
-            for ((id, s) in toolBrushStates) {
-                val o = org.json.JSONObject()
-                o.put("id", id)
-                o.put("pi", s.presetIndex)
-                o.put("c", s.category)
-                o.put("csi", s.categoryScrollIndex)
-                o.put("cso", s.categoryScrollOffset)
-                o.put("psi", s.presetScrollIndex)
-                o.put("pso", s.presetScrollOffset)
-                json.put(o)
-            }
-            prefs().edit().putString("tool_brush_states", json.toString()).apply()
-        } catch (_: Exception) {
-        }
-    }
-
-    fun savePinnedTools(tools: List<com.reverie.paint.model.Tool>) {
-        pinnedTools = tools
-        try {
-            val ids = tools.map { it.id }.joinToString(",")
-            prefs().edit().putString("pinned_tools", ids).apply()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun loadBrushParams() {
-        try {
-            val raw = prefs().getString("brush_params", null) ?: return
-            val json = org.json.JSONArray(raw)
-            for (i in 0 until json.length()) {
-                val o = json.getJSONObject(i)
-                brushParams[o.getString("n")] =
-                    BrushParams(o.getDouble("s"), o.getDouble("o"), o.getDouble("f"))
-            }
-        } catch (_: Exception) {
-        }
-        
-        try {
-            val raw = prefs().getString("tool_brush_states", null) ?: return
-            val json = org.json.JSONArray(raw)
-            val map = mutableMapOf<String, ToolBrushState>()
-            for (i in 0 until json.length()) {
-                val o = json.getJSONObject(i)
-                map[o.getString("id")] = ToolBrushState(
-                    presetIndex = o.optInt("pi", -1),
-                    category = o.optString("c", "全部"),
-                    categoryScrollIndex = o.optInt("csi", 0),
-                    categoryScrollOffset = o.optInt("cso", 0),
-                    presetScrollIndex = o.optInt("psi", 0),
-                    presetScrollOffset = o.optInt("pso", 0)
-                )
-            }
-            toolBrushStates = map
-        } catch (_: Exception) {
-        }
-        
-        try {
-            currentToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
-        } catch (_: Exception) {
-        }
-        
-        try {
-            val raw = prefs().getString("pinned_tools", null)
-            if (raw != null && raw.isNotBlank()) {
-                val tools = raw.split(",").map { com.reverie.paint.model.Tool.fromId(it) }
-                pinnedTools = tools
-            } else {
-                pinnedTools = listOf(
-                    com.reverie.paint.model.Tool.BRUSH,
-                    com.reverie.paint.model.Tool.ERASER
-                )
-            }
-        } catch (_: Exception) {
-            pinnedTools = listOf(
-                com.reverie.paint.model.Tool.BRUSH,
-                com.reverie.paint.model.Tool.ERASER
-            )
-        }
-    }
-
-    fun selectBrushPreset(index: Int) {
-        if (index == brushPresetIndex) return
-        val preset = brushPresets.getOrNull(index) ?: return
-        val saved = brushParams[preset.name]
-        brushPresetIndex = index
-        runCore(after = {
-            if (saved != null) {
-                // User-adjusted values for this preset
-                brushSize = saved.size
-                brushOpacity = saved.opacity
-                brushFlow = saved.flow
-            } else {
-                // First use: the preset's own defaults
-                val d = ReverieCoreBridge.brushPresetDefaults(index)
-                if (d != null && d.size >= 3) {
-                    brushSize = d[0]
-                    brushOpacity = d[1].coerceIn(0.0, 1.0)
-                    brushFlow = d[2].coerceIn(0.0, 1.0)
-                }
-            }
-        }) {
-            if (saved != null) {
-                ReverieCoreBridge.setBrushSize(saved.size)
-                ReverieCoreBridge.setBrushOpacity(saved.opacity)
-                ReverieCoreBridge.setBrushFlow(saved.flow)
-            }
-            if (ReverieCoreBridge.loadBrushPreset(index)) {
-                brushPresetIndex = index
-                updateCurrentToolBrushState { it.copy(presetIndex = index) }
-                try {
-                    prefs().edit().putInt("last_brush_preset_index", index).apply()
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
-    private fun updateCurrentToolBrushState(updater: (ToolBrushState) -> ToolBrushState) {
-        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
-        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
-            val state = toolBrushStates[t.id] ?: ToolBrushState()
-            toolBrushStates = toolBrushStates.toMutableMap().apply { put(t.id, updater(state)) }
-            persistToolBrushStates()
-        }
-    }
-
-    fun updateBrushPanelCategory(cat: String) {
-        brushPanelSelectedCategory = cat
-        updateCurrentToolBrushState { it.copy(category = cat) }
-    }
-
-    fun updateBrushCategoryScroll(index: Int, offset: Int) {
-        brushCategoryScrollIndex = index
-        brushCategoryScrollOffset = offset
-        updateCurrentToolBrushState { it.copy(categoryScrollIndex = index, categoryScrollOffset = offset) }
-    }
-
-    fun updateBrushPresetScroll(index: Int, offset: Int) {
-        brushPresetScrollIndex = index
-        brushPresetScrollOffset = offset
-        updateCurrentToolBrushState { it.copy(presetScrollIndex = index, presetScrollOffset = offset) }
-    }
-
-    fun updateBrushSize(v: Double) {
-        brushSize = v
-        saveBrushParam()
-        ReverieCoreBridge.setBrushSize(v)
-    }
-
-    fun updateBrushColor(c: String) {
-        brushColor = c
-        ReverieCoreBridge.setBrushColor(c)
-        if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putString("brushColor", c).apply()
-        }
-    }
-
-    fun updateBrushSecondaryColor(c: String) {
-        brushSecondaryColor = c
-        if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putString("brushSecondaryColor", c).apply()
-        }
-    }
-
-    fun swapColors() {
-        val temp = brushColor
-        updateBrushColor(brushSecondaryColor)
-        updateBrushSecondaryColor(temp)
-    }
-
-    fun updateBrushOpacity(v: Double) {
-        brushOpacity = v
-        saveBrushParam()
-        ReverieCoreBridge.setBrushOpacity(v)
-    }
-
-    fun touchStart(
-        x: Float,
-        y: Float,
-        pressure: Double = 1.0,
-    ) {
-        onPaintingActivity()
-        runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), pressure) }
-    }
-
-    fun touchMove(
-        x: Float,
-        y: Float,
-        pressure: Double = 1.0,
-    ) {
-        onPaintingActivity()
-        runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), pressure) }
-    }
-
-    fun touchEnd() {
-        isModified = true
-        totalStrokes++
-        onPaintingActivity()
-        runCore(after = {
-            scheduleRender(immediate = true)
-            refreshLayerThumbs()
-        }) {
-            ReverieCoreBridge.touchStrokeEnd()
-        }
-    }
-
-    fun touchCancel() {
-        runCore(after = { refreshLayerThumbs() }) {
-            ReverieCoreBridge.touchStrokeCancel()
-        }
-    }
-
-    fun applyTool(toolId: String) {
-        val mode =
-            when (toolId) {
-                "brush" -> 0
-                "eraser" -> 1
-                "smudge" -> 3
-                else -> -1
-            }
-        if (mode >= 0) {
-            ReverieCoreBridge.setToolMode(mode)
-        }
-        currentToolId = toolId
-        try {
-            prefs().edit().putString("current_tool_id", toolId).apply()
-        } catch (_: Exception) {
-        }
-
-        val t = com.reverie.paint.model.Tool.fromId(toolId)
-        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
-            var state = toolBrushStates[toolId]
-            if (state == null) {
-                val cat = when (t) {
-                    com.reverie.paint.model.Tool.ERASER -> "橡皮擦"
-                    com.reverie.paint.model.Tool.SMUDGE -> "混合"
-                    else -> "全部"
-                }
-                var defaultIdx = brushPresets.indexOfFirst { it.group == cat }
-                if (defaultIdx < 0) defaultIdx = 0
-                state = ToolBrushState(category = cat, presetIndex = defaultIdx)
-                toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
-            }
-            
-            brushPanelSelectedCategory = state.category
-            brushCategoryScrollIndex = state.categoryScrollIndex
-            brushCategoryScrollOffset = state.categoryScrollOffset
-            brushPresetScrollIndex = state.presetScrollIndex
-            brushPresetScrollOffset = state.presetScrollOffset
-            
-            if (state.presetIndex >= 0) {
-                if (state.presetIndex != brushPresetIndex) {
-                    selectBrushPreset(state.presetIndex)
-                } else {
-                    // Force refresh Krita param for this specific tool even if it's the same index
-                    val saved = brushParams[brushPresets.getOrNull(state.presetIndex)?.name]
-                    if (saved != null) {
-                        brushSize = saved.size
-                        brushOpacity = saved.opacity
-                        brushFlow = saved.flow
-                        ReverieCoreBridge.setBrushSize(saved.size)
-                        ReverieCoreBridge.setBrushOpacity(saved.opacity)
-                        ReverieCoreBridge.setBrushFlow(saved.flow)
-                    }
-                }
-            }
-        }
-    }
-
-    // ---- New Krita tool actions --------------------------------------
-
-    fun gradientFill(x1: Int, y1: Int, x2: Int, y2: Int, type: Int = 0) {
-        runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type) }
-    }
-
-    fun selectShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int) {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.selectShape(kind, x1, y1, x2, y2)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun selectPolygon(points: List<Pair<Int, Int>>) {
-        if (points.size < 3) return
-        val xs = IntArray(points.size) { points[it].first }
-        val ys = IntArray(points.size) { points[it].second }
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.selectPolygon(xs, ys, points.size)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun drawPolygon(points: List<Pair<Int, Int>>, closed: Boolean) {
-        if (points.size < 2) return
-        val xs = IntArray(points.size) { points[it].first }
-        val ys = IntArray(points.size) { points[it].second }
-        runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
-    }
-
-    fun moveLayerContent(dx: Int, dy: Int) {
-        runCore(render = true, after = {
-            notifyLayerChanged()
-            refreshSelection()
-            startTransformPreview()
-        }) {
-            ReverieCoreBridge.cancelTransformPreview()
-            ReverieCoreBridge.moveLayerContent(dx, dy)
-        }
-    }
-
-    fun cropCanvas(x: Int, y: Int, w: Int, h: Int) {
-        runCore(after = {
-            // The document size changed in C++ - keep coreW/coreH in sync or
-            // the viewport render reads stale dimensions (crop crash)
-            coreW = ReverieCoreBridge.docWidth()
-            coreH = ReverieCoreBridge.docHeight()
-            // Force a viewport resize: renderW/renderH were computed for the
-            // old document size, so recompute + full redraw
-            renderW = -1
-            renderH = -1
-            viewResizeSignal++
-            syncLayersFromNative()
-            notifyLayerChanged()
-        }) {
-            ReverieCoreBridge.cropCanvas(x, y, w, h)
-        }
-    }
-
-    fun contentBounds(): IntArray? {
-        // Must run on the render thread - direct UI-thread JNI here raced
-        // with the render thread (m_layers vector mutation during
-        // syncLayersFromImage) and crashed the transform tool on first use
-        var result: IntArray? = null
-        val latch = java.util.concurrent.CountDownLatch(1)
-        runCore(render = false, after = { latch.countDown() }) {
-            result = ReverieCoreBridge.contentBounds()
-        }
-        try {
-            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-            return null
-        }
-        return result
-    }
-
-    fun setShapeStrokeWidth(w: Double) {
-        runCore { ReverieCoreBridge.setShapeStrokeWidth(w) }
-    }
-
-    fun setShapeFilled(f: Boolean) {
-        runCore { ReverieCoreBridge.setShapeFilled(f) }
-    }
-
-    fun applyTransform(
-        xscale: Double, yscale: Double,
-        xshear: Double, yshear: Double,
-        rotationRad: Double,
-        xtranslate: Double, ytranslate: Double,
-        originX: Double = -1.0, originY: Double = -1.0,
-    ) {
-        runCore(render = true, after = {
-            notifyLayerChanged()
-            refreshSelection()
-            transformPreviewBitmap = null
-        }) {
-            ReverieCoreBridge.applyTransform(
-                xscale, yscale, xshear, yshear,
-                rotationRad, xtranslate, ytranslate,
-                originX, originY,
-            )
-        }
-    }
-
-    fun applyPerspectiveTransform(
-        x0: Double, y0: Double,
-        x1: Double, y1: Double,
-        x2: Double, y2: Double,
-        x3: Double, y3: Double,
-        origX: Double, origY: Double,
-        origW: Double, origH: Double,
-    ) {
-        runCore(render = true, after = {
-            notifyLayerChanged()
-            refreshSelection()
-            transformPreviewBitmap = null
-        }) {
-            ReverieCoreBridge.applyPerspectiveTransform(
-                x0, y0, x1, y1, x2, y2, x3, y3,
-                origX, origY, origW, origH,
-            )
-        }
-    }
-
-    fun applyWarpMeshTransform(
-        origPoints: List<androidx.compose.ui.geometry.Offset>,
-        transfPoints: List<androidx.compose.ui.geometry.Offset>,
-        origX: Double, origY: Double,
-        origW: Double, origH: Double,
-    ) {
-        val count = origPoints.size
-        val ox = DoubleArray(count) { origPoints[it].x.toDouble() }
-        val oy = DoubleArray(count) { origPoints[it].y.toDouble() }
-        val tx = DoubleArray(count) { transfPoints[it].x.toDouble() }
-        val ty = DoubleArray(count) { transfPoints[it].y.toDouble() }
-
-        runCore(render = true, after = {
-            notifyLayerChanged()
-            refreshSelection()
-            transformPreviewBitmap = null
-        }) {
-            ReverieCoreBridge.applyWarpMeshTransform(
-                ox, oy, tx, ty, count,
-                origX, origY, origW, origH,
-            )
-        }
-    }
-
-    fun undo() {
-        runCore(after = {
-            notifyLayerChanged()
-            refreshSelection()
-        }) {
-            if (ReverieCoreBridge.canUndo()) {
-                ReverieCoreBridge.undo()
-            }
-        }
-    }
-
-    fun redo() {
-        runCore(after = {
-            notifyLayerChanged()
-            refreshSelection()
-        }) {
-            if (ReverieCoreBridge.canRedo()) {
-                ReverieCoreBridge.redo()
-            }
-        }
-    }
-
-    fun setLiquifyBrushSize(size: Double) {
-        runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
-    }
-
-    fun liquify(
-        fx: Float,
-        fy: Float,
-        tx: Float,
-        ty: Float,
-        mode: Int,
-        strength: Double = 0.9,
-    ) {
-        runCore {
-            ReverieCoreBridge.liquify(
-                fx.toInt(),
-                fy.toInt(),
-                tx.toInt(),
-                ty.toInt(),
-                strength,
-                mode,
-            )
-        }
-    }
-
-    // ---- Selection state (mirrored from C++ for the canvas overlay) ----
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
@@ -1774,440 +635,19 @@ class PaintViewModel : ViewModel() {
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
 
     var transformPreviewBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
-
-    fun startTransformPreview() {
-        if (docWidth <= 0 || docHeight <= 0) return
-        runCore(render = true) {
-            val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
-            val success = ReverieCoreBridge.startTransformPreview(b)
-            mainHandler.post {
-                if (success) {
-                    transformPreviewBitmap = b.asImageBitmap()
-                }
-            }
-        }
-    }
-
-    fun cancelTransformPreview() {
-        runCore(render = true, after = {
-            transformPreviewBitmap = null
-        }) {
-            ReverieCoreBridge.cancelTransformPreview()
-        }
-    }
-
-    // ---- Selection merge mode (replace/add/subtract/intersect) ----
     var selectionMode by mutableStateOf(0)
-
-    fun updateSelectionMode(mode: Int) {
-        selectionMode = mode
-        runCore { ReverieCoreBridge.setSelectionMode(mode) }
-    }
-
-    fun featherSelection(radius: Int) {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.featherSelection(radius)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun expandSelection(px: Int) {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.expandSelection(px)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun contractSelection(px: Int) {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.contractSelection(px)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun smoothSelection(radius: Int) {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.smoothSelection(radius)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-
-    /** Build the selection overlay bitmap on the render thread (must be
-     *  called inside a runCore op). The full-document mask is downsampled to
-     *  the viewport size so it matches the canvas bitmap 1:1. */
-    private fun buildSelectionOverlayLocked(): android.graphics.Bitmap? {
-        // The C++ side samples the selection mask at the viewport stride and
-        // returns the ARGB overlay pixels directly - one JNI round trip
-        // instead of a full-document mask readBytes plus a 2M-pixel scan here
-        val vw = maxOf(1, renderW)
-        val vh = maxOf(1, renderH)
-        val px = ReverieCoreBridge.selectionOverlayScaled(vw, vh) ?: return null
-        val bmp = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
-        bmp.setPixels(px, 0, vw, 0, 0, vw, vh)
-        return bmp
-    }
-
-    fun refreshSelection() {
-        var result: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = result
-            hasSelection = result != null
-        }) {
-            result = buildSelectionOverlayLocked()
-        }
-    }
-
-    // Clear only the displayed overlay (replace mode: finger-down clears the
-    // old selection immediately; the C++ selection is committed on release)
-    fun clearSelectionOverlayLocal() {
-        selectionOverlayBitmap = null
-        selectionMask = null
-        hasSelection = false
-    }
-
-    fun clearSelectionAction() {
-        runCore(after = {
-            selectionMask = null
-            hasSelection = false
-            selectionOverlayBitmap = null
-        }) {
-            ReverieCoreBridge.clearSelection()
-            refreshDisplay()
-        }
-    }
-
-    fun selectAllAction() {
-        val layerIdx = currentLayerIndex
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.selectionFromLayer(layerIdx)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun invertSelectionAction() {
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.invertSelection()
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    // Magnetic lasso: edge-snapping path from (fx,fy) to (tx,ty), runs on the
-    // render thread, result delivered via onPath on the main thread
-    fun magneticLassoAsync(
-        fx: Int,
-        fy: Int,
-        tx: Int,
-        ty: Int,
-        radius: Int = 24,
-        onPath: (List<Pair<Int, Int>>) -> Unit,
-    ) {
-        var arr: IntArray? = null
-        runCore(render = false, after = {
-            if (arr != null) {
-                val pts = ArrayList<Pair<Int, Int>>(arr!!.size / 2)
-                for (i in arr!!.indices step 2) {
-                    pts.add(arr!![i] to arr!![i + 1])
-                }
-                onPath(pts)
-            }
-        }) {
-            arr = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
-        }
-    }
-
-    /** Live lasso preview: fill the current polygon into the overlay while
-     *  the finger moves (throttled from CanvasView), without committing.
-     *  The real selection replaces it on release. */
-    fun previewLasso(points: List<Pair<Int, Int>>) {
-        if (points.size < 3) return
-        val xs = IntArray(points.size) { points[it].first }
-        val ys = IntArray(points.size) { points[it].second }
-        val vw = maxOf(1, renderW)
-        val vh = maxOf(1, renderH)
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            val px = ReverieCoreBridge.previewLassoOverlay(xs, ys, points.size, vw, vh)
-            if (px != null) {
-                ov = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
-                ov!!.setPixels(px, 0, vw, 0, 0, vw, vh)
-            }
-        }
-    }
-
-    /** Synchronous magnetic-lasso segment: blocks the calling (main) thread
-     *  until the render thread computes the edge-snapped path (bounded wait),
-     *  so the preview path is continuous and the committed selection always
-     *  matches what the user saw - Krita's KisToolSelectMagnetic computes each
-     *  segment synchronously as the pointer moves. */
-    fun magneticLassoSync(
-        fx: Int,
-        fy: Int,
-        tx: Int,
-        ty: Int,
-        radius: Int = 40,
-    ): List<Pair<Int, Int>>? {
-        var result: IntArray? = null
-        val latch = java.util.concurrent.CountDownLatch(1)
-        runCore(render = false, after = { latch.countDown() }) {
-            result = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
-        }
-        try {
-            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-            return null
-        }
-        val arr = result ?: return null
-        val pts = ArrayList<Pair<Int, Int>>(arr.size / 2)
-        for (i in arr.indices step 2) {
-            pts.add(arr[i] to arr[i + 1])
-        }
-        return pts
-    }
-
-    /** Synchronous final lasso preview: on release, refresh the overlay to
-     *  the exact final path BEFORE the committed selection lands, so the
-     *  preview -> committed transition has no visible jump. Bounded wait. */
-    fun previewLassoSync(points: List<Pair<Int, Int>>) {
-        if (points.size < 3) return
-        val xs = IntArray(points.size) { points[it].first }
-        val ys = IntArray(points.size) { points[it].second }
-        val vw = maxOf(1, renderW)
-        val vh = maxOf(1, renderH)
-        var ov: android.graphics.Bitmap? = null
-        val latch = java.util.concurrent.CountDownLatch(1)
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-            latch.countDown()
-        }) {
-            val px = ReverieCoreBridge.previewLassoOverlay(xs, ys, points.size, vw, vh)
-            if (px != null) {
-                ov = android.graphics.Bitmap.createBitmap(vw, vh, android.graphics.Bitmap.Config.ARGB_8888)
-                ov!!.setPixels(px, 0, vw, 0, 0, vw, vh)
-            }
-        }
-        try {
-            latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (_: InterruptedException) {
-        }
-    }
-
-    fun lassoSelect(points: List<Pair<Int, Int>>) {
-        if (points.size < 3) return
-        val xs = IntArray(points.size) { points[it].first }
-        val ys = IntArray(points.size) { points[it].second }
-        var ov: android.graphics.Bitmap? = null
-        runCore(render = false, after = {
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.lassoSelect(xs, ys, points.size)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    // Magic-wand / similar-color tolerance (0-255, default 24 like Krita)
     var selectionTolerance by mutableStateOf(24)
-
-    fun updateSelectionTolerance(value: Int) {
-        selectionTolerance = value.coerceIn(0, 255)
-    }
-
-    fun selectContiguous(x: Int, y: Int) {
-        val tol = selectionTolerance
-        var ov: android.graphics.Bitmap? = null
-        val t0 = System.nanoTime()
-        runCore(render = false, after = {
-            android.util.Log.d(
-                "ReverieSel",
-                "wand total=${(System.nanoTime() - t0) / 1_000_000}ms (queued=${hQueued()})",
-            )
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.selectContiguousAt(x, y, tol)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    fun selectSimilar(x: Int, y: Int) {
-        val tol = selectionTolerance
-        var ov: android.graphics.Bitmap? = null
-        val t0 = System.nanoTime()
-        runCore(render = false, after = {
-            android.util.Log.d(
-                "ReverieSel",
-                "similar total=${(System.nanoTime() - t0) / 1_000_000}ms",
-            )
-            selectionOverlayBitmap = ov
-            hasSelection = ov != null
-        }) {
-            ReverieCoreBridge.selectSimilarAt(x, y, tol)
-            ov = buildSelectionOverlayLocked()
-        }
-    }
-
-    /** Approximate backlog of the render thread (diagnostics). */
-    private fun hQueued(): Int = if (renderHandler?.hasMessages(0) == true) 1 else 0
-
-    fun lassoFill(points: List<Pair<Int, Int>>) {
-        val xs = points.map { it.first }.toIntArray()
-        val ys = points.map { it.second }.toIntArray()
-        runCore { ReverieCoreBridge.lassoFill(xs, ys, points.size) }
-    }
-
-    fun lassoClear(points: List<Pair<Int, Int>>) {
-        val xs = points.map { it.first }.toIntArray()
-        val ys = points.map { it.second }.toIntArray()
-        runCore { ReverieCoreBridge.lassoClear(xs, ys, points.size) }
-    }
-
-    fun drawText(
-        x: Float,
-        y: Float,
-        text: String,
-        fontSize: Double,
-    ) {
-        runCore {
-            ReverieCoreBridge.drawText(x.toInt(), y.toInt(), text, fontSize)
-        }
-    }
-
-    fun drawShape(
-        kind: Int,
-        x1: Float,
-        y1: Float,
-        x2: Float,
-        y2: Float,
-        filled: Boolean = false,
-    ) {
-        runCore {
-            ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), filled)
-        }
-    }
-
-    fun floodFill(
-        x: Float,
-        y: Float,
-        tolerance: Int = 24,
-    ) {
-        runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance) }
-    }
-
-    private val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
+    internal val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
     // Name-keyed mirror: layer indices change on every move/group op, so the
     // index cache goes empty right after a drag and the rows flash blank until
     // the 400ms-throttled refresh lands. Names are stable across moves, so a
     // by-name lookup keeps thumbnails visible (this is the drag flicker fix)
-    private val layerThumbByName = mutableStateMapOf<String, Bitmap>()
-    private val layerThumbIndexName = mutableStateMapOf<Int, String>()
+    internal val layerThumbByName = mutableStateMapOf<String, Bitmap>()
+    internal val layerThumbIndexName = mutableStateMapOf<Int, String>()
 
     /** Layer thumbnails keyed by layer index (updated on the render thread). */
     val layerThumbs: Map<Int, Bitmap> = layerThumbStates
-
-    /**
-     * Thumbnail lookup with index+name double check: an index-keyed entry is
-     * only trusted when the layer name currently at that index matches the
-     * requested one (indexes shift after add/remove/move and stale entries
-     * would show another layer's thumbnail on a blank layer). Falls back to
-     * the name-keyed map, which also avoids the stale-index case.
-     */
-    fun thumbFor(layerIndex: Int, layerName: String): Bitmap? {
-        val idxName = layerThumbIndexName[layerIndex]
-        if (idxName != null && idxName == layerName) {
-            return layerThumbStates[layerIndex]
-        }
-        return layerThumbByName[layerName]
-    }
-
-    private var lastThumbRefreshNs = 0L
-
-    /** (Re)generate layer thumbnails on the render thread. Throttled. */
-    fun refreshLayerThumbs(force: Boolean = false) {
-        val now = System.nanoTime()
-        if (!force && now - lastThumbRefreshNs < 400_000_000L) return
-        lastThumbRefreshNs = now
-        val n = ReverieCoreBridge.layerCount()
-        if (n <= 0) return
-        runCore(after = {}) {
-            for (i in 0 until n) {
-                val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
-                if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
-                    val idx = i
-                    val name = ReverieCoreBridge.layerName(idx)
-                    mainHandler.post {
-                        layerThumbStates[idx] = bmp
-                        layerThumbIndexName[idx] = name
-                        layerThumbByName[name] = bmp
-                    }
-                }
-            }
-        }
-    }
-
-    private fun notifyLayerChanged() {
-        isModified = true
-        onPaintingActivity()
-        syncLayersFromNative()
-        layerRevision++
-        // Structural/attribute changes can shift layer indexes and invalidate
-        // index-keyed thumbnails, so force a fresh render (the 400ms throttle
-        // would otherwise skip it and show another layer's stale thumbnail)
-        refreshLayerThumbs(force = true)
-        scheduleRender(immediate = true)
-    }
-
-    fun addLayer() {
-        runCore(after = ::notifyLayerChanged) {
-            // empty name -> C++ generates 颜料图层 N
-            ReverieCoreBridge.addLayer("")
-        }
-    }
-
-    fun removeLayer() {
-        removeLayer(currentLayerIndex)
-    }
-
-    fun removeLayer(index: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.removeLayer(index)
-        }
-    }
-
-    fun setCurrentLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setCurrentLayer(i)
-        }
-    }
-
+    internal var lastThumbRefreshNs = 0L
     val blendModes =
         listOf(
             "normal" to "正常",
@@ -2236,324 +676,11 @@ class PaintViewModel : ViewModel() {
             "value" to "明度",
             "erase" to "擦除",
         )
-
-    fun layerBlendMode(i: Int) = ReverieCoreBridge.layerBlendMode(i)
-
-    fun setLayerBlendMode(
-        i: Int,
-        opId: String,
-    ) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerBlendMode(i, opId)
-        }
-    }
-
-    fun toggleLayerVisible(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerVisible(i, !ReverieCoreBridge.layerVisible(i))
-        }
-    }
-
-    fun layerName(i: Int) = ReverieCoreBridge.layerName(i)
-
     var pickerCurrentLayerOnly by mutableStateOf(false)
-
-    /** Sample the color at document-space (x, y) and set it as the brush color. */
-    fun pickColor(
-        x: Float,
-        y: Float,
-        currentLayerOnly: Boolean = pickerCurrentLayerOnly,
-    ): String? {
-        val c = ReverieCoreBridge.pickColorAt(x.toInt(), y.toInt(), currentLayerOnly) ?: return null
-        updateBrushColor(c)
-        return c
-    }
-
-    fun layerVisible(i: Int) = ReverieCoreBridge.layerVisible(i)
-
-    // ---- Full layer system ----
-    fun addGroupLayer() {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.addGroupLayer("")
-        }
-    }
-
-    fun copyLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.copyLayer(i)
-        }
-    }
-
-    fun clearLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.clearLayer(i)
-        }
-    }
-
-    fun renameLayer(i: Int, name: String) {
-        if (name.isBlank()) return
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerName(i, name.trim())
-        }
-    }
-
-    fun layerOpacity(i: Int) = ReverieCoreBridge.layerOpacity(i)
-
-    fun setLayerOpacity(i: Int, v: Double) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerOpacity(i, v)
-        }
-    }
-
-    fun layerLocked(i: Int) = ReverieCoreBridge.layerLocked(i)
-
-    fun setLayerLocked(i: Int, locked: Boolean) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerLocked(i, locked)
-        }
-    }
-
-    fun layerAlphaLocked(i: Int) = ReverieCoreBridge.layerAlphaLocked(i)
-
-    fun setLayerAlphaLocked(i: Int, locked: Boolean) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerAlphaLocked(i, locked)
-        }
-    }
-
-    fun layerColorLabel(i: Int) = ReverieCoreBridge.layerColorLabel(i)
-
-    fun setLayerColorLabel(i: Int, label: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerColorLabel(i, label)
-        }
-    }
-
-    fun layerIsGroup(i: Int) = ReverieCoreBridge.layerIsGroup(i)
-
-    fun layerDepth(i: Int) = ReverieCoreBridge.layerDepth(i)
-
-    fun layerBackground(i: Int) = ReverieCoreBridge.layerBackground(i)
-
-    fun layerClipped(i: Int) = ReverieCoreBridge.layerClipped(i)
-
-    fun setLayerClipped(i: Int, clipped: Boolean) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setLayerClipped(i, clipped)
-        }
-    }
-
-    fun flipLayerHorizontal(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.flipLayerHorizontal(i)
-        }
-    }
-
-    fun flipLayerVertical(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.flipLayerVertical(i)
-        }
-    }
-
-    fun stampVisibleLayers() {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.stampVisibleLayers()
-        }
-    }
-
-    fun setBackgroundColor(color: Int, commit: Boolean = true) {
-        if (commit) {
-            runCore(after = ::notifyLayerChanged) {
-                ReverieCoreBridge.setBackgroundColor(color, true)
-            }
-        } else {
-            runCore {
-                ReverieCoreBridge.setBackgroundColor(color, false)
-                scheduleRender(immediate = true)
-            }
-        }
-    }
-
-    fun moveLayer(from: Int, to: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayer(from, to)
-        }
-    }
-
-    fun moveLayerAbove(from: Int, above: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerAbove(from, above)
-        }
-    }
-
-    fun moveLayerToGroup(from: Int, group: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerToGroup(from, group)
-        }
-    }
-
-    fun moveLayerRelative(from: Int, target: Int, placeAbove: Boolean) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerRelative(from, target, placeAbove)
-        }
-    }
-
-    fun moveLayerUp(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerUp(i)
-        }
-    }
-
-    fun moveLayerDown(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerDown(i)
-        }
-    }
-
-    fun moveLayerOut(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.moveLayerOut(i)
-        }
-    }
-
-    fun addMaskToLayer(layerIndex: Int, maskType: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.addMaskToLayer(layerIndex, maskType)
-        }
-    }
-
-    fun removeMask(layerIndex: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.removeMask(layerIndex)
-        }
-    }
-
-    fun rasterizeLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.rasterizeLayer(i)
-        }
-    }
-
-    fun flattenGroup(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.flattenGroup(i)
-        }
-    }
-
-    fun setGroupPassThrough(i: Int, passThrough: Boolean) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setGroupPassThrough(i, passThrough)
-        }
-    }
-
-    fun groupPassThrough(i: Int) = ReverieCoreBridge.groupPassThrough(i)
-
-    fun mergeDown(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.mergeDown(i)
-        }
-    }
-
-    fun soloLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.soloLayer(i)
-        }
-    }
-
-    fun layerSoloed(i: Int) = ReverieCoreBridge.layerSoloed(i)
-
-    fun applyFilter(i: Int, filterId: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.applyFilter(i, filterId)
-        }
-    }
-
-    fun selectionFromLayer(i: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.selectionFromLayer(i)
-        }
-    }
-
-    fun clearSelection() {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.clearSelection()
-        }
-    }
-
-    fun addLayerWithType(name: String = "", type: Int = 0, fillColor: Int = 0xFFFFFFFF.toInt()) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.addLayerWithType(name, type, fillColor)
-        }
-    }
-
     var isFilterAdjustActive by mutableStateOf(false)
 
-    private var filterPreviewJob: kotlinx.coroutines.Job? = null
+    internal var filterPreviewJob: kotlinx.coroutines.Job? = null
 
-    fun beginFilterPreview(index: Int) {
-        isFilterAdjustActive = true
-        runCore(render = false) {
-            ReverieCoreBridge.beginFilterPreview(index)
-        }
-    }
-
-    fun applyFilterPreview(index: Int, filterType: Int, p1: Double = 0.0, p2: Double = 0.0, p3: Double = 0.0, p4: Double = 0.0) {
-        filterPreviewJob?.cancel()
-        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
-            }
-        }
-    }
-
-    fun applyCurvesLUTPreview(index: Int, lutR: ByteArray, lutG: ByteArray, lutB: ByteArray) {
-        filterPreviewJob?.cancel()
-        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyCurvesLUTPreview(index, lutR, lutG, lutB)
-            }
-        }
-    }
-
-    fun applyGradientMapPreview(index: Int, gradientLut: IntArray) {
-        filterPreviewJob?.cancel()
-        filterPreviewJob = viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyGradientMapPreview(index, gradientLut)
-            }
-        }
-    }
-
-    fun commitFilter(index: Int, filterName: String) {
-        isFilterAdjustActive = false
-        filterPreviewJob?.cancel()
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.commitFilter(index, filterName)
-        }
-    }
-
-    fun cancelFilter(index: Int) {
-        isFilterAdjustActive = false
-        filterPreviewJob?.cancel()
-        runCore(after = {
-            scheduleRender(immediate = true)
-            notifyLayerChanged()
-        }) {
-            ReverieCoreBridge.cancelFilter(index)
-        }
-    }
-
-    fun recompositeProjection() {
-        runCore(after = ::notifyLayerChanged) {
-            // runCore triggers rendering and syncs projection
-        }
-    }
 }
 
 enum class Page { HOME, CREATE, PAINTING }

@@ -46,7 +46,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 
 /**
  * Premium glassmorphism-style floating capsule with entry animations and drag support.

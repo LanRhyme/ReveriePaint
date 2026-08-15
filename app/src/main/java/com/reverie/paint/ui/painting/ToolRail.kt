@@ -51,7 +51,7 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
-import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.HazeStyle
