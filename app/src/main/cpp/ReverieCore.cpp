@@ -217,7 +217,7 @@ bool ReverieCore::newDocument(int width, int height)
     return true;
 }
 
-void ReverieCore::setBackgroundColor(quint32 color)
+void ReverieCore::setBackgroundColor(quint32 color, bool commit)
 {
     KisImageSP image = m_document;
     if (!image || m_layers.isEmpty()) return;
@@ -227,10 +227,15 @@ void ReverieCore::setBackgroundColor(quint32 color)
     QColor qc = QColor::fromRgba(color);
     KoColor koColor(qc, cs);
 
-    KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
-    dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
-    dev->setDirty();
-    txn.commit(image->undoAdapter());
+    if (commit) {
+        KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
+        dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
+        dev->setDirty();
+        txn.commit(image->undoAdapter());
+    } else {
+        dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
+        dev->setDirty();
+    }
     recompositeProjection();
     markDirty();
 }

@@ -219,6 +219,7 @@ fun ReSlider(
     onValue: (Float) -> Unit,
     modifier: Modifier = Modifier,
     height: Int = 20,
+    onRelease: (() -> Unit)? = null,
 ) {
     val colors = Theme.current
     Box(
@@ -233,14 +234,15 @@ fun ReSlider(
                         val w = size.width.toFloat()
                         if (w > 0f) {
                             onValue((offset.x / w).coerceIn(0f, 1f))
+                            onRelease?.invoke()
                         }
                     }
                 }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
                         onDragStart = { },
-                        onDragEnd = { },
-                        onDragCancel = { },
+                        onDragEnd = { onRelease?.invoke() },
+                        onDragCancel = { onRelease?.invoke() },
                     ) { change, _ ->
                         val w = size.width.toFloat()
                         if (w > 0f) {

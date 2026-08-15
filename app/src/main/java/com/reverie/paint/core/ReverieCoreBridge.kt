@@ -319,7 +319,7 @@ external fun drawShape(kind: Int, x1: Int, y1: Int, x2: Int, y2: Int, filled: Bo
 
     external fun layerBackground(index: Int): Boolean
 
-    external fun setBackgroundColor(color: Int)
+    external fun setBackgroundColor(color: Int, commit: Boolean = true)
 
     external fun layerClipped(index: Int): Boolean
 

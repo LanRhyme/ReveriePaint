@@ -847,9 +847,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_layerBackground(JNIEnv *, jobject,
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBackgroundColor(JNIEnv *, jobject, jint color)
+Java_com_reverie_paint_core_ReverieCoreBridge_setBackgroundColor(JNIEnv *, jobject, jint color, jboolean commit)
 {
-    core()->setBackgroundColor(static_cast<quint32>(color));
+    core()->setBackgroundColor(static_cast<quint32>(color), commit);
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

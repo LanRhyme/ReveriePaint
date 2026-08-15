@@ -2360,9 +2360,16 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun setBackgroundColor(color: Int) {
-        runCore(after = ::notifyLayerChanged) {
-            ReverieCoreBridge.setBackgroundColor(color)
+    fun setBackgroundColor(color: Int, commit: Boolean = true) {
+        if (commit) {
+            runCore(after = ::notifyLayerChanged) {
+                ReverieCoreBridge.setBackgroundColor(color, true)
+            }
+        } else {
+            runCore {
+                ReverieCoreBridge.setBackgroundColor(color, false)
+                scheduleRender(immediate = true)
+            }
         }
     }
 

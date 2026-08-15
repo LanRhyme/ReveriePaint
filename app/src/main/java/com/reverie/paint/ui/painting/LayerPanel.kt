@@ -1256,16 +1256,20 @@ private fun LayerDetailPage(
                 var vVal by remember { mutableFloatStateOf(1f) }
                 var lastUpdateNs by remember { mutableLongStateOf(0L) }
 
-                fun updateHsv(h: Float, s: Float, v: Float, immediate: Boolean = false) {
+                fun updateHsv(h: Float, s: Float, v: Float, commit: Boolean = false) {
                     hVal = h.coerceIn(0f, 360f)
                     sVal = s.coerceIn(0f, 1f)
                     vVal = v.coerceIn(0f, 1f)
                     val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hVal, sVal, vVal))
                     currentColor = colorInt
-                    val now = System.nanoTime()
-                    if (immediate || now - lastUpdateNs > 35_000_000L) {
-                        lastUpdateNs = now
-                        vm.setBackgroundColor(colorInt)
+                    if (commit) {
+                        vm.setBackgroundColor(colorInt, commit = true)
+                    } else {
+                        val now = System.nanoTime()
+                        if (now - lastUpdateNs > 20_000_000L) {
+                            lastUpdateNs = now
+                            vm.setBackgroundColor(colorInt, commit = false)
+                        }
                     }
                 }
 
@@ -1289,7 +1293,7 @@ private fun LayerDetailPage(
                                         .clickable {
                                             val hsv = FloatArray(3)
                                             android.graphics.Color.colorToHSV(cInt, hsv)
-                                            updateHsv(hsv[0], hsv[1], hsv[2], immediate = true)
+                                            updateHsv(hsv[0], hsv[1], hsv[2], commit = true)
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -1349,7 +1353,10 @@ private fun LayerDetailPage(
                     ReSlider(
                         value = (hVal / 360f).coerceIn(0f, 1f),
                         onValue = {
-                            updateHsv(it * 360f, sVal, vVal)
+                            updateHsv(it * 360f, sVal, vVal, commit = false)
+                        },
+                        onRelease = {
+                            updateHsv(hVal, sVal, vVal, commit = true)
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -1362,7 +1369,10 @@ private fun LayerDetailPage(
                     ReSlider(
                         value = sVal.coerceIn(0f, 1f),
                         onValue = {
-                            updateHsv(hVal, it, vVal)
+                            updateHsv(hVal, it, vVal, commit = false)
+                        },
+                        onRelease = {
+                            updateHsv(hVal, sVal, vVal, commit = true)
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -1375,7 +1385,10 @@ private fun LayerDetailPage(
                     ReSlider(
                         value = vVal.coerceIn(0f, 1f),
                         onValue = {
-                            updateHsv(hVal, sVal, it)
+                            updateHsv(hVal, sVal, it, commit = false)
+                        },
+                        onRelease = {
+                            updateHsv(hVal, sVal, vVal, commit = true)
                         },
                         modifier = Modifier.weight(1f)
                     )
