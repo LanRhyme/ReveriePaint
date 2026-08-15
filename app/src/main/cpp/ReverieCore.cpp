@@ -217,6 +217,24 @@ bool ReverieCore::newDocument(int width, int height)
     return true;
 }
 
+void ReverieCore::setBackgroundColor(quint32 color)
+{
+    KisImageSP image = m_document;
+    if (!image || m_layers.isEmpty()) return;
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[0]);
+    if (!dev) return;
+    const KoColorSpace *cs = image->colorSpace();
+    QColor qc = QColor::fromRgba(color);
+    KoColor koColor(qc, cs);
+
+    KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
+    dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
+    dev->setDirty();
+    txn.commit(image->undoAdapter());
+    recompositeProjection();
+    markDirty();
+}
+
 void ReverieCore::fillBackground(const QString &colorName)
 {
     KisImageSP image = m_document;

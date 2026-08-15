@@ -64,6 +64,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -855,7 +856,8 @@ private fun LayerRow(
                 // requireUnconsumed=false so it always sees the down even if
                 // combinedClickable consumed it; only consumes moves once a
                 // horizontal swipe is detected, which cancels the clickable)
-                .pointerInput(index) {
+                .pointerInput(index, isBg) {
+                    if (isBg) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
@@ -1189,6 +1191,163 @@ private fun LayerDetailPage(
     val layer = vm.layers.firstOrNull { it.index == index }
     val isBg = layer?.isBackground ?: true
     val name = layer?.name ?: ""
+    if (layer?.isBackground == true) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(
+                    modifier =
+                        Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(7.dp))
+                            .noRippleClickable(onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_chevron),
+                        contentDescription = "返回",
+                        tint = Morandi.icon,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Text(
+                    "背景图层设置",
+                    color = Morandi.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+
+                val bgColors = listOf(
+                    0xFFFFFFFF.toInt() to "纯白",
+                    0xFFFFFDF5.toInt() to "暖白",
+                    0xFFF5F3EF.toInt() to "羊皮纸",
+                    0xFFEAE6E1.toInt() to "暖灰",
+                    0xFFDCE2E6.toInt() to "冷灰",
+                    0xFF2B2D30.toInt() to "炭黑",
+                    0xFF000000.toInt() to "纯黑",
+                    0xFFFDF0ED.toInt() to "樱粉",
+                    0xFFEFF5EC.toInt() to "灰绿",
+                    0xFFEDF3F8.toInt() to "天青",
+                    0xFFF7F2E7.toInt() to "杏仁",
+                    0xFFECEAF2.toInt() to "淡紫",
+                )
+
+                var currentColor by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
+                var rVal by remember { mutableFloatStateOf(1f) }
+                var gVal by remember { mutableFloatStateOf(1f) }
+                var bVal by remember { mutableFloatStateOf(1f) }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    bgColors.chunked(6).forEach { rowColors ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            rowColors.forEach { (cInt, _) ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(cInt))
+                                        .border(
+                                            width = if (currentColor == cInt) 2.5.dp else 1.dp,
+                                            color = if (currentColor == cInt) Morandi.accent else Morandi.border,
+                                            shape = CircleShape
+                                        )
+                                        .clickable {
+                                            currentColor = cInt
+                                            rVal = android.graphics.Color.red(cInt) / 255f
+                                            gVal = android.graphics.Color.green(cInt) / 255f
+                                            bVal = android.graphics.Color.blue(cInt) / 255f
+                                            vm.setBackgroundColor(cInt)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (currentColor == cInt) {
+                                        Box(
+                                            Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(if (cInt == 0xFFFFFFFF.toInt() || cInt == 0xFFFFFDF5.toInt()) Morandi.accent else Color.White)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+
+                Text("自定义 RGB 调节", color = Morandi.subText, fontSize = 12.sp)
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("R", color = Color(0xFFE57373), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    ReSlider(
+                        value = rVal,
+                        onValue = {
+                            rVal = it
+                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
+                            currentColor = newC
+                            vm.setBackgroundColor(newC)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${(rVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("G", color = Color(0xFF81C784), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    ReSlider(
+                        value = gVal,
+                        onValue = {
+                            gVal = it
+                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
+                            currentColor = newC
+                            vm.setBackgroundColor(newC)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${(gVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("B", color = Color(0xFF64B5F6), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(20.dp))
+                    ReSlider(
+                        value = bVal,
+                        onValue = {
+                            bVal = it
+                            val newC = android.graphics.Color.rgb((rVal * 255).toInt(), (gVal * 255).toInt(), (bVal * 255).toInt())
+                            currentColor = newC
+                            vm.setBackgroundColor(newC)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("${(bVal * 255).toInt()}", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+                }
+            }
+        }
+        return
+    }
+
     Column(
         modifier =
             Modifier

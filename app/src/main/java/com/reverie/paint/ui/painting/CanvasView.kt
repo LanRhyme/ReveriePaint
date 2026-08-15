@@ -181,6 +181,19 @@ fun CanvasView(
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
+    val checkerboardPaint = remember {
+        val tileSize = 24
+        val bmp = android.graphics.Bitmap.createBitmap(tileSize * 2, tileSize * 2, android.graphics.Bitmap.Config.ARGB_8888)
+        val cv = android.graphics.Canvas(bmp)
+        val p1 = android.graphics.Paint().apply { color = android.graphics.Color.WHITE }
+        val p2 = android.graphics.Paint().apply { color = android.graphics.Color.rgb(228, 230, 235) }
+        cv.drawRect(0f, 0f, tileSize.toFloat(), tileSize.toFloat(), p1)
+        cv.drawRect(tileSize.toFloat(), 0f, (tileSize * 2).toFloat(), tileSize.toFloat(), p2)
+        cv.drawRect(0f, tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), p2)
+        cv.drawRect(tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), (tileSize * 2).toFloat(), p1)
+        val shader = android.graphics.BitmapShader(bmp, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT)
+        android.graphics.Paint().apply { this.shader = shader }
+    }
     val customPointerIcon = remember(context) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
             val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
@@ -1103,14 +1116,17 @@ fun CanvasView(
                 rotate(rotation, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
-                // Draw a grid on the paper background to make transparency obvious
-                drawRect(
-                    Color.White,
-                    topLeft = Offset(-image.width / 2f, -image.height / 2f),
-                    size = androidx.compose.ui.geometry.Size(image.width.toFloat(), image.height.toFloat())
+                // Draw transparency checkerboard under the canvas image
+                val nativeCanvas = drawContext.canvas.nativeCanvas
+                nativeCanvas.drawRect(
+                    -image.width / 2f,
+                    -image.height / 2f,
+                    image.width / 2f,
+                    image.height / 2f,
+                    checkerboardPaint
                 )
                 
-                // Draw the actual canvas image over the white paper
+                // Draw the actual canvas image over the checkerboard
                 drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
 
                 // Draw transform preview

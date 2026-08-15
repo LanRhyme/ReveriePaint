@@ -78,6 +78,7 @@ public:
     bool layerIsGroup(int index) const;
     int layerDepth(int index) const;
     bool layerBackground(int index) const;
+    void setBackgroundColor(quint32 color);
     // Clipping mask (self-implemented: Krita only has inherit-opacity):
     // content painted on a clipped layer is masked by the next layer's alpha
     bool layerClipped(int index) const;

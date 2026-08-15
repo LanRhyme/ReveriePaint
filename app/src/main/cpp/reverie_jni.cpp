@@ -846,6 +846,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_layerBackground(JNIEnv *, jobject,
     return core()->layerBackground(index);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBackgroundColor(JNIEnv *, jobject, jint color)
+{
+    core()->setBackgroundColor(static_cast<quint32>(color));
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_layerClipped(JNIEnv *, jobject, jint index)
 {

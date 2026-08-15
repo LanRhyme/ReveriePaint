@@ -2360,6 +2360,12 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun setBackgroundColor(color: Int) {
+        runCore(after = ::notifyLayerChanged) {
+            ReverieCoreBridge.setBackgroundColor(color)
+        }
+    }
+
     fun moveLayer(from: Int, to: Int) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.moveLayer(from, to)
