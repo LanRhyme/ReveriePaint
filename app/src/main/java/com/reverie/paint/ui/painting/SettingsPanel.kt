@@ -579,7 +579,14 @@ private fun CanvasTabPage(
         val createdStr = remember(vm.canvasCreatedTime) { sdf.format(Date(vm.canvasCreatedTime)) }
         val hours = vm.elapsedSeconds / 3600
         val mins = (vm.elapsedSeconds % 3600) / 60
-        val durationStr = String.format(Locale.getDefault(), "%02d小时%02d分钟", hours, mins)
+        val secs = vm.elapsedSeconds % 60
+        val durationStr = if (hours > 0) {
+            String.format(Locale.getDefault(), "%d小时%02d分钟", hours, mins)
+        } else if (mins > 0) {
+            String.format(Locale.getDefault(), "%d分钟%02d秒", mins, secs)
+        } else {
+            String.format(Locale.getDefault(), "%d秒", secs)
+        }
 
         Column(
             modifier = Modifier

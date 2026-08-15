@@ -11,10 +11,15 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import java.io.File
 import java.util.zip.ZipFile
 import org.json.JSONObject
 import org.json.JSONArray
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
@@ -38,7 +43,73 @@ class PaintViewModel : ViewModel() {
     var elapsedSeconds by mutableStateOf(0L)
     var canvasCreatedTime by mutableStateOf(System.currentTimeMillis())
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
-    private var sessionStartTime = System.currentTimeMillis()
+
+    // Active drawing duration tracking (1-minute idle threshold)
+    private var lastActiveTimeMs = 0L
+    private var lastTickTimeMs = 0L
+    private var activeMillisAccumulator = 0L
+    private val IDLE_THRESHOLD_MS = 60_000L
+    private var timerJob: Job? = null
+
+    fun onPaintingActivity() {
+        val now = System.currentTimeMillis()
+        if (lastActiveTimeMs == 0L || (now - lastActiveTimeMs) > IDLE_THRESHOLD_MS) {
+            // Start or resume active drawing session
+            lastActiveTimeMs = now
+            lastTickTimeMs = now
+        } else {
+            // Continuously painting within 1-minute window
+            lastActiveTimeMs = now
+        }
+    }
+
+    private fun tickPaintingTimer() {
+        val now = System.currentTimeMillis()
+        if (lastActiveTimeMs > 0L) {
+            val deltaFromActive = now - lastActiveTimeMs
+            if (deltaFromActive <= IDLE_THRESHOLD_MS) {
+                // Within 1-minute active window
+                if (lastTickTimeMs > 0L) {
+                    val dt = (now - lastTickTimeMs).coerceAtLeast(0L)
+                    if (dt in 1..2000) {
+                        activeMillisAccumulator += dt
+                        val addSecs = activeMillisAccumulator / 1000L
+                        if (addSecs > 0) {
+                            elapsedSeconds += addSecs
+                            activeMillisAccumulator %= 1000L
+                        }
+                    }
+                }
+                lastTickTimeMs = now
+            } else {
+                // Idle over 1 minute: pause timer
+                lastTickTimeMs = now
+            }
+        } else {
+            lastTickTimeMs = now
+        }
+    }
+
+    private fun startPaintingTimer() {
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            while (isActive) {
+                delay(1000L)
+                if (currentPage == Page.PAINTING) {
+                    tickPaintingTimer()
+                }
+            }
+        }
+    }
+
+    private fun stopPaintingTimer() {
+        tickPaintingTimer()
+        timerJob?.cancel()
+        timerJob = null
+        lastActiveTimeMs = 0L
+        lastTickTimeMs = 0L
+        activeMillisAccumulator = 0L
+    }
 
     fun markModified() {
         isModified = true
@@ -580,11 +651,7 @@ class PaintViewModel : ViewModel() {
     var currentProjectFile by mutableStateOf<String?>(null)
 
     fun saveProject(name: String, onComplete: (() -> Unit)? = null) {
-        val now = System.currentTimeMillis()
-        if (now > sessionStartTime) {
-            elapsedSeconds += (now - sessionStartTime) / 1000L
-            sessionStartTime = now
-        }
+        tickPaintingTimer()
         runCore(
             after = {
                 initialStrokeCount = totalStrokes
@@ -619,6 +686,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun loadProject(p: com.reverie.paint.model.Project) {
+        stopPaintingTimer()
         runCore(
             after = {
                 initialStrokeCount = p.strokeCount
@@ -630,9 +698,9 @@ class PaintViewModel : ViewModel() {
                 currentProjectFile = p.filePath
                 elapsedSeconds = p.elapsedSeconds
                 canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
-                sessionStartTime = System.currentTimeMillis()
                 colorMode = p.colorMode
                 currentPage = Page.PAINTING
+                startPaintingTimer()
             },
         ) {
             val file = java.io.File(p.filePath)
@@ -879,10 +947,12 @@ class PaintViewModel : ViewModel() {
     lateinit var appContext: android.content.Context
 
     fun goHome() {
+        stopPaintingTimer()
         currentPage = Page.HOME
     }
 
     fun goCreate() {
+        stopPaintingTimer()
         currentPage = Page.CREATE
     }
 
@@ -910,7 +980,7 @@ class PaintViewModel : ViewModel() {
         totalStrokes = 0
         elapsedSeconds = 0L
         canvasCreatedTime = System.currentTimeMillis()
-        sessionStartTime = System.currentTimeMillis()
+        stopPaintingTimer()
         runCore(
             after = {
                 initialStrokeCount = 0
@@ -920,6 +990,7 @@ class PaintViewModel : ViewModel() {
                 docHeight = h
                 docName = actualName
                 currentPage = Page.PAINTING
+                startPaintingTimer()
             },
         ) {
             if (ReverieCoreBridge.newDocument(w, h)) {
@@ -1404,6 +1475,7 @@ class PaintViewModel : ViewModel() {
         y: Float,
         pressure: Double = 1.0,
     ) {
+        onPaintingActivity()
         runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), pressure) }
     }
 
@@ -1412,17 +1484,14 @@ class PaintViewModel : ViewModel() {
         y: Float,
         pressure: Double = 1.0,
     ) {
+        onPaintingActivity()
         runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), pressure) }
     }
 
     fun touchEnd() {
         isModified = true
         totalStrokes++
-        val now = System.currentTimeMillis()
-        if (now > sessionStartTime) {
-            elapsedSeconds += (now - sessionStartTime) / 1000L
-            sessionStartTime = now
-        }
+        onPaintingActivity()
         runCore(after = {
             scheduleRender(immediate = true)
             refreshLayerThumbs()
@@ -2105,6 +2174,7 @@ class PaintViewModel : ViewModel() {
 
     private fun notifyLayerChanged() {
         isModified = true
+        onPaintingActivity()
         syncLayersFromNative()
         layerRevision++
         // Structural/attribute changes can shift layer indexes and invalidate
