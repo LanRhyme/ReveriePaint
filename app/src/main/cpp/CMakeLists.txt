@@ -177,7 +177,13 @@ set(KRITA_LIBS
 )
 
 add_library(reverie_jni SHARED
-    reverie_jni.cpp
+    reverie_jni_core.cpp
+    reverie_jni_layers.cpp
+    reverie_jni_filters.cpp
+    reverie_jni_selection.cpp
+    reverie_jni_brush.cpp
+    reverie_jni_tools.cpp
+    reverie_jni_io.cpp
     ReverieCore.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_image_data.cpp
