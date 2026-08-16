@@ -346,10 +346,11 @@ internal fun PaintViewModel.contentBounds(): IntArray? {
     // Must run on the render thread - direct UI-thread JNI here raced
     // with the render thread (m_layers vector mutation during
     // syncLayersFromImage) and crashed the transform tool on first use
+    val targets = editTargetLayers().toIntArray()
     var result: IntArray? = null
     val latch = java.util.concurrent.CountDownLatch(1)
     runCore(render = false, after = { latch.countDown() }) {
-        result = ReverieCoreBridge.contentBounds()
+        result = ReverieCoreBridge.contentBoundsLayers(targets)
     }
     try {
         latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -405,13 +406,28 @@ internal fun PaintViewModel.applyTransform(
     }) {
         if (arr != null) {
             ReverieCoreBridge.applyTransformLayers(
-                arr, xscale, yscale, xshear, yshear,
-                rotationRad, xtranslate, ytranslate, originX, originY,
+                arr,
+                xscale,
+                yscale,
+                xshear,
+                yshear,
+                rotationRad,
+                xtranslate,
+                ytranslate,
+                originX,
+                originY,
             )
         } else {
             ReverieCoreBridge.applyTransform(
-                xscale, yscale, xshear, yshear,
-                rotationRad, xtranslate, ytranslate, originX, originY,
+                xscale,
+                yscale,
+                xshear,
+                yshear,
+                rotationRad,
+                xtranslate,
+                ytranslate,
+                originX,
+                originY,
             )
         }
     }
@@ -643,9 +659,10 @@ internal fun PaintViewModel.liquify(
 
 internal fun PaintViewModel.startTransformPreview() {
     if (docWidth <= 0 || docHeight <= 0) return
+    val targets = editTargetLayers().toIntArray()
     runCore(render = true) {
         val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
-        val success = ReverieCoreBridge.startTransformPreview(b)
+        val success = ReverieCoreBridge.startTransformPreviewLayers(targets, b)
         mainHandler.post {
             if (success) {
                 transformPreviewBitmap = b.asImageBitmap()

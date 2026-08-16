@@ -17,7 +17,7 @@ bool ReverieCore::applyPerspectiveTransform(
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return false;
 
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
 
@@ -120,7 +120,7 @@ bool ReverieCore::applyWarpMeshTransform(
     if (!device) return false;
     if (origPoints.size() < 4 || origPoints.size() != transfPoints.size()) return false;
 
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
 
@@ -189,7 +189,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return false;
 
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
 
@@ -303,7 +303,7 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return false;
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
 
@@ -428,39 +428,63 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     return true;
 }
 
-bool ReverieCore::startTransformPreview(QImage* outImage)
+bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outImage)
 {
     KisImageSP image = m_document;
     if (!image) return false;
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) return false;
 
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
 
-    m_previewTransaction = new KisTransaction(kundo2_i18n("Transform Preview"), device);
+    // Resolve the edit target set (multi-select union, else the current
+    // layer) - must match applyTransformLayers exactly so the preview shows
+    // the SAME layers the commit will transform around the SAME center
+    QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
+    QVector<KisPaintDeviceSP> devices;
+    for (int idx : targets) {
+        if (idx < 0 || idx >= m_layers.size()) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
+        if (!dev) continue;
+        bool dup = false;
+        for (const KisPaintDeviceSP &d : devices) {
+            if (d.data() == dev.data()) {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup) devices.append(dev);
+    }
+    if (devices.isEmpty()) return false;
+
     m_previewTempDevice = new KisPaintDevice(image->colorSpace());
-
-    QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
-    if (!bounds.isValid() || bounds.isEmpty()) bounds = QRect(0, 0, image->width(), image->height());
-
     const bool activeSel = hasSelection();
-    if (activeSel) {
-        QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
-        if (selBounds.isEmpty()) selBounds = bounds;
 
-        KisPainter p0(m_previewTempDevice);
-        p0.setSelection(m_selection);
-        p0.bitBlt(selBounds.topLeft(), device, selBounds);
+    for (KisPaintDeviceSP device : devices) {
+        KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform Preview"), device, nullptr, -1, nullptr);
+        m_previewTransactions.append(txn);
 
-        // Cleanly erase selected area on device so it doesn't double-render
-        device->clearSelection(m_selection);
-    } else {
-        KisPainter p0(m_previewTempDevice);
-        p0.bitBlt(bounds.topLeft(), device, bounds);
-        p0.end();
-        device->clear();
+        QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
+        if (!bounds.isValid() || bounds.isEmpty()) bounds = QRect(0, 0, image->width(), image->height());
+
+        if (activeSel) {
+            QRect selBounds = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+            if (selBounds.isEmpty()) selBounds = bounds;
+
+            KisPainter p0(m_previewTempDevice);
+            p0.setSelection(m_selection);
+            p0.bitBlt(selBounds.topLeft(), device, selBounds);
+            p0.end();
+
+            // Cleanly erase selected area on device so it doesn't double-render
+            device->clearSelection(m_selection);
+        } else {
+            KisPainter p0(m_previewTempDevice);
+            p0.bitBlt(bounds.topLeft(), device, bounds);
+            p0.end();
+            device->clear();
+        }
+        device->setDirty();
     }
 
     if (outImage) {
@@ -481,7 +505,6 @@ bool ReverieCore::startTransformPreview(QImage* outImage)
         *outImage = qimg;
     }
 
-    device->setDirty();
     recompositeProjection();
     markDirty();
     return true;
@@ -489,6 +512,13 @@ bool ReverieCore::startTransformPreview(QImage* outImage)
 
 void ReverieCore::cancelTransformPreview()
 {
+    for (KisTransaction *txn : m_previewTransactions) {
+        if (txn) {
+            txn->revert();
+            delete txn;
+        }
+    }
+    m_previewTransactions.clear();
     if (m_previewTransaction) {
         m_previewTransaction->revert();
         delete m_previewTransaction;

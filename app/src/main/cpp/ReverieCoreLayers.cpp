@@ -86,7 +86,7 @@ int ReverieCore::addLayer(const QString &name)
     if (!image) {
         return -1;
     }
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
     const KoColorSpace *cs = image->colorSpace();
@@ -146,7 +146,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     if (!image) {
         return false;
     }
-    if (m_previewTransaction) {
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }
     const int count = m_layers.size();

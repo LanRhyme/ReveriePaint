@@ -435,7 +435,7 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
     }
 }
 
-QRect ReverieCore::contentBounds()
+QRect ReverieCore::contentBounds(const QVector<int> &layers)
 {
     KisImageSP image = m_document;
     if (!image) {
@@ -449,14 +449,24 @@ QRect ReverieCore::contentBounds()
             return sr;
         }
     }
-    KisPaintDeviceSP dev = currentPaintDevice();
-    if (dev) {
+    // The edit target set (multi-select union, else the current layer) must
+    // match applyTransformLayers so the rubber band + preview center agree
+    // with the commit center
+    QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
+    QRect unionRect;
+    for (int idx : targets) {
+        if (idx < 0 || idx >= m_layers.size()) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
+        if (!dev) continue;
         QRect eb = dev->exactBounds();
         if (!eb.isEmpty() && eb.isValid()) {
-            return eb;
+            unionRect = unionRect.isNull() ? eb : unionRect.united(eb);
         }
     }
-    // Fallback if the layer is empty
+    if (!unionRect.isNull()) {
+        return unionRect;
+    }
+    // Fallback if the target layers are empty
     return QRect(0, 0, image->width(), image->height());
 }
 

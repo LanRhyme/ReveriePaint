@@ -269,13 +269,14 @@ public:
     bool applyWarpMeshTransform(const QVector<QPointF> &origPoints,
                                 const QVector<QPointF> &transfPoints,
                                 double origX, double origY, double origW, double origH);
-    // Content bounding box of the current layer in document coords (for the
-    // transform tool's rubber band). Empty (w<=0) when the layer is empty.
-    QRect contentBounds();
+    // Content bounding box of the edit target set (multi-select union, else
+    // the current layer) in document coords (for the transform tool's rubber
+    // band). Empty (w<=0) when the target layer is empty.
+    QRect contentBounds(const QVector<int> &layers = QVector<int>());
     void cropCanvas(int x, int y, int w, int h);
     
     // Transform preview mechanism (extracts target pixels and hides them in C++)
-    bool startTransformPreview(QImage* outImage);
+    bool startTransformPreview(const QVector<int> &layers, QImage* outImage);
     void cancelTransformPreview();
 
     // Draw text at (x, y) with the current brush color/size
@@ -458,6 +459,11 @@ private:
 
     KisTransaction *m_previewTransaction = nullptr;
     KisPaintDeviceSP m_previewTempDevice;
+    // Multi-layer preview: one transaction per targeted device so a
+    // cancel/commit reverts every hidden layer (Kotlin passes the multi-
+    // selected set to startTransformPreview). m_previewTransaction stays for
+    // the single-layer path.
+    QVector<KisTransaction *> m_previewTransactions;
 
     // Brush state
     qreal m_brushSize = 20.0;

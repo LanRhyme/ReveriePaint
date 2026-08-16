@@ -160,6 +160,8 @@ object ReverieCoreBridge {
 
     external fun contentBounds(): IntArray?
 
+    external fun contentBoundsLayers(layers: IntArray): IntArray?
+
     external fun applyTransform(
         xscale: Double,
         yscale: Double,
@@ -419,6 +421,11 @@ object ReverieCoreBridge {
     ): Boolean
 
     external fun startTransformPreview(bitmap: Bitmap): Boolean
+
+    external fun startTransformPreviewLayers(
+        layers: IntArray,
+        bitmap: Bitmap,
+    ): Boolean
 
     external fun cancelTransformPreview()
 
