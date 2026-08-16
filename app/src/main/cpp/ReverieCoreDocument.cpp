@@ -6,6 +6,7 @@
 #include "ReverieCoreInternal.h"
 
 #include <future>
+#include <QSet>
 
 ReverieCore::ReverieCore()
 {
@@ -260,6 +261,20 @@ void ReverieCore::syncLayersFromImage()
         }
     };
     walk(root, 0);
+    // Prune thumbnail cache entries whose layer node is gone (deleted or
+    // replaced layers must not leak the tiny cached thumbs or serve stale
+    // pixels to a recycled index)
+    QSet<KisNode *> liveNodes;
+    for (const LayerEntry &e : m_layers) {
+        liveNodes.insert(e.node);
+    }
+    for (auto it = m_thumbCache.begin(); it != m_thumbCache.end();) {
+        if (!liveNodes.contains(it.key())) {
+            it = m_thumbCache.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (!m_layers.isEmpty()) {
         m_layers[0].background = true;
         // Background is always fully opaque + alpha-locked
@@ -279,6 +294,19 @@ void ReverieCore::syncLayersFromImage()
         } else {
             computeSoloKeep();
         }
+    }
+}
+
+void ReverieCore::bumpLayerThumbGen(KisNode *node)
+{
+    KisNode *n = node;
+    while (n) {
+        auto it = m_thumbCache.find(n);
+        if (it != m_thumbCache.end()) {
+            ++it->gen;
+        }
+        KisNodeSP p = n->parent();
+        n = p ? p.data() : nullptr;
     }
 }
 

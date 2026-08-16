@@ -295,6 +295,7 @@ void ReverieCore::flushStrokeBatch()
         const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
         target->setDirty(tr);
         markRegionDirty(tr);
+        bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeSamples.clear();
         return;
     }
@@ -470,6 +471,7 @@ void ReverieCore::flushStrokeBatch()
     if (!strokeDirty.isNull()) {
         target->setDirty(strokeDirty);
         markRegionDirty(strokeDirty);
+        bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
 }
 
@@ -517,6 +519,7 @@ void ReverieCore::commitStrokeToLayer()
     device->setDirty(ext);
     recompositeProjection();
     markRegionDirty(ext);
+    bumpLayerThumbGen(m_layers[m_currentLayer].node);
     m_strokeBuffer->clear();
 }
 

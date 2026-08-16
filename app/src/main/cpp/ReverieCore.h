@@ -17,6 +17,7 @@
 #include <QColor>
 #include <QRect>
 #include <QString>
+#include <QHash>
 
 #include <kis_types.h>
 #include <brushengine/kis_paintop.h>
@@ -401,6 +402,18 @@ private:
 
     KisImageSP m_document;
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
+    // Layer thumbnail cache: keyed by node (survives index shifts from
+    // add/remove/move). gen is bumped by markDirty (doc-wide ops) or
+    // bumpLayerThumbGen (strokes); renderLayerThumb re-blits the cached
+    // thumb while gen/bounds/size are unchanged instead of re-converting
+    // the whole layer to QImage on every panel refresh.
+    struct ThumbCache {
+        quint64 gen = 0;
+        QImage img;
+        quint64 imgGen = 0;
+        QRect bounds;
+    };
+    QHash<KisNode *, ThumbCache> m_thumbCache;
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
@@ -481,11 +494,24 @@ private:
     QByteArray m_subRegionBuffer;
     void markDirty() {
         markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+        // A document-wide content change invalidates every layer thumbnail:
+        // filters/transforms/undo-redo/layer ops cannot say which layer
+        // changed, so conservatively mark all cached thumbs stale.
+        for (auto it = m_thumbCache.begin(); it != m_thumbCache.end(); ++it) {
+            ++it->gen;
+        }
     }
     void markRegionDirty(const QRect &r) {
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
     }
+    // A stroke paints one layer: bump the thumbnail generation of the painted
+    // node AND every ancestor group (their thumbs show the merged composite,
+    // so editing a child must also refresh the group thumb). Strokes are the
+    // dominant thumbnail-refresh trigger, so this keeps refreshes per-layer
+    // cheap instead of re-converting every layer on each stroke end.
+    // (defined in ReverieCoreDocument.cpp: needs the complete KisNode type)
+    void bumpLayerThumbGen(KisNode *node);
 
     // Undo/redo snapshot stacks (serialized layer bytes per stroke)
 

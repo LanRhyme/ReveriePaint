@@ -589,29 +589,44 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
         return false;
     }
     const QRect ext = dev->exactBounds();
-    if (ext.isEmpty()) {
-        QImage out(w, h, QImage::Format_RGBA8888);
-        out.fill(Qt::transparent);
-        const int copyH = qMin(h, out.height());
+
+    // Thumbnail cache: while the layer's content generation and exact
+    // bounds are unchanged (and the requested size matches), re-blit the
+    // tiny cached thumb instead of converting the whole layer to QImage
+    // and smooth-scaling it on every panel refresh.
+    ThumbCache &cache = m_thumbCache[m_layers[index].node];
+    if (cache.imgGen == cache.gen && cache.bounds == ext && cache.img.size() == QSize(w, h)) {
+        const int copyH = qMin(h, cache.img.height());
         for (int y = 0; y < copyH; ++y) {
             memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
-                   out.constScanLine(y), size_t(w) * 4);
+                   cache.img.constScanLine(y), size_t(w) * 4);
         }
         return true;
     }
-    QImage full = dev->convertToQImage(nullptr, ext.x(), ext.y(), ext.width(), ext.height());
-    if (full.isNull()) {
-        return false;
+
+    QImage out;
+    if (ext.isEmpty()) {
+        out = QImage(w, h, QImage::Format_RGBA8888);
+        out.fill(Qt::transparent);
+    } else {
+        QImage full = dev->convertToQImage(nullptr, ext.x(), ext.y(), ext.width(), ext.height());
+        if (full.isNull()) {
+            return false;
+        }
+        out = QImage(w, h, QImage::Format_RGBA8888);
+        out.fill(Qt::transparent);
+        const QImage scaled =
+            full.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        if (!scaled.isNull()) {
+            QPainter p(&out);
+            p.drawImage(QPointF((w - scaled.width()) / 2.0, (h - scaled.height()) / 2.0), scaled);
+            p.end();
+        }
     }
-    QImage out(w, h, QImage::Format_RGBA8888);
-    out.fill(Qt::transparent);
-    const QImage scaled =
-        full.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    if (!scaled.isNull()) {
-        QPainter p(&out);
-        p.drawImage(QPointF((w - scaled.width()) / 2.0, (h - scaled.height()) / 2.0), scaled);
-        p.end();
-    }
+    cache.img = out;
+    cache.imgGen = cache.gen;
+    cache.bounds = ext;
+
     const int copyH = qMin(h, out.height());
     for (int y = 0; y < copyH; ++y) {
         memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
