@@ -23,6 +23,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     // (Krita-native); no temporary buffer is used.
     m_strokeStartImg = QPointF(x, y);
     m_strokeSamples.clear();
+    m_strokeCarryCount = 0;
     m_strokeHadMove = false;
     // The stroke starts at the finger-down position: append it as the first
     // sample so the down -> first-move segment is drawn. Otherwise the first
@@ -87,14 +88,28 @@ void ReverieCore::touchStrokeCancel()
     }
 
     // A second finger must cancel, not commit, the partial stroke. The
-    // deferred Krita transaction is simply discarded: the tile snapshots
-    // it recorded are freed and no undo command is pushed, so the partial
-    // stroke is gone with no undo history impact.
-    delete m_strokeTxn;
-    m_strokeTxn = nullptr;
-    m_strokeTxnActive = false;
+    // partial dabs of earlier 8ms flushes are already on the layer device,
+    // so the Krita transaction must be REVERTED (tile snapshots written back)
+    // before being discarded - deleting it outright left the half stroke
+    // painted on the layer with no undo command, i.e. a ghost stroke.
+    if (m_strokeTxn) {
+        m_strokeTxn->revert();
+        delete m_strokeTxn;
+        m_strokeTxn = nullptr;
+        m_strokeTxnActive = false;
+        // The reverted tiles changed the device back: recomposite so the
+        // ghost stroke disappears from the projection/display too
+        if (KisImageSP image = m_document) {
+            if (KisPaintDeviceSP target = currentPaintDevice()) {
+                target->setDirty();
+            }
+            recompositeProjection();
+            markDirty();
+        }
+    }
     m_snapshotPending = false;
     m_strokeSamples.clear();
+    m_strokeCarryCount = 0;
     endStrokeBatch();
     m_strokeBatchOpen = false;
     m_drawing = false;
@@ -301,6 +316,7 @@ void ReverieCore::flushStrokeBatch()
         markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeSamples.clear();
+        m_strokeCarryCount = 0;
         return;
     }
 
@@ -344,13 +360,17 @@ void ReverieCore::flushStrokeBatch()
                                   selClipBox.width(), selClipBox.height());
             }
         }
-        for (int i = 1; i < m_strokeSamples.size(); ++i) {
-            const StrokeSample &a = m_strokeSamples[i - 1];
-            const StrokeSample &b = m_strokeSamples[i];
-            m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
-                                  KisPaintInformation(b.imgPos, b.pressure),
-                                  m_strokeDistance);
-        }
+    // Segments up to the carry index were painted by the previous flush:
+    // start at the first NEW segment so the retained joint is not dabbed a
+    // second time (which doubled opacity/erase there every flush boundary).
+    const int firstNewSegment = qBound(1, m_strokeCarryCount, qMax(1, m_strokeSamples.size()));
+    for (int i = firstNewSegment; i < m_strokeSamples.size(); ++i) {
+        const StrokeSample &a = m_strokeSamples[i - 1];
+        const StrokeSample &b = m_strokeSamples[i];
+        m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
+                              KisPaintInformation(b.imgPos, b.pressure),
+                              m_strokeDistance);
+    }
         QVector<KisRunnableStrokeJobData *> jobs;
         m_strokeOp->doAsynchronousUpdate(jobs);
         RPC_LOG("RPC update jobs=%d first=(%.0f,%.0f) last=(%.0f,%.0f)",
@@ -428,8 +448,10 @@ void ReverieCore::flushStrokeBatch()
         qreal prevP = m_strokeSamples.first().pressure;
         qreal prevW = m_brushSize * qBound<qreal>(0.0, prevP, 1.0);
         prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.15));
-        addDab(prev, prevW);
-        for (int i = 1; i < m_strokeSamples.size(); ++i) {
+        if (m_strokeCarryCount == 0) {
+            addDab(prev, prevW);
+        }
+        for (int i = qMax(1, m_strokeCarryCount); i < m_strokeSamples.size(); ++i) {
             const QPointF cur = m_strokeSamples[i].imgPos;
             const qreal curP = m_strokeSamples[i].pressure;
             const QPointF p0 = (i >= 2) ? m_strokeSamples[i - 2].imgPos : prev + (prev - cur);
@@ -469,6 +491,7 @@ void ReverieCore::flushStrokeBatch()
     for (const StrokeSample &t : trailing) {
         m_strokeSamples.append(t);
     }
+    m_strokeCarryCount = trailing.size();
 
     // All strokes now paint straight onto the layer: propagate the dirty
     // region so Krita's projection recomposites it immediately.

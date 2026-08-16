@@ -200,6 +200,27 @@ fun CanvasView(
         }
     // 仅绘制类工具在画布上隐藏系统指针；其他工具及画布外的面板保持默认指针
     val hideSystemCursorForTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+    val view = androidx.compose.ui.platform.LocalView.current
+    val transparentSystemPointer =
+        remember {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+                android.view.PointerIcon.create(transparentBmp, 0f, 0f)
+            } else {
+                null
+            }
+        }
+    // pointerHoverIcon 只在悬停时生效：鼠标按下拖动绘制时系统停止派发 hover
+    // 事件，指针变回系统箭头。按下期间直接把所在 View 的系统 pointerIcon 设为
+    // 透明，松开/离开/切换非绘制工具时还原为默认（null）
+    var mousePressedOnCanvas by remember { mutableStateOf(false) }
+    LaunchedEffect(hideSystemCursorForTool, mousePressedOnCanvas) {
+        if (hideSystemCursorForTool && mousePressedOnCanvas && transparentSystemPointer != null) {
+            view.pointerIcon = transparentSystemPointer
+        } else {
+            view.pointerIcon = null
+        }
+    }
     val customPointerIcon =
         remember(context, hideSystemCursorForTool) {
             if (hideSystemCursorForTool && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
@@ -252,12 +273,18 @@ fun CanvasView(
                                         isCursorHovering.value = false
                                         isCursorTouching.value = false
                                         cursorScreenPos.value = null
+                                        if (change.type == PointerType.Mouse) {
+                                            mousePressedOnCanvas = false
+                                        }
                                         livePressure.value = 1f
                                     }
 
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
+                                        if (change.type == PointerType.Mouse) {
+                                            mousePressedOnCanvas = true
+                                        }
                                         if (change.pressure > 0f) {
                                             livePressure.value = vm.evaluatePressure(change.pressure)
                                         }
@@ -265,6 +292,9 @@ fun CanvasView(
 
                                     PointerEventType.Release -> {
                                         isCursorTouching.value = false
+                                        if (change.type == PointerType.Mouse) {
+                                            mousePressedOnCanvas = false
+                                        }
                                         if (isStylusOrMouse) {
                                             // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
                                             isCursorHovering.value = true

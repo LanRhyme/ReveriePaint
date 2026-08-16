@@ -341,7 +341,7 @@ internal fun SettingsTabPage(
                                 .padding(10.dp),
                     ) {
                         Text(
-                            "说明：灵敏度越高，长按触发时间越短且允许移动范围越大（最大 4dp）。笔模式开启时，长按取色由手指触控无缝转换为手写笔长按。",
+                            "说明：灵敏度越高，长按触发时间越短；移动容差固定为 1dp（移动超过即不触发）。笔模式开启时，长按取色由手指触控无缝转换为手写笔长按。",
                             color = Morandi.subText,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,

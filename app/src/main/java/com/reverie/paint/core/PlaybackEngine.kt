@@ -107,9 +107,16 @@ class ReplaySession(
     internal var pendingStep: Runnable? = null
     internal var lastProgressWallMs = 0L
 
+    /** Monotonic token of the current playback chain. pause/seek/stop bump
+     *  it so a step that was already running on the render thread (and is
+     *  about to postDelayed its successor) cannot resurrect playback after a
+     *  pause - removeCallbacks alone cannot stop the in-flight step. */
+    internal var stepGen = 0
+
     /** Stop playback and free the session's temp snapshot file. The vm
      *  removes any pending step callback first (see [PaintViewModel.pauseReplay]). */
     fun stop() {
+        stepGen++
         pendingStep = null
         isPlaying = false
         snapshotFile?.delete()
@@ -184,6 +191,7 @@ internal fun PaintViewModel.playReplay() {
 
 internal fun PaintViewModel.pauseReplay() {
     val s = replaySession ?: return
+    s.stepGen++ // invalidate the in-flight step chain
     s.isPlaying = false
     s.pendingStep?.let { renderHandler?.removeCallbacks(it) }
     s.pendingStep = null
@@ -205,65 +213,118 @@ internal fun PaintViewModel.seekReplay(fraction: Float) {
 internal fun PaintViewModel.exitReplay() {
     replaySession?.stop()
     replaySession = null
-    // Restore normal undo capture in case playback was left mid-way
+    // Restore normal undo capture in case playback was left mid-way, and
+    // re-push the UI tool/brush state to native: playback applied recorded
+    // CONTEXT events straight into the core (tool mode, preset, size/opacity/
+    // flow, composite op, color, current layer), so without this the UI kept
+    // showing "brush" while the core still erased with the recording's last
+    // eraser context - the brush literally behaved like an eraser until the
+    // user re-tapped the tool icon.
     renderHandler?.post {
         ReverieCoreBridge.setUndoCaptureEnabled(true)
         ReverieCoreBridge.clearUndoHistory()
+        restoreBrushStateFromUi()
     }
     goHome()
+}
+
+/** Re-apply the current UI tool/brush state to native (render thread only;
+ *  mirrors applyReplayContextLocked's bridge calls, sourced from UI state). */
+internal fun PaintViewModel.restoreBrushStateFromUi() {
+    val mode =
+        when (currentToolId) {
+            "brush" -> 0
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> -1
+        }
+    if (mode >= 0) {
+        ReverieCoreBridge.setToolMode(mode)
+    }
+    if (brushPresetIndex >= 0) {
+        ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
+        ReverieCoreBridge.setBrushSize(brushSize)
+        ReverieCoreBridge.setBrushOpacity(brushOpacity)
+        ReverieCoreBridge.setBrushFlow(brushFlow)
+    }
+    ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
+    ReverieCoreBridge.setBrushColor(brushColor)
+    if (currentLayerIndex >= 0) {
+        ReverieCoreBridge.setCurrentLayer(currentLayerIndex)
+    }
 }
 
 // ---- Render-thread playback engine ----
 
 internal fun PaintViewModel.scheduleReplayStep(s: ReplaySession) {
     val h = renderHandler ?: return
-    val r = Runnable { replayStepLocked(s) }
+    val gen = s.stepGen
+    val r = Runnable { replayStepLocked(s, gen) }
     s.pendingStep = r
     h.post(r)
 }
 
-private fun PaintViewModel.replayStepLocked(s: ReplaySession) {
+private fun PaintViewModel.replayStepLocked(
+    s: ReplaySession,
+    gen: Int,
+) {
     s.pendingStep = null
-    if (!s.isPlaying) return
+    if (gen != s.stepGen || !s.isPlaying) return
     val r = s.reader
-    if (r.remaining() <= 0) {
-        finishReplayLocked(s)
-        return
-    }
-    val type = r.u8()
-    val dt = r.varint()
-    s.currentMs += dt
-    dispatchReplayLocked(type, r)
-    if (r.remaining() <= 0) {
-        finishReplayLocked(s)
-        return
-    }
-    updateReplayProgress(s)
-    val h = renderHandler ?: return
-    // Stroke path animation: MOVE events get a per-point floor so fast
-    // strokes grow point-by-point instead of appearing instantly, paced
-    // against the 16ms render throttle. The floor scales with speed so
-    // 4x still fast-forwards (4ms/point) while 1x/0.5x animate smoothly
-    // (16ms/32ms). Slow strokes (real dt above the floor) keep their
-    // recorded timing untouched.
-    val base = (dt / s.speed).toLong().coerceIn(1L, 500L)
-    val floor =
-        if (type == STROKE_MOVE) {
-            (16.0 / s.speed).toLong().coerceIn(1L, 64L)
-        } else {
-            1L
+    // Micro-delay events (layer/tool ops that happened back-to-back while
+    // painting) are dispatched in-line within one handler message instead of
+    // one postDelayed(>=1ms) per event - a recording of tens of thousands of
+    // such events otherwise had a fixed multi-ten-second floor even at 8x.
+    while (true) {
+        if (!s.isPlaying) return
+        if (r.remaining() <= 0) {
+            finishReplayLocked(s)
+            return
         }
-    val d = maxOf(base, floor)
-    val next = Runnable { replayStepLocked(s) }
-    s.pendingStep = next
-    h.postDelayed(next, d)
+        val type = r.u8()
+        val dt = r.varint()
+        s.currentMs += dt
+        dispatchReplayLocked(type, r)
+        if (r.remaining() <= 0) {
+            finishReplayLocked(s)
+            return
+        }
+        // Stroke path animation: MOVE events get a per-point floor so fast
+        // strokes grow point-by-point instead of appearing instantly, paced
+        // against the 16ms render throttle. The floor scales with speed so
+        // 4x still fast-forwards (4ms/point) while 1x/0.5x animate smoothly
+        // (16ms/32ms). Slow strokes (real dt above the floor) keep their
+        // recorded timing untouched.
+        val base = (dt / s.speed).toLong().coerceIn(1L, 500L)
+        val floor =
+            if (type == STROKE_MOVE) {
+                (16.0 / s.speed).toLong().coerceIn(1L, 64L)
+            } else {
+                1L
+            }
+        val d = maxOf(base, floor)
+        if (type != STROKE_MOVE && d < 8L) {
+            continue // batch the next micro-delay event into this message
+        }
+        updateReplayProgress(s)
+        val h = renderHandler ?: return
+        val next = Runnable { replayStepLocked(s, gen) }
+        s.pendingStep = next
+        h.postDelayed(next, d)
+        return
+    }
 }
 
 private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
     s.pendingStep = null
+    s.stepGen++
     s.isPlaying = false
     s.progress = 1f
     s.elapsedMs = s.totalMs
+    // A recording truncated mid-stroke (process death while painting) leaves
+    // the stroke transaction open on the layer; closing it here is a no-op
+    // when the last event already ended the stroke cleanly
+    ReverieCoreBridge.touchStrokeEnd()
     // Replay leaves no undo footprint: drop the commands it would have
     // accumulated and re-enable normal undo capture for the next session
     ReverieCoreBridge.clearUndoHistory()
@@ -298,9 +359,11 @@ internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
     if (ok) {
         coreW = ReverieCoreBridge.docWidth()
         coreH = ReverieCoreBridge.docHeight()
-        renderW = coreW
-        renderH = coreH
-        displayBufferInvalid = true
+        // setRenderViewport applies the same 4096 GPU-texture clamp the live
+        // canvas uses; assigning coreW/coreH directly broke huge documents
+        renderW = -1
+        renderH = -1
+        setRenderViewport(coreW, coreH)
         // Paint the initial frame right away so the canvas isn't stale
         // while the first stroke event is still queued
         scheduleRender(immediate = true)
@@ -685,9 +748,10 @@ private fun PaintViewModel.dispatchToolOpLocked(
             ReverieCoreBridge.cropCanvas(x, y, w, h)
             coreW = ReverieCoreBridge.docWidth()
             coreH = ReverieCoreBridge.docHeight()
-            renderW = coreW
-            renderH = coreH
-            displayBufferInvalid = true
+            // Same 4096 clamp as the live canvas (setRenderViewport)
+            renderW = -1
+            renderH = -1
+            setRenderViewport(coreW, coreH)
         }
 
         T_SELECT_SHAPE -> {

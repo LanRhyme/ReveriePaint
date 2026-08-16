@@ -380,15 +380,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 5 -> 320L
                 else -> 450L
             }
-        val eyedropperMaxMovePx =
-            when (vm.eyedropperSensitivity) {
-                1 -> 1.0f
-                2 -> 1.2f
-                3 -> 1.5f
-                4 -> 1.8f
-                5 -> 2.1f
-                else -> 1.5f
-            }.dp.toPx()
+        // 允许移动范围固定 1dp：慢速书写时的自然抖动不应误触吸色
+        val eyedropperMaxMovePx = 1.dp.toPx()
         var isLongPressPickerActive = false
 
         fun sampleColorAtScreenPos(screenPos: Offset) {
@@ -1162,7 +1155,19 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                     vm.touchMove(imagePos.x, imagePos.y, startP)
                                 } else {
                                     if (point.historical.isNotEmpty()) {
-                                        for (h in point.historical) {
+                                        // 历史采样点没有各自的压力值：若整批共用上一
+                                        // 事件的旧压力，快速书写时线的粗细会呈阶梯状跳变。
+                                        // 在上一平滑值和本次目标压力之间按点序线性插值，
+                                        // 让一批历史点形成平滑的粗细渐变
+                                        val rawP = point.pressure.coerceIn(0f, 1f)
+                                        val targetP =
+                                            if (stylus && rawP > 0f) {
+                                                smoothedPressure * 0.6f + vm.evaluatePressure(rawP) * 0.4f
+                                            } else {
+                                                smoothedPressure
+                                            }
+                                        val histN = point.historical.size
+                                        for ((histIdx, h) in point.historical.withIndex()) {
                                             val histPos =
                                                 widgetToImage(
                                                     h.position,
@@ -1179,11 +1184,14 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                                     vm.docHeight,
                                                 )
                                             if (stylus) {
-                                                vm.touchMove(histPos.x, histPos.y, smoothedPressure.toDouble())
+                                                val t = (histIdx + 1f) / (histN + 1f)
+                                                val histP = smoothedPressure + (targetP - smoothedPressure) * t
+                                                vm.touchMove(histPos.x, histPos.y, histP.toDouble())
                                             } else {
                                                 vm.touchMove(histPos.x, histPos.y, 1.0)
                                             }
                                         }
+                                        smoothedPressure = targetP
                                     }
                                     if (stylus) {
                                         val rawP = point.pressure.coerceIn(0f, 1f)

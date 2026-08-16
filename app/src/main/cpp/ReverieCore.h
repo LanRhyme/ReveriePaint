@@ -465,6 +465,12 @@ private:
     // flush is only a dot when this is false (a genuine tap). Trailing
     // samples of a real stroke must never render as dots.
     bool m_strokeHadMove = false;
+    // How many leading samples of m_strokeSamples were retained from the
+    // previous flush (their segments are already painted). Segments before
+    // this index must NOT be painted again: re-dabbing the retained joint
+    // doubled the opacity there (darker bands for paint, over-erased bands
+    // for the eraser) at every 8ms flush boundary.
+    int m_strokeCarryCount = 0;
     qint64 m_lastFlushMs = 0;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;

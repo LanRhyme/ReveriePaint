@@ -118,7 +118,12 @@ internal fun PaintViewModel.touchCancel() {
     if (recorder.recording) {
         recorder.strokeCancel()
     }
-    runCore(after = { refreshLayerThumbs() }) {
+    runCore(after = {
+        // The reverted partial stroke must disappear from the display right
+        // away instead of lingering until the next unrelated render
+        scheduleRender(immediate = true)
+        refreshLayerThumbs()
+    }) {
         ReverieCoreBridge.touchStrokeCancel()
     }
 }

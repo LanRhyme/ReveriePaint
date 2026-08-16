@@ -96,27 +96,50 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 
     const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
     if (!r.isEmpty()) {
-        const size_t req = size_t(r.width()) * r.height() * 4;
+        // Expand the read by 1px on every side (clamped to the image): smooth
+        // scaling a bare dirty rect gives its border pixels no neighbours, so
+        // every dirty blit produced wrongly-weighted edge pixels that showed
+        // up as seams/ghosting between successive incremental updates.
+        const QRect rs = r.adjusted(-1, -1, 1, 1).intersected(QRect(0, 0, iw, ih));
+        const size_t req = size_t(rs.width()) * rs.height() * 4;
         if (size_t(m_subRegionBuffer.size()) < req) {
             m_subRegionBuffer.resize(req);
         }
-        proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r.x(), r.y(), r.width(), r.height());
-        QImage subBgra(r.width(), r.height(), QImage::Format_RGBA8888);
-        blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
-                           subBgra.bits(), r.width() * 4, r.width(), r.height());
+        proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), rs.x(), rs.y(), rs.width(), rs.height());
+        QImage subBgra(rs.width(), rs.height(), QImage::Format_RGBA8888);
+        blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), rs.width() * 4,
+                           subBgra.bits(), rs.width() * 4, rs.width(), rs.height());
 
-        const int vw = qMax(1, qRound(r.width() * sx));
-        const int vh = qMax(1, qRound(r.height() * sy));
+        // Map BOTH edges of a rect through the same round(edge*scale) rule so
+        // consecutive dirty blits always agree on where each pixel boundary
+        // lands. The old code rounded x and width independently, which let
+        // neighbouring blits drift by 1px and leave stale rows/columns between
+        // them.
+        const auto mapX = [&](int v) { return qRound(v * sx); };
+        const auto mapY = [&](int v) { return qRound(v * sy); };
+        const int vw = mapX(rs.x() + rs.width()) - mapX(rs.x());
+        const int vh = mapY(rs.y() + rs.height()) - mapY(rs.y());
         const QImage scaled = (subBgra.width() != vw || subBgra.height() != vh)
                 ? subBgra.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
                 : subBgra;
-        const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
-        const QRect clip = vp.intersected(QRect(0, 0, w, h));
-        if (!clip.isEmpty()) {
-            for (int y = clip.top(); y <= clip.bottom(); ++y) {
-                memcpy(buffer + size_t(y) * (w * 4) + clip.left() * 4,
-                       scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
-                       size_t(clip.width()) * 4);
+        if (!scaled.isNull()) {
+            // The 1px pad's scaled footprint inside the scaled image
+            const int padL = mapX(r.x()) - mapX(rs.x());
+            const int padT = mapY(r.y()) - mapY(rs.y());
+            const int padR = mapX(rs.x() + rs.width()) - mapX(r.x() + r.width());
+            const int padB = mapY(rs.y() + rs.height()) - mapY(r.y() + r.height());
+            const int sx0 = qBound(0, padL, scaled.width());
+            const int sy0 = qBound(0, padT, scaled.height());
+            const int sw = qMax(0, scaled.width() - sx0 - qMax(0, padR));
+            const int sh = qMax(0, scaled.height() - sy0 - qMax(0, padB));
+            const QRect vp(mapX(r.x()), mapY(r.y()), sw, sh);
+            const QRect clip = vp.intersected(QRect(0, 0, w, h));
+            if (!clip.isEmpty()) {
+                for (int y = clip.top(); y <= clip.bottom(); ++y) {
+                    memcpy(buffer + size_t(y) * (w * 4) + clip.left() * 4,
+                           scaled.constScanLine(y - vp.y() + sy0) + (clip.left() - vp.x() + sx0) * 4,
+                           size_t(clip.width()) * 4);
+                }
             }
         }
     }

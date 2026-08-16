@@ -716,12 +716,24 @@ class PaintViewModel : ViewModel() {
     internal var renderHandler: Handler? = null
     internal val mainHandler = Handler(Looper.getMainLooper())
 
-    // The single persistent display buffer native renders into directly
-    // (dirty-rect incremental updates rely on this exact buffer surviving
-    // across frames, so it must never be swapped for a pool). Written on
-    // the render thread from doRender only; the main thread signals a
-    // needed reallocation via [displayBufferInvalid].
-    internal var displayBuffer: Bitmap? = null
+    // Front/back bitmap rotation: native renders into a buffer that is NOT
+    // currently displayed (or pending display), then the main thread flips
+    // the reference. Writing the single displayed buffer from the render
+    // thread while the Compose RenderThread was still reading it produced
+    // torn/ghost frames; with rotation the writer and the reader never touch
+    // the same bitmap. A demoted (previously displayed) buffer is stale, so
+    // the next render into it passes forceFull to native for a full-frame
+    // rewrite. Three buffers give each demoted bitmap two frame-times of
+    // rest before it is written again.
+    internal var displayBuffers: Array<Bitmap?> = arrayOfNulls(3)
+
+    internal var bufferFresh = BooleanArray(3)
+
+    internal var lastRenderIdx = -1
+
+    // The buffer most recently handed to the main thread for display; still
+    // readable by an in-flight frame, so never render into it either.
+    @Volatile internal var pendingDisplay: Bitmap? = null
 
     @Volatile internal var displayBufferInvalid = false
 
@@ -805,26 +817,39 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
-        var target = displayBuffer
-        val reallocated =
-            target == null || target.width != w || target.height != h || displayBufferInvalid
+        // Round-robin over the buffers, never touching the displayed or the
+        // pending-display bitmap (both may still be read by Compose)
+        val displayed = displayBitmap
+        var idx = (lastRenderIdx + 1) % displayBuffers.size
+        if (displayBuffers[idx] === displayed || displayBuffers[idx] === pendingDisplay) {
+            idx = (idx + 1) % displayBuffers.size
+        }
+        lastRenderIdx = idx
+        var target = displayBuffers[idx]
+        val sizeMismatch = target == null || target.width != w || target.height != h
+        val reallocated = sizeMismatch || displayBufferInvalid
         if (reallocated) {
-            // A fresh buffer must always receive a full-frame blit: signal it
-            // via forceFull so the native side resets its incremental state
-            // (no stale content can leak through a reused-size buffer).
             target = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            displayBuffer = target
+            displayBuffers[idx] = target
             displayBufferInvalid = false
         }
+        // A demoted (previously displayed) buffer is stale: it missed every
+        // dirty update since it was last shown, so force a full-frame blit
+        // instead of the incremental sub-region write.
+        val forceFull = reallocated || !bufferFresh[idx]
         val buf = target ?: return
-        val ok = ReverieCoreBridge.renderToBuffer(buf, reallocated)
+        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull)
         if (ok) {
-            // Native wrote the pixels on the render thread; the UI thread only
-            // flips the Compose reference and bumps the revision. The old
-            // full-frame drawBitmap copy (~8MB per frame on the main thread)
-            // is gone, and the buffer is never rewritten while a copy of it
-            // is still in flight. A no-op render (nothing painted since the
-            // last frame) returns false and skips this flip entirely.
+            // Staleness bookkeeping stays on the render thread: only the
+            // buffer just rendered is fresh, every other one is demoted
+            for (i in bufferFresh.indices) {
+                bufferFresh[i] = (i == idx)
+            }
+            pendingDisplay = buf
+            // Native wrote the back buffer's pixels on the render thread; the
+            // UI thread only flips the Compose reference and bumps the
+            // revision. A no-op render (nothing painted since the last frame)
+            // returns false and skips this flip entirely.
             mainHandler.post {
                 if (displayBitmap !== buf) displayBitmap = buf
                 displayRevision++
