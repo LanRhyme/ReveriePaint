@@ -247,7 +247,7 @@ internal fun SettingsTabPage(
                         Spacer(Modifier.height(10.dp))
 
                         val sensitivityLabels = listOf("极低", "较慢", "标准", "较快", "极速")
-                        val sensitivityTimes = listOf("450ms", "360ms", "280ms", "220ms", "170ms")
+                        val sensitivityTimes = listOf("600ms", "520ms", "450ms", "380ms", "320ms")
                         val curIdx = (vm.eyedropperSensitivity - 1).coerceIn(0, 4)
 
                         Row(

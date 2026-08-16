@@ -179,7 +179,6 @@ fun CanvasView(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val view = androidx.compose.ui.platform.LocalView.current
     val checkerboardPaint =
         remember {
             val tileSize = 24
@@ -199,9 +198,11 @@ fun CanvasView(
                 )
             android.graphics.Paint().apply { this.shader = shader }
         }
+    // 仅绘制类工具在画布上隐藏系统指针；其他工具及画布外的面板保持默认指针
+    val hideSystemCursorForTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
     val customPointerIcon =
-        remember(context) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+        remember(context, hideSystemCursorForTool) {
+            if (hideSystemCursorForTool && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
                 val nullIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
                 PointerIcon(nullIcon)
@@ -209,13 +210,6 @@ fun CanvasView(
                 PointerIcon.Default
             }
         }
-
-    LaunchedEffect(Unit) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
-            view.pointerIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
-        }
-    }
 
     Box(
         modifier =

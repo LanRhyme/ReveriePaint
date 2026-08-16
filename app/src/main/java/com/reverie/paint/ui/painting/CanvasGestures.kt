@@ -373,21 +373,21 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 )
         val eyedropperDelayMs =
             when (vm.eyedropperSensitivity) {
-                1 -> 450L
-                2 -> 360L
-                3 -> 280L
-                4 -> 220L
-                5 -> 170L
-                else -> 280L
+                1 -> 600L
+                2 -> 520L
+                3 -> 450L
+                4 -> 380L
+                5 -> 320L
+                else -> 450L
             }
         val eyedropperMaxMovePx =
             when (vm.eyedropperSensitivity) {
-                1 -> 1.5f
-                2 -> 2.0f
-                3 -> 2.8f
-                4 -> 3.4f
-                5 -> 4.0f
-                else -> 2.8f
+                1 -> 1.0f
+                2 -> 1.2f
+                3 -> 1.5f
+                4 -> 1.8f
+                5 -> 2.1f
+                else -> 1.5f
             }.dp.toPx()
         var isLongPressPickerActive = false
 
