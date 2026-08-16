@@ -449,6 +449,13 @@ private:
     // per-move path only creates its own when no bracket is active
     KisTransaction *m_liquifyTxn = nullptr;
     bool m_liquifyTxnActive = false;
+    // Krita's liquify architecture: a persistent grid worker accumulates
+    // every dab; each update re-transforms the PRISTINE source copy so the
+    // same pixels are never resampled twice (per-move re-warp of the layer
+    // itself produced visible seams / blank lines)
+    class KisLiquifyTransformWorker *m_liquifyWorker = nullptr;
+    KisPaintDeviceSP m_liquifySrcDevice;
+    KisPaintDeviceSP m_liquifyDstDevice;
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;

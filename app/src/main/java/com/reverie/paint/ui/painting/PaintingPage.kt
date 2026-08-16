@@ -311,6 +311,7 @@ fun PaintingPage(vm: PaintViewModel) {
                 gradientType = gradientType,
                 liquifyStrength = liquifyStrength,
                 liquifyMode = liquifyMode,
+                liquifyBrushSize = liquifyBrushSize,
             )
         }
 

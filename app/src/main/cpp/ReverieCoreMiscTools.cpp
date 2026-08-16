@@ -4,6 +4,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "kis_liquify_transform_worker.h"
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
 {
@@ -84,85 +85,13 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
     m_redoCount = 0;
 }
 
-// Build the warp point sets for one liquify dab: a fixed boundary ring keeps
-// the deformation local; the inner points move according to the mode:
-//   0 推拉   - center point follows the finger delta
-//   1 膨胀   - inner ring expands outward (bloat)
-//   2 收缩   - inner ring pulls toward the center (pucker)
-//   3 顺时针 - inner ring rotates CW around the center
-//   4 逆时针 - inner ring rotates CCW around the center
-// Effect magnitude scales with the finger movement distance (rate), so
-// holding still applies nothing and faster strokes apply stronger warps.
-static void buildLiquifyPoints(
-    int fx,
-    int fy,
-    int tx,
-    int ty,
-    qreal radius,
-    qreal strength,
-    int mode,
-    QVector<QPointF> &origPoints,
-    QVector<QPointF> &transPoints)
-{
-    const qreal s = qBound<qreal>(0.05, strength, 2.0);
-    const qreal dist = QLineF(QPointF(fx, fy), QPointF(tx, ty)).length();
-    const qreal rate = qBound<qreal>(0.0, dist / qMax<qreal>(1.0, radius * 0.5), 1.0);
-
-    // Fixed boundary ring: deformation decays to identity at the brush edge
-    const int numBoundary = 16;
-    for (int i = 0; i < numBoundary; ++i) {
-        const qreal angle = (2.0 * M_PI * i) / numBoundary;
-        const QPointF p(fx + radius * qCos(angle), fy + radius * qSin(angle));
-        origPoints.append(p);
-        transPoints.append(p);
-    }
-
-    if (mode == 0) {
-        // Push: the center point is dragged by the finger delta
-        origPoints.append(QPointF(fx, fy));
-        transPoints.append(QPointF(fx + (tx - fx) * s, fy + (ty - fy) * s));
-        return;
-    }
-
-    const int numInner = 12;
-    if (mode == 1 || mode == 2) {
-        // Bloat / pucker: inner ring moves radially out (bloat) or in
-        // (pucker). The target radius stays inside the boundary ring so the
-        // warp stays local.
-        const qreal r0 = radius * 0.30;
-        const qreal delta = radius * 0.55 * s * (0.25 + 0.75 * rate);
-        const qreal r1 = (mode == 1) ? qMin(radius * 0.92, r0 + delta)
-                                     : qMax(radius * 0.06, r0 - delta);
-        for (int i = 0; i < numInner; ++i) {
-            const qreal angle = (2.0 * M_PI * i) / numInner;
-            origPoints.append(QPointF(fx + r0 * qCos(angle), fy + r0 * qSin(angle)));
-            transPoints.append(QPointF(fx + r1 * qCos(angle), fy + r1 * qSin(angle)));
-        }
-        // Center stays fixed: the ring's radial move carries the middle
-        origPoints.append(QPointF(fx, fy));
-        transPoints.append(QPointF(fx, fy));
-        return;
-    }
-
-    if (mode == 3 || mode == 4) {
-        // Rotate CW / CCW: inner ring rotates around the center
-        const qreal r = radius * 0.55;
-        const qreal dir = (mode == 3) ? 1.0 : -1.0;
-        const qreal rot = dir * s * (0.15 + 0.85 * rate) * (M_PI / 3.0);
-        for (int i = 0; i < numInner; ++i) {
-            const qreal angle = (2.0 * M_PI * i) / numInner;
-            origPoints.append(QPointF(fx + r * qCos(angle), fy + r * qSin(angle)));
-            transPoints.append(QPointF(fx + r * qCos(angle + rot), fy + r * qSin(angle + rot)));
-        }
-        // Center fixed: rotation pivots around it
-        origPoints.append(QPointF(fx, fy));
-        transPoints.append(QPointF(fx, fy));
-        return;
-    }
-
-    // Unknown mode: identity (boundary ring only already added)
-}
-
+// Liquify via Krita's own KisLiquifyTransformWorker (libkritaimage, the same
+// worker the transform tool's liquify mode drives through kis_liquify_paintop).
+// Architecture mirrors Krita's: ONE persistent grid worker accumulates every
+// dab's displacement (build-up mode), and each update re-transforms the
+// PRISTINE source copy made at gesture start. Warping the already-warped
+// layer per move instead (previous approach) resampled the same pixels over
+// and over, which pulled seams and blank lines through the content.
 void ReverieCore::liquifyBegin()
 {
     if (!m_document) {
@@ -172,13 +101,18 @@ void ReverieCore::liquifyBegin()
     if (!device) {
         return;
     }
-    // One transaction per drag gesture: per-move commits flooded the undo
-    // stack with dozens of tiny "Liquify" steps for a single drag
-    if (!m_liquifyTxnActive) {
-        delete m_liquifyTxn;
-        m_liquifyTxn = new KisTransaction(kundo2_i18n("Liquify"), device, nullptr, -1, nullptr);
-        m_liquifyTxnActive = true;
+    if (m_liquifyTxnActive) {
+        return;
     }
+    delete m_liquifyTxn;
+    m_liquifyTxn = new KisTransaction(kundo2_i18n("Liquify"), device, nullptr, -1, nullptr);
+    m_liquifyTxnActive = true;
+    m_liquifySrcDevice = new KisPaintDevice(device->colorSpace());
+    m_liquifySrcDevice->makeCloneFrom(device, device->extent());
+    m_liquifyDstDevice = new KisPaintDevice(device->colorSpace());
+    delete m_liquifyWorker;
+    m_liquifyWorker = new KisLiquifyTransformWorker(
+        QRect(0, 0, m_document->width(), m_document->height()), nullptr, 8);
 }
 
 void ReverieCore::liquifyEnd()
@@ -195,22 +129,32 @@ void ReverieCore::liquifyEnd()
     delete m_liquifyTxn;
     m_liquifyTxn = nullptr;
     m_liquifyTxnActive = false;
+    delete m_liquifyWorker;
+    m_liquifyWorker = nullptr;
+    m_liquifySrcDevice.clear();
+    m_liquifyDstDevice.clear();
 }
 
 void ReverieCore::liquifyCancel()
 {
+    const bool hadTxn = m_liquifyTxn != nullptr;
     if (m_liquifyTxn && m_document) {
         // Roll the whole drag back like touchStrokeCancel does for strokes
         m_liquifyTxn->revert();
         delete m_liquifyTxn;
-        m_liquifyTxn = nullptr;
-        m_liquifyTxnActive = false;
         if (KisPaintDeviceSP device = currentPaintDevice()) {
             device->setDirty();
         }
         recompositeProjection();
         markDirty();
     }
+    m_liquifyTxn = nullptr;
+    m_liquifyTxnActive = false;
+    delete m_liquifyWorker;
+    m_liquifyWorker = nullptr;
+    m_liquifySrcDevice.clear();
+    m_liquifyDstDevice.clear();
+    Q_UNUSED(hadTxn);
 }
 
 void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mode)
@@ -220,55 +164,68 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
 
-    // Standalone calls (old recordings replayed without begin/end brackets,
-    // or API misuse) still get a transaction of their own
-    QScopedPointer<KisTransaction> ownTxn;
-    if (!m_liquifyTxnActive) {
-        ownTxn.reset(new KisTransaction(kundo2_i18n("Liquify"), device, nullptr, -1, nullptr));
-    }
-
-    const qreal radius = qMax<qreal>(8.0, m_liquifyBrushSize * 0.5);
-
-    QVector<QPointF> origPoints;
-    QVector<QPointF> transPoints;
-    buildLiquifyPoints(fx, fy, tx, ty, radius, strength, mode, origPoints, transPoints);
-
-    KisWarpTransformWorker worker(KisWarpTransformWorker::RIGID_TRANSFORM,
-                                  origPoints, transPoints, 1.0, nullptr);
-
-    // Isolate the warp to the brush neighbourhood: the fixed boundary ring
-    // keeps the deformation local, but running the worker over the whole
-    // device would still touch (and dirty) every tile
-    QRect region(qRound(fx - radius * 1.5), qRound(fy - radius * 1.5),
-                 qRound(radius * 3.0), qRound(radius * 3.0));
-    region = region.intersected(QRect(0, 0, image->width(), image->height()));
-    if (region.isEmpty()) {
-        return;
-    }
-
-    KisPaintDeviceSP tempSrc = new KisPaintDevice(image->colorSpace());
-    KisPainter p(tempSrc);
-    p.setCompositeOpId(COMPOSITE_COPY);
-    p.bitBlt(region.topLeft(), device, region);
-
-    KisPaintDeviceSP tempDst = new KisPaintDevice(image->colorSpace());
-    worker.run(tempSrc, tempDst);
-
-    // Clear original region then blit back
-    device->clear(region);
-    KisPainter p2(device);
-    p2.setCompositeOpId(COMPOSITE_COPY);
-    p2.bitBlt(region.topLeft(), tempDst, region);
-
-    device->setDirty(region);
-    markRegionDirty(region);
-    if (ownTxn) {
-        if (m_undoCaptureEnabled) {
-            ownTxn->commit(image->undoAdapter());
-            m_redoCount = 0;
-        } else {
-            ownTxn->end();
+    // Standalone calls (old recordings replayed without begin/end brackets)
+    // get an implicit one-shot bracket around this dab
+    const bool ownBracket = !m_liquifyTxnActive || !m_liquifyWorker;
+    if (ownBracket) {
+        liquifyBegin();
+        if (!m_liquifyTxnActive || !m_liquifyWorker) {
+            return;
         }
+    }
+
+    const qreal s = qBound<qreal>(0.05, strength, 2.0);
+    // KisLiquifyPaintop passes the brush diameter as sigma (gaussian falloff)
+    const qreal size = qMax<qreal>(8.0, m_liquifyBrushSize);
+    const QPointF base(fx, fy);
+    const qreal dist = QLineF(QPointF(fx, fy), QPointF(tx, ty)).length();
+    // Effect magnitude follows how far the finger moved this dab: holding
+    // still applies nothing, faster strokes apply stronger deformation
+    const qreal rate = qBound<qreal>(0.0, dist / size, 1.0);
+    const qreal amp = 0.2 + 0.8 * rate;
+
+    switch (mode) {
+    case 1:
+        // 膨胀: grid points move away from the brush center
+        m_liquifyWorker->scalePoints(base, 0.35 * s * amp, size, false, 1.0);
+        break;
+    case 2:
+        // 收缩: grid points move toward the brush center
+        m_liquifyWorker->scalePoints(base, -0.35 * s * amp, size, false, 1.0);
+        break;
+    case 3:
+        // 顺时针
+        m_liquifyWorker->rotatePoints(base, 0.6 * s * amp, size, false, 1.0);
+        break;
+    case 4:
+        // 逆时针
+        m_liquifyWorker->rotatePoints(base, -0.6 * s * amp, size, false, 1.0);
+        break;
+    default:
+        // 推拉: pixels follow the finger delta
+        m_liquifyWorker->translatePoints(
+            base, QPointF((tx - fx) * s, (ty - fy) * s), size, false, 1.0);
+        break;
+    }
+
+    // Re-run the ACCUMULATED warp from the pristine copy and copy the
+    // changed area back into the layer
+    m_liquifyDstDevice->clear();
+    m_liquifyWorker->run(m_liquifySrcDevice, m_liquifyDstDevice);
+    QRect area = m_liquifyWorker
+                     ->approxChangeRect(m_liquifyWorker->accumulatedStrokesBounds().toAlignedRect())
+                     .intersected(QRect(0, 0, image->width(), image->height()));
+    if (!area.isEmpty()) {
+        KisPainter p(device);
+        p.setCompositeOpId(COMPOSITE_COPY);
+        p.bitBlt(area.topLeft(), m_liquifyDstDevice, area);
+        p.end();
+        device->setDirty(area);
+        markRegionDirty(area);
+    }
+
+    if (ownBracket) {
+        liquifyEnd();
     }
 }
 

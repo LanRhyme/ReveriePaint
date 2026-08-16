@@ -68,6 +68,7 @@ fun CanvasView(
     gradientType: Int = 0,
     liquifyStrength: Float = 0.9f,
     liquifyMode: Int = 0,
+    liquifyBrushSize: Float = 60f,
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -386,6 +387,7 @@ fun CanvasView(
             tool = tool,
             zoom = zoom,
             fitScale = fitScale,
+            liquifyBrushSize = liquifyBrushSize,
             cursorScreenPos = cursorScreenPos,
             isCursorHovering = isCursorHovering,
             isCursorTouching = isCursorTouching,

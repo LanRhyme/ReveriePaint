@@ -745,6 +745,7 @@ internal fun BrushCursorOverlay(
     tool: Tool,
     zoom: Float,
     fitScale: Float,
+    liquifyBrushSize: Float = 60f,
     cursorScreenPos: androidx.compose.runtime.MutableState<Offset?>,
     isCursorHovering: androidx.compose.runtime.MutableState<Boolean>,
     isCursorTouching: androidx.compose.runtime.MutableState<Boolean>,
@@ -760,11 +761,16 @@ internal fun BrushCursorOverlay(
             3 -> isCursorTouching.value || isCursorHovering.value
             else -> false
         }
-        if (shouldShow && cursorScreenPos.value != null && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
+        // Liquify hides the system cursor too (hideSystemCursorForTool) and
+        // has its own brush size - without the ring here the tool would have
+        // NO visible cursor at all
+        val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.LIQUIFY
+        if (shouldShow && cursorScreenPos.value != null && isDrawTool) {
             val curPos = cursorScreenPos.value!!
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
             val pressureScale = if (isCursorTouching.value) livePressure.value.coerceIn(0.08f, 1f) else 1f
-            val brushRadiusScreen = (vm.brushSize * scale * 0.5f * pressureScale).toFloat().coerceAtLeast(2f)
+            val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else vm.brushSize.toFloat()
+            val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureScale).toFloat().coerceAtLeast(2f)
 
             when (vm.cursorStyleMode) {
                 0 -> { // 圆形 (Brush Outline Ring - Krita dual-contrast circle)
