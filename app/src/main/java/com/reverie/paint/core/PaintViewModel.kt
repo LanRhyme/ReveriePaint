@@ -676,12 +676,14 @@ class PaintViewModel : ViewModel() {
     // the main handler after document creation). setRenderViewport also
     // reads them on the main thread, hence @Volatile.
     @Volatile internal var coreW = 1080
+
     @Volatile internal var coreH = 1920
 
     // High-performance direct native canvas rendering:
     // Render buffer is kept at full native document resolution (or clamped to GPU texture limit e.g. 4096)
     // for pixel-perfect 1:1 Krita projection alignment with 0 scaling artifacts.
     @Volatile internal var renderW = 1080
+
     @Volatile internal var renderH = 1920
 
     var displayRevision by mutableLongStateOf(0L)
@@ -802,26 +804,30 @@ class PaintViewModel : ViewModel() {
         val h = renderH
         if (w <= 0 || h <= 0) return
         var target = displayBuffer
-        if (target == null || target.width != w || target.height != h || displayBufferInvalid) {
-            // Native resets its incremental state on document create/load/
-            // crop, so a freshly allocated buffer always receives a full-frame
-            // blit — no stale content can leak through.
+        val reallocated =
+            target == null || target.width != w || target.height != h || displayBufferInvalid
+        if (reallocated) {
+            // A fresh buffer must always receive a full-frame blit: signal it
+            // via forceFull so the native side resets its incremental state
+            // (no stale content can leak through a reused-size buffer).
             target = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             displayBuffer = target
             displayBufferInvalid = false
         }
-        val ok = ReverieCoreBridge.renderToBuffer(target)
+        val buf = target ?: return
+        val ok = ReverieCoreBridge.renderToBuffer(buf, reallocated)
         if (ok) {
             // Native wrote the pixels on the render thread; the UI thread only
             // flips the Compose reference and bumps the revision. The old
             // full-frame drawBitmap copy (~8MB per frame on the main thread)
             // is gone, and the buffer is never rewritten while a copy of it
-            // is still in flight.
+            // is still in flight. A no-op render (nothing painted since the
+            // last frame) returns false and skips this flip entirely.
             mainHandler.post {
-                if (displayBitmap !== target) displayBitmap = target
+                if (displayBitmap !== buf) displayBitmap = buf
                 displayRevision++
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    target.prepareToDraw()
+                    buf.prepareToDraw()
                 }
             }
         }

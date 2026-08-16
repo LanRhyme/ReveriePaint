@@ -342,8 +342,11 @@ public:
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
-    // with the composited document. Returns true on success.
-    bool renderToBuffer(quint8 *buffer, int w, int h);
+    // with the composited document. Returns true when the buffer was
+    // (re)written; false reports a no-op (nothing changed since the last
+    // render) so the caller can skip the display flip. forceFull forces a
+    // full-frame write, used when a freshly allocated buffer is handed in.
+    bool renderToBuffer(quint8 *buffer, int w, int h, bool forceFull = false);
 
     // Sample the composited color at document-space coordinates;
     // returns "#rrggbb" or empty if outside the document.
@@ -467,11 +470,13 @@ private:
     int m_docWidth = 0;
     int m_docHeight = 0;
 
-    // Render cache: the full-document display image (RGBA8888) plus the
-    // dirty region that still needs re-compositing. Krita's projection
+    // Render cache: the size of the buffer the last render wrote into plus
+    // the dirty region that still needs re-compositing. Krita's projection
     // recomputes only the tiles that changed; we re-run convertToQImage on
-    // the dirty region only and copy the rest from the cached image.
-    QImage m_displayImage;
+    // the dirty region only and copy the rest from the persistent display
+    // buffer (m_renderBufW/H mismatch or forceFull triggers a full rewrite).
+    int m_renderBufW = -1;
+    int m_renderBufH = -1;
     QRect m_dirtyRect;
     QByteArray m_subRegionBuffer;
     void markDirty() {

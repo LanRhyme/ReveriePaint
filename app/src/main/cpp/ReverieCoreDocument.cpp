@@ -32,7 +32,8 @@ bool ReverieCore::newDocument(int width, int height)
     // Reset the display pipeline: a new document (possibly same size as the
     // previous one) must not inherit stale display pixels or skip the first
     // full bitmap copy.
-    m_displayImage = QImage();
+    m_renderBufW = -1;
+    m_renderBufH = -1;
     m_dirtyRect = QRect();
     m_bitmapInited = false;
     m_lastDirty = QRect();

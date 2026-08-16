@@ -152,7 +152,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setToolMode(JNIEnv *, jobject, jin
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobject, jobject bitmap)
+Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobject, jobject bitmap, jboolean forceFull)
 {
     AndroidBitmapInfo info;
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
@@ -166,7 +166,8 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobjec
         return JNI_FALSE;
     }
     const bool ok = core()->renderToBuffer(static_cast<quint8 *>(pixels),
-                                           info.width, info.height);
+                                           info.width, info.height,
+                                           forceFull == JNI_TRUE);
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }

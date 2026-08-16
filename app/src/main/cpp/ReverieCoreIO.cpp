@@ -259,7 +259,8 @@ bool ReverieCore::loadRevp(const QString &path)
     // Reset pipeline & stroke batch state
     m_document.clear();
     m_undoStore = nullptr;
-    m_displayImage = QImage();
+    m_renderBufW = -1;
+    m_renderBufH = -1;
     m_dirtyRect = QRect();
     m_bitmapInited = false;
     m_lastDirty = QRect();

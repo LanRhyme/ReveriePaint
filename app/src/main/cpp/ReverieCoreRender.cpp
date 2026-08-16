@@ -5,7 +5,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 
-bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
+bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 {
     KisImageSP image = m_document;
     if (!image || !buffer || w <= 0 || h <= 0) {
@@ -31,16 +31,36 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
         return false;
     }
 
+    // The Kotlin side renders into one persistent buffer and reallocates it
+    // only on document/viewport size changes. A reallocation (forceFull, set
+    // whenever a fresh buffer is handed in) or a different buffer size
+    // invalidates the incremental state kept for the previous buffer: force
+    // a full-frame rewrite and re-init the dirty tracking.
+    const bool bufReset = forceFull || m_renderBufW != w || m_renderBufH != h;
+    if (bufReset) {
+        m_renderBufW = w;
+        m_renderBufH = h;
+        m_bitmapInited = false;
+        m_dirtyRect = QRect(0, 0, iw, ih);
+    }
+
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
     if (w == iw && h == ih) {
         // Solo mode always re-composites the full frame: the filtered
         // composite is rebuilt every call, so a dirty sub-region read would
         // only refresh part of the raw-mode switch and leave the rest stale
-        if (m_soloedNode || !m_bitmapInited || m_dirtyRect.isNull() || m_dirtyRect == QRect(0, 0, iw, ih)) {
+        if (m_soloedNode || !m_bitmapInited || m_dirtyRect == QRect(0, 0, iw, ih)) {
             // Full frame update: direct in-place read and SIMD conversion
             proj->readBytes(buffer, 0, 0, iw, ih);
             blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
+        } else if (m_dirtyRect.isNull()) {
+            // Nothing painted since the last render and the buffer already
+            // holds a complete frame: skip the write and report a no-op so
+            // the caller can drop the (identical) display flip instead of
+            // re-drawing the canvas for unchanged pixels.
+            m_dirtyRect = QRect();
+            return false;
         } else {
             // Sub-region dirty update with exact pixel boundaries (0 rounding seams/misalignment)
             const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
@@ -59,45 +79,48 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h)
         return true;
     }
 
-    // Scaled viewport fallback path (if buffer size != document size)
+    // Scaled viewport fallback path (if buffer size != document size). The
+    // display buffer persists across frames exactly like the 1:1 path, so the
+    // scaled dirty region is blitted straight into it — the old full-frame
+    // staging copy out of m_displayImage (w*h*4 bytes per render, plus the
+    // same again resident for a 4096px doc) is gone.
     const qreal sx = qreal(w) / iw;
     const qreal sy = qreal(h) / ih;
 
-    if (m_displayImage.isNull() || m_displayImage.size() != QSize(w, h)) {
-        m_displayImage = QImage(w, h, QImage::Format_RGBA8888);
-        m_dirtyRect = QRect(0, 0, iw, ih);
-        m_bitmapInited = false;
+    if (m_dirtyRect.isEmpty()) {
+        // Nothing changed since the last render. bufReset above always sets a
+        // full dirty rect, so an empty rect here means the buffer is complete:
+        // report a no-op so the caller skips the display flip.
+        return false;
     }
 
-    if (!m_dirtyRect.isEmpty()) {
-        const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
-        if (!r.isEmpty()) {
-            QByteArray raw;
-            raw.resize(size_t(r.width()) * r.height() * 4);
-            proj->readBytes(reinterpret_cast<quint8 *>(raw.data()), r.x(), r.y(), r.width(), r.height());
-            QImage subBgra(r.width(), r.height(), QImage::Format_RGBA8888);
-            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), r.width() * 4,
-                               subBgra.bits(), r.width() * 4, r.width(), r.height());
+    const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
+    if (!r.isEmpty()) {
+        const size_t req = size_t(r.width()) * r.height() * 4;
+        if (size_t(m_subRegionBuffer.size()) < req) {
+            m_subRegionBuffer.resize(req);
+        }
+        proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r.x(), r.y(), r.width(), r.height());
+        QImage subBgra(r.width(), r.height(), QImage::Format_RGBA8888);
+        blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
+                           subBgra.bits(), r.width() * 4, r.width(), r.height());
 
-            const int vw = qMax(1, qRound(r.width() * sx));
-            const int vh = qMax(1, qRound(r.height() * sy));
-            const QImage scaled = (subBgra.width() != vw || subBgra.height() != vh)
-                    ? subBgra.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                    : subBgra;
-            const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
-            const QRect clip = vp.intersected(QRect(0, 0, w, h));
-            if (!clip.isEmpty()) {
-                for (int y = clip.top(); y <= clip.bottom(); ++y) {
-                    memcpy(m_displayImage.scanLine(y) + clip.left() * 4,
-                           scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
-                           size_t(clip.width()) * 4);
-                }
+        const int vw = qMax(1, qRound(r.width() * sx));
+        const int vh = qMax(1, qRound(r.height() * sy));
+        const QImage scaled = (subBgra.width() != vw || subBgra.height() != vh)
+                ? subBgra.scaled(vw, vh, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                : subBgra;
+        const QRect vp(qRound(r.x() * sx), qRound(r.y() * sy), scaled.width(), scaled.height());
+        const QRect clip = vp.intersected(QRect(0, 0, w, h));
+        if (!clip.isEmpty()) {
+            for (int y = clip.top(); y <= clip.bottom(); ++y) {
+                memcpy(buffer + size_t(y) * (w * 4) + clip.left() * 4,
+                       scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
+                       size_t(clip.width()) * 4);
             }
         }
-        m_dirtyRect = QRect();
     }
-
-    memcpy(buffer, m_displayImage.constBits(), size_t(w) * h * 4);
+    m_dirtyRect = QRect();
     return true;
 }
 

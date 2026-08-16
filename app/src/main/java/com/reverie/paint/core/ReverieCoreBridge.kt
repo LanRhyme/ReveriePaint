@@ -265,7 +265,10 @@ object ReverieCoreBridge {
 
     external fun touchStrokeCancel()
 
-    external fun renderToBuffer(bitmap: Bitmap): Boolean
+    external fun renderToBuffer(
+        bitmap: Bitmap,
+        forceFull: Boolean = false,
+    ): Boolean
 
     external fun pickColorAt(
         x: Int,

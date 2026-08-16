@@ -22,7 +22,8 @@ void ReverieCore::cropCanvas(int x, int y, int w, int h)
     // render pipeline reads stale dimensions (the crop crash)
     m_docWidth = image->width();
     m_docHeight = image->height();
-    m_displayImage = QImage();
+    m_renderBufW = -1;
+    m_renderBufH = -1;
     m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
     m_bitmapInited = false;
     m_lastDirty = QRect();
