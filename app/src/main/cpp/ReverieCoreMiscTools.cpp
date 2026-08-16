@@ -201,6 +201,9 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         t.txn = new KisTransaction(kundo2_i18n("Liquify"), dev, nullptr, -1, nullptr);
         m_liquifyTargets.append(t);
     }
+    RPC_LOG("liquifyBegin req=%d targets=%d cur=%d layerN=%d active=%d",
+            int(layers.size()), int(m_liquifyTargets.size()),
+            m_currentLayer, int(m_layers.size()), int(m_liquifyTxnActive));
     if (m_liquifyTargets.isEmpty()) {
         return;
     }

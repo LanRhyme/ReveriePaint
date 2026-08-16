@@ -289,14 +289,15 @@ internal fun PaintViewModel.moveLayerContent(
     dy: Int,
 ) {
     val layers = editTargetLayers()
+    val multi = selectedLayerIndices.isNotEmpty()
     if (recorder.recording) {
-        recordLayerSet(recorder, T_MOVE_CONTENT_LAYERS, layers)
+        if (multi) recordLayerSet(recorder, T_MOVE_CONTENT_LAYERS, layers)
         recorder.toolOp(T_MOVE_CONTENT) {
             it.f32(dx.toFloat())
             it.f32(dy.toFloat())
         }
     }
-    val arr = if (layers.size > 1) layers.toIntArray() else null
+    val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
@@ -381,8 +382,9 @@ internal fun PaintViewModel.applyTransform(
     originY: Double = -1.0,
 ) {
     val layers = editTargetLayers()
+    val multi = selectedLayerIndices.isNotEmpty()
     if (recorder.recording) {
-        recordLayerSet(recorder, T_TRANSFORM_LAYERS, layers)
+        if (multi) recordLayerSet(recorder, T_TRANSFORM_LAYERS, layers)
         recorder.toolOp(T_TRANSFORM) {
             it.f64(xscale)
             it.f64(yscale)
@@ -395,7 +397,7 @@ internal fun PaintViewModel.applyTransform(
             it.f64(originY)
         }
     }
-    val arr = if (layers.size > 1) layers.toIntArray() else null
+    val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
@@ -565,7 +567,6 @@ private fun recordLayerSet(
     op: Int,
     layers: List<Int>,
 ) {
-    if (layers.size <= 1) return // single target = old default, nothing to record
     recorder.toolOp(op) {
         it.u16(layers.size.coerceIn(0, 65535))
         for (l in layers) {
@@ -578,11 +579,12 @@ private fun recordLayerSet(
  *  (multi-select) warp together as one undo step. */
 internal fun PaintViewModel.liquifyBegin() {
     val layers = editTargetLayers()
+    val multi = selectedLayerIndices.isNotEmpty()
     if (recorder.recording) {
-        recordLayerSet(recorder, T_LIQUIFY_LAYERS, layers)
+        if (multi) recordLayerSet(recorder, T_LIQUIFY_LAYERS, layers)
         recorder.toolOp(T_LIQUIFY_BEGIN)
     }
-    val arr = if (layers.size > 1) layers.toIntArray() else null
+    val arr = if (multi) layers.toIntArray() else null
     runCore(render = false) { ReverieCoreBridge.liquifyBegin(arr) }
 }
 
