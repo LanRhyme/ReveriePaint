@@ -61,6 +61,9 @@ import com.reverie.paint.model.RecordingEvents.T_LASSO
 import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
 import com.reverie.paint.model.RecordingEvents.T_LASSO_FILL
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_BEGIN
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_CANCEL
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_END
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
 import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
@@ -850,6 +853,18 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_LIQUIFY_SIZE -> {
             ReverieCoreBridge.setLiquifyBrushSize(r.f32().toDouble())
+        }
+
+        T_LIQUIFY_BEGIN -> {
+            ReverieCoreBridge.liquifyBegin()
+        }
+
+        T_LIQUIFY_END -> {
+            ReverieCoreBridge.liquifyEnd()
+        }
+
+        T_LIQUIFY_CANCEL -> {
+            ReverieCoreBridge.liquifyCancel()
         }
 
         T_SHAPE_STROKE_WIDTH -> {

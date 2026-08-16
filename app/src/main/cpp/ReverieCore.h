@@ -278,8 +278,12 @@ public:
     void lassoFill(const QVector<QPoint> &points);
     void lassoClear(const QVector<QPoint> &points);
 
-    // Liquify: push pixels within the brush radius from (fx,fy) to (tx,ty)
+    // Liquify: warp within the brush radius at (fx,fy) toward (tx,ty).
+    // mode: 0 推拉, 1 膨胀, 2 收缩, 3 顺时针, 4 逆时针
     void liquify(int fx, int fy, int tx, int ty, qreal strength = 0.9, int mode = 0);
+    void liquifyBegin();
+    void liquifyEnd();
+    void liquifyCancel();
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
@@ -441,6 +445,10 @@ private:
     qreal m_shapeStrokeWidth = 4.0;   // shape tools independent stroke width
     bool m_shapeFilled = false;       // shape tools fill with the brush color
     qreal m_liquifyBrushSize = 60.0;   // liquify independent brush size
+    // One KisTransaction for a whole liquify drag (begin/end bracket); the
+    // per-move path only creates its own when no bracket is active
+    KisTransaction *m_liquifyTxn = nullptr;
+    bool m_liquifyTxnActive = false;
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;

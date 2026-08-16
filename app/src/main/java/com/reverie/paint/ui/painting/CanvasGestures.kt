@@ -437,7 +437,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         if (maxFingerMovement <= eyedropperMaxMovePx) {
                             isLongPressPickerActive = true
                             if (strokeStarted) {
-                                vm.touchCancel()
+                                if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                                 strokeStarted = false
                             }
                             pendingTap = null
@@ -478,7 +478,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         onTransform(startZoom, startRot, startPanX, startPanY)
                     }
                     if (strokeStarted) {
-                        vm.touchCancel()
+                        if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                         strokeStarted = false
                     }
                     vm.undo()
@@ -487,7 +487,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         onTransform(startZoom, startRot, startPanX, startPanY)
                     }
                     if (strokeStarted) {
-                        vm.touchCancel()
+                        if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                         strokeStarted = false
                     }
                     vm.redo()
@@ -593,7 +593,11 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         }
 
                         strokeStarted -> {
-                            vm.touchEnd()
+                            if (tool == Tool.LIQUIFY) {
+                                vm.liquifyEnd()
+                            } else {
+                                vm.touchEnd()
+                            }
                         }
 
                         mode == GestureMode.STROKE -> {
@@ -629,7 +633,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 if (!transformStarted) {
                     pendingTap = null
                     if (strokeStarted) {
-                        vm.touchCancel()
+                        if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                         strokeStarted = false
                     }
                     if (tapReverted) {
@@ -722,7 +726,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                     if (elapsedMs >= eyedropperDelayMs) {
                         isLongPressPickerActive = true
                         if (strokeStarted) {
-                            vm.touchCancel()
+                            if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                             strokeStarted = false
                         }
                         pendingTap = null
@@ -1129,7 +1133,11 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
                             tool == Tool.LIQUIFY -> {
                                 if (!strokeStarted) {
-                                    vm.touchStart(imagePos.x, imagePos.y)
+                                    // One undo transaction for the whole
+                                    // drag; NOT a brush stroke - calling
+                                    // touchStart here painted a stray dab at
+                                    // the drag start on release
+                                    vm.liquifyBegin()
                                     strokeStarted = true
                                 }
                                 vm.liquify(

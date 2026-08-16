@@ -117,6 +117,9 @@ object RecordingEvents {
     const val T_LASSO_CLEAR = 25 // count u16, x/y f32 pairs
     const val T_LIQUIFY_SIZE = 26 // size f32
     const val T_SHAPE_STROKE_WIDTH = 27 // width f32
+    const val T_LIQUIFY_BEGIN = 28 // - (one undo transaction per drag)
+    const val T_LIQUIFY_END = 29 // -
+    const val T_LIQUIFY_CANCEL = 30 // -
 }
 
 /** Growable byte sink with little-endian primitive writers. */

@@ -301,6 +301,15 @@ object ReverieCoreBridge {
         mode: Int,
     )
 
+    /** Open one undo transaction for a whole liquify drag. */
+    external fun liquifyBegin()
+
+    /** Commit the liquify drag transaction. */
+    external fun liquifyEnd()
+
+    /** Revert the whole liquify drag. */
+    external fun liquifyCancel()
+
     external fun setLiquifyBrushSize(size: Double)
 
     external fun lassoSelect(

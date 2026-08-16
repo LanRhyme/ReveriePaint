@@ -28,6 +28,9 @@ import com.reverie.paint.model.RecordingEvents.T_LASSO
 import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
 import com.reverie.paint.model.RecordingEvents.T_LASSO_FILL
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_BEGIN
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_CANCEL
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_END
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
 import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
@@ -534,6 +537,35 @@ internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
         recorder.toolOp(T_LIQUIFY_SIZE) { it.f32(size.toFloat()) }
     }
     runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
+}
+
+/** One undo transaction for a whole liquify drag gesture. */
+internal fun PaintViewModel.liquifyBegin() {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY_BEGIN)
+    }
+    runCore(render = false) { ReverieCoreBridge.liquifyBegin() }
+}
+
+internal fun PaintViewModel.liquifyEnd() {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY_END)
+    }
+    runCore(after = {
+        scheduleRender(immediate = true)
+        refreshLayerThumbs()
+    }) {
+        ReverieCoreBridge.liquifyEnd()
+    }
+}
+
+internal fun PaintViewModel.liquifyCancel() {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY_CANCEL)
+    }
+    runCore(after = { scheduleRender(immediate = true) }) {
+        ReverieCoreBridge.liquifyCancel()
+    }
 }
 
 internal fun PaintViewModel.liquify(
