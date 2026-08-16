@@ -6,7 +6,9 @@ package com.reverie.paint.model
  * groups them. Brush-family tools (BRUSH / ERASER / SMUDGE) reuse the brush
  * panel; the rest carry their own tool-option panel.
  */
-enum class ToolGroup(val label: String) {
+enum class ToolGroup(
+    val label: String,
+) {
     BRUSH("笔刷"),
     FILL("填充"),
     SHAPES("形状"),
@@ -85,7 +87,9 @@ data class Project(
     val fileSize: Long = 0L,
     val isFolder: Boolean = false,
     val folderPath: String = "",
-    val items: List<Project> = emptyList()
+    val items: List<Project> = emptyList(),
+    /** Whether the project file embeds a drawing-process recording (回放可用). */
+    val hasRecording: Boolean = false,
 )
 
 /** A canvas size preset for the create page */
@@ -94,4 +98,3 @@ data class CanvasPreset(
     val width: Int,
     val height: Int,
 )
-

@@ -103,6 +103,9 @@ internal fun PaintViewModel.notifyLayerChanged(
 }
 
 internal fun PaintViewModel.addLayer() {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
+    }
     runCore(after = ::notifyLayerChanged) {
         // empty name -> C++ generates 颜料图层 N
         ReverieCoreBridge.addLayer("")
@@ -114,12 +117,18 @@ internal fun PaintViewModel.removeLayer() {
 }
 
 internal fun PaintViewModel.removeLayer(index: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_REMOVE, index)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.removeLayer(index)
     }
 }
 
 internal fun PaintViewModel.setCurrentLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_SET_CURRENT, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setCurrentLayer(i)
     }
@@ -131,12 +140,18 @@ internal fun PaintViewModel.setLayerBlendMode(
     i: Int,
     opId: String,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_BLEND, i, opId)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerBlendMode(i, opId)
     }
 }
 
 internal fun PaintViewModel.toggleLayerVisible(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_VISIBLE, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerVisible(i, !ReverieCoreBridge.layerVisible(i))
     }
@@ -159,18 +174,27 @@ internal fun PaintViewModel.layerVisible(i: Int) = ReverieCoreBridge.layerVisibl
 
 // ---- Full layer system ----
 internal fun PaintViewModel.addGroupLayer() {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD_GROUP)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addGroupLayer("")
     }
 }
 
 internal fun PaintViewModel.copyLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_COPY, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.copyLayer(i)
     }
 }
 
 internal fun PaintViewModel.clearLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_CLEAR, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.clearLayer(i)
     }
@@ -181,6 +205,9 @@ internal fun PaintViewModel.renameLayer(
     name: String,
 ) {
     if (name.isBlank()) return
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_RENAME, i, name.trim())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerName(i, name.trim())
     }
@@ -202,6 +229,9 @@ internal fun PaintViewModel.setLayerOpacity(
         }
     } else {
         // Slider release commit: single undo step + full refresh
+        if (recorder.recording) {
+            recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_OPACITY, i, v.toString())
+        }
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.setLayerOpacity(i, v)
         }
@@ -214,6 +244,9 @@ internal fun PaintViewModel.setLayerLocked(
     i: Int,
     locked: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_LOCKED, i, if (locked) "1" else "0")
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerLocked(i, locked)
     }
@@ -225,6 +258,9 @@ internal fun PaintViewModel.setLayerAlphaLocked(
     i: Int,
     locked: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ALPHA_LOCKED, i, if (locked) "1" else "0")
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerAlphaLocked(i, locked)
     }
@@ -236,6 +272,9 @@ internal fun PaintViewModel.setLayerColorLabel(
     i: Int,
     label: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_COLOR_LABEL, i, label.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerColorLabel(i, label)
     }
@@ -253,24 +292,36 @@ internal fun PaintViewModel.setLayerClipped(
     i: Int,
     clipped: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_CLIPPED, i, if (clipped) "1" else "0")
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerClipped(i, clipped)
     }
 }
 
 internal fun PaintViewModel.flipLayerHorizontal(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLIP_H, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.flipLayerHorizontal(i)
     }
 }
 
 internal fun PaintViewModel.flipLayerVertical(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLIP_V, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.flipLayerVertical(i)
     }
 }
 
 internal fun PaintViewModel.stampVisibleLayers() {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.stampVisibleLayers()
     }
@@ -280,6 +331,9 @@ internal fun PaintViewModel.setBackgroundColor(
     color: Int,
     commit: Boolean = true,
 ) {
+    if (commit && recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_SET_BG, 0, color.toString())
+    }
     if (commit) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.setBackgroundColor(color, true)
@@ -296,6 +350,9 @@ internal fun PaintViewModel.moveLayer(
     from: Int,
     to: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE, from, to.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayer(from, to)
     }
@@ -305,6 +362,9 @@ internal fun PaintViewModel.moveLayerAbove(
     from: Int,
     above: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_ABOVE, from, above.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerAbove(from, above)
     }
@@ -314,6 +374,9 @@ internal fun PaintViewModel.moveLayerToGroup(
     from: Int,
     group: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_TO_GROUP, from, group.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerToGroup(from, group)
     }
@@ -324,24 +387,40 @@ internal fun PaintViewModel.moveLayerRelative(
     target: Int,
     placeAbove: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(
+            com.reverie.paint.model.RecordingEvents.L_MOVE_RELATIVE,
+            from,
+            "$target:${if (placeAbove) 1 else 0}",
+        )
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerRelative(from, target, placeAbove)
     }
 }
 
 internal fun PaintViewModel.moveLayerUp(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_UP, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerUp(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerDown(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_DOWN, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerDown(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerOut(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_OUT, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerOut(i)
     }
@@ -351,24 +430,36 @@ internal fun PaintViewModel.addMaskToLayer(
     layerIndex: Int,
     maskType: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD_MASK, layerIndex, maskType.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addMaskToLayer(layerIndex, maskType)
     }
 }
 
 internal fun PaintViewModel.removeMask(layerIndex: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_REMOVE_MASK, layerIndex)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.removeMask(layerIndex)
     }
 }
 
 internal fun PaintViewModel.rasterizeLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_RASTERIZE, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.rasterizeLayer(i)
     }
 }
 
 internal fun PaintViewModel.flattenGroup(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLATTEN_GROUP, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.flattenGroup(i)
     }
@@ -378,6 +469,9 @@ internal fun PaintViewModel.setGroupPassThrough(
     i: Int,
     passThrough: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_PASS_THROUGH, i, if (passThrough) "1" else "0")
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setGroupPassThrough(i, passThrough)
     }
@@ -386,12 +480,18 @@ internal fun PaintViewModel.setGroupPassThrough(
 internal fun PaintViewModel.groupPassThrough(i: Int) = ReverieCoreBridge.groupPassThrough(i)
 
 internal fun PaintViewModel.mergeDown(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MERGE_DOWN, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.mergeDown(i)
     }
 }
 
 internal fun PaintViewModel.soloLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_SOLO, i)
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.soloLayer(i)
     }
@@ -436,12 +536,18 @@ internal fun PaintViewModel.applyFilter(
     i: Int,
     filterId: Int,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER, i, filterId.toString())
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.applyFilter(i, filterId)
     }
 }
 
 internal fun PaintViewModel.selectionFromLayer(i: Int) {
+    if (recorder.recording) {
+        recorder.toolOp(com.reverie.paint.model.RecordingEvents.T_SELECT_ALL) { it.u16(i.coerceIn(0, 65535)) }
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.selectionFromLayer(i)
     }
@@ -458,6 +564,13 @@ internal fun PaintViewModel.addLayerWithType(
     type: Int = 0,
     fillColor: Int = 0xFFFFFFFF.toInt(),
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(
+            com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
+            0,
+            "$name|$type|$fillColor",
+        )
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addLayerWithType(name, type, fillColor)
     }

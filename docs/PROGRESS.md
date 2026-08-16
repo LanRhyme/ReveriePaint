@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-原生安卓版 (Kotlin/Compose + JNI + Krita C++ 核心) MVP 功能完整, 等待真机测试
+原生安卓版 (Kotlin/Compose + JNI + Krita C++ 核心) MVP 功能完整 + 绘画过程录制回放, 等待真机测试
 
 ## 已完成
 
@@ -29,6 +29,7 @@
 - [x] C++ 引擎: KisImage 直接构造 (绕过 KisDocument/KisPart)
 - [x] JNI 桥: 完整 API 覆盖
 - [x] APK 体积优化 (140MB -> 41MB)
+- [x] 录制回放: 绘画过程事件流录制 + 主页长按菜单回放 (2026-08-16)
 
 ## 待办 (MVP 之后)
 
@@ -113,6 +114,18 @@
 - 填充: 自研 BFS 种子填充 (KisFillTool 在 kritaui 中, 依赖太重)
 - 液化: 局部像素位移 + 径向衰减
 
+## 录制回放实现 (2026-08-16)
+
+- 存储: `.revp` zip 内新增 `recording` entry (自包含 blob: header + 事件流 + 可选初始文档快照)
+- 捕获: Kotlin ViewModel 层, `PaintViewModelTools.kt` touch* 统一入口 + 各操作函数钩子
+- 上下文: 笔画起点 diff 捕获笔刷/工具/图层快照 (CONTEXT 事件), 不逐滑块记录
+- 事件类型: 笔迹 (START/MOVE/END/CANCEL), 图层操作, 形状/填充/文字/液化/变换/裁剪/选区, 滤镜提交
+- 回放: 渲染线程驱动 (Handler postDelayed 按 dt/speed 节拍), 直接调 JNI 不走录制路径
+- 性能: 录制零对象分配 (字节数组追加), 回放零分配游标, 进度 UI 32ms 节流, 空闲间隔封顶 500ms
+- 内存: 事件流 ~KB-MB 级, 快照落盘 (filesDir/rec_session), zip 重打包流式拷贝不整包进内存
+- UI: `Page.REPLAY` + `ui/replay/ReplayPage.kt` (播放/暂停/进度拖动/0.5x-4x), 主页长按菜单"回放"项 (仅 hasRecording)
+- 兼容: 旧 .revp 无 recording entry 自动隐藏回放入口; 继续绘画会话嵌入初始快照保证重放一致
+
 ## 构建
 
 ```bash
@@ -126,7 +139,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - NDK 25.2.9519653, compileSdk 36, minSdk 23
 - Qt for Android 6.6.3 (引擎运行时), Krita 6.1.0-prealpha arm64 交叉编译库
 - paintop 库: kritalibpaintop + kritadefaultpaintops_static (含 register_static.cpp)
-  + 12 个其他 paintop 插件 (build-android)
+  - 12 个其他 paintop 插件 (build-android)
 
 ## 完整图层系统 (2026-08-12)
 

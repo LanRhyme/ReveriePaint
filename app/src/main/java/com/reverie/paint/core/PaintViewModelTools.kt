@@ -15,6 +15,34 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
+import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
+import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS
+import com.reverie.paint.model.RecordingEvents.T_CONTRACT
+import com.reverie.paint.model.RecordingEvents.T_CROP
+import com.reverie.paint.model.RecordingEvents.T_EXPAND
+import com.reverie.paint.model.RecordingEvents.T_FEATHER
+import com.reverie.paint.model.RecordingEvents.T_FILL
+import com.reverie.paint.model.RecordingEvents.T_GRADIENT
+import com.reverie.paint.model.RecordingEvents.T_INVERT_SELECTION
+import com.reverie.paint.model.RecordingEvents.T_LASSO
+import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
+import com.reverie.paint.model.RecordingEvents.T_LASSO_FILL
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
+import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
+import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
+import com.reverie.paint.model.RecordingEvents.T_POLYGON
+import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
+import com.reverie.paint.model.RecordingEvents.T_SELECT_MODE
+import com.reverie.paint.model.RecordingEvents.T_SELECT_POLYGON
+import com.reverie.paint.model.RecordingEvents.T_SELECT_SHAPE
+import com.reverie.paint.model.RecordingEvents.T_SHAPE
+import com.reverie.paint.model.RecordingEvents.T_SHAPE_STROKE_WIDTH
+import com.reverie.paint.model.RecordingEvents.T_SIMILAR
+import com.reverie.paint.model.RecordingEvents.T_SMOOTH
+import com.reverie.paint.model.RecordingEvents.T_TEXT
+import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
+import com.reverie.paint.model.RecordingEvents.T_WARP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -30,6 +58,29 @@ internal fun PaintViewModel.touchStart(
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
+    if (recorder.recording) {
+        // Diff-based brush/tool/layer context capture: emitted only when the
+        // context changed since the previous stroke, so slider tweaks between
+        // strokes are replayed without hooking every setter
+        val mode =
+            when (currentToolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> -1
+            }
+        recorder.captureContext(
+            toolMode = mode,
+            preset = brushPresetIndex,
+            size = brushSize,
+            opacity = brushOpacity,
+            flow = brushFlow,
+            compositeOp = brushCompositeOp,
+            color = brushColor,
+            layer = currentLayerIndex,
+        )
+        recorder.strokeStart(x, y, pressure.toFloat())
+    }
     runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), pressure) }
 }
 
@@ -39,6 +90,9 @@ internal fun PaintViewModel.touchMove(
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
+    if (recorder.recording) {
+        recorder.strokeMove(x, y, pressure.toFloat())
+    }
     runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), pressure) }
 }
 
@@ -46,6 +100,9 @@ internal fun PaintViewModel.touchEnd() {
     isModified = true
     totalStrokes++
     onPaintingActivity()
+    if (recorder.recording) {
+        recorder.strokeEnd()
+    }
     runCore(after = {
         scheduleRender(immediate = true)
         refreshLayerThumbs()
@@ -55,6 +112,9 @@ internal fun PaintViewModel.touchEnd() {
 }
 
 internal fun PaintViewModel.touchCancel() {
+    if (recorder.recording) {
+        recorder.strokeCancel()
+    }
     runCore(after = { refreshLayerThumbs() }) {
         ReverieCoreBridge.touchStrokeCancel()
     }
@@ -135,6 +195,15 @@ internal fun PaintViewModel.gradientFill(
     y2: Int,
     type: Int = 0,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_GRADIENT) {
+            it.u8(type)
+            it.f32(x1.toFloat())
+            it.f32(y1.toFloat())
+            it.f32(x2.toFloat())
+            it.f32(y2.toFloat())
+        }
+    }
     runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type) }
 }
 
@@ -146,6 +215,15 @@ internal fun PaintViewModel.selectShape(
     y2: Int,
 ) {
     var ov: android.graphics.Bitmap? = null
+    if (recorder.recording) {
+        recorder.toolOp(T_SELECT_SHAPE) {
+            it.u8(kind)
+            it.f32(x1.toFloat())
+            it.f32(y1.toFloat())
+            it.f32(x2.toFloat())
+            it.f32(y2.toFloat())
+        }
+    }
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
         hasSelection = ov != null
@@ -157,6 +235,9 @@ internal fun PaintViewModel.selectShape(
 
 internal fun PaintViewModel.selectPolygon(points: List<Pair<Int, Int>>) {
     if (points.size < 3) return
+    if (recorder.recording) {
+        recorder.pointsOp(T_SELECT_POLYGON, points)
+    }
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     var ov: android.graphics.Bitmap? = null
@@ -174,6 +255,16 @@ internal fun PaintViewModel.drawPolygon(
     closed: Boolean,
 ) {
     if (points.size < 2) return
+    if (recorder.recording) {
+        recorder.toolOp(T_POLYGON) {
+            it.u8(if (closed) 1 else 0)
+            it.u16(points.size)
+            for ((x, y) in points) {
+                it.f32(x.toFloat())
+                it.f32(y.toFloat())
+            }
+        }
+    }
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
@@ -183,6 +274,12 @@ internal fun PaintViewModel.moveLayerContent(
     dx: Int,
     dy: Int,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_MOVE_CONTENT) {
+            it.f32(dx.toFloat())
+            it.f32(dy.toFloat())
+        }
+    }
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
@@ -199,6 +296,14 @@ internal fun PaintViewModel.cropCanvas(
     w: Int,
     h: Int,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_CROP) {
+            it.u16(x.coerceAtLeast(0))
+            it.u16(y.coerceAtLeast(0))
+            it.u16(w.coerceAtLeast(0))
+            it.u16(h.coerceAtLeast(0))
+        }
+    }
     runCore(after = {
         // The document size changed in C++ - keep coreW/coreH in sync or
         // the viewport render reads stale dimensions (crop crash)
@@ -233,6 +338,9 @@ internal fun PaintViewModel.contentBounds(): IntArray? {
 }
 
 internal fun PaintViewModel.setShapeStrokeWidth(w: Double) {
+    if (recorder.recording) {
+        recorder.toolOp(T_SHAPE_STROKE_WIDTH) { it.f32(w.toFloat()) }
+    }
     runCore { ReverieCoreBridge.setShapeStrokeWidth(w) }
 }
 
@@ -251,6 +359,19 @@ internal fun PaintViewModel.applyTransform(
     originX: Double = -1.0,
     originY: Double = -1.0,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_TRANSFORM) {
+            it.f64(xscale)
+            it.f64(yscale)
+            it.f64(xshear)
+            it.f64(yshear)
+            it.f64(rotationRad)
+            it.f64(xtranslate)
+            it.f64(ytranslate)
+            it.f64(originX)
+            it.f64(originY)
+        }
+    }
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
@@ -284,6 +405,22 @@ internal fun PaintViewModel.applyPerspectiveTransform(
     origW: Double,
     origH: Double,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_PERSPECTIVE) {
+            it.f64(x0)
+            it.f64(y0)
+            it.f64(x1)
+            it.f64(y1)
+            it.f64(x2)
+            it.f64(y2)
+            it.f64(x3)
+            it.f64(y3)
+            it.f64(origX)
+            it.f64(origY)
+            it.f64(origW)
+            it.f64(origH)
+        }
+    }
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
@@ -314,6 +451,23 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     origW: Double,
     origH: Double,
 ) {
+    if (recorder.recording && origPoints.size == transfPoints.size) {
+        recorder.toolOp(T_WARP) {
+            it.u16(origPoints.size)
+            for (p in origPoints) {
+                it.f32(p.x)
+                it.f32(p.y)
+            }
+            for (p in transfPoints) {
+                it.f32(p.x)
+                it.f32(p.y)
+            }
+            it.f64(origX)
+            it.f64(origY)
+            it.f64(origW)
+            it.f64(origH)
+        }
+    }
     val count = origPoints.size
     val ox = DoubleArray(count) { origPoints[it].x.toDouble() }
     val oy = DoubleArray(count) { origPoints[it].y.toDouble() }
@@ -368,6 +522,9 @@ internal fun PaintViewModel.redo() {
 }
 
 internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY_SIZE) { it.f32(size.toFloat()) }
+    }
     runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
 }
 
@@ -379,6 +536,16 @@ internal fun PaintViewModel.liquify(
     mode: Int,
     strength: Double = 0.9,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY) {
+            it.f32(fx)
+            it.f32(fy)
+            it.f32(tx)
+            it.f32(ty)
+            it.u8(mode)
+            it.f32(strength.toFloat())
+        }
+    }
     runCore {
         ReverieCoreBridge.liquify(
             fx.toInt(),
@@ -418,10 +585,16 @@ internal fun PaintViewModel.cancelTransformPreview() {
 
 internal fun PaintViewModel.updateSelectionMode(mode: Int) {
     selectionMode = mode
+    if (recorder.recording) {
+        recorder.toolOp(T_SELECT_MODE) { it.u8(mode) }
+    }
     runCore { ReverieCoreBridge.setSelectionMode(mode) }
 }
 
 internal fun PaintViewModel.featherSelection(radius: Int) {
+    if (recorder.recording) {
+        recorder.toolOp(T_FEATHER) { it.u16(radius) }
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -433,6 +606,9 @@ internal fun PaintViewModel.featherSelection(radius: Int) {
 }
 
 internal fun PaintViewModel.expandSelection(px: Int) {
+    if (recorder.recording) {
+        recorder.toolOp(T_EXPAND) { it.u16(px) }
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -444,6 +620,9 @@ internal fun PaintViewModel.expandSelection(px: Int) {
 }
 
 internal fun PaintViewModel.contractSelection(px: Int) {
+    if (recorder.recording) {
+        recorder.toolOp(T_CONTRACT) { it.u16(px) }
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -455,6 +634,9 @@ internal fun PaintViewModel.contractSelection(px: Int) {
 }
 
 internal fun PaintViewModel.smoothSelection(radius: Int) {
+    if (recorder.recording) {
+        recorder.toolOp(T_SMOOTH) { it.u16(radius) }
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -499,6 +681,9 @@ internal fun PaintViewModel.clearSelectionOverlayLocal() {
 }
 
 internal fun PaintViewModel.clearSelectionAction() {
+    if (recorder.recording) {
+        recorder.toolOp(T_CLEAR_SELECTION)
+    }
     runCore(after = {
         selectionMask = null
         hasSelection = false
@@ -511,6 +696,9 @@ internal fun PaintViewModel.clearSelectionAction() {
 
 internal fun PaintViewModel.selectAllAction() {
     val layerIdx = currentLayerIndex
+    if (recorder.recording) {
+        recorder.toolOp(T_SELECT_ALL) { it.u16(layerIdx.coerceIn(0, 65535)) }
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -522,6 +710,9 @@ internal fun PaintViewModel.selectAllAction() {
 }
 
 internal fun PaintViewModel.invertSelectionAction() {
+    if (recorder.recording) {
+        recorder.toolOp(T_INVERT_SELECTION)
+    }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -638,6 +829,9 @@ internal fun PaintViewModel.previewLassoSync(points: List<Pair<Int, Int>>) {
 
 internal fun PaintViewModel.lassoSelect(points: List<Pair<Int, Int>>) {
     if (points.size < 3) return
+    if (recorder.recording) {
+        recorder.pointsOp(T_LASSO, points)
+    }
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     var ov: android.graphics.Bitmap? = null
@@ -661,6 +855,13 @@ internal fun PaintViewModel.selectContiguous(
     y: Int,
 ) {
     val tol = selectionTolerance
+    if (recorder.recording) {
+        recorder.toolOp(T_CONTIGUOUS) {
+            it.f32(x.toFloat())
+            it.f32(y.toFloat())
+            it.u16(tol.coerceIn(0, 65535))
+        }
+    }
     var ov: android.graphics.Bitmap? = null
     val t0 = System.nanoTime()
     runCore(render = false, after = {
@@ -681,6 +882,13 @@ internal fun PaintViewModel.selectSimilar(
     y: Int,
 ) {
     val tol = selectionTolerance
+    if (recorder.recording) {
+        recorder.toolOp(T_SIMILAR) {
+            it.f32(x.toFloat())
+            it.f32(y.toFloat())
+            it.u16(tol.coerceIn(0, 65535))
+        }
+    }
     var ov: android.graphics.Bitmap? = null
     val t0 = System.nanoTime()
     runCore(render = false, after = {
@@ -700,12 +908,18 @@ internal fun PaintViewModel.selectSimilar(
 internal fun PaintViewModel.hQueued(): Int = if (renderHandler?.hasMessages(0) == true) 1 else 0
 
 internal fun PaintViewModel.lassoFill(points: List<Pair<Int, Int>>) {
+    if (recorder.recording) {
+        recorder.pointsOp(T_LASSO_FILL, points)
+    }
     val xs = points.map { it.first }.toIntArray()
     val ys = points.map { it.second }.toIntArray()
     runCore { ReverieCoreBridge.lassoFill(xs, ys, points.size) }
 }
 
 internal fun PaintViewModel.lassoClear(points: List<Pair<Int, Int>>) {
+    if (recorder.recording) {
+        recorder.pointsOp(T_LASSO_CLEAR, points)
+    }
     val xs = points.map { it.first }.toIntArray()
     val ys = points.map { it.second }.toIntArray()
     runCore { ReverieCoreBridge.lassoClear(xs, ys, points.size) }
@@ -717,6 +931,14 @@ internal fun PaintViewModel.drawText(
     text: String,
     fontSize: Double,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_TEXT) {
+            it.f32(x)
+            it.f32(y)
+            it.f32(fontSize.toFloat())
+            it.str(text)
+        }
+    }
     runCore {
         ReverieCoreBridge.drawText(x.toInt(), y.toInt(), text, fontSize)
     }
@@ -730,6 +952,16 @@ internal fun PaintViewModel.drawShape(
     y2: Float,
     filled: Boolean = false,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_SHAPE) {
+            it.u8(kind)
+            it.f32(x1)
+            it.f32(y1)
+            it.f32(x2)
+            it.f32(y2)
+            it.u8(if (filled) 1 else 0)
+        }
+    }
     runCore {
         ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), filled)
     }
@@ -740,5 +972,12 @@ internal fun PaintViewModel.floodFill(
     y: Float,
     tolerance: Int = 24,
 ) {
+    if (recorder.recording) {
+        recorder.toolOp(T_FILL) {
+            it.f32(x)
+            it.f32(y)
+            it.u16(tolerance.coerceIn(0, 65535))
+        }
+    }
     runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance) }
 }

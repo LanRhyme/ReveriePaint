@@ -738,6 +738,8 @@ class PaintViewModel : ViewModel() {
     }
 
     override fun onCleared() {
+        recorder.endSession()
+        replaySession?.stop()
         renderThread?.quitSafely()
         renderThread = null
         renderHandler = null
@@ -937,9 +939,21 @@ class PaintViewModel : ViewModel() {
     var isFilterAdjustActive by mutableStateOf(false)
 
     internal var filterPreviewJob: kotlinx.coroutines.Job? = null
+
+    // ---- Drawing-process recording / playback (录制回放) ----
+
+    /** Session recorder: captures strokes, context and document ops. */
+    internal val recorder = PaintRecorder()
+
+    /** Active replay session; null while not replaying. */
+    var replaySession by mutableStateOf<ReplaySession?>(null)
+        internal set
+
+    /** Last scalar filter preview params [type, p1..p4] captured at commit. */
+    internal var lastFilterPreviewParams: DoubleArray? = null
 }
 
-enum class Page { HOME, CREATE, PAINTING }
+enum class Page { HOME, CREATE, PAINTING, REPLAY }
 
 /** Krita-style brush grouping: the preset name prefix maps to a group. */
 fun inferBrushGroup(name: String): String =
