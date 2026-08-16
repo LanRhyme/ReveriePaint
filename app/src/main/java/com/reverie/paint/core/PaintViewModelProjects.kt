@@ -110,7 +110,7 @@ import kotlinx.coroutines.launch
                     coreH = ReverieCoreBridge.docHeight()
                     renderW = coreW
                     renderH = coreH
-                    renderBmp = null
+                    displayBufferInvalid = true
                     syncLayersFromNative()
                     ReverieCoreBridge.setBrushColor(brushColor)
                 }
@@ -395,7 +395,7 @@ import kotlinx.coroutines.launch
                 coreH = h
                 renderW = w
                 renderH = h
-                renderBmp = null
+                displayBufferInvalid = true
                 syncLayersFromNative()
                 ReverieCoreBridge.setBrushColor(brushColor)
             }

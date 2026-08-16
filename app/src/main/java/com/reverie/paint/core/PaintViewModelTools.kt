@@ -69,7 +69,9 @@ internal fun PaintViewModel.applyTool(toolId: String) {
             else -> -1
         }
     if (mode >= 0) {
-        ReverieCoreBridge.setToolMode(mode)
+        // Serialize with flushStrokeBatch: setToolMode mutating m_toolMode
+        // mid-stroke from the UI thread tore the dab pipeline
+        runCore(render = false) { ReverieCoreBridge.setToolMode(mode) }
     }
     currentToolId = toolId
     try {
@@ -113,9 +115,11 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                     brushSize = saved.size
                     brushOpacity = saved.opacity
                     brushFlow = saved.flow
-                    ReverieCoreBridge.setBrushSize(saved.size)
-                    ReverieCoreBridge.setBrushOpacity(saved.opacity)
-                    ReverieCoreBridge.setBrushFlow(saved.flow)
+                    runCore(render = false) {
+                        ReverieCoreBridge.setBrushSize(saved.size)
+                        ReverieCoreBridge.setBrushOpacity(saved.opacity)
+                        ReverieCoreBridge.setBrushFlow(saved.flow)
+                    }
                 }
             }
         }
@@ -204,7 +208,6 @@ internal fun PaintViewModel.cropCanvas(
         // old document size, so recompute + full redraw
         renderW = -1
         renderH = -1
-        viewResizeSignal++
         syncLayersFromNative()
         notifyLayerChanged()
     }) {

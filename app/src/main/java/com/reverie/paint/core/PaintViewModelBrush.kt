@@ -120,7 +120,10 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushFlow(v: Double) {
         brushFlow = v
         saveBrushParam()
-        ReverieCoreBridge.setBrushFlow(v)
+        // Brush parameter writes go through runCore so they serialize with
+        // flushStrokeBatch on the render thread — a direct JNI call from the
+        // UI thread could mutate m_brushFlow mid-dab (torn stroke rendering)
+        runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
     }
 
     internal fun PaintViewModel.resetBrushParams() {
@@ -151,47 +154,47 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.updateBrushSpacing(v: Double) {
         brushSpacing = v
-        ReverieCoreBridge.setBrushSpacing(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushSpacing(v) }
     }
 
     internal fun PaintViewModel.updateBrushAngle(v: Double) {
         brushAngle = v
-        ReverieCoreBridge.setBrushAngle(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushAngle(v) }
     }
 
     internal fun PaintViewModel.updateBrushScatter(v: Double) {
         brushScatter = v
-        ReverieCoreBridge.setBrushScatter(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushScatter(v) }
     }
 
     internal fun PaintViewModel.updateBrushFade(v: Double) {
         brushFade = v
-        ReverieCoreBridge.setBrushFade(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushFade(v) }
     }
 
     internal fun PaintViewModel.updateBrushSoftness(v: Double) {
         brushSoftness = v
-        ReverieCoreBridge.setBrushSoftness(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushSoftness(v) }
     }
 
     internal fun PaintViewModel.updateBrushRatio(v: Double) {
         brushRatio = v
-        ReverieCoreBridge.setBrushRatio(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushRatio(v) }
     }
 
     internal fun PaintViewModel.updateBrushSharpness(v: Double) {
         brushSharpness = v
-        ReverieCoreBridge.setBrushSharpness(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushSharpness(v) }
     }
 
     internal fun PaintViewModel.updateBrushRotation(v: Double) {
         brushRotation = v
-        ReverieCoreBridge.setBrushRotation(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushRotation(v) }
     }
 
     internal fun PaintViewModel.updateBrushCompositeOp(op: String) {
         brushCompositeOp = op
-        ReverieCoreBridge.setBrushCompositeOp(op)
+        runCore(render = false) { ReverieCoreBridge.setBrushCompositeOp(op) }
     }
 
     internal fun PaintViewModel.saveBrushParam() {
@@ -365,12 +368,12 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushSize(v: Double) {
         brushSize = v
         saveBrushParam()
-        ReverieCoreBridge.setBrushSize(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushSize(v) }
     }
 
     internal fun PaintViewModel.updateBrushColor(c: String) {
         brushColor = c
-        ReverieCoreBridge.setBrushColor(c)
+        runCore(render = false) { ReverieCoreBridge.setBrushColor(c) }
         if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("brushColor", c).apply()
@@ -394,6 +397,6 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushOpacity(v: Double) {
         brushOpacity = v
         saveBrushParam()
-        ReverieCoreBridge.setBrushOpacity(v)
+        runCore(render = false) { ReverieCoreBridge.setBrushOpacity(v) }
     }
 

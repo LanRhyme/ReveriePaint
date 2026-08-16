@@ -673,16 +673,16 @@ class PaintViewModel : ViewModel() {
     // ---- async render plumbing ----
     // Document size as known by the C++ core (written on the render thread,
     // read there too; Compose-facing docWidth/docHeight are mirrored via
-    // the main handler after document creation).
-    internal var coreW = 1080
-    internal var coreH = 1920
-    internal var viewResizeSignal = 0
+    // the main handler after document creation). setRenderViewport also
+    // reads them on the main thread, hence @Volatile.
+    @Volatile internal var coreW = 1080
+    @Volatile internal var coreH = 1920
 
     // High-performance direct native canvas rendering:
     // Render buffer is kept at full native document resolution (or clamped to GPU texture limit e.g. 4096)
     // for pixel-perfect 1:1 Krita projection alignment with 0 scaling artifacts.
-    internal var renderW = 1080
-    internal var renderH = 1920
+    @Volatile internal var renderW = 1080
+    @Volatile internal var renderH = 1920
 
     var displayRevision by mutableLongStateOf(0L)
         internal set
@@ -705,7 +705,7 @@ class PaintViewModel : ViewModel() {
         if (nw != renderW || nh != renderH) {
             renderW = nw
             renderH = nh
-            renderBmp = null
+            displayBufferInvalid = true
             scheduleRender(immediate = true)
         }
     }
@@ -714,8 +714,22 @@ class PaintViewModel : ViewModel() {
     internal var renderHandler: Handler? = null
     internal val mainHandler = Handler(Looper.getMainLooper())
 
-    internal var renderBmp: Bitmap? = null
-    internal var renderScheduled = false
+    // The single persistent display buffer native renders into directly
+    // (dirty-rect incremental updates rely on this exact buffer surviving
+    // across frames, so it must never be swapped for a pool). Written on
+    // the render thread from doRender only; the main thread signals a
+    // needed reallocation via [displayBufferInvalid].
+    internal var displayBuffer: Bitmap? = null
+
+    @Volatile internal var displayBufferInvalid = false
+
+    @Volatile internal var renderScheduled = false
+
+    // The pending throttled-render runnable, kept so an immediate render can
+    // actually cancel it (removeCallbacks needs the same instance; a bare
+    // postDelayed creates a fresh Message each call that no token-based
+    // removal can ever match).
+    @Volatile internal var pendingRenderRunnable: Runnable? = null
 
     init {
         startRenderThread()
@@ -754,14 +768,14 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    internal val RENDER_TOKEN = Any()
-
     internal fun scheduleRender(immediate: Boolean = false) {
         val h = renderHandler ?: return
         if (immediate) {
             // touchEnd / undo / structural changes: render right away and
-            // drop any pending throttled render
-            h.removeCallbacksAndMessages(RENDER_TOKEN)
+            // drop any pending throttled render (its 16ms-later run would
+            // otherwise re-render the exact same state a second time)
+            pendingRenderRunnable?.let { h.removeCallbacks(it) }
+            pendingRenderRunnable = null
             renderScheduled = false
             h.post { doRender() }
             return
@@ -772,13 +786,14 @@ class PaintViewModel : ViewModel() {
         // and made large brushes lag badly.
         if (renderScheduled) return
         renderScheduled = true
-        h.postDelayed(
-            {
+        val r =
+            Runnable {
+                pendingRenderRunnable = null
                 renderScheduled = false
                 doRender()
-            },
-            16,
-        )
+            }
+        pendingRenderRunnable = r
+        h.postDelayed(r, 16)
     }
 
     internal fun doRender() {
@@ -786,22 +801,28 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
-        var bmp = renderBmp
-        if (bmp == null || bmp.width != w || bmp.height != h) {
-            bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            renderBmp = bmp
+        var target = displayBuffer
+        if (target == null || target.width != w || target.height != h || displayBufferInvalid) {
+            // Native resets its incremental state on document create/load/
+            // crop, so a freshly allocated buffer always receives a full-frame
+            // blit — no stale content can leak through.
+            target = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            displayBuffer = target
+            displayBufferInvalid = false
         }
-        val target = renderBmp ?: return
         val ok = ReverieCoreBridge.renderToBuffer(target)
         if (ok) {
+            // Native wrote the pixels on the render thread; the UI thread only
+            // flips the Compose reference and bumps the revision. The old
+            // full-frame drawBitmap copy (~8MB per frame on the main thread)
+            // is gone, and the buffer is never rewritten while a copy of it
+            // is still in flight.
             mainHandler.post {
-                var cur = displayBitmap
-                if (cur == null || cur.width != w || cur.height != h) {
-                    cur = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    displayBitmap = cur
-                }
-                android.graphics.Canvas(cur).drawBitmap(target, 0f, 0f, null)
+                if (displayBitmap !== target) displayBitmap = target
                 displayRevision++
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    target.prepareToDraw()
+                }
             }
         }
     }
