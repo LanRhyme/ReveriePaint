@@ -305,6 +305,7 @@ bool ReverieCore::loadRevp(const QString &path)
     image->setResolution(72.0, 72.0);
 
     QJsonArray layersArray = meta["layers"].toArray();
+    bool bgLayerVisible = false;
     if (layersArray.isEmpty()) {
         KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
         KoColor white(QColor(Qt::white), cs);
@@ -313,6 +314,7 @@ bool ReverieCore::loadRevp(const QString &path)
         bg->setUserLocked(true);
         bg->setAlphaLocked(true);
         image->addNode(bg, image->rootLayer());
+        bgLayerVisible = true;
 
         KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("颜料图层 1"), 255, cs);
         paint->original()->fill(QRect(0, 0, w, h), KoColor(Qt::transparent, cs));
@@ -323,6 +325,9 @@ bool ReverieCore::loadRevp(const QString &path)
             QJsonObject layerObj = layersArray[i].toObject();
             const QString name = layerObj["name"].toString(i == 0 ? QStringLiteral("背景") : QString("图层 %1").arg(i));
             const bool isBg = (i == 0 || layerObj["background"].toBool(false));
+            if (isBg) {
+                bgLayerVisible = layerObj["visible"].toBool(true);
+            }
 
             KisPaintLayerSP layer = new KisPaintLayer(image, name, 255, cs);
             if (!layer) continue;
@@ -358,6 +363,13 @@ bool ReverieCore::loadRevp(const QString &path)
 
             image->addNode(layer, image->rootLayer());
         }
+    }
+
+    // 背景图层可见时投影底色必须是白色（newDocument 与 setLayerVisible 都会
+    // 维护这个底色，但 KisImage 的默认投影色是透明）：缺了这一步，进入工程
+    // 时背景就是透明的，直到手动隐藏再显示背景图层把底色设回白色
+    if (bgLayerVisible) {
+        image->setDefaultProjectionColor(KoColor(Qt::white, cs));
     }
 
     m_document = image.data();

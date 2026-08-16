@@ -210,13 +210,17 @@ fun CanvasView(
                 null
             }
         }
-    // pointerHoverIcon 只在悬停时生效：指针按下拖动（绘画中）系统停止派发 hover
-    // 事件，指针变回系统箭头。因此在按下事件里同步把 View 的系统 pointerIcon
-    // 设为透明（不等重组），松开/离开时同步还原 null。指针事件处理器的 key 是
-    // Unit，工具切换用 rememberUpdatedState 桥接，避免捕获陈旧值。
-    val latestHideCursor by rememberUpdatedState(hideSystemCursorForTool)
-    LaunchedEffect(hideSystemCursorForTool) {
-        if (!hideSystemCursorForTool) {
+    // 系统指针隐藏：沿用 pre-3917dea 的做法——进入画布时把 View 的
+    // pointerIcon 永久设为透明（该机制在本机 ROM 上实测有效；Compose 的
+    // pointerHoverIcon 与按下时临时设置在部分 ROM 上会被系统强制还原成箭头）。
+    // 绘制工具（笔刷/橡皮/混合/液化）激活期间保持隐藏，切到其他工具或离开
+    // 画布时通过 DisposableEffect 还原系统默认。
+    androidx.compose.runtime.DisposableEffect(hideSystemCursorForTool) {        if (hideSystemCursorForTool && transparentSystemPointer != null) {
+            view.pointerIcon = transparentSystemPointer
+        } else {
+            view.pointerIcon = null
+        }
+        onDispose {
             view.pointerIcon = null
         }
     }
@@ -272,31 +276,12 @@ fun CanvasView(
                                         isCursorHovering.value = false
                                         isCursorTouching.value = false
                                         cursorScreenPos.value = null
-                                        if (change.type != PointerType.Touch) {
-                                            view.pointerIcon = null
-                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
-                                                view.hasPointerCapture()
-                                            ) {
-                                                view.releasePointerCapture()
-                                            }
-                                        }
                                         livePressure.value = 1f
                                     }
 
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
-                                        if (latestHideCursor && transparentSystemPointer != null) {
-                                            view.pointerIcon = transparentSystemPointer
-                                            // Pointer capture hides the system cursor at the
-                                            // window level while drawing (some ROMs restore the
-                                            // arrow on button-down regardless of view icons)
-                                            if (change.type == PointerType.Mouse &&
-                                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
-                                            ) {
-                                                view.requestPointerCapture()
-                                            }
-                                        }
                                         if (change.pressure > 0f) {
                                             livePressure.value = vm.evaluatePressure(change.pressure)
                                         }
@@ -304,14 +289,6 @@ fun CanvasView(
 
                                     PointerEventType.Release -> {
                                         isCursorTouching.value = false
-                                        if (change.type != PointerType.Touch) {
-                                            view.pointerIcon = null
-                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
-                                                view.hasPointerCapture()
-                                            ) {
-                                                view.releasePointerCapture()
-                                            }
-                                        }
                                         if (isStylusOrMouse) {
                                             // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
                                             isCursorHovering.value = true
