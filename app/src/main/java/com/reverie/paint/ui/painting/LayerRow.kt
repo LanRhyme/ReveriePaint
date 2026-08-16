@@ -219,7 +219,11 @@ internal fun LayerRow(
                                 // Only treat it as a swipe when the movement is
                                 // clearly horizontal (prevents vertical list
                                 // scrolling and small wiggles from revealing)
-                                if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 1.2f) {
+                                // Horizontal-dominant at dx > dy*0.7: the old 1.2x
+                                // slope rejected slightly-diagonal finger swipes, so
+                                // the second row's multi-select never fired (users
+                                // had no idea - selection silently stayed at one)
+                                if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 0.7f) {
                                     gestureSwiping = true
                                     // Flip the outer remember state so the
                                     // LaunchedEffect follow-loop (snapTo the
@@ -286,6 +290,10 @@ internal fun LayerRow(
                     .zIndex(2f),
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
+                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_check, "多选") {
+                    onSelect()
+                    onRevealClose()
+                }
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
                     vm.copyLayer(index)
                     onRevealClose()

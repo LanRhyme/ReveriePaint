@@ -528,6 +528,7 @@ internal fun PaintViewModel.toggleLayerSelection(index: Int) {
         } else {
             selectedLayerIndices + index
         }
+    android.util.Log.d("ReverieLq", "toggle($index) -> $selectedLayerIndices")
 }
 
 internal fun PaintViewModel.clearLayerSelection() {
