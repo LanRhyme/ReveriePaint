@@ -47,6 +47,7 @@ import com.reverie.paint.model.RecordingEvents.T_SIMILAR
 import com.reverie.paint.model.RecordingEvents.T_SMOOTH
 import com.reverie.paint.model.RecordingEvents.T_TEXT
 import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
+import com.reverie.paint.model.RecordingEvents.T_TRANSFORM_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_WARP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -379,7 +380,9 @@ internal fun PaintViewModel.applyTransform(
     originX: Double = -1.0,
     originY: Double = -1.0,
 ) {
+    val layers = editTargetLayers()
     if (recorder.recording) {
+        recordLayerSet(recorder, T_TRANSFORM_LAYERS, layers)
         recorder.toolOp(T_TRANSFORM) {
             it.f64(xscale)
             it.f64(yscale)
@@ -392,22 +395,23 @@ internal fun PaintViewModel.applyTransform(
             it.f64(originY)
         }
     }
+    val arr = if (layers.size > 1) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
         transformPreviewBitmap = null
     }) {
-        ReverieCoreBridge.applyTransform(
-            xscale,
-            yscale,
-            xshear,
-            yshear,
-            rotationRad,
-            xtranslate,
-            ytranslate,
-            originX,
-            originY,
-        )
+        if (arr != null) {
+            ReverieCoreBridge.applyTransformLayers(
+                arr, xscale, yscale, xshear, yshear,
+                rotationRad, xtranslate, ytranslate, originX, originY,
+            )
+        } else {
+            ReverieCoreBridge.applyTransform(
+                xscale, yscale, xshear, yshear,
+                rotationRad, xtranslate, ytranslate, originX, originY,
+            )
+        }
     }
 }
 

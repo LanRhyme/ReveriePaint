@@ -48,12 +48,13 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
 
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContentLayers(
-    JNIEnv *env, jobject, jintArray layers, jint count, jint dx, jint dy)
+    JNIEnv *env, jobject, jintArray layers, jint dx, jint dy)
 {
     QVector<int> list;
-    if (layers != nullptr && count > 0) {
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
         jint *elems = env->GetIntArrayElements(layers, nullptr);
-        for (int i = 0; i < count; ++i) {
+        for (int i = 0; i < n; ++i) {
             list.append(int(elems[i]));
         }
         env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
@@ -84,6 +85,29 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyTransform(JNIEnv *env, jobjec
     return core()->applyTransform(xscale, yscale, xshear, yshear,
                                   rotationRad, xtranslate, ytranslate,
                                   originX, originY)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyTransformLayers(
+    JNIEnv *env, jobject, jintArray layers,
+    jdouble xscale, jdouble yscale, jdouble xshear, jdouble yshear,
+    jdouble rotationRad, jdouble xtranslate, jdouble ytranslate,
+    jdouble originX, jdouble originY)
+{
+    QVector<int> list;
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < n; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    return core()->applyTransformLayers(list, xscale, yscale, xshear, yshear,
+                                        rotationRad, xtranslate, ytranslate,
+                                        originX, originY)
         ? JNI_TRUE
         : JNI_FALSE;
 }
@@ -162,12 +186,16 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_liquifyBegin(JNIEnv *env, jobject, jintArray layers, jint count)
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyBegin(JNIEnv *env, jobject, jintArray layers)
 {
+    // Signature must match the Kotlin declaration exactly: JNI resolves by
+    // symbol name only and does NOT validate arity - an extra count param
+    // read a garbage register and the layer list resolved to nothing
     QVector<int> list;
-    if (layers != nullptr && count > 0) {
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
         jint *elems = env->GetIntArrayElements(layers, nullptr);
-        for (int i = 0; i < count; ++i) {
+        for (int i = 0; i < n; ++i) {
             list.append(int(elems[i]));
         }
         env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);

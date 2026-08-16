@@ -122,6 +122,7 @@ object RecordingEvents {
     const val T_LIQUIFY_CANCEL = 30 // -
     const val T_LIQUIFY_LAYERS = 31 // count u16, layer indexes u16[] (before BEGIN)
     const val T_MOVE_CONTENT_LAYERS = 32 // count u16, layer indexes u16[] (before MOVE_CONTENT)
+    const val T_TRANSFORM_LAYERS = 33 // count u16, layer indexes u16[] (before TRANSFORM)
 }
 
 /** Growable byte sink with little-endian primitive writers. */

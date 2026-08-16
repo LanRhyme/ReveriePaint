@@ -254,6 +254,13 @@ public:
                         double yshear, double rotationRad,
                         double xtranslate, double ytranslate,
                         double originX = -1.0, double originY = -1.0);
+    // Transform several layers as one group around the union-bounds center
+    // (multi-select); empty list = current layer only
+    bool applyTransformLayers(const QVector<int> &layers,
+                              double xscale, double yscale, double xshear,
+                              double yshear, double rotationRad,
+                              double xtranslate, double ytranslate,
+                              double originX = -1.0, double originY = -1.0);
     bool applyPerspectiveTransform(double x0, double y0,
                                    double x1, double y1,
                                    double x2, double y2,

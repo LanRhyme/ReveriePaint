@@ -80,6 +80,7 @@ import com.reverie.paint.model.RecordingEvents.T_SIMILAR
 import com.reverie.paint.model.RecordingEvents.T_SMOOTH
 import com.reverie.paint.model.RecordingEvents.T_TEXT
 import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
+import com.reverie.paint.model.RecordingEvents.T_TRANSFORM_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_WARP
 import com.reverie.paint.model.RecordingReader
 import java.io.File
@@ -703,7 +704,15 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_TRANSFORM -> {
             val a = DoubleArray(9) { r.f64() }
-            ReverieCoreBridge.applyTransform(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8])
+            val layers = pendingReplayLayers
+            pendingReplayLayers = null
+            if (layers != null) {
+                ReverieCoreBridge.applyTransformLayers(
+                    layers, a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8],
+                )
+            } else {
+                ReverieCoreBridge.applyTransform(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8])
+            }
         }
 
         T_PERSPECTIVE -> {
@@ -877,7 +886,7 @@ private fun PaintViewModel.dispatchToolOpLocked(
             ReverieCoreBridge.liquifyCancel()
         }
 
-        T_LIQUIFY_LAYERS, T_MOVE_CONTENT_LAYERS -> {
+        T_LIQUIFY_LAYERS, T_MOVE_CONTENT_LAYERS, T_TRANSFORM_LAYERS -> {
             // Multi-layer target set recorded before a BEGIN/MOVE_CONTENT:
             // remembered and consumed by the following op (single-target
             // recordings never contain this event)

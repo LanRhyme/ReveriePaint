@@ -320,6 +320,20 @@ object ReverieCoreBridge {
         dy: Int,
     )
 
+    /** Transform several layers as one group (union-bounds center). */
+    external fun applyTransformLayers(
+        layers: IntArray?,
+        xscale: Double,
+        yscale: Double,
+        xshear: Double,
+        yshear: Double,
+        rotationRad: Double,
+        xtranslate: Double,
+        ytranslate: Double,
+        originX: Double = -1.0,
+        originY: Double = -1.0,
+    ): Boolean
+
     external fun lassoSelect(
         xs: IntArray,
         ys: IntArray,

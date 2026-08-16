@@ -290,6 +290,144 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     return true;
 }
 
+// Transform several layers as one group: the rotation/scale center is the
+// UNION of the targets' content bounds (or the explicit origin), so the
+// layers keep their relative alignment instead of each spinning around its
+// own center. One composite undo step.
+bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
+                                       double xscale, double yscale,
+                                       double xshear, double yshear,
+                                       double rotationRad,
+                                       double xtranslate, double ytranslate,
+                                       double originX, double originY)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) return false;
+    if (m_previewTransaction) {
+        cancelTransformPreview();
+    }
+
+    QVector<KisPaintDeviceSP> devices;
+    QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
+    for (int idx : targets) {
+        if (idx < 0 || idx >= m_layers.size()) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
+        if (!dev) continue;
+        bool dup = false;
+        for (const KisPaintDeviceSP &d : devices) {
+            if (d.data() == dev.data()) {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup) devices.append(dev);
+    }
+    if (devices.isEmpty()) return false;
+
+    const QRect canvasRect(0, 0, image->width(), image->height());
+    QRect shared;
+    for (const KisPaintDeviceSP &dev : devices) {
+        const QRect b = dev->exactBounds().intersected(canvasRect);
+        if (!b.isEmpty()) shared = shared.isNull() ? b : shared.united(b);
+    }
+    if (!shared.isValid() || shared.isEmpty()) shared = canvasRect;
+
+    QPointF center;
+    if (originX >= 0 && originY >= 0) {
+        center = QPointF(originX, originY);
+    } else {
+        center = shared.center();
+    }
+
+    QTransform tf;
+    tf.scale(xscale, yscale);
+    tf.shear(0, yshear);
+    tf.shear(xshear, 0);
+    tf.rotateRadians(rotationRad);
+    QPointF mappedC = tf.map(center);
+    const double effectiveTx = center.x() - mappedC.x() + xtranslate;
+    const double effectiveTy = center.y() - mappedC.y() + ytranslate;
+
+    const bool activeSel = hasSelection();
+    QVector<KUndo2Command *> children;
+    for (KisPaintDeviceSP device : devices) {
+        KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
+        if (activeSel) {
+            QRect selBounds = m_selection->selectedExactRect().intersected(canvasRect);
+            if (selBounds.isEmpty()) selBounds = shared;
+
+            KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
+            KisPainter p0(temp);
+            p0.setSelection(m_selection);
+            p0.bitBlt(selBounds.topLeft(), device, selBounds);
+
+            device->clearSelection(m_selection);
+
+            KisTransformWorker workerSel(temp,
+                                         xscale, yscale,
+                                         xshear, yshear,
+                                         rotationRad,
+                                         effectiveTx, effectiveTy,
+                                         0,
+                                         KisFilterStrategyRegistry::instance()->value("Bicubic"));
+            workerSel.run();
+
+            KisPainter p2(device);
+            p2.setCompositeOpId(COMPOSITE_OVER);
+            QRect tempBounds = temp->exactBounds();
+            p2.bitBlt(tempBounds.topLeft(), temp, tempBounds);
+        } else {
+            // Krita's transformAndMergeDevice pattern per device
+            KisPaintDeviceSP src = new KisPaintDevice(*device);
+            device->clear();
+
+            KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
+            tmp->prepareClone(src);
+            tmp->makeCloneFromRough(src, src->extent());
+
+            KisTransformWorker worker(tmp,
+                                      xscale, yscale,
+                                      xshear, yshear,
+                                      rotationRad,
+                                      effectiveTx, effectiveTy,
+                                      0,
+                                      KisFilterStrategyRegistry::instance()->value("Bicubic"));
+            worker.run();
+
+            KisPainter painter(device);
+            QRect mergeRect = tmp->extent();
+            painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+            painter.end();
+        }
+        device->setDirty();
+        children << txn->endAndTake();
+        delete txn;
+    }
+
+    // Transform the selection mask once for the whole group
+    if (activeSel && m_selection && m_selection->pixelSelection()) {
+        KisTransformWorker workerMask(m_selection->pixelSelection(),
+                                      xscale, yscale,
+                                      xshear, yshear,
+                                      rotationRad,
+                                      effectiveTx, effectiveTy, 0,
+                                      KisFilterStrategyRegistry::instance()->value("Bilinear"));
+        workerMask.run();
+        m_selection->updateProjection();
+    }
+
+    recompositeProjection();
+    markDirty();
+    if (m_undoCaptureEnabled) {
+        image->undoAdapter()->addCommand(
+            new ReverieCompositeCommand(kundo2_i18n("Transform"), children));
+        m_redoCount = 0;
+    } else {
+        qDeleteAll(children);
+    }
+    return true;
+}
+
 bool ReverieCore::startTransformPreview(QImage* outImage)
 {
     KisImageSP image = m_document;
