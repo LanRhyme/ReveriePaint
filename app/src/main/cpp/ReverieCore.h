@@ -498,6 +498,9 @@ public:
     /** Region written by the last successful renderToBuffer (buffer coords). */
     QRect lastWrittenRect() const { return m_lastWrittenRect; }
 
+    /** Dirty content exists but the projection recomposite is still running. */
+    bool renderPendingDirty() const;
+
 private:
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;

@@ -865,6 +865,16 @@ class PaintViewModel : ViewModel() {
         val buf = target ?: return
         val dirty = IntArray(4)
         val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull, dirty)
+        if (!ok) {
+            // Skipped because the async projection recomposite is still
+            // running (non-blocking render): retry shortly so the frame
+            // lands as soon as the projection settles, without ever making
+            // queued input ops wait behind a blocking waitForDone
+            if (ReverieCoreBridge.renderPendingDirty()) {
+                rh?.postDelayed({ doRender() }, 8L)
+            }
+            return
+        }
         if (ok) {
             bufferMissing[idx] = null
             if (dirty[2] > 0 && dirty[3] > 0) {

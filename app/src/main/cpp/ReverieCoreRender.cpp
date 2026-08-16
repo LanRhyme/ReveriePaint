@@ -11,7 +11,14 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     if (!image || !buffer || w <= 0 || h <= 0) {
         return false;
     }
-    image->waitForDone();
+    // Non-blocking: during fast strokes the async projection recomposite is
+    // often still running; blocking here (waitForDone) stalled the render
+    // thread with all queued input ops behind it - felt as lag while
+    // scribbling. Skip the frame instead; the caller re-schedules while the
+    // dirty rect is still pending (see renderPendingDirty).
+    if (!image->isIdle()) {
+        return false;
+    }
 
     const int iw = image->width();
     const int ih = image->height();
@@ -158,6 +165,13 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     }
     m_dirtyRect = QRect();
     return true;
+}
+
+// True when a render was skipped because the async recomposite is still
+// running but dirty content is waiting (the Kotlin side retries in ~8ms).
+bool ReverieCore::renderPendingDirty() const
+{
+    return m_document && !m_dirtyRect.isNull();
 }
 
 void ReverieCore::floodFillAt(int x, int y, int tolerance)

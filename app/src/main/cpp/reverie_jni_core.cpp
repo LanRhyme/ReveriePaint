@@ -152,6 +152,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setToolMode(JNIEnv *, jobject, jin
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderPendingDirty(JNIEnv *, jobject)
+{
+    return core()->renderPendingDirty() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobject, jobject bitmap, jboolean forceFull, jintArray outDirty)
 {
     AndroidBitmapInfo info;

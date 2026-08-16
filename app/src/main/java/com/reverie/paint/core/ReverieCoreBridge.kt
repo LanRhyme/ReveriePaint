@@ -271,6 +271,9 @@ object ReverieCoreBridge {
         outDirty: IntArray? = null,
     ): Boolean
 
+    /** Dirty content exists but the projection recomposite is still running. */
+    external fun renderPendingDirty(): Boolean
+
     external fun pickColorAt(
         x: Int,
         y: Int,

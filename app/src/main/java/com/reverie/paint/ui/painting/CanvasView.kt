@@ -274,6 +274,11 @@ fun CanvasView(
                                         cursorScreenPos.value = null
                                         if (change.type != PointerType.Touch) {
                                             view.pointerIcon = null
+                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                                                view.hasPointerCapture()
+                                            ) {
+                                                view.releasePointerCapture()
+                                            }
                                         }
                                         livePressure.value = 1f
                                     }
@@ -281,8 +286,16 @@ fun CanvasView(
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
-                                        if (isStylusOrMouse && latestHideCursor && transparentSystemPointer != null) {
+                                        if (latestHideCursor && transparentSystemPointer != null) {
                                             view.pointerIcon = transparentSystemPointer
+                                            // Pointer capture hides the system cursor at the
+                                            // window level while drawing (some ROMs restore the
+                                            // arrow on button-down regardless of view icons)
+                                            if (change.type == PointerType.Mouse &&
+                                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                                            ) {
+                                                view.requestPointerCapture()
+                                            }
                                         }
                                         if (change.pressure > 0f) {
                                             livePressure.value = vm.evaluatePressure(change.pressure)
@@ -293,6 +306,11 @@ fun CanvasView(
                                         isCursorTouching.value = false
                                         if (change.type != PointerType.Touch) {
                                             view.pointerIcon = null
+                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                                                view.hasPointerCapture()
+                                            ) {
+                                                view.releasePointerCapture()
+                                            }
                                         }
                                         if (isStylusOrMouse) {
                                             // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
