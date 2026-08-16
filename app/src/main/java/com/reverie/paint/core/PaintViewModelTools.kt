@@ -572,10 +572,11 @@ internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
 
 /** Layers an edit should apply to: the multi-selected set when any layer is
  *  selected in the layer panel, else the current layer (Krita move-tool
- *  semantics). */
+ *  semantics). The current layer ALWAYS participates - it is the panel's
+ *  highlighted/active row, so the user expects it to be edited too. */
 internal fun PaintViewModel.editTargetLayers(): List<Int> {
     val sel = selectedLayerIndices
-    return if (sel.isNotEmpty()) sel.sorted() else listOf(currentLayerIndex)
+    return if (sel.isNotEmpty()) (sel + currentLayerIndex).sorted() else listOf(currentLayerIndex)
 }
 
 private fun recordLayerSet(
