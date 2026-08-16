@@ -102,6 +102,9 @@ internal fun PaintViewModel.touchEnd() {
     onPaintingActivity()
     if (recorder.recording) {
         recorder.strokeEnd()
+        android.util.Log.d("ReverieRec", "strokeEnd count=${recorder.eventCount}")
+    } else {
+        android.util.Log.d("ReverieRec", "touchEnd: recorder NOT recording")
     }
     runCore(after = {
         scheduleRender(immediate = true)

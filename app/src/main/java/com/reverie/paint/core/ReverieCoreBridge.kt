@@ -284,6 +284,10 @@ object ReverieCoreBridge {
 
     external fun canRedo(): Boolean
 
+    external fun setUndoCaptureEnabled(on: Boolean)
+
+    external fun clearUndoHistory()
+
     external fun liquify(
         fx: Int,
         fy: Int,
@@ -365,6 +369,7 @@ object ReverieCoreBridge {
     external fun saveRevp(
         path: String,
         extraMetaJson: String = "",
+        recordingBlob: ByteArray? = null,
     ): Boolean
 
     external fun loadRevp(path: String): Boolean

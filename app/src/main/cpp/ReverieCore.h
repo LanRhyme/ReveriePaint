@@ -307,6 +307,12 @@ public:
     bool canRedo() const { return m_redoCount > 0; }
     void undo();
     void redo();
+    // Replay support: while undo capture is disabled, strokes and ops apply
+    // normally but push no undo commands (no memory growth, no history),
+    // and clearUndoHistory drops all recorded commands. The document image
+    // is untouched by both.
+    void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = on; }
+    void clearUndoHistory();
     void touchStrokeMove(qreal x, qreal y, qreal pressure);
     void touchStrokeEnd();
     void touchStrokeCancel();
@@ -357,7 +363,8 @@ public:
     bool savePng(const QString &path);
     bool exportJpg(const QString &path, int quality = 90);
     bool exportPsd(const QString &path);
-    bool saveRevp(const QString &path, const QString &extraMetaJson = QString());
+    bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),
+                  const QByteArray &recordingBlob = QByteArray());
     bool loadRevp(const QString &path);
     bool saveKra(const QString &path);
 
@@ -528,6 +535,7 @@ private:
     // add/remove/move and layer attributes - not just brush strokes.
     KisSurrogateUndoStore *m_undoStore = nullptr;
     int m_redoCount = 0;   // redo depth tracked locally (store hides it)
+    bool m_undoCaptureEnabled = true; // false during replay (no history growth)
     // Deferred stroke transaction: created at the first real flush (after
     // the stroke device exists), committed at stroke end, discarded on
     // cancel - taps and no-paint strokes never create an undo command.

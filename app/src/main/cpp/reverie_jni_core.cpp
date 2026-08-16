@@ -184,6 +184,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_redo(JNIEnv *, jobject)
     core()->redo();
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setUndoCaptureEnabled(JNIEnv *, jobject, jboolean on)
+{
+    core()->setUndoCaptureEnabled(on == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_clearUndoHistory(JNIEnv *, jobject)
+{
+    core()->clearUndoHistory();
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_canUndo(JNIEnv *, jobject)
 {

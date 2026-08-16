@@ -78,8 +78,13 @@ internal fun PaintViewModel.saveProject(
                 "layerCount": ${layers.size}
             }
             """.trimIndent()
-        if (ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson)) {
-            attachRecordingToRevp(finalFile)
+        // Recording blob goes straight into the .revp via the C++ store
+        // (single write, no post-save ZIP repackage)
+        val recBlob = recorder.serialize()
+        android.util.Log.d("ReverieRec", "saveRevp blob=${recBlob?.size ?: 0} bytes")
+        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
+        if (!saved && !(finalFile.exists() && finalFile.length() > 0)) {
+            android.util.Log.w("ReverieRec", "saveRevp failed, no artifact")
         }
     }
 }
@@ -87,44 +92,9 @@ internal fun PaintViewModel.saveProject(
 /** Append the session recording as a "recording" entry inside the .revp
  *  ZIP container. The file is repackaged entry-by-entry (streamed, no
  *  full-file RAM buffering) and atomically swapped back in place. */
-private fun PaintViewModel.attachRecordingToRevp(finalFile: File) {
-    val blob = recorder.serialize() ?: return
-    if (blob.isEmpty()) return
-    var tmp: File? = null
-    try {
-        tmp = File(finalFile.parentFile, finalFile.name + ".rec.tmp")
-        val out = java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(java.io.FileOutputStream(tmp), 1 shl 16))
-        out.use { zos ->
-            val inp = java.util.zip.ZipInputStream(java.io.BufferedInputStream(java.io.FileInputStream(finalFile), 1 shl 16))
-            inp.use { zin ->
-                var e = zin.nextEntry
-                while (e != null) {
-                    zos.putNextEntry(java.util.zip.ZipEntry(e.name))
-                    zin.copyTo(zos, 1 shl 16)
-                    zos.closeEntry()
-                    e = zin.nextEntry
-                }
-            }
-            zos.putNextEntry(java.util.zip.ZipEntry("recording"))
-            zos.write(blob)
-            zos.closeEntry()
-        }
-        if (tmp.exists() && tmp.length() > 0) {
-            finalFile.delete()
-            if (!tmp.renameTo(finalFile)) {
-                tmp.copyTo(finalFile, overwrite = true)
-                tmp.delete()
-            }
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("ReveriePaint", "attach recording failed", e)
-        try {
-            tmp?.delete()
-        } catch (_: Exception) {
-        }
-    }
-}
 
+/** Recording blob is now written directly by the C++ store during
+ *  saveRevp (single write, no post-save ZIP repackage). */
 private fun PaintViewModel.recSessionDir(): File = File(appContext.filesDir, "rec_session")
 
 internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
@@ -227,6 +197,13 @@ internal fun PaintViewModel.renameProject(
 }
 
 internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.model.Project {
+    // Metadata cache: parsing re-opens the ZIP per file per refresh, which
+    // adds up quickly with many projects on the home page. The entry is
+    // valid while the file's mtime and size are unchanged.
+    val cached = projectMetaCache[f.absolutePath]
+    if (cached != null && cached.mtime == f.lastModified() && cached.size == f.length()) {
+        return cached.project
+    }
     var w = 1080
     var h = 1920
     var strokes = 0
@@ -274,22 +251,33 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
         previewPath = f.absolutePath
     }
 
-    return com.reverie.paint.model.Project(
-        name = f.nameWithoutExtension,
-        width = w,
-        height = h,
-        filePath = f.absolutePath,
-        previewPath = previewPath,
-        strokeCount = strokes,
-        elapsedSeconds = elapsed,
-        lastModified = f.lastModified(),
-        layerCount = layerCount,
-        colorMode = colorModeStr,
-        fileSize = f.length(),
-        isFolder = false,
-        hasRecording = hasRec,
-    )
+    return com.reverie.paint.model
+        .Project(
+            name = f.nameWithoutExtension,
+            width = w,
+            height = h,
+            filePath = f.absolutePath,
+            previewPath = previewPath,
+            strokeCount = strokes,
+            elapsedSeconds = elapsed,
+            lastModified = f.lastModified(),
+            layerCount = layerCount,
+            colorMode = colorModeStr,
+            fileSize = f.length(),
+            isFolder = false,
+            hasRecording = hasRec,
+        ).also { p ->
+            projectMetaCache[f.absolutePath] = ProjectMetaCacheEntry(f.lastModified(), f.length(), p)
+        }
 }
+
+private class ProjectMetaCacheEntry(
+    val mtime: Long,
+    val size: Long,
+    val project: com.reverie.paint.model.Project,
+)
+
+private val projectMetaCache = HashMap<String, ProjectMetaCacheEntry>()
 
 internal fun PaintViewModel.refreshProjects() {
     val rootDir = projectDir()
@@ -398,11 +386,7 @@ internal fun PaintViewModel.exportDocument(
                             "layerCount": ${layers.size}
                         }
                         """.trimIndent()
-                    val saved = ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson)
-                    if (saved) {
-                        attachRecordingToRevp(targetFile)
-                    }
-                    saved
+                    ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson, recorder.serialize())
                 }
 
                 "tiff", "tif" -> {
@@ -532,6 +516,8 @@ internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
         session = ReplaySession.load(java.io.File(p.filePath), File(appContext.filesDir, "replay_tmp"))
         if (session != null) {
             resetReplayDocLocked(session!!)
+            // Replay applies strokes/ops directly - no undo history growth
+            ReverieCoreBridge.setUndoCaptureEnabled(false)
         }
     }
 }

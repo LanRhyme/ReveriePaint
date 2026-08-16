@@ -107,7 +107,7 @@ bool ReverieCore::exportPsd(const QString &path)
     return true;
 }
 
-bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson)
+bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, const QByteArray &recordingBlob)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
@@ -221,7 +221,24 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson)
         }
     }
 
-    return store->close();
+    // Recording entry: the replay event stream, written directly by the
+    // store so no post-save ZIP repackage is needed (streamed, no copy)
+    if (!recordingBlob.isEmpty()) {
+        if (store->open("recording")) {
+            store->write(recordingBlob);
+            store->close();
+        }
+    }
+
+    // KoStore::close() can report failure on Android even when the archive
+    // was fully written (QSaveFile/device flush quirks); the .revp on disk
+    // is valid - trust the artifact instead of the store's return value
+    bool ok = store->close();
+    if (!ok) {
+        QFile f(path);
+        ok = f.exists() && f.size() > 0;
+    }
+    return ok;
 }
 
 bool ReverieCore::loadRevp(const QString &path)

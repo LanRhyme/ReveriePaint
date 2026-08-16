@@ -38,6 +38,11 @@ class PaintRecorder {
     private var lastEventMs = 0L
     private var sessionStartMs = 0L
 
+    /** Written on the render thread (beginSession), read on the main
+     *  thread (touch hooks and op hooks) - must be volatile for
+     *  cross-thread visibility, otherwise strokes could silently miss
+     *  recording. */
+    @Volatile
     var recording = false
         private set
     var sessionW = 0
@@ -76,6 +81,7 @@ class PaintRecorder {
         eventCount = 0
         lastEventMs = android.os.SystemClock.elapsedRealtime()
         sessionStartMs = lastEventMs
+        android.util.Log.d("ReverieRec", "beginSession w=$w h=$h snap=${snapshotSource != null}")
         lastToolMode = -2
         lastPreset = -2
         lastSize = Double.NaN
@@ -112,8 +118,15 @@ class PaintRecorder {
 
     /** Serialize the session into the "recording" blob; null if empty. */
     fun serialize(): ByteArray? {
-        val b = buffer ?: return null
-        if (eventCount == 0) return null
+        val b =
+            buffer ?: run {
+                android.util.Log.d("ReverieRec", "serialize: no session")
+                return null
+            }
+        if (eventCount == 0) {
+            android.util.Log.d("ReverieRec", "serialize: zero events")
+            return null
+        }
         val snap = snapshotFile
         val snapBytes =
             if (snap != null) {

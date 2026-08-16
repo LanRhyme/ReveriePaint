@@ -62,10 +62,14 @@ void ReverieCore::touchStrokeEnd()
         m_strokeBatchOpen = false;
     }
     // Commit the Krita transaction: the tile snapshots taken at creation
-    // are diffed and the undo command is pushed to the store.
+    // are diffed and the undo command is pushed to the store. In replay
+    // mode the transaction is dropped instead (stroke content stays).
     if (m_strokeTxnActive && m_document) {
-        m_strokeTxn->commit(m_document->undoAdapter());
-        delete m_strokeTxn;
+        if (m_undoCaptureEnabled) {
+            m_strokeTxn->commit(m_document->undoAdapter());
+        } else {
+            delete m_strokeTxn;
+        }
         m_strokeTxn = nullptr;
         m_strokeTxnActive = false;
         m_redoCount = 0;
@@ -159,7 +163,7 @@ void ReverieCore::flushStrokeBatch()
         // Deferred Krita undo: start the stroke transaction here (after the
         // device exists) on the first real flush. Taps and no-paint strokes
         // never reach this point, so they never create an undo command.
-        if (m_snapshotPending && !m_strokeTxnActive) {
+        if (m_snapshotPending && !m_strokeTxnActive && m_undoCaptureEnabled) {
             delete m_strokeTxn;
             KisInterstrokeDataFactory *interstrokeDataFactory = nullptr;
             if (m_brushPreset) {
@@ -549,11 +553,26 @@ void ReverieCore::pushUndoCommand(KUndo2Command *cmd)
         delete cmd;
         return;
     }
+    // Replay mode: ops apply normally but must not grow undo history
+    // (hundreds of replay commands would otherwise eat tile-snapshot memory)
+    if (!m_undoCaptureEnabled) {
+        delete cmd;
+        return;
+    }
     // KisLegacyUndoAdapter::addCommand routes into our surrogate store
     // (installed via KisImage::setUndoStore); KUndo2Stack::push executes
     // the command's redo() (the change is already applied by the caller,
     // so redo() is a no-op for most commands) and clears redo state.
     m_document->undoAdapter()->addCommand(cmd);
+    m_redoCount = 0;
+}
+
+void ReverieCore::clearUndoHistory()
+{
+    if (!m_undoStore) {
+        return;
+    }
+    m_undoStore->clear();
     m_redoCount = 0;
 }
 

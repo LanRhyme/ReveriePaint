@@ -205,6 +205,11 @@ internal fun PaintViewModel.seekReplay(fraction: Float) {
 internal fun PaintViewModel.exitReplay() {
     replaySession?.stop()
     replaySession = null
+    // Restore normal undo capture in case playback was left mid-way
+    renderHandler?.post {
+        ReverieCoreBridge.setUndoCaptureEnabled(true)
+        ReverieCoreBridge.clearUndoHistory()
+    }
     goHome()
 }
 
@@ -235,7 +240,20 @@ private fun PaintViewModel.replayStepLocked(s: ReplaySession) {
     }
     updateReplayProgress(s)
     val h = renderHandler ?: return
-    val d = (dt / s.speed).toLong().coerceIn(1L, 500L)
+    // Stroke path animation: MOVE events get a per-point floor so fast
+    // strokes grow point-by-point instead of appearing instantly, paced
+    // against the 16ms render throttle. The floor scales with speed so
+    // 4x still fast-forwards (4ms/point) while 1x/0.5x animate smoothly
+    // (16ms/32ms). Slow strokes (real dt above the floor) keep their
+    // recorded timing untouched.
+    val base = (dt / s.speed).toLong().coerceIn(1L, 500L)
+    val floor =
+        if (type == STROKE_MOVE) {
+            (16.0 / s.speed).toLong().coerceIn(1L, 64L)
+        } else {
+            1L
+        }
+    val d = maxOf(base, floor)
     val next = Runnable { replayStepLocked(s) }
     s.pendingStep = next
     h.postDelayed(next, d)
@@ -246,6 +264,10 @@ private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
     s.isPlaying = false
     s.progress = 1f
     s.elapsedMs = s.totalMs
+    // Replay leaves no undo footprint: drop the commands it would have
+    // accumulated and re-enable normal undo capture for the next session
+    ReverieCoreBridge.clearUndoHistory()
+    ReverieCoreBridge.setUndoCaptureEnabled(true)
     scheduleRender(immediate = true)
     refreshLayerThumbs()
 }
@@ -326,6 +348,9 @@ private fun PaintViewModel.dispatchReplayLocked(
             val y = r.f32()
             val p = r.f32()
             ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), p.toDouble())
+            // Grow the stroke on screen: throttled render per move point,
+            // same pacing the live painter uses while drawing
+            scheduleRender()
         }
 
         STROKE_END -> {
