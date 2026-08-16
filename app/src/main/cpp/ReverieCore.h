@@ -289,7 +289,7 @@ public:
 
 private:
     void resetLiquifyWorker();
-    void liquifyApplyLocked();
+    void liquifyApplyLocked(const QRect &deltaRect);
 
 public:
 
@@ -467,6 +467,10 @@ private:
     // cost a full-canvas copy per dab. Rebased when the brush wanders out.
     QRect m_liquifyWorkerBounds;
     qint64 m_liquifyLastApplyMs = 0;
+    // Union of dab influence rects not yet written back to the layer
+    QRect m_liquifyPendingDelta;
+    // Adaptive writeback pacing (grows when a single apply overruns)
+    qint64 m_liquifyApplyIntervalMs = 20;
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;

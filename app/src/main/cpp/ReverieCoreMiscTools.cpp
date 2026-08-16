@@ -101,7 +101,8 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
 // warp into the layer first), and the run+writeback is throttled to ~40fps.
 namespace
 {
-const qint64 LIQUIFY_APPLY_INTERVAL_MS = 24;
+// min writeback interval; adapts upward if a single apply is slower
+const qint64 LIQUIFY_APPLY_MIN_INTERVAL_MS = 20;
 }
 
 void ReverieCore::resetLiquifyWorker()
@@ -111,9 +112,16 @@ void ReverieCore::resetLiquifyWorker()
     m_liquifySrcDevice.clear();
     m_liquifyDstDevice.clear();
     m_liquifyWorkerBounds = QRect();
+    m_liquifyPendingDelta = QRect();
+    m_liquifyApplyIntervalMs = LIQUIFY_APPLY_MIN_INTERVAL_MS;
 }
 
-void ReverieCore::liquifyApplyLocked()
+// Re-run the accumulated warp and write back only the DELTA region: older
+// grid displacements never change afterwards (build-up), so output pixels
+// only change within the newest dabs' influence. Writing back the whole
+// accumulated strokes region instead made every apply cost (and recomposite)
+// grow linearly with drag length - the lag the user felt on long drags.
+void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
 {
     if (!m_liquifyWorker || !m_document) {
         return;
@@ -122,11 +130,11 @@ void ReverieCore::liquifyApplyLocked()
     if (!device) {
         return;
     }
+    const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
     m_liquifyDstDevice->clear();
     m_liquifyWorker->run(m_liquifySrcDevice, m_liquifyDstDevice);
-    QRect area = m_liquifyWorker
-                     ->approxChangeRect(m_liquifyWorker->accumulatedStrokesBounds().toAlignedRect())
-                     .intersected(m_liquifyWorkerBounds)
+    const qint64 tRun = QDateTime::currentMSecsSinceEpoch();
+    QRect area = deltaRect.intersected(m_liquifyWorkerBounds)
                      .intersected(QRect(0, 0, m_document->width(), m_document->height()));
     if (!area.isEmpty()) {
         KisPainter p(device);
@@ -137,6 +145,18 @@ void ReverieCore::liquifyApplyLocked()
         markRegionDirty(area);
     }
     m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
+    const qint64 elapsed = m_liquifyLastApplyMs - t0;
+    // Adaptive pacing: if one apply exceeds the frame budget, back off (up
+    // to ~15fps) so the render thread always keeps serving input
+    m_liquifyApplyIntervalMs =
+        qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS,
+                       qMax<qint64>(elapsed * 2, LIQUIFY_APPLY_MIN_INTERVAL_MS),
+                       64);
+    RPC_LOG("liquify apply run=%dms total=%dms area=%dx%d bounds=%dx%d int=%d",
+            int(tRun - t0), int(elapsed),
+            area.width(), area.height(),
+            m_liquifyWorkerBounds.width(), m_liquifyWorkerBounds.height(),
+            int(m_liquifyApplyIntervalMs));
 }
 
 void ReverieCore::liquifyBegin()
@@ -162,8 +182,9 @@ void ReverieCore::liquifyBegin()
 void ReverieCore::liquifyEnd()
 {
     // Flush any grid displacement that is still under the apply throttle
-    if (m_liquifyWorker) {
-        liquifyApplyLocked();
+    if (m_liquifyWorker && !m_liquifyPendingDelta.isNull()) {
+        liquifyApplyLocked(m_liquifyPendingDelta);
+        m_liquifyPendingDelta = QRect();
     }
     if (m_liquifyTxn && m_document) {
         if (m_undoCaptureEnabled) {
@@ -217,15 +238,14 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     const qreal s = qBound<qreal>(0.05, strength, 2.0);
     // KisLiquifyPaintop passes the brush diameter as sigma (gaussian falloff)
     const qreal size = qMax<qreal>(8.0, m_liquifyBrushSize);
-    const int sizePx = qRound(size);
 
     // Local grid: rebase when the brush is about to leave the inner margin
     // (the worker's run() copies the whole bounds complement, so the bounds
-    // must stay local or every dab costs a full-canvas copy)
+    // must stay local or every dab costs a full-bounds copy)
     const bool workerUsable = m_liquifyWorker != nullptr;
     bool needRebase = !workerUsable;
     if (workerUsable) {
-        const int margin = qMax(48, sizePx);
+        const int margin = qMax(40, qRound(size * 0.7));
         const QRect inner = m_liquifyWorkerBounds.adjusted(margin, margin, -margin, -margin);
         if (!inner.contains(QPoint(tx, ty))) {
             needRebase = true;
@@ -233,9 +253,13 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     }
     if (needRebase) {
         if (m_liquifyWorker) {
-            liquifyApplyLocked(); // flush the old region into the layer first
+            liquifyApplyLocked(m_liquifyPendingDelta.isNull() ? m_liquifyWorkerBounds
+                                                              : m_liquifyPendingDelta);
+            m_liquifyPendingDelta = QRect();
         }
-        const int R = qMax<int>(256, sizePx * 3);
+        // Tight bounds: only the brush neighbourhood + the gaussian influence
+        // radius (3 sigma) must fit; anything larger only adds copy cost
+        const int R = qMax<int>(192, qRound(size * 1.9));
         QRect bounds(tx - R, ty - R, 2 * R, 2 * R);
         bounds = bounds.intersected(QRect(0, 0, image->width(), image->height()));
         if (bounds.isEmpty()) {
@@ -248,7 +272,9 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         m_liquifySrcDevice->makeCloneFrom(device, bounds);
         m_liquifyDstDevice = new KisPaintDevice(device->colorSpace());
         delete m_liquifyWorker;
-        m_liquifyWorker = new KisLiquifyTransformWorker(bounds, nullptr, 8);
+        // pixelPrecision 16: quarter the polygon count vs 8 with no visible
+        // quality difference for smooth liquify warps
+        m_liquifyWorker = new KisLiquifyTransformWorker(bounds, nullptr, 16);
     }
 
     const QPointF base(fx, fy);
@@ -282,11 +308,21 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         break;
     }
 
+    // Accumulate the delta region of dabs not yet written back (build-up
+    // displacements never change once applied, so only new dabs' influence
+    // needs the re-transformed pixels)
+    const int infl = qRound(size * 3.2) + 8;
+    const QRect dab(qMin(fx, tx) - infl, qMin(fy, ty) - infl,
+                    qAbs(tx - fx) + 2 * infl, qAbs(ty - fy) + 2 * infl);
+    m_liquifyPendingDelta =
+        m_liquifyPendingDelta.isNull() ? dab : m_liquifyPendingDelta.united(dab);
+
     // Throttled writeback: the grid update is cheap, the re-transform +
-    // layer copy is not - apply at ~40fps and once more at gesture end
+    // layer copy is not - pace it adaptively and flush once at gesture end
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (ownBracket || now - m_liquifyLastApplyMs >= LIQUIFY_APPLY_INTERVAL_MS) {
-        liquifyApplyLocked();
+    if (ownBracket || now - m_liquifyLastApplyMs >= m_liquifyApplyIntervalMs) {
+        liquifyApplyLocked(m_liquifyPendingDelta);
+        m_liquifyPendingDelta = QRect();
     }
 
     if (ownBracket) {
