@@ -556,7 +556,16 @@ internal fun LayerListView(
                         },
                         onClick = {
                             revealedIndex = null
-                            vm.clearLayerSelection()
+                            if (layer.index !in vm.selectedLayerIndices) {
+                                // Tapping an unselected row switches the
+                                // target (standard behaviour) and clears the
+                                // multi-selection
+                                vm.clearLayerSelection()
+                            }
+                            // NOTE: tapping a row that IS part of the multi-
+                            // selection keeps the set - the old unconditional
+                            // clear silently nuked the whole selection after
+                            // the user had swiped several rows
                             if (layer.index == selectedIndex) {
                                 onOpenDetail(layer.index)
                             } else {
