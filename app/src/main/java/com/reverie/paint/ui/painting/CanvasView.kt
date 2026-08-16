@@ -210,14 +210,13 @@ fun CanvasView(
                 null
             }
         }
-    // pointerHoverIcon 只在悬停时生效：鼠标按下拖动绘制时系统停止派发 hover
-    // 事件，指针变回系统箭头。按下期间直接把所在 View 的系统 pointerIcon 设为
-    // 透明，松开/离开/切换非绘制工具时还原为默认（null）
-    var mousePressedOnCanvas by remember { mutableStateOf(false) }
-    LaunchedEffect(hideSystemCursorForTool, mousePressedOnCanvas) {
-        if (hideSystemCursorForTool && mousePressedOnCanvas && transparentSystemPointer != null) {
-            view.pointerIcon = transparentSystemPointer
-        } else {
+    // pointerHoverIcon 只在悬停时生效：指针按下拖动（绘画中）系统停止派发 hover
+    // 事件，指针变回系统箭头。因此在按下事件里同步把 View 的系统 pointerIcon
+    // 设为透明（不等重组），松开/离开时同步还原 null。指针事件处理器的 key 是
+    // Unit，工具切换用 rememberUpdatedState 桥接，避免捕获陈旧值。
+    val latestHideCursor by rememberUpdatedState(hideSystemCursorForTool)
+    LaunchedEffect(hideSystemCursorForTool) {
+        if (!hideSystemCursorForTool) {
             view.pointerIcon = null
         }
     }
@@ -273,8 +272,8 @@ fun CanvasView(
                                         isCursorHovering.value = false
                                         isCursorTouching.value = false
                                         cursorScreenPos.value = null
-                                        if (change.type == PointerType.Mouse) {
-                                            mousePressedOnCanvas = false
+                                        if (change.type != PointerType.Touch) {
+                                            view.pointerIcon = null
                                         }
                                         livePressure.value = 1f
                                     }
@@ -282,8 +281,8 @@ fun CanvasView(
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
-                                        if (change.type == PointerType.Mouse) {
-                                            mousePressedOnCanvas = true
+                                        if (isStylusOrMouse && latestHideCursor && transparentSystemPointer != null) {
+                                            view.pointerIcon = transparentSystemPointer
                                         }
                                         if (change.pressure > 0f) {
                                             livePressure.value = vm.evaluatePressure(change.pressure)
@@ -292,8 +291,8 @@ fun CanvasView(
 
                                     PointerEventType.Release -> {
                                         isCursorTouching.value = false
-                                        if (change.type == PointerType.Mouse) {
-                                            mousePressedOnCanvas = false
+                                        if (change.type != PointerType.Touch) {
+                                            view.pointerIcon = null
                                         }
                                         if (isStylusOrMouse) {
                                             // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
@@ -383,6 +382,19 @@ fun CanvasView(
             wandFlash = wandFlash,
             liveSelectionPath = liveSelectionPath,
             checkerboardPaint = checkerboardPaint,
+        )
+        // Brush cursor ring in its own layer: cursor position/pressure change
+        // at input rate, so sharing the image Canvas re-drew the full-screen
+        // bitmap on every pointer move (major jank while scribbling)
+        BrushCursorOverlay(
+            vm = vm,
+            tool = tool,
+            zoom = zoom,
+            fitScale = fitScale,
+            cursorScreenPos = cursorScreenPos,
+            isCursorHovering = isCursorHovering,
+            isCursorTouching = isCursorTouching,
+            livePressure = livePressure,
         )
     }
 }

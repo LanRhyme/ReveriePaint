@@ -488,6 +488,17 @@ private:
     // full copy).
     QRect m_lastDirty;
     bool m_bitmapInited = false;
+    // Region actually written by the most recent renderToBuffer call, in
+    // RENDER-BUFFER coordinates (empty when the render was a no-op). The
+    // Kotlin rotation copies this region into the other non-displayed
+    // buffers so every buffer stays incremental without full re-renders.
+    QRect m_lastWrittenRect;
+
+public:
+    /** Region written by the last successful renderToBuffer (buffer coords). */
+    QRect lastWrittenRect() const { return m_lastWrittenRect; }
+
+private:
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;

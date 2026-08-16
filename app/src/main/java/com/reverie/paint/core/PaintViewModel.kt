@@ -721,13 +721,19 @@ class PaintViewModel : ViewModel() {
     // the reference. Writing the single displayed buffer from the render
     // thread while the Compose RenderThread was still reading it produced
     // torn/ghost frames; with rotation the writer and the reader never touch
-    // the same bitmap. A demoted (previously displayed) buffer is stale, so
-    // the next render into it passes forceFull to native for a full-frame
-    // rewrite. Three buffers give each demoted bitmap two frame-times of
-    // rest before it is written again.
+    // the same bitmap. Three buffers give each demoted bitmap two frame-times
+    // of rest before it is written again.
+    //
+    // Buffers stay INCREMENTAL: after each render the freshly written region
+    // is blitted from the just-rendered (fully up-to-date) buffer into every
+    // other non-displayed buffer, tracked per-buffer in [bufferMissing].
+    // Displayed/pending buffers accumulate their missing union instead and
+    // need one forceFull render when recycled - without the replication every
+    // frame degenerated into a full-frame render, which saturated the render
+    // thread and made fast scribbling stutter.
     internal var displayBuffers: Array<Bitmap?> = arrayOfNulls(3)
 
-    internal var bufferFresh = BooleanArray(3)
+    internal var bufferMissing: Array<android.graphics.Rect?> = arrayOfNulls(3)
 
     internal var lastRenderIdx = -1
 
@@ -777,12 +783,20 @@ class PaintViewModel : ViewModel() {
         op: () -> Unit,
     ) {
         val h = renderHandler ?: return
+        // Advisory input-ops counter: doRender defers behind queued ops so
+        // stroke samples extend before the (heavier) render runs
+        pendingCoreOps++
         h.post {
+            if (pendingCoreOps > 0) pendingCoreOps--
             op()
             if (render) scheduleRender()
             if (after != null) mainHandler.post { after() }
         }
     }
+
+    @Volatile internal var pendingCoreOps = 0
+
+    internal var renderDeferCount = 0
 
     internal fun scheduleRender(immediate: Boolean = false) {
         val h = renderHandler ?: return
@@ -814,6 +828,18 @@ class PaintViewModel : ViewModel() {
 
     internal fun doRender() {
         renderScheduled = false
+        val rh = renderHandler
+        // Input-first: if stroke ops are queued ahead on this thread, let the
+        // stroke extend first and render after (each render waits for the
+        // projection recomposite - blocking it while input waits behind was
+        // felt as lag/stutter during fast scribbling). Bounded to two 4ms
+        // defers so rendering can never starve.
+        if (rh != null && pendingCoreOps > 0 && renderDeferCount < 2) {
+            renderDeferCount++
+            rh.postDelayed({ doRender() }, 4L)
+            return
+        }
+        renderDeferCount = 0
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
@@ -833,17 +859,43 @@ class PaintViewModel : ViewModel() {
             displayBuffers[idx] = target
             displayBufferInvalid = false
         }
-        // A demoted (previously displayed) buffer is stale: it missed every
-        // dirty update since it was last shown, so force a full-frame blit
-        // instead of the incremental sub-region write.
-        val forceFull = reallocated || !bufferFresh[idx]
+        // Full frame only when the buffer is brand new or missed updates
+        // while it was displayed (its missing union is non-null)
+        val forceFull = reallocated || bufferMissing[idx] != null
         val buf = target ?: return
-        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull)
+        val dirty = IntArray(4)
+        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull, dirty)
         if (ok) {
-            // Staleness bookkeeping stays on the render thread: only the
-            // buffer just rendered is fresh, every other one is demoted
-            for (i in bufferFresh.indices) {
-                bufferFresh[i] = (i == idx)
+            bufferMissing[idx] = null
+            if (dirty[2] > 0 && dirty[3] > 0) {
+                val written =
+                    android.graphics.Rect(dirty[0], dirty[1], dirty[0] + dirty[2], dirty[1] + dirty[3])
+                // Keep every OTHER buffer in sync: non-displayed ones get the
+                // region blitted straight from the just-rendered buffer (it is
+                // fully up to date), displayed/pending ones just accumulate
+                // their missing union for when they are recycled
+                for (j in displayBuffers.indices) {
+                    if (j == idx) continue
+                    val other = displayBuffers[j] ?: continue
+                    if (other === displayed || other === pendingDisplay) continue
+                    val miss = bufferMissing[j]
+                    if (miss == null) {
+                        // Up to date except for this render's region
+                        android.graphics.Canvas(other).drawBitmap(buf, written, written, null)
+                    } else {
+                        miss.union(written)
+                        android.graphics.Canvas(other).drawBitmap(buf, miss, miss, null)
+                        bufferMissing[j] = null
+                    }
+                }
+                for (j in displayBuffers.indices) {
+                    val other = displayBuffers[j] ?: continue
+                    if (other === displayed || other === pendingDisplay) {
+                        bufferMissing[j]?.union(written) ?: run {
+                            bufferMissing[j] = android.graphics.Rect(written)
+                        }
+                    }
+                }
             }
             pendingDisplay = buf
             // Native wrote the back buffer's pixels on the render thread; the

@@ -268,6 +268,7 @@ object ReverieCoreBridge {
     external fun renderToBuffer(
         bitmap: Bitmap,
         forceFull: Boolean = false,
+        outDirty: IntArray? = null,
     ): Boolean
 
     external fun pickColorAt(

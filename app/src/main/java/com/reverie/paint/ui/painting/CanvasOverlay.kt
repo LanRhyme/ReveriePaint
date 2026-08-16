@@ -724,56 +724,83 @@ internal fun CanvasOverlay(
                 )
             }
 
-            // ---- 7. Custom Krita-Style Cursor Rendering ----
-            val isEraser = tool == Tool.ERASER
-            val cursorMode = if (isEraser) vm.eraserCursorMode else vm.brushCursorMode
-            // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
-            val shouldShow = when (cursorMode) {
-                1 -> isCursorTouching.value
-                2 -> isCursorHovering.value
-                3 -> isCursorTouching.value || isCursorHovering.value
-                else -> false
-            }
-            if (shouldShow && cursorScreenPos.value != null && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
-                val curPos = cursorScreenPos.value!!
-                val pressureScale = if (isCursorTouching.value) livePressure.value.coerceIn(0.08f, 1f) else 1f
-                val brushRadiusScreen = (vm.brushSize * scale * 0.5f * pressureScale).toFloat().coerceAtLeast(2f)
+            // ---- 7. Brush cursor ring lives in its own layer now ----
+            // (see BrushCursorOverlay below): the cursor states change at
+            // input rate, and sharing this Canvas re-drew the full-screen
+            // image on every pointer move
+        }
+}
 
-                when (vm.cursorStyleMode) {
-                    0 -> { // 圆形 (Brush Outline Ring - Krita dual-contrast circle)
-                        drawCircle(
-                            color = Color.Black.copy(alpha = 0.55f),
-                            radius = brushRadiusScreen + 0.8f,
-                            center = curPos,
-                            style = Stroke(width = 1.6.dp.toPx())
-                        )
-                        drawCircle(
-                            color = Color.White.copy(alpha = 0.95f),
-                            radius = brushRadiusScreen,
-                            center = curPos,
-                            style = Stroke(width = 1.0.dp.toPx())
-                        )
-                    }
-                    1 -> { // 十字准星 (Crosshair)
-                        val len = 12.dp.toPx()
-                        val gap = 3.5.dp.toPx()
-                        // Black outline
-                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
-                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
-                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
-                        drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
-                        // White foreground
-                        drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
-                        drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
-                        drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
-                        drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
-                    }
-                    2 -> { // 点 (Precise Dot)
-                        drawCircle(Color.Black.copy(alpha = 0.6f), radius = 3.5.dp.toPx(), center = curPos)
-                        drawCircle(Color.White, radius = 2.dp.toPx(), center = curPos)
-                    }
-                    3 -> {} // 无 (No Cursor)
+/**
+ * Brush cursor ring in its OWN Canvas layer above the image canvas.
+ * cursorScreenPos / livePressure change at input rate while drawing; sharing
+ * one Canvas with the (full-screen) image draw meant every pointer move
+ * re-executed the whole overlay draw including the big drawImage - on top of
+ * the per-render displayRevision redraws. Now cursor moves only invalidate
+ * this (visually tiny) layer.
+ */
+@Composable
+internal fun BrushCursorOverlay(
+    vm: PaintViewModel,
+    tool: Tool,
+    zoom: Float,
+    fitScale: Float,
+    cursorScreenPos: androidx.compose.runtime.MutableState<Offset?>,
+    isCursorHovering: androidx.compose.runtime.MutableState<Boolean>,
+    isCursorTouching: androidx.compose.runtime.MutableState<Boolean>,
+    livePressure: androidx.compose.runtime.MutableState<Float>,
+) {
+    Canvas(Modifier.fillMaxSize()) {
+        val isEraser = tool == Tool.ERASER
+        val cursorMode = if (isEraser) vm.eraserCursorMode else vm.brushCursorMode
+        // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
+        val shouldShow = when (cursorMode) {
+            1 -> isCursorTouching.value
+            2 -> isCursorHovering.value
+            3 -> isCursorTouching.value || isCursorHovering.value
+            else -> false
+        }
+        if (shouldShow && cursorScreenPos.value != null && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
+            val curPos = cursorScreenPos.value!!
+            val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+            val pressureScale = if (isCursorTouching.value) livePressure.value.coerceIn(0.08f, 1f) else 1f
+            val brushRadiusScreen = (vm.brushSize * scale * 0.5f * pressureScale).toFloat().coerceAtLeast(2f)
+
+            when (vm.cursorStyleMode) {
+                0 -> { // 圆形 (Brush Outline Ring - Krita dual-contrast circle)
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        radius = brushRadiusScreen + 0.8f,
+                        center = curPos,
+                        style = Stroke(width = 1.6.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.95f),
+                        radius = brushRadiusScreen,
+                        center = curPos,
+                        style = Stroke(width = 1.0.dp.toPx())
+                    )
                 }
+                1 -> { // 十字准星 (Crosshair)
+                    val len = 12.dp.toPx()
+                    val gap = 3.5.dp.toPx()
+                    // Black outline
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
+                    // White foreground
+                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
+                }
+                2 -> { // 点 (Precise Dot)
+                    drawCircle(Color.Black.copy(alpha = 0.6f), radius = 3.5.dp.toPx(), center = curPos)
+                    drawCircle(Color.White, radius = 2.dp.toPx(), center = curPos)
+                }
+                3 -> {} // 无 (No Cursor)
             }
         }
+    }
 }

@@ -54,12 +54,14 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
             proj->readBytes(buffer, 0, 0, iw, ih);
             blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
+            m_lastWrittenRect = QRect(0, 0, w, h);
         } else if (m_dirtyRect.isNull()) {
             // Nothing painted since the last render and the buffer already
             // holds a complete frame: skip the write and report a no-op so
             // the caller can drop the (identical) display flip instead of
             // re-drawing the canvas for unchanged pixels.
             m_dirtyRect = QRect();
+            m_lastWrittenRect = QRect();
             return false;
         } else {
             // Sub-region dirty update with exact pixel boundaries (0 rounding seams/misalignment)
@@ -73,6 +75,9 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
                 blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
                                    dst, w * 4, r.width(), r.height());
+                m_lastWrittenRect = r;
+            } else {
+                m_lastWrittenRect = QRect();
             }
         }
         m_dirtyRect = QRect();
@@ -91,6 +96,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // Nothing changed since the last render. bufReset above always sets a
         // full dirty rect, so an empty rect here means the buffer is complete:
         // report a no-op so the caller skips the display flip.
+        m_lastWrittenRect = QRect();
         return false;
     }
 
@@ -140,8 +146,15 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                            scaled.constScanLine(y - vp.y() + sy0) + (clip.left() - vp.x() + sx0) * 4,
                            size_t(clip.width()) * 4);
                 }
+                m_lastWrittenRect = clip;
+            } else {
+                m_lastWrittenRect = QRect();
             }
+        } else {
+            m_lastWrittenRect = QRect();
         }
+    } else {
+        m_lastWrittenRect = QRect();
     }
     m_dirtyRect = QRect();
     return true;

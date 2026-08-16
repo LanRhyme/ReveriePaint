@@ -152,7 +152,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setToolMode(JNIEnv *, jobject, jin
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobject, jobject bitmap, jboolean forceFull)
+Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobject, jobject bitmap, jboolean forceFull, jintArray outDirty)
 {
     AndroidBitmapInfo info;
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
@@ -169,6 +169,14 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderToBuffer(JNIEnv *env, jobjec
                                            info.width, info.height,
                                            forceFull == JNI_TRUE);
     AndroidBitmap_unlockPixels(env, bitmap);
+    // Report the region native actually wrote (render-buffer coords) so the
+    // Kotlin buffer rotation can replicate just that region into the other
+    // non-displayed bitmaps
+    if (outDirty != nullptr && env->GetArrayLength(outDirty) >= 4) {
+        const QRect r = ok ? core()->lastWrittenRect() : QRect();
+        jint vals[4] = {r.x(), r.y(), r.width(), r.height()};
+        env->SetIntArrayRegion(outDirty, 0, 4, vals);
+    }
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
