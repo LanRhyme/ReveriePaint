@@ -301,8 +301,9 @@ object ReverieCoreBridge {
         mode: Int,
     )
 
-    /** Open one undo transaction for a whole liquify drag. */
-    external fun liquifyBegin()
+    /** Open one undo transaction for a whole liquify drag. A non-empty
+     *  [layers] list liquifies those layers together (multi-select). */
+    external fun liquifyBegin(layers: IntArray? = null)
 
     /** Commit the liquify drag transaction. */
     external fun liquifyEnd()
@@ -311,6 +312,13 @@ object ReverieCoreBridge {
     external fun liquifyCancel()
 
     external fun setLiquifyBrushSize(size: Double)
+
+    /** Move several layers' content at once (one undo step). */
+    external fun moveLayerContentLayers(
+        layers: IntArray?,
+        dx: Int,
+        dy: Int,
+    )
 
     external fun lassoSelect(
         xs: IntArray,

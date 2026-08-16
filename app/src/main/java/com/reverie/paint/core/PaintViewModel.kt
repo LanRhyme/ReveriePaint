@@ -745,6 +745,10 @@ class PaintViewModel : ViewModel() {
 
     @Volatile internal var renderScheduled = false
 
+    /** Pending multi-layer target set from the last replayed T_*_LAYERS
+     *  recording event; consumed once by the following BEGIN / MOVE_CONTENT. */
+    internal var pendingReplayLayers: IntArray? = null
+
     // The pending throttled-render runnable, kept so an immediate render can
     // actually cancel it (removeCallbacks needs the same instance; a bare
     // postDelayed creates a fresh Message each call that no token-based

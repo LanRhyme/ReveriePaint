@@ -46,6 +46,21 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
     core()->moveLayerContent(dx, dy);
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContentLayers(
+    JNIEnv *env, jobject, jintArray layers, jint count, jint dx, jint dy)
+{
+    QVector<int> list;
+    if (layers != nullptr && count > 0) {
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < count; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    core()->moveLayerContentLayers(list, dx, dy);
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_contentBounds(JNIEnv *env, jobject)
 {
@@ -147,9 +162,17 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquify(JNIEnv *, jobject, jint fx
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_liquifyBegin(JNIEnv *, jobject)
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyBegin(JNIEnv *env, jobject, jintArray layers, jint count)
 {
-    core()->liquifyBegin();
+    QVector<int> list;
+    if (layers != nullptr && count > 0) {
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < count; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    core()->liquifyBegin(list);
 }
 
 JNIEXPORT void JNICALL

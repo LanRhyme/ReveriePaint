@@ -112,9 +112,34 @@
 #include <compositeops/KoCompositeOps.h>
 #include <QThread>
 
-class ReverieNodeVisibleCommand : public KUndo2Command
+// One undo step wrapping several per-device KisTransaction children (taken
+// via KisTransaction::endAndTake). Krita's undo adapter pushes every
+// addCommand separately, so multi-device edits need an explicit composite
+// to stay a single undo step.
+class ReverieCompositeCommand : public KUndo2Command
 {
 public:
+    ReverieCompositeCommand(const KUndo2MagicString &text, const QVector<KUndo2Command *> &children)
+        : KUndo2Command(text)
+        , m_children(children)
+    {
+    }
+    ~ReverieCompositeCommand() override { qDeleteAll(m_children); }
+    void redo() override
+    {
+        for (KUndo2Command *c : m_children) c->redo();
+    }
+    void undo() override
+    {
+        for (int i = m_children.size() - 1; i >= 0; --i) m_children[i]->undo();
+    }
+
+private:
+    QVector<KUndo2Command *> m_children;
+};
+
+class ReverieNodeVisibleCommand : public KUndo2Command
+{public:
     ReverieNodeVisibleCommand(KisNodeSP node, bool visible,
                               const KUndo2MagicString &text)
         : KUndo2Command(text)

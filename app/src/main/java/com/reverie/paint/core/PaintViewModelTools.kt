@@ -31,8 +31,10 @@ import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_BEGIN
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_CANCEL
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_END
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
 import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
+import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
 import com.reverie.paint.model.RecordingEvents.T_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
@@ -285,19 +287,26 @@ internal fun PaintViewModel.moveLayerContent(
     dx: Int,
     dy: Int,
 ) {
+    val layers = editTargetLayers()
     if (recorder.recording) {
+        recordLayerSet(recorder, T_MOVE_CONTENT_LAYERS, layers)
         recorder.toolOp(T_MOVE_CONTENT) {
             it.f32(dx.toFloat())
             it.f32(dy.toFloat())
         }
     }
+    val arr = if (layers.size > 1) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
         startTransformPreview()
     }) {
         ReverieCoreBridge.cancelTransformPreview()
-        ReverieCoreBridge.moveLayerContent(dx, dy)
+        if (arr != null) {
+            ReverieCoreBridge.moveLayerContentLayers(arr, dx, dy)
+        } else {
+            ReverieCoreBridge.moveLayerContent(dx, dy)
+        }
     }
 }
 
@@ -539,12 +548,38 @@ internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
     runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
 }
 
-/** One undo transaction for a whole liquify drag gesture. */
+/** Layers an edit should apply to: the multi-selected set when any layer is
+ *  selected in the layer panel, else the current layer (Krita move-tool
+ *  semantics). */
+internal fun PaintViewModel.editTargetLayers(): List<Int> {
+    val sel = selectedLayerIndices
+    return if (sel.isNotEmpty()) sel.sorted() else listOf(currentLayerIndex)
+}
+
+private fun recordLayerSet(
+    recorder: PaintRecorder,
+    op: Int,
+    layers: List<Int>,
+) {
+    if (layers.size <= 1) return // single target = old default, nothing to record
+    recorder.toolOp(op) {
+        it.u16(layers.size.coerceIn(0, 65535))
+        for (l in layers) {
+            it.u16(l.coerceIn(0, 65535))
+        }
+    }
+}
+
+/** One undo transaction for a whole liquify drag gesture. Selected layers
+ *  (multi-select) warp together as one undo step. */
 internal fun PaintViewModel.liquifyBegin() {
+    val layers = editTargetLayers()
     if (recorder.recording) {
+        recordLayerSet(recorder, T_LIQUIFY_LAYERS, layers)
         recorder.toolOp(T_LIQUIFY_BEGIN)
     }
-    runCore(render = false) { ReverieCoreBridge.liquifyBegin() }
+    val arr = if (layers.size > 1) layers.toIntArray() else null
+    runCore(render = false) { ReverieCoreBridge.liquifyBegin(arr) }
 }
 
 internal fun PaintViewModel.liquifyEnd() {

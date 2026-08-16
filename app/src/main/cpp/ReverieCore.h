@@ -280,12 +280,18 @@ public:
 
     // Liquify: warp within the brush radius at (fx,fy) toward (tx,ty).
     // mode: 0 推拉, 1 膨胀, 2 收缩, 3 顺时针, 4 逆时针
+    // An empty/absent layer list liquifies the current layer only; multiple
+    // layers (multi-select) warp together as ONE undo step.
     void liquify(int fx, int fy, int tx, int ty, qreal strength = 0.9, int mode = 0);
-    void liquifyBegin();
+    void liquifyBegin(const QVector<int> &layers = QVector<int>());
     void liquifyEnd();
     void liquifyCancel();
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
+
+    // Move the content of several layers at once (one undo step). An empty
+    // list moves the current layer only.
+    void moveLayerContentLayers(const QVector<int> &layers, int dx, int dy);
 
 private:
     void resetLiquifyWorker();
@@ -451,18 +457,21 @@ private:
     qreal m_shapeStrokeWidth = 4.0;   // shape tools independent stroke width
     bool m_shapeFilled = false;       // shape tools fill with the brush color
     qreal m_liquifyBrushSize = 60.0;   // liquify independent brush size
-    // One KisTransaction for a whole liquify drag (begin/end bracket); the
-    // per-move path only creates its own when no bracket is active
-    KisTransaction *m_liquifyTxn = nullptr;
-    bool m_liquifyTxnActive = false;
-    // Krita's liquify architecture: a persistent grid worker accumulates
-    // every dab; each update re-transforms the PRISTINE source copy so the
-    // same pixels are never resampled twice (per-move re-warp of the layer
-    // itself produced visible seams / blank lines)
-    class KisLiquifyTransformWorker *m_liquifyWorker = nullptr;
-    KisPaintDeviceSP m_liquifySrcDevice;
-    KisPaintDeviceSP m_liquifyDstDevice;
-    // The grid worker runs over this LOCAL rect (brush neighbourhood):
+    // Multi-layer liquify session state. Each target layer keeps its own
+    // pristine source copy + grid worker (same displacement ops applied to
+    // every worker: they are content-independent); all targets flush as one
+    // throttled writeback and one composite undo command.
+    struct LiquifyTarget {
+        KisPaintDeviceSP device;
+        KisPaintDeviceSP src;
+        KisPaintDeviceSP dst;
+        class KisLiquifyTransformWorker *worker = nullptr;
+        KisTransaction *txn = nullptr;
+        QRect bounds;
+    };
+    QVector<LiquifyTarget> m_liquifyTargets;
+    bool m_liquifyTxnActive = false;   // a bracketed drag session is open
+    // The grid worker runs over a LOCAL rect (brush neighbourhood):
     // run() copies the whole bounds complement, so a full-canvas worker
     // cost a full-canvas copy per dab. Rebased when the brush wanders out.
     QRect m_liquifyWorkerBounds;

@@ -64,8 +64,10 @@ import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_BEGIN
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_CANCEL
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_END
+import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
 import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
+import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
 import com.reverie.paint.model.RecordingEvents.T_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
@@ -690,7 +692,13 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val dx = r.f32().toInt()
             val dy = r.f32().toInt()
             ReverieCoreBridge.cancelTransformPreview()
-            ReverieCoreBridge.moveLayerContent(dx, dy)
+            val layers = pendingReplayLayers
+            pendingReplayLayers = null
+            if (layers != null) {
+                ReverieCoreBridge.moveLayerContentLayers(layers, dx, dy)
+            } else {
+                ReverieCoreBridge.moveLayerContent(dx, dy)
+            }
         }
 
         T_TRANSFORM -> {
@@ -856,7 +864,9 @@ private fun PaintViewModel.dispatchToolOpLocked(
         }
 
         T_LIQUIFY_BEGIN -> {
-            ReverieCoreBridge.liquifyBegin()
+            val layers = pendingReplayLayers
+            pendingReplayLayers = null
+            ReverieCoreBridge.liquifyBegin(layers)
         }
 
         T_LIQUIFY_END -> {
@@ -865,6 +875,14 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_LIQUIFY_CANCEL -> {
             ReverieCoreBridge.liquifyCancel()
+        }
+
+        T_LIQUIFY_LAYERS, T_MOVE_CONTENT_LAYERS -> {
+            // Multi-layer target set recorded before a BEGIN/MOVE_CONTENT:
+            // remembered and consumed by the following op (single-target
+            // recordings never contain this event)
+            val n = r.u16()
+            pendingReplayLayers = if (n > 0) IntArray(n) { r.u16() } else null
         }
 
         T_SHAPE_STROKE_WIDTH -> {

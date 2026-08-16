@@ -120,6 +120,8 @@ object RecordingEvents {
     const val T_LIQUIFY_BEGIN = 28 // - (one undo transaction per drag)
     const val T_LIQUIFY_END = 29 // -
     const val T_LIQUIFY_CANCEL = 30 // -
+    const val T_LIQUIFY_LAYERS = 31 // count u16, layer indexes u16[] (before BEGIN)
+    const val T_MOVE_CONTENT_LAYERS = 32 // count u16, layer indexes u16[] (before MOVE_CONTENT)
 }
 
 /** Growable byte sink with little-endian primitive writers. */
