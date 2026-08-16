@@ -89,9 +89,56 @@ void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
 // worker the transform tool's liquify mode drives through kis_liquify_paintop).
 // Architecture mirrors Krita's: ONE persistent grid worker accumulates every
 // dab's displacement (build-up mode), and each update re-transforms the
-// PRISTINE source copy made at gesture start. Warping the already-warped
-// layer per move instead (previous approach) resampled the same pixels over
-// and over, which pulled seams and blank lines through the content.
+// PRISTINE source copy. Warping the already-warped layer per move instead
+// (the original approach) resampled the same pixels over and over, which
+// pulled seams and blank lines through the content.
+//
+// PERFORMANCE: run() clears dst and fast-copies the ENTIRE complement of the
+// strokes sub-grid (a full-canvas copy on every call!). Running that per
+// pointer move saturated the render thread on large documents. The worker is
+// therefore constructed over a LOCAL rect around the brush (src clone is
+// local too), rebased when the brush wanders out (flushing the accumulated
+// warp into the layer first), and the run+writeback is throttled to ~40fps.
+namespace
+{
+const qint64 LIQUIFY_APPLY_INTERVAL_MS = 24;
+}
+
+void ReverieCore::resetLiquifyWorker()
+{
+    delete m_liquifyWorker;
+    m_liquifyWorker = nullptr;
+    m_liquifySrcDevice.clear();
+    m_liquifyDstDevice.clear();
+    m_liquifyWorkerBounds = QRect();
+}
+
+void ReverieCore::liquifyApplyLocked()
+{
+    if (!m_liquifyWorker || !m_document) {
+        return;
+    }
+    KisPaintDeviceSP device = currentPaintDevice();
+    if (!device) {
+        return;
+    }
+    m_liquifyDstDevice->clear();
+    m_liquifyWorker->run(m_liquifySrcDevice, m_liquifyDstDevice);
+    QRect area = m_liquifyWorker
+                     ->approxChangeRect(m_liquifyWorker->accumulatedStrokesBounds().toAlignedRect())
+                     .intersected(m_liquifyWorkerBounds)
+                     .intersected(QRect(0, 0, m_document->width(), m_document->height()));
+    if (!area.isEmpty()) {
+        KisPainter p(device);
+        p.setCompositeOpId(COMPOSITE_COPY);
+        p.bitBlt(area.topLeft(), m_liquifyDstDevice, area);
+        p.end();
+        device->setDirty(area);
+        markRegionDirty(area);
+    }
+    m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
+}
+
 void ReverieCore::liquifyBegin()
 {
     if (!m_document) {
@@ -107,16 +154,17 @@ void ReverieCore::liquifyBegin()
     delete m_liquifyTxn;
     m_liquifyTxn = new KisTransaction(kundo2_i18n("Liquify"), device, nullptr, -1, nullptr);
     m_liquifyTxnActive = true;
-    m_liquifySrcDevice = new KisPaintDevice(device->colorSpace());
-    m_liquifySrcDevice->makeCloneFrom(device, device->extent());
-    m_liquifyDstDevice = new KisPaintDevice(device->colorSpace());
-    delete m_liquifyWorker;
-    m_liquifyWorker = new KisLiquifyTransformWorker(
-        QRect(0, 0, m_document->width(), m_document->height()), nullptr, 8);
+    // The grid worker needs the dab position - it is created lazily by the
+    // first liquify() call (and rebased whenever the brush wanders out)
+    resetLiquifyWorker();
 }
 
 void ReverieCore::liquifyEnd()
 {
+    // Flush any grid displacement that is still under the apply throttle
+    if (m_liquifyWorker) {
+        liquifyApplyLocked();
+    }
     if (m_liquifyTxn && m_document) {
         if (m_undoCaptureEnabled) {
             m_liquifyTxn->commit(m_document->undoAdapter());
@@ -129,15 +177,11 @@ void ReverieCore::liquifyEnd()
     delete m_liquifyTxn;
     m_liquifyTxn = nullptr;
     m_liquifyTxnActive = false;
-    delete m_liquifyWorker;
-    m_liquifyWorker = nullptr;
-    m_liquifySrcDevice.clear();
-    m_liquifyDstDevice.clear();
+    resetLiquifyWorker();
 }
 
 void ReverieCore::liquifyCancel()
 {
-    const bool hadTxn = m_liquifyTxn != nullptr;
     if (m_liquifyTxn && m_document) {
         // Roll the whole drag back like touchStrokeCancel does for strokes
         m_liquifyTxn->revert();
@@ -150,11 +194,7 @@ void ReverieCore::liquifyCancel()
     }
     m_liquifyTxn = nullptr;
     m_liquifyTxnActive = false;
-    delete m_liquifyWorker;
-    m_liquifyWorker = nullptr;
-    m_liquifySrcDevice.clear();
-    m_liquifyDstDevice.clear();
-    Q_UNUSED(hadTxn);
+    resetLiquifyWorker();
 }
 
 void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mode)
@@ -167,9 +207,9 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     // Standalone calls (old recordings replayed without begin/end brackets)
     // get an implicit one-shot bracket around this dab
     const bool ownBracket = !m_liquifyTxnActive || !m_liquifyWorker;
-    if (ownBracket) {
+    if (!m_liquifyTxnActive) {
         liquifyBegin();
-        if (!m_liquifyTxnActive || !m_liquifyWorker) {
+        if (!m_liquifyTxnActive) {
             return;
         }
     }
@@ -177,6 +217,40 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     const qreal s = qBound<qreal>(0.05, strength, 2.0);
     // KisLiquifyPaintop passes the brush diameter as sigma (gaussian falloff)
     const qreal size = qMax<qreal>(8.0, m_liquifyBrushSize);
+    const int sizePx = qRound(size);
+
+    // Local grid: rebase when the brush is about to leave the inner margin
+    // (the worker's run() copies the whole bounds complement, so the bounds
+    // must stay local or every dab costs a full-canvas copy)
+    const bool workerUsable = m_liquifyWorker != nullptr;
+    bool needRebase = !workerUsable;
+    if (workerUsable) {
+        const int margin = qMax(48, sizePx);
+        const QRect inner = m_liquifyWorkerBounds.adjusted(margin, margin, -margin, -margin);
+        if (!inner.contains(QPoint(tx, ty))) {
+            needRebase = true;
+        }
+    }
+    if (needRebase) {
+        if (m_liquifyWorker) {
+            liquifyApplyLocked(); // flush the old region into the layer first
+        }
+        const int R = qMax<int>(256, sizePx * 3);
+        QRect bounds(tx - R, ty - R, 2 * R, 2 * R);
+        bounds = bounds.intersected(QRect(0, 0, image->width(), image->height()));
+        if (bounds.isEmpty()) {
+            resetLiquifyWorker();
+            if (ownBracket) liquifyEnd();
+            return;
+        }
+        m_liquifyWorkerBounds = bounds;
+        m_liquifySrcDevice = new KisPaintDevice(device->colorSpace());
+        m_liquifySrcDevice->makeCloneFrom(device, bounds);
+        m_liquifyDstDevice = new KisPaintDevice(device->colorSpace());
+        delete m_liquifyWorker;
+        m_liquifyWorker = new KisLiquifyTransformWorker(bounds, nullptr, 8);
+    }
+
     const QPointF base(fx, fy);
     const qreal dist = QLineF(QPointF(fx, fy), QPointF(tx, ty)).length();
     // Effect magnitude follows how far the finger moved this dab: holding
@@ -208,20 +282,11 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         break;
     }
 
-    // Re-run the ACCUMULATED warp from the pristine copy and copy the
-    // changed area back into the layer
-    m_liquifyDstDevice->clear();
-    m_liquifyWorker->run(m_liquifySrcDevice, m_liquifyDstDevice);
-    QRect area = m_liquifyWorker
-                     ->approxChangeRect(m_liquifyWorker->accumulatedStrokesBounds().toAlignedRect())
-                     .intersected(QRect(0, 0, image->width(), image->height()));
-    if (!area.isEmpty()) {
-        KisPainter p(device);
-        p.setCompositeOpId(COMPOSITE_COPY);
-        p.bitBlt(area.topLeft(), m_liquifyDstDevice, area);
-        p.end();
-        device->setDirty(area);
-        markRegionDirty(area);
+    // Throttled writeback: the grid update is cheap, the re-transform +
+    // layer copy is not - apply at ~40fps and once more at gesture end
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (ownBracket || now - m_liquifyLastApplyMs >= LIQUIFY_APPLY_INTERVAL_MS) {
+        liquifyApplyLocked();
     }
 
     if (ownBracket) {

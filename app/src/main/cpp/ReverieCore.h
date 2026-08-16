@@ -287,6 +287,12 @@ public:
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
+private:
+    void resetLiquifyWorker();
+    void liquifyApplyLocked();
+
+public:
+
     // Brush
     void setBrushSize(qreal size);
     qreal brushSize() const { return m_brushSize; }
@@ -456,6 +462,11 @@ private:
     class KisLiquifyTransformWorker *m_liquifyWorker = nullptr;
     KisPaintDeviceSP m_liquifySrcDevice;
     KisPaintDeviceSP m_liquifyDstDevice;
+    // The grid worker runs over this LOCAL rect (brush neighbourhood):
+    // run() copies the whole bounds complement, so a full-canvas worker
+    // cost a full-canvas copy per dab. Rebased when the brush wanders out.
+    QRect m_liquifyWorkerBounds;
+    qint64 m_liquifyLastApplyMs = 0;
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;
