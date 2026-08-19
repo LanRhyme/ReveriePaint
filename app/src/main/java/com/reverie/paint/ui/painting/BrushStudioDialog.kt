@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +29,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -52,21 +52,21 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeChild
 import kotlin.math.*
 
-enum class StudioTab(val title: String) {
-    TIP("笔尖"),
-    STROKE("线条"),
-    TEXTURE("纹理"),
-    RENDERING("渲染"),
-    COLOR("颜色"),
-    PRESSURE("压力"),
-    PROPERTIES("属性"),
+enum class StudioTab(val title: String, val iconRes: Int) {
+    TIP("笔尖", R.drawable.ic_pencil),
+    STROKE("线条", R.drawable.ic_line),
+    TEXTURE("纹理", R.drawable.ic_grid),
+    RENDERING("渲染", R.drawable.ic_layerstack),
+    COLOR("颜色", R.drawable.ic_palette),
+    PRESSURE("压力", R.drawable.ic_hand),
+    PROPERTIES("属性", R.drawable.ic_settings),
 }
 
 data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
 
 /**
  * 笔刷工作室 (Brush Studio)
- * ReveriePaint 莫兰迪风格交互面板，包含互动测试画板与全维度参数精细调校
+ * ReveriePaint 原生莫兰迪设计规范，搭载纯交互式动态测试画板与 7 大维度参数精细控制
  */
 @Composable
 fun BrushStudioDialog(
@@ -79,7 +79,7 @@ fun BrushStudioDialog(
     var selectedTab by remember { mutableStateOf(StudioTab.TIP) }
     var showMenu by remember { mutableStateOf(false) }
 
-    // Scratchpad interactive strokes
+    // Scratchpad interactive test strokes
     val scratchStrokes = remember { mutableStateListOf<List<ScratchPoint>>() }
     var currentScratchStroke by remember { mutableStateOf<List<ScratchPoint>>(emptyList()) }
 
@@ -88,7 +88,7 @@ fun BrushStudioDialog(
     var shapeRgbAffectsAlpha by remember { mutableStateOf(true) }
     var roundnessDirection by remember { mutableStateOf(1) } // 0: 水平, 1: 垂直
 
-    val panelShape = RoundedCornerShape(16.dp)
+    val panelShape = RoundedCornerShape(18.dp)
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -97,15 +97,15 @@ fun BrushStudioDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(Color.Black.copy(alpha = 0.65f))
                 .noRippleClickable(onDismiss),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
                     .pointerHoverIcon(PointerIcon.Default)
-                    .widthIn(min = 360.dp, max = 560.dp)
-                    .fillMaxWidth(0.92f)
+                    .widthIn(min = 360.dp, max = 580.dp)
+                    .fillMaxWidth(0.94f)
                     .fillMaxHeight(0.92f)
                     .clip(panelShape)
                     .then(
@@ -113,9 +113,9 @@ fun BrushStudioDialog(
                             Modifier.hazeChild(
                                 state = hazeState,
                                 style = HazeStyle(
-                                    backgroundColor = Morandi.panel.copy(alpha = 0.96f),
-                                    tint = HazeTint(Morandi.panel.copy(alpha = 0.96f)),
-                                    blurRadius = 24.dp,
+                                    backgroundColor = Morandi.panel.copy(alpha = 0.94f),
+                                    tint = HazeTint(Morandi.panel.copy(alpha = 0.94f)),
+                                    blurRadius = 28.dp,
                                     noiseFactor = 0.05f,
                                 ),
                             )
@@ -123,7 +123,7 @@ fun BrushStudioDialog(
                             Modifier.background(Morandi.panel.copy(alpha = 0.98f))
                         },
                     )
-                    .border(1.dp, Morandi.border, panelShape)
+                    .border(1.dp, Morandi.border.copy(alpha = 0.8f), panelShape)
                     .clickable(enabled = false) {},
             ) {
                 Column(
@@ -135,14 +135,16 @@ fun BrushStudioDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
-                            .padding(horizontal = 10.dp),
+                            .height(54.dp)
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                 .noRippleClickable(onDismiss),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -150,42 +152,64 @@ fun BrushStudioDialog(
                                 painterResource(R.drawable.ic_x),
                                 contentDescription = "关闭",
                                 tint = Morandi.icon,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(18.dp),
                             )
                         }
 
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
 
                         Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    "笔刷工作室",
+                                    color = Morandi.text,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Morandi.accent.copy(alpha = 0.15f))
+                                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                                ) {
+                                    Text(
+                                        preset?.name ?: "自定义",
+                                        color = Morandi.accent,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
                             Text(
-                                "笔刷工作室",
-                                color = Morandi.text,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                preset?.name ?: "自定义笔刷",
+                                "实时调校与动态试画",
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                             )
                         }
 
-                        // Clear scratchpad action button
+                        // Clear scratchpad button
                         if (scratchStrokes.isNotEmpty() || currentScratchStroke.isNotEmpty()) {
-                            Box(
+                            Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Morandi.panelHi)
-                                    .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .border(1.dp, Morandi.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                                     .clickable {
                                         scratchStrokes.clear()
                                         currentScratchStroke = emptyList()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Text("清空画板", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Icon(
+                                    painterResource(R.drawable.ic_trash),
+                                    contentDescription = null,
+                                    tint = Morandi.accent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Text("清空", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                             Spacer(Modifier.width(6.dp))
                         }
@@ -196,6 +220,8 @@ fun BrushStudioDialog(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panelHi)
+                                    .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                                     .noRippleClickable { showMenu = true },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -203,7 +229,7 @@ fun BrushStudioDialog(
                                     painterResource(R.drawable.ic_dots_vertical),
                                     contentDescription = "菜单",
                                     tint = Morandi.icon,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
 
@@ -213,7 +239,7 @@ fun BrushStudioDialog(
                                 modifier = Modifier.background(Morandi.panelHi),
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("重置为初始预设默认值", color = Morandi.text, fontSize = 13.sp) },
+                                    text = { Text("重置为预设默认值", color = Morandi.text, fontSize = 13.sp) },
                                     onClick = {
                                         vm.resetBrushParams()
                                         showMenu = false
@@ -226,15 +252,15 @@ fun BrushStudioDialog(
                         }
                     }
 
-                    // ---- Interactive Scratchpad Canvas (测试画板) ----
+                    // ---- Interactive Scratchpad Area (测试画板) ----
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(130.dp)
-                            .padding(horizontal = 14.dp, vertical = 2.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.6f))
-                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp)),
+                            .height(136.dp)
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Morandi.panelHi.copy(alpha = 0.7f))
+                            .border(1.dp, Morandi.border, RoundedCornerShape(12.dp)),
                     ) {
                         CheckerboardBackground(modifier = Modifier.fillMaxSize())
 
@@ -254,53 +280,75 @@ fun BrushStudioDialog(
                         )
 
                         if (scratchStrokes.isEmpty() && currentScratchStroke.isEmpty()) {
-                            Text(
-                                "在此随意画线测试笔触与手感",
-                                color = Morandi.subText.copy(alpha = 0.5f),
-                                fontSize = 12.sp,
-                                modifier = Modifier.align(Alignment.Center),
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Morandi.panel.copy(alpha = 0.85f))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_pencil),
+                                    contentDescription = null,
+                                    tint = Morandi.subText,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Text(
+                                    "在此随意画线测试手感与参数",
+                                    color = Morandi.subText,
+                                    fontSize = 12.sp,
+                                )
+                            }
                         }
                     }
 
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
 
-                    // ---- Tab Row (Morandi 胶囊标签栏) ----
+                    // ---- Tab Row (带 Tabler 图标的 Morandi 胶囊标签栏) ----
                     val tabScrollState = rememberScrollState()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(tabScrollState)
-                            .padding(horizontal = 14.dp, vertical = 2.dp),
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         StudioTab.values().forEach { tab ->
                             val sel = tab == selectedTab
-                            Box(
+                            Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
+                                    .background(if (sel) Morandi.accent.copy(alpha = 0.2f) else Morandi.panelHi.copy(alpha = 0.4f))
                                     .border(
-                                        width = if (sel) 1.dp else 0.dp,
-                                        color = if (sel) Morandi.accent.copy(alpha = 0.4f) else Color.Transparent,
+                                        width = 1.dp,
+                                        color = if (sel) Morandi.accent.copy(alpha = 0.5f) else Morandi.border.copy(alpha = 0.4f),
                                         shape = RoundedCornerShape(8.dp),
                                     )
                                     .clickable { selectedTab = tab }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                                contentAlignment = Alignment.Center,
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
                             ) {
+                                Icon(
+                                    painterResource(tab.iconRes),
+                                    contentDescription = null,
+                                    tint = if (sel) Morandi.accent else Morandi.subText,
+                                    modifier = Modifier.size(14.dp),
+                                )
                                 Text(
                                     text = tab.title,
                                     color = if (sel) Morandi.accent else Morandi.subText,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
                                 )
                             }
                         }
                     }
 
-                    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).height(1.dp).background(Morandi.border))
+                    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.6f)))
 
                     // ---- Tab Content Area ----
                     val contentScrollState = rememberScrollState()
@@ -309,7 +357,7 @@ fun BrushStudioDialog(
                             .fillMaxWidth()
                             .weight(1f)
                             .verticalScroll(contentScrollState)
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = 14.dp, vertical = 4.dp),
                     ) {
                         AnimatedContent(
                             targetState = selectedTab,
@@ -365,9 +413,8 @@ private fun TipTabContent(
     roundnessDirection: Int,
     onRoundnessDirection: (Int) -> Unit,
 ) {
-    SectionHeader("形状与笔尖")
+    SectionHeader("笔尖贴图与形状")
 
-    // Shape box with thumbnail & stacked options
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -403,16 +450,16 @@ private fun TipTabContent(
                 .background(Morandi.panelHi)
                 .border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
         ) {
-            MorandiOptionClickRow("反转笔尖", checked = shapeInvert) { onShapeInvert(!shapeInvert) }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
-            MorandiOptionClickRow("颜色反转", checked = shapeColorInvert) { onShapeColorInvert(!shapeColorInvert) }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
-            MorandiOptionClickRow("RGB 影响透明度", checked = shapeRgbAffectsAlpha) { onShapeRgbAffectsAlpha(!shapeRgbAffectsAlpha) }
+            MorandiOptionClickRow("反转笔尖贴图", checked = shapeInvert) { onShapeInvert(!shapeInvert) }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
+            MorandiOptionClickRow("色彩反转", checked = shapeColorInvert) { onShapeColorInvert(!shapeColorInvert) }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
+            MorandiOptionClickRow("RGB 深度驱动透明度", checked = shapeRgbAffectsAlpha) { onShapeRgbAffectsAlpha(!shapeRgbAffectsAlpha) }
         }
     }
 
     SectionHeader("抗锯齿等级")
-    val aaList = listOf("无", "正常", "强化", "分级")
+    val aaList = listOf("无抗锯齿", "标准抗锯齿", "强化抗锯齿", "分级采样")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -424,17 +471,17 @@ private fun TipTabContent(
             val sel = vm.brushAntiAliasing == idx
             MorandiCardRadioRow(name = name, selected = sel) { vm.updateBrushAntiAliasing(idx) }
             if (idx < aaList.size - 1) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
             }
         }
     }
 
-    MorandiSwitchLine("水平翻转随机", vm.brushRandomFlipX) { vm.updateBrushRandomFlipX(it) }
-    MorandiSwitchLine("垂直翻转随机", vm.brushRandomFlipY) { vm.updateBrushRandomFlipY(it) }
-    MorandiSwitchLine("沿笔画方向旋转", vm.brushFollowDirection) { vm.updateBrushFollowDirection(it) }
+    MorandiSwitchLine("水平随机翻转 (Flip X)", vm.brushRandomFlipX) { vm.updateBrushRandomFlipX(it) }
+    MorandiSwitchLine("垂直随机翻转 (Flip Y)", vm.brushRandomFlipY) { vm.updateBrushRandomFlipY(it) }
+    MorandiSwitchLine("沿笔迹运动方向自动旋转", vm.brushFollowDirection) { vm.updateBrushFollowDirection(it) }
 
-    SectionHeader("笔尖类型")
-    val tipTypes = listOf("圆形笔触", "方形笔触")
+    SectionHeader("笔尖几何类型")
+    val tipTypes = listOf("圆形笔尖 (Round)", "方形笔尖 (Square)")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -446,14 +493,14 @@ private fun TipTabContent(
             val sel = vm.brushTipShape == idx
             MorandiCardRadioRow(name = name, selected = sel) { vm.updateBrushTipShape(idx) }
             if (idx < tipTypes.size - 1) {
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
             }
         }
     }
 
-    MorandiSliderRow("硬度", vm.brushSoftness, 0.0, 1.0, isPercent = true) { vm.updateBrushSoftness(it) }
+    MorandiSliderRow("硬度 / 边缘羽化", vm.brushSoftness, 0.0, 1.0, isPercent = true) { vm.updateBrushSoftness(it) }
 
-    SectionHeader("圆度与角度")
+    SectionHeader("圆度与角度罗盘")
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -466,21 +513,22 @@ private fun TipTabContent(
                 .background(Morandi.panelHi)
                 .border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
         ) {
-            MorandiCardRadioRow("水平方向", selected = roundnessDirection == 0) { onRoundnessDirection(0) }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
-            MorandiCardRadioRow("垂直方向", selected = roundnessDirection == 1) { onRoundnessDirection(1) }
+            MorandiCardRadioRow("水平压缩方向", selected = roundnessDirection == 0) { onRoundnessDirection(0) }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
+            MorandiCardRadioRow("垂直压缩方向", selected = roundnessDirection == 1) { onRoundnessDirection(1) }
         }
 
         MorandiAngleDial(
             angle = vm.brushAngle.toFloat(),
             ratio = vm.brushRatio.toFloat(),
             onAngleChange = { vm.updateBrushAngle(it.toDouble()) },
-            modifier = Modifier.size(86.dp),
+            modifier = Modifier.size(88.dp),
         )
     }
 
-    MorandiSliderRow("角度", vm.brushAngle, 0.0, 360.0, unit = "°") { vm.updateBrushAngle(it) }
-    MorandiSliderRow("旋转", vm.brushRotation, 0.0, 360.0, unit = "°") { vm.updateBrushRotation(it) }
+    MorandiSliderRow("圆度比例 (Aspect Ratio)", vm.brushRatio, 0.05, 1.0, isPercent = true) { vm.updateBrushRatio(it) }
+    MorandiSliderRow("笔尖基础角度", vm.brushAngle, 0.0, 360.0, unit = "°") { vm.updateBrushAngle(it) }
+    MorandiSliderRow("附加旋转偏角", vm.brushRotation, 0.0, 360.0, unit = "°") { vm.updateBrushRotation(it) }
 }
 
 // ==========================================
@@ -488,13 +536,13 @@ private fun TipTabContent(
 // ==========================================
 @Composable
 private fun StrokeTabContent(vm: PaintViewModel) {
-    SectionHeader("间距与抖动")
-    MorandiSliderRow("间距", vm.brushSpacing, 0.01, 2.5, isPercent = true) { vm.updateBrushSpacing(it) }
-    MorandiSliderRow("散布 / 抖动", vm.brushScatter, 0.0, 1.0, isPercent = true) { vm.updateBrushScatter(it) }
-    MorandiSliderRow("流畅度 / 防抖 (Streamline)", vm.brushStreamline, 0.0, 1.0, isPercent = true) { vm.updateBrushStreamline(it) }
-    MorandiSliderRow("渐隐", vm.brushFade, 0.0, 1.0, isPercent = true) { vm.updateBrushFade(it) }
+    SectionHeader("间距与散布")
+    MorandiSliderRow("间距 (Spacing)", vm.brushSpacing, 0.01, 2.5, isPercent = true) { vm.updateBrushSpacing(it) }
+    MorandiSliderRow("散布抖动 (Scatter)", vm.brushScatter, 0.0, 1.0, isPercent = true) { vm.updateBrushScatter(it) }
+    MorandiSliderRow("防抖平滑度 (Streamline)", vm.brushStreamline, 0.0, 1.0, isPercent = true) { vm.updateBrushStreamline(it) }
+    MorandiSliderRow("渐隐距离 (Fade)", vm.brushFade, 0.0, 1.0, isPercent = true) { vm.updateBrushFade(it) }
 
-    SectionHeader("收尖 (Taper)")
+    SectionHeader("笔尾收尖 (Taper)")
     MorandiSliderRow("笔尾收尖强度", vm.brushTaper, 0.0, 1.0, isPercent = true) { vm.updateBrushTaper(it) }
 }
 
@@ -507,7 +555,7 @@ private fun TextureTabContent(vm: PaintViewModel) {
 
     if (vm.brushTextureEnabled) {
         SectionHeader("纹理混合模式")
-        val texModes = listOf("multiply" to "正片叠底", "overlay" to "叠加", "screen" to "滤色", "dodge" to "减淡")
+        val texModes = listOf("multiply" to "正片叠底", "overlay" to "叠加", "screen" to "滤色", "dodge" to "颜色减淡")
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -519,13 +567,13 @@ private fun TextureTabContent(vm: PaintViewModel) {
                 val sel = vm.brushTextureMode == id
                 MorandiCardRadioRow(name = name, selected = sel) { vm.updateBrushTextureMode(id) }
                 if (idx < texModes.size - 1) {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
                 }
             }
         }
 
-        MorandiSliderRow("纹理缩放", vm.brushTextureScale, 0.2, 4.0, isPercent = true) { vm.updateBrushTextureScale(it) }
-        MorandiSliderRow("纹理强度", vm.brushTextureStrength, 0.0, 1.0, isPercent = true) { vm.updateBrushTextureStrength(it) }
+        MorandiSliderRow("纹理缩放比 (Scale)", vm.brushTextureScale, 0.2, 4.0, isPercent = true) { vm.updateBrushTextureScale(it) }
+        MorandiSliderRow("纹理凹凸强度 (Strength)", vm.brushTextureStrength, 0.0, 1.0, isPercent = true) { vm.updateBrushTextureStrength(it) }
     }
 }
 
@@ -534,7 +582,7 @@ private fun TextureTabContent(vm: PaintViewModel) {
 // ==========================================
 @Composable
 private fun RenderingTabContent(vm: PaintViewModel) {
-    SectionHeader("混合模式")
+    SectionHeader("混合模式 (Composite Mode)")
 
     val blendModeList = listOf(
         "normal" to "正常",
@@ -569,8 +617,8 @@ private fun RenderingTabContent(vm: PaintViewModel) {
                             .weight(1f)
                             .height(34.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (sel) Morandi.accent.copy(alpha = 0.2f) else Morandi.panel)
-                            .border(1.dp, if (sel) Morandi.accent else Color.Transparent, RoundedCornerShape(6.dp))
+                            .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel)
+                            .border(1.dp, if (sel) Morandi.accent.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(6.dp))
                             .clickable { vm.updateBrushCompositeOp(opId) },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -589,7 +637,7 @@ private fun RenderingTabContent(vm: PaintViewModel) {
         }
     }
 
-    MorandiSliderRow("不透明度", vm.brushOpacity, 0.01, 1.0, isPercent = true) { vm.updateBrushOpacity(it) }
+    MorandiSliderRow("不透明度 (Opacity)", vm.brushOpacity, 0.01, 1.0, isPercent = true) { vm.updateBrushOpacity(it) }
     MorandiSliderRow("流量 (Flow)", vm.brushFlow, 0.01, 1.0, isPercent = true) { vm.updateBrushFlow(it) }
     MorandiSliderRow("边缘锐度 (Sharpness)", vm.brushSharpness, 0.0, 1.0, isPercent = true) { vm.updateBrushSharpness(it) }
 }
@@ -599,11 +647,11 @@ private fun RenderingTabContent(vm: PaintViewModel) {
 // ==========================================
 @Composable
 private fun ColorTabContent(vm: PaintViewModel) {
-    SectionHeader("色彩动态抖动")
-    MorandiSliderRow("色相抖动 (Hue)", vm.brushHueJitter, 0.0, 1.0, isPercent = true) { vm.updateBrushHueJitter(it) }
+    SectionHeader("色彩随机抖动")
+    MorandiSliderRow("色相抖动 (Hue Jitter)", vm.brushHueJitter, 0.0, 1.0, isPercent = true) { vm.updateBrushHueJitter(it) }
     MorandiSliderRow("饱和度抖动 (Saturation)", vm.brushSatJitter, 0.0, 1.0, isPercent = true) { vm.updateBrushSatJitter(it) }
     MorandiSliderRow("明度抖动 (Brightness)", vm.brushValJitter, 0.0, 1.0, isPercent = true) { vm.updateBrushValJitter(it) }
-    MorandiSliderRow("前/背景色混合比", vm.brushSecondaryMix, 0.0, 1.0, isPercent = true) { vm.updateBrushSecondaryMix(it) }
+    MorandiSliderRow("次要颜色混合比", vm.brushSecondaryMix, 0.0, 1.0, isPercent = true) { vm.updateBrushSecondaryMix(it) }
     MorandiSwitchLine("压感驱动色彩混合", vm.brushPressureColorMix) { vm.updateBrushPressureColorMix(it) }
 }
 
@@ -612,17 +660,17 @@ private fun ColorTabContent(vm: PaintViewModel) {
 // ==========================================
 @Composable
 private fun PressureTabContent(vm: PaintViewModel) {
-    MorandiSwitchLine("启用压力感应", vm.brushPressureEnabled) { vm.updateBrushPressureEnabled(it) }
+    MorandiSwitchLine("启用压力感应响应", vm.brushPressureEnabled) { vm.updateBrushPressureEnabled(it) }
 
     if (vm.brushPressureEnabled) {
-        SectionHeader("动态感应")
-        MorandiSliderRow("压力对大小影响", vm.brushPressureSize, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureSize(it) }
-        MorandiSliderRow("压力对不透明度影响", vm.brushPressureOpacity, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureOpacity(it) }
-        MorandiSliderRow("压力对流量影响", vm.brushPressureFlow, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureFlow(it) }
-        MorandiSliderRow("速度感应 (Speed Dynamics)", vm.brushSpeedSize, 0.0, 1.0, isPercent = true) { vm.updateBrushSpeedSize(it) }
+        SectionHeader("动态压感感应")
+        MorandiSliderRow("压力影响大小 (Size)", vm.brushPressureSize, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureSize(it) }
+        MorandiSliderRow("压力影响不透明度 (Opacity)", vm.brushPressureOpacity, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureOpacity(it) }
+        MorandiSliderRow("压力影响流量 (Flow)", vm.brushPressureFlow, 0.0, 1.0, isPercent = true) { vm.updateBrushPressureFlow(it) }
+        MorandiSliderRow("速度感应响应 (Speed)", vm.brushSpeedSize, 0.0, 1.0, isPercent = true) { vm.updateBrushSpeedSize(it) }
 
         SectionHeader("压感响应曲线")
-        val curves = listOf("线性", "柔和 (易出重压)", "硬朗 (需用力)", "S型曲线")
+        val curves = listOf("线性响应 (Linear)", "柔和曲线 (Soft)", "硬朗曲线 (Hard)", "S型精细响应 (S-Curve)")
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -634,7 +682,7 @@ private fun PressureTabContent(vm: PaintViewModel) {
                 val sel = vm.brushPressureCurve == idx
                 MorandiCardRadioRow(name = name, selected = sel) { vm.updateBrushPressureCurve(idx) }
                 if (idx < curves.size - 1) {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
                 }
             }
         }
@@ -646,7 +694,7 @@ private fun PressureTabContent(vm: PaintViewModel) {
 // ==========================================
 @Composable
 private fun PropertiesTabContent(vm: PaintViewModel, preset: BrushPresetInfo?) {
-    SectionHeader("笔刷信息")
+    SectionHeader("笔刷基本信息")
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -655,19 +703,19 @@ private fun PropertiesTabContent(vm: PaintViewModel, preset: BrushPresetInfo?) {
             .border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
     ) {
         Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("笔刷名称", color = Morandi.subText, fontSize = 13.sp)
+            Text("预设名称", color = Morandi.subText, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            Text(preset?.name ?: "未命名", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Text(preset?.name ?: "自定义笔刷", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border.copy(alpha = 0.4f)))
         Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("分组归属", color = Morandi.subText, fontSize = 13.sp)
+            Text("所属分组", color = Morandi.subText, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             Text(preset?.group?.ifBlank { "全部" } ?: "全部", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         }
     }
 
-    SectionHeader("尺寸限制")
+    SectionHeader("笔刷尺寸限制")
     MorandiSliderRow("最小尺寸限制", vm.brushMinSizeLimit, 1.0, 50.0, unit = "px") { vm.updateBrushMinSizeLimit(it) }
     MorandiSliderRow("最大尺寸限制", vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px") { vm.updateBrushMaxSizeLimit(it) }
 
@@ -718,10 +766,10 @@ private fun MorandiSwitch(checked: Boolean, onCheckedChange: (Boolean) -> Unit) 
 @Composable
 private fun MorandiSwitchLine(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Morandi.text, fontSize = 14.sp)
+        Text(label, color = Morandi.text, fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
         MorandiSwitch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -739,7 +787,7 @@ private fun MorandiOptionClickRow(label: String, checked: Boolean, onClick: () -
     ) {
         Text(label, color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
         if (checked) {
-            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
+            Icon(painterResource(R.drawable.ic_circle_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -761,7 +809,7 @@ private fun MorandiCardRadioRow(name: String, selected: Boolean, onSelect: () ->
             modifier = Modifier.weight(1f),
         )
         if (selected) {
-            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
+            Icon(painterResource(R.drawable.ic_circle_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(18.dp))
         }
     }
 }
@@ -894,6 +942,7 @@ private fun ScratchpadCanvas(
     val opacity = vm.brushOpacity.toFloat().coerceIn(0.05f, 1f)
     val flow = vm.brushFlow.toFloat().coerceIn(0.05f, 1f)
     val hardness = vm.brushSoftness.toFloat().coerceIn(0.05f, 1f)
+    val ratio = vm.brushRatio.toFloat().coerceIn(0.05f, 1f)
     val baseRadius = (vm.brushSize.toFloat().coerceIn(8f, 64f) / 2f)
     val isSquare = vm.brushTipShape == 1
 
@@ -927,8 +976,8 @@ private fun ScratchpadCanvas(
                     if (isSquare) {
                         drawRect(
                             color = brushColor.copy(alpha = dabAlpha),
-                            topLeft = Offset(curPos.x - rad, curPos.y - rad),
-                            size = Size(rad * 2f, rad * 2f),
+                            topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
+                            size = Size(rad * 2f, rad * 2f * ratio),
                         )
                     } else {
                         drawCircle(

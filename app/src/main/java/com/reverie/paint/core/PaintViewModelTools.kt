@@ -69,6 +69,43 @@ private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     }
 }
 
+private fun PaintViewModel.computeDynamicColor(): String {
+    if (brushHueJitter <= 0.0 && brushSatJitter <= 0.0 && brushValJitter <= 0.0 && brushSecondaryMix <= 0.0) {
+        return brushColor
+    }
+    return try {
+        val baseColor = android.graphics.Color.parseColor(brushColor)
+        val secColor = android.graphics.Color.parseColor(brushSecondaryColor)
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(baseColor, hsv)
+
+        if (brushSecondaryMix > 0.0) {
+            val secHsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(secColor, secHsv)
+            val mix = (brushSecondaryMix * Math.random()).toFloat()
+            hsv[0] = hsv[0] * (1f - mix) + secHsv[0] * mix
+            hsv[1] = hsv[1] * (1f - mix) + secHsv[1] * mix
+            hsv[2] = hsv[2] * (1f - mix) + secHsv[2] * mix
+        }
+        if (brushHueJitter > 0.0) {
+            val jitter = ((Math.random() - 0.5) * 2.0 * brushHueJitter * 180.0).toFloat()
+            hsv[0] = (hsv[0] + jitter + 360f) % 360f
+        }
+        if (brushSatJitter > 0.0) {
+            val jitter = ((Math.random() - 0.5) * 2.0 * brushSatJitter).toFloat()
+            hsv[1] = (hsv[1] + jitter).coerceIn(0f, 1f)
+        }
+        if (brushValJitter > 0.0) {
+            val jitter = ((Math.random() - 0.5) * 2.0 * brushValJitter).toFloat()
+            hsv[2] = (hsv[2] + jitter).coerceIn(0f, 1f)
+        }
+        val mixedRgb = android.graphics.Color.HSVToColor(hsv)
+        String.format("#%06X", 0xFFFFFF and mixedRgb)
+    } catch (_: Exception) {
+        brushColor
+    }
+}
+
 internal fun PaintViewModel.touchStart(
     x: Float,
     y: Float,
@@ -78,6 +115,10 @@ internal fun PaintViewModel.touchStart(
     smoothedStrokeX = x
     smoothedStrokeY = y
     val effPressure = computeEffectivePressure(pressure)
+    val strokeColor = computeDynamicColor()
+    if (strokeColor != brushColor) {
+        runCore(render = false) { ReverieCoreBridge.setBrushColor(strokeColor) }
+    }
     if (recorder.recording) {
         // Diff-based brush/tool/layer context capture: emitted only when the
         // context changed since the previous stroke, so slider tweaks between
@@ -96,7 +137,7 @@ internal fun PaintViewModel.touchStart(
             opacity = brushOpacity,
             flow = brushFlow,
             compositeOp = brushCompositeOp,
-            color = brushColor,
+            color = strokeColor,
             layer = currentLayerIndex,
         )
         recorder.strokeStart(x, y, effPressure.toFloat())
@@ -129,6 +170,9 @@ internal fun PaintViewModel.touchEnd() {
     isModified = true
     totalStrokes++
     onPaintingActivity()
+    if (brushHueJitter > 0.0 || brushSatJitter > 0.0 || brushValJitter > 0.0 || brushSecondaryMix > 0.0) {
+        runCore(render = false) { ReverieCoreBridge.setBrushColor(brushColor) }
+    }
     if (recorder.recording) {
         recorder.strokeEnd()
         android.util.Log.d("ReverieRec", "strokeEnd count=${recorder.eventCount}")
