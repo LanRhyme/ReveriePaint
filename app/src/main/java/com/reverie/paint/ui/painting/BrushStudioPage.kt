@@ -68,7 +68,8 @@ enum class StudioTab(val title: String, val subtitle: String, val iconRes: Int) 
     GEOMETRY("几何罗盘", "Geometry", R.drawable.ic_rotate_cw),
     TEXTURE("材质纹理", "Texture", R.drawable.ic_grid),
     PRESSURE("压感手感", "Pressure", R.drawable.ic_hand),
-    ENGINE("引擎属性", "Engine & Limits", R.drawable.ic_settings),
+    ENGINE("引擎参数", "Engine & Ops", R.drawable.ic_settings),
+    INFO("笔刷属性", "Properties", R.drawable.ic_info_circle),
 }
 
 data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
@@ -574,6 +575,14 @@ fun BrushStudioPage(
                                         onRename = { showRenameDialog = true },
                                         onDelete = { showDeleteConfirmDialog = true },
                                     )
+                                    StudioTab.INFO -> InfoTabContent(
+                                         vm = vm,
+                                         preset = preset,
+                                         cardBg = cardBg,
+                                         borderCol = borderCol,
+                                         textMain = textMain,
+                                         textSub = textSub,
+                                     )
                                 }
                             }
                         }
@@ -1239,6 +1248,156 @@ private fun EngineTabContent(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1E1E)),
         ) {
             Text("删除此笔刷", color = Color(0xFFC86464), fontSize = 12.sp)
+        }
+    }
+}
+
+// ==========================================
+// Tab 7: 笔刷属性 (Metadata & Properties)
+// ==========================================
+@Composable
+private fun InfoTabContent(
+    vm: PaintViewModel,
+    preset: BrushPresetInfo?,
+    cardBg: Color,
+    borderCol: Color,
+    textMain: Color,
+    textSub: Color,
+) {
+    StudioSectionHeader("基本信息与作者归属", textSub)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cardBg)
+            .border(1.dp, borderCol, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // Preset Name
+        Text("笔刷名称", color = textSub, fontSize = 11.sp)
+        Text(preset?.name ?: "自定义笔刷", color = textMain, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.4f)))
+
+        // Author Field (with lock indicator for shared/imported brushes)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("笔刷作者", color = textSub, fontSize = 11.sp)
+            if (vm.brushIsAuthorLocked) {
+                Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
+                Text("(分享导入 · 只读锁定)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+            }
+        }
+
+        if (vm.brushIsAuthorLocked) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF19191D))
+                    .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+            ) {
+                Text(vm.brushAuthor.ifEmpty { "外部创作者 (已分享)" }, color = textSub, fontSize = 13.sp)
+            }
+        } else {
+            androidx.compose.foundation.text.BasicTextField(
+                value = vm.brushAuthor,
+                onValueChange = { vm.updateBrushAuthor(it) },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 13.sp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF19191D))
+                    .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+            )
+        }
+
+        Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.4f)))
+
+        // Version & Category
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("版本号", color = textSub, fontSize = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.foundation.text.BasicTextField(
+                    value = vm.brushVersion,
+                    onValueChange = { vm.updateBrushVersion(it) },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 13.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF19191D))
+                        .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text("所属分组", color = textSub, fontSize = 11.sp)
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF19191D))
+                        .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                        .padding(8.dp),
+                ) {
+                    Text(preset?.group ?: "默认", color = textMain, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+
+    StudioSectionHeader("使用介绍与备注说明", textSub)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cardBg)
+            .border(1.dp, borderCol, RoundedCornerShape(8.dp))
+            .padding(10.dp),
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value = vm.brushDescription,
+            onValueChange = { vm.updateBrushDescription(it) },
+            textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 13.sp, lineHeight = 18.sp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 72.dp, max = 160.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF19191D))
+                .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                .padding(10.dp),
+        )
+    }
+
+    StudioSectionHeader("技术规范与引擎信息", textSub)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cardBg)
+            .border(1.dp, borderCol, RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text("绘图引擎", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(vm.brushPaintOpId, color = textMain, fontSize = 12.sp)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text("笔尖贴图", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(vm.brushTipAsset.ifEmpty { "生成式矢量笔尖" }, color = textMain, fontSize = 12.sp)
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text("混色模式", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(vm.brushCompositeOp, color = textMain, fontSize = 12.sp)
         }
     }
 }

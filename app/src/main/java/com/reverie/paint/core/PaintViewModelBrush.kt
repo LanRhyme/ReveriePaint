@@ -123,67 +123,6 @@ import kotlinx.coroutines.launch
         runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
     }
 
-    internal fun PaintViewModel.resetBrushParams() {
-        val preset = brushPresets.getOrNull(brushPresetIndex) ?: return
-        brushParams.remove(preset.name)
-        persistBrushParams()
-
-        updateBrushSpacing(0.1)
-        updateBrushAngle(0.0)
-        updateBrushScatter(0.0)
-        updateBrushFade(0.0)
-        updateBrushSoftness(0.5)
-        updateBrushRatio(1.0)
-        updateBrushSharpness(0.0)
-        updateBrushRotation(0.0)
-        updateBrushCompositeOp("normal")
-
-        brushAntiAliasing = 1
-        brushTipShape = 0
-        brushRandomFlipX = false
-        brushRandomFlipY = false
-        brushFollowDirection = false
-        brushStreamline = 0.0
-        brushTaper = 0.0
-        brushTextureEnabled = false
-        brushTextureScale = 1.0
-        brushTextureStrength = 0.5
-        brushTextureMode = "multiply"
-        brushHueJitter = 0.0
-        brushSatJitter = 0.0
-        brushValJitter = 0.0
-        brushSecondaryMix = 0.0
-        brushPressureColorMix = false
-        brushPressureEnabled = true
-        brushPressureSize = 1.0
-        brushPressureOpacity = 1.0
-        brushPressureFlow = 1.0
-        brushSpeedSize = 0.0
-        brushPressureCurve = 0
-        brushMinSizeLimit = 1.0
-        brushMaxSizeLimit = 500.0
-        brushTipAsset = ""
-        brushPaintOpId = "defaultpaintop"
-        brushAirbrush = false
-        brushAirbrushRate = 0.05
-        brushSmudgeRate = 0.5
-        brushSmudgeLength = 0.5
-        brushSpikes = 2
-        brushJitterAngle = 0.0
-        brushJitterSize = 0.0
-
-        runCore(after = {
-            val d = ReverieCoreBridge.brushPresetDefaults(brushPresetIndex)
-            if (d != null && d.size >= 3) {
-                brushSize = d[0]
-                brushOpacity = d[1].coerceIn(0.0, 1.0)
-                brushFlow = d[2].coerceIn(0.0, 1.0)
-            }
-        }) {
-            ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
-        }
-    }
-
     internal fun PaintViewModel.updateBrushSpacing(v: Double) {
         brushSpacing = v
         saveBrushParam()
@@ -403,6 +342,22 @@ import kotlinx.coroutines.launch
         saveBrushParam()
     }
 
+    internal fun PaintViewModel.updateBrushAuthor(v: String) {
+        if (brushIsAuthorLocked) return
+        brushAuthor = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushDescription(v: String) {
+        brushDescription = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushVersion(v: String) {
+        brushVersion = v
+        saveBrushParam()
+    }
+
     internal fun PaintViewModel.saveBrushParam() {
         val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
         brushParams[name] = BrushParams(
@@ -451,6 +406,10 @@ import kotlinx.coroutines.launch
             spikes = brushSpikes,
             jitterAngle = brushJitterAngle,
             jitterSize = brushJitterSize,
+            author = brushAuthor,
+            isAuthorLocked = brushIsAuthorLocked,
+            description = brushDescription,
+            version = brushVersion,
         )
         persistBrushParams()
     }
@@ -506,6 +465,10 @@ import kotlinx.coroutines.launch
                 o.put("spk", p.spikes)
                 o.put("ja", p.jitterAngle)
                 o.put("js", p.jitterSize)
+                o.put("aut", p.author)
+                o.put("autl", p.isAuthorLocked)
+                o.put("desc", p.description)
+                o.put("ver", p.version)
                 json.put(o)
             }
             prefs().edit().putString("brush_params", json.toString()).apply()
@@ -593,6 +556,10 @@ import kotlinx.coroutines.launch
                     spikes = o.optInt("spk", 2),
                     jitterAngle = o.optDouble("ja", 0.0),
                     jitterSize = o.optDouble("js", 0.0),
+                    author = o.optString("aut", "ReveriePaint"),
+                    isAuthorLocked = o.optBoolean("autl", false),
+                    description = o.optString("desc", ""),
+                    version = o.optString("ver", "1.0"),
                 )
             }
         } catch (_: Exception) {
@@ -623,32 +590,86 @@ import kotlinx.coroutines.launch
         }
         
         try {
-            val raw = prefs().getString("pinned_tools", null)
-            if (raw != null && raw.isNotBlank()) {
-                val tools = raw.split(",").map { com.reverie.paint.model.Tool.fromId(it) }
-                pinnedTools = tools
-            } else {
-                pinnedTools = listOf(
-                    com.reverie.paint.model.Tool.BRUSH,
-                    com.reverie.paint.model.Tool.ERASER
-                )
-            }
+            val pinned = prefs().getString("pinned_tools", null) ?: return
+            val ids = pinned.split(",").filter { it.isNotEmpty() }
+            pinnedTools = ids.mapNotNull { com.reverie.paint.model.Tool.fromId(it) }
         } catch (_: Exception) {
-            pinnedTools = listOf(
-                com.reverie.paint.model.Tool.BRUSH,
-                com.reverie.paint.model.Tool.ERASER
-            )
+        }
+    }
+
+    /** Reset all parameters for the current brush back to factory defaults */
+    internal fun PaintViewModel.resetBrushParams() {
+        val index = brushPresetIndex
+        val d = ReverieCoreBridge.brushPresetDefaults(index)
+        brushSize = d?.getOrNull(0) ?: 20.0
+        brushOpacity = (d?.getOrNull(1) ?: 1.0).coerceIn(0.0, 1.0)
+        brushFlow = (d?.getOrNull(2) ?: 1.0).coerceIn(0.0, 1.0)
+        brushSpacing = 0.1
+        brushAngle = 0.0
+        brushScatter = 0.0
+        brushFade = 0.0
+        brushSoftness = 0.5
+        brushRatio = 1.0
+        brushSharpness = 0.0
+        brushRotation = 0.0
+        brushCompositeOp = "normal"
+        brushAntiAliasing = 1
+        brushTipShape = 0
+        brushRandomFlipX = false
+        brushRandomFlipY = false
+        brushFollowDirection = false
+        brushStreamline = 0.0
+        brushTaper = 0.0
+        brushTextureEnabled = false
+        brushTextureScale = 1.0
+        brushTextureStrength = 0.5
+        brushTextureMode = "multiply"
+        brushHueJitter = 0.0
+        brushSatJitter = 0.0
+        brushValJitter = 0.0
+        brushSecondaryMix = 0.0
+        brushPressureColorMix = false
+        brushPressureEnabled = true
+        brushPressureSize = 1.0
+        brushPressureOpacity = 1.0
+        brushPressureFlow = 1.0
+        brushSpeedSize = 0.0
+        brushPressureCurve = 0
+        brushMinSizeLimit = 1.0
+        brushMaxSizeLimit = 500.0
+        brushTipAsset = ""
+        brushPaintOpId = "defaultpaintop"
+        brushAirbrush = false
+        brushAirbrushRate = 0.05
+        brushSmudgeRate = 0.5
+        brushSmudgeLength = 0.5
+        brushSpikes = 2
+        brushJitterAngle = 0.0
+        brushJitterSize = 0.0
+        brushDescription = ""
+        brushVersion = "1.0"
+        saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushSize(brushSize)
+            ReverieCoreBridge.setBrushOpacity(brushOpacity)
+            ReverieCoreBridge.setBrushFlow(brushFlow)
+            ReverieCoreBridge.setBrushSpacing(brushSpacing)
+            ReverieCoreBridge.setBrushAngle(brushAngle)
+            ReverieCoreBridge.setBrushScatter(brushScatter)
+            ReverieCoreBridge.setBrushFade(brushFade)
+            ReverieCoreBridge.setBrushSoftness(brushSoftness)
+            ReverieCoreBridge.setBrushRatio(brushRatio)
+            ReverieCoreBridge.setBrushSharpness(brushSharpness)
+            ReverieCoreBridge.setBrushRotation(brushRotation)
+            ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
         }
     }
 
     internal fun PaintViewModel.selectBrushPreset(index: Int) {
-        if (index == brushPresetIndex) return
-        val preset = brushPresets.getOrNull(index) ?: return
-        val saved = brushParams[preset.name]
-        brushPresetIndex = index
+        val preset = brushPresets.getOrNull(index)
+        val saved = if (preset != null) brushParams[preset.name] else null
         runCore(after = {
             if (saved != null) {
-                // User-adjusted values for this preset
                 brushSize = saved.size
                 brushOpacity = saved.opacity
                 brushFlow = saved.flow
@@ -694,6 +715,10 @@ import kotlinx.coroutines.launch
                 brushSpikes = saved.spikes
                 brushJitterAngle = saved.jitterAngle
                 brushJitterSize = saved.jitterSize
+                brushAuthor = saved.author
+                brushIsAuthorLocked = saved.isAuthorLocked
+                brushDescription = saved.description
+                brushVersion = saved.version
             } else {
                 // First use: the preset's own defaults
                 val d = ReverieCoreBridge.brushPresetDefaults(index)
@@ -899,6 +924,12 @@ import kotlinx.coroutines.launch
                     target.outputStream().use { output -> input.copyTo(output) }
                 }
                 val presetName = filename.substringBeforeLast(".")
+                brushParams[presetName] = BrushParams(
+                    author = "外部创作者 (分享)",
+                    isAuthorLocked = true,
+                    description = "导入自外部创作者分享的笔刷预设",
+                )
+                persistBrushParams()
                 userBrushGroups = userBrushGroups + (presetName to "导入")
                 if (!customBrushGroups.contains("导入")) {
                     customBrushGroups = customBrushGroups + "导入"
@@ -915,6 +946,11 @@ import kotlinx.coroutines.launch
                 }
                 val presetName = filename.substringBeforeLast(".")
                 createNewBrushPreset(name = presetName, group = "导入", tipAsset = filename)
+                brushParams[presetName] = brushParams[presetName]?.copy(
+                    author = "外部创作者 (分享)",
+                    isAuthorLocked = true,
+                ) ?: BrushParams(author = "外部创作者 (分享)", isAuthorLocked = true)
+                persistBrushParams()
                 true
             } else if (filename.endsWith(".bundle", true) || filename.endsWith(".zip", true)) {
                 resolver.openInputStream(uri)?.use { input ->

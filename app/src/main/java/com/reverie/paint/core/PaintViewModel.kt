@@ -185,6 +185,12 @@ class PaintViewModel : ViewModel() {
     var brushJitterAngle by mutableStateOf(0.0)
     var brushJitterSize by mutableStateOf(0.0)
 
+    // Metadata properties
+    var brushAuthor by mutableStateOf("ReveriePaint")
+    var brushIsAuthorLocked by mutableStateOf(false)
+    var brushDescription by mutableStateOf("")
+    var brushVersion by mutableStateOf("1.0")
+
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
     // current brush.
@@ -1158,6 +1164,10 @@ data class BrushParams(
     val spikes: Int = 2,
     val jitterAngle: Double = 0.0,
     val jitterSize: Double = 0.0,
+    val author: String = "ReveriePaint",
+    val isAuthorLocked: Boolean = false,
+    val description: String = "",
+    val version: String = "1.0",
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */
