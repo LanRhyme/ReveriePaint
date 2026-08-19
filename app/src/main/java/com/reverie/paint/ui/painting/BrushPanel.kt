@@ -608,7 +608,7 @@ fun BrushPropertyPage(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Icon(painterResource(R.drawable.ic_sliders), contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                    Text("进入高级笔刷工作室 (画世界 Pro)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("进入高级笔刷工作室", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
