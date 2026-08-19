@@ -150,6 +150,32 @@ class PaintViewModel : ViewModel() {
     var brushRotation by mutableStateOf(0.0)
     var brushCompositeOp by mutableStateOf("normal")
 
+    // Extended brush studio properties
+    var brushAntiAliasing by mutableStateOf(1) // 0: 无, 1: 正常, 2: 强化, 3: 分级
+    var brushTipShape by mutableStateOf(0) // 0: 圆形笔触, 1: 方形笔触
+    var brushRandomFlipX by mutableStateOf(false)
+    var brushRandomFlipY by mutableStateOf(false)
+    var brushFollowDirection by mutableStateOf(false)
+    var brushStreamline by mutableStateOf(0.0)
+    var brushTaper by mutableStateOf(0.0)
+    var brushTextureEnabled by mutableStateOf(false)
+    var brushTextureScale by mutableStateOf(1.0)
+    var brushTextureStrength by mutableStateOf(0.5)
+    var brushTextureMode by mutableStateOf("multiply")
+    var brushHueJitter by mutableStateOf(0.0)
+    var brushSatJitter by mutableStateOf(0.0)
+    var brushValJitter by mutableStateOf(0.0)
+    var brushSecondaryMix by mutableStateOf(0.0)
+    var brushPressureColorMix by mutableStateOf(false)
+    var brushPressureEnabled by mutableStateOf(true)
+    var brushPressureSize by mutableStateOf(1.0)
+    var brushPressureOpacity by mutableStateOf(1.0)
+    var brushPressureFlow by mutableStateOf(1.0)
+    var brushSpeedSize by mutableStateOf(0.0)
+    var brushPressureCurve by mutableStateOf(0) // 0: 线性, 1: 柔和, 2: 硬朗, 3: S型
+    var brushMinSizeLimit by mutableStateOf(1.0)
+    var brushMaxSizeLimit by mutableStateOf(500.0)
+
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
     // current brush.
@@ -176,6 +202,8 @@ class PaintViewModel : ViewModel() {
     var brushPropertyScrollValue by mutableStateOf(0)
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
+    var smoothedStrokeX by mutableStateOf(0f)
+    var smoothedStrokeY by mutableStateOf(0f)
 
     data class ToolBrushState(
         val presetIndex: Int = -1,
@@ -1073,11 +1101,44 @@ fun inferBrushGroup(name: String): String =
         else -> "其他"
     }
 
-/** Per-preset independent brush parameters (size/opacity/flow). */
+/** Per-preset independent brush parameters. */
 data class BrushParams(
-    val size: Double,
-    val opacity: Double,
-    val flow: Double,
+    val size: Double = 20.0,
+    val opacity: Double = 1.0,
+    val flow: Double = 1.0,
+    val spacing: Double = 0.1,
+    val angle: Double = 0.0,
+    val scatter: Double = 0.0,
+    val fade: Double = 0.0,
+    val softness: Double = 0.5,
+    val ratio: Double = 1.0,
+    val sharpness: Double = 0.0,
+    val rotation: Double = 0.0,
+    val compositeOp: String = "normal",
+    val antiAliasing: Int = 1,
+    val tipShape: Int = 0,
+    val randomFlipX: Boolean = false,
+    val randomFlipY: Boolean = false,
+    val followDirection: Boolean = false,
+    val streamline: Double = 0.0,
+    val taper: Double = 0.0,
+    val textureEnabled: Boolean = false,
+    val textureScale: Double = 1.0,
+    val textureStrength: Double = 0.5,
+    val textureMode: String = "multiply",
+    val hueJitter: Double = 0.0,
+    val satJitter: Double = 0.0,
+    val valJitter: Double = 0.0,
+    val secondaryMix: Double = 0.0,
+    val pressureColorMix: Boolean = false,
+    val pressureEnabled: Boolean = true,
+    val pressureSize: Double = 1.0,
+    val pressureOpacity: Double = 1.0,
+    val pressureFlow: Double = 1.0,
+    val speedSize: Double = 0.0,
+    val pressureCurve: Int = 0,
+    val minSizeLimit: Double = 1.0,
+    val maxSizeLimit: Double = 500.0,
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */

@@ -58,12 +58,26 @@ import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 
+private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
+    if (!brushPressureEnabled) return 1.0
+    val p = raw.coerceIn(0.0, 1.0)
+    return when (brushPressureCurve) {
+        1 -> Math.pow(p, 0.6) // Soft
+        2 -> Math.pow(p, 1.8) // Hard
+        3 -> p * p * (3.0 - 2.0 * p) // S-Curve
+        else -> p // Linear
+    }
+}
+
 internal fun PaintViewModel.touchStart(
     x: Float,
     y: Float,
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
+    smoothedStrokeX = x
+    smoothedStrokeY = y
+    val effPressure = computeEffectivePressure(pressure)
     if (recorder.recording) {
         // Diff-based brush/tool/layer context capture: emitted only when the
         // context changed since the previous stroke, so slider tweaks between
@@ -85,9 +99,9 @@ internal fun PaintViewModel.touchStart(
             color = brushColor,
             layer = currentLayerIndex,
         )
-        recorder.strokeStart(x, y, pressure.toFloat())
+        recorder.strokeStart(x, y, effPressure.toFloat())
     }
-    runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), pressure) }
+    runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure) }
 }
 
 internal fun PaintViewModel.touchMove(
@@ -96,10 +110,19 @@ internal fun PaintViewModel.touchMove(
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
-    if (recorder.recording) {
-        recorder.strokeMove(x, y, pressure.toFloat())
+    val (effX, effY) = if (brushStreamline > 0.0) {
+        val alpha = (1.0 - brushStreamline * 0.75).coerceIn(0.1, 1.0).toFloat()
+        smoothedStrokeX += (x - smoothedStrokeX) * alpha
+        smoothedStrokeY += (y - smoothedStrokeY) * alpha
+        Pair(smoothedStrokeX, smoothedStrokeY)
+    } else {
+        Pair(x, y)
     }
-    runCore { ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), pressure) }
+    val effPressure = computeEffectivePressure(pressure)
+    if (recorder.recording) {
+        recorder.strokeMove(effX, effY, effPressure.toFloat())
+    }
+    runCore { ReverieCoreBridge.touchStrokeMove(effX.toDouble(), effY.toDouble(), effPressure) }
 }
 
 internal fun PaintViewModel.touchEnd() {

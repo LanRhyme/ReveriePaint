@@ -28,6 +28,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -87,6 +89,8 @@ fun BrushPanel(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var movePresetName by remember { mutableStateOf<String?>(null) }
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
+    var showStudioDialog by remember { mutableStateOf(false) }
+    var studioPresetIndex by remember { mutableStateOf(vm.brushPresetIndex) }
 
     var view by remember {
         mutableStateOf<BrushView>(
@@ -315,11 +319,25 @@ fun BrushPanel(
                             vm = vm,
                             presetIndex = v.index,
                             onBack = { view = BrushView.List },
+                            onOpenStudio = {
+                                studioPresetIndex = v.index
+                                showStudioDialog = true
+                            },
                         )
                     }
                 }
             }
         }
+    }
+
+    // ---- Brush Studio Dialog (画世界 Pro 风格全功能工作室) ----
+    if (showStudioDialog) {
+        BrushStudioDialog(
+            vm = vm,
+            presetIndex = studioPresetIndex,
+            onDismiss = { showStudioDialog = false },
+            hazeState = hazeState,
+        )
     }
 
     // ---- dialogs -----------------------------------------------------
@@ -484,6 +502,7 @@ fun BrushPropertyPage(
     vm: PaintViewModel,
     presetIndex: Int,
     onBack: () -> Unit,
+    onOpenStudio: () -> Unit = {},
 ) {
     val preset = vm.brushPresets.getOrNull(presetIndex)
     var showBlendModes by remember { mutableStateOf(false) }
@@ -542,14 +561,20 @@ fun BrushPropertyPage(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
-            Text(
-                preset?.name ?: "",
-                color = Morandi.subText,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(end = 4.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .noRippleClickable(onOpenStudio),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_sliders),
+                    contentDescription = "工作室",
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
             Box(
                 modifier = Modifier
                     .size(28.dp)
@@ -561,13 +586,34 @@ fun BrushPropertyPage(
                 Icon(
                     painterResource(R.drawable.ic_refresh),
                     contentDescription = "重置数值",
-                    tint = Morandi.accent,
+                    tint = Morandi.subText,
                     modifier = Modifier.size(16.dp),
                 )
             }
         }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+
+        // Advanced Brush Studio entry button
+        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Button(
+                onClick = onOpenStudio,
+                modifier = Modifier.fillMaxWidth().height(38.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Morandi.accent.copy(alpha = 0.9f)),
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(painterResource(R.drawable.ic_sliders), contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    Text("进入高级笔刷工作室 (画世界 Pro)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
 
         // Blend mode row button
         Row(

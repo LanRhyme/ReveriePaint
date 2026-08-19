@@ -120,9 +120,6 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushFlow(v: Double) {
         brushFlow = v
         saveBrushParam()
-        // Brush parameter writes go through runCore so they serialize with
-        // flushStrokeBatch on the render thread — a direct JNI call from the
-        // UI thread could mutate m_brushFlow mid-dab (torn stroke rendering)
         runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
     }
 
@@ -130,7 +127,7 @@ import kotlinx.coroutines.launch
         val preset = brushPresets.getOrNull(brushPresetIndex) ?: return
         brushParams.remove(preset.name)
         persistBrushParams()
-        
+
         updateBrushSpacing(0.1)
         updateBrushAngle(0.0)
         updateBrushScatter(0.0)
@@ -139,6 +136,32 @@ import kotlinx.coroutines.launch
         updateBrushRatio(1.0)
         updateBrushSharpness(0.0)
         updateBrushRotation(0.0)
+        updateBrushCompositeOp("normal")
+
+        brushAntiAliasing = 1
+        brushTipShape = 0
+        brushRandomFlipX = false
+        brushRandomFlipY = false
+        brushFollowDirection = false
+        brushStreamline = 0.0
+        brushTaper = 0.0
+        brushTextureEnabled = false
+        brushTextureScale = 1.0
+        brushTextureStrength = 0.5
+        brushTextureMode = "multiply"
+        brushHueJitter = 0.0
+        brushSatJitter = 0.0
+        brushValJitter = 0.0
+        brushSecondaryMix = 0.0
+        brushPressureColorMix = false
+        brushPressureEnabled = true
+        brushPressureSize = 1.0
+        brushPressureOpacity = 1.0
+        brushPressureFlow = 1.0
+        brushSpeedSize = 0.0
+        brushPressureCurve = 0
+        brushMinSizeLimit = 1.0
+        brushMaxSizeLimit = 500.0
 
         runCore(after = {
             val d = ReverieCoreBridge.brushPresetDefaults(brushPresetIndex)
@@ -154,52 +177,218 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.updateBrushSpacing(v: Double) {
         brushSpacing = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushSpacing(v) }
     }
 
     internal fun PaintViewModel.updateBrushAngle(v: Double) {
         brushAngle = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushAngle(v) }
     }
 
     internal fun PaintViewModel.updateBrushScatter(v: Double) {
         brushScatter = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushScatter(v) }
     }
 
     internal fun PaintViewModel.updateBrushFade(v: Double) {
         brushFade = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushFade(v) }
     }
 
     internal fun PaintViewModel.updateBrushSoftness(v: Double) {
         brushSoftness = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushSoftness(v) }
     }
 
     internal fun PaintViewModel.updateBrushRatio(v: Double) {
         brushRatio = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushRatio(v) }
     }
 
     internal fun PaintViewModel.updateBrushSharpness(v: Double) {
         brushSharpness = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushSharpness(v) }
     }
 
     internal fun PaintViewModel.updateBrushRotation(v: Double) {
         brushRotation = v
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushRotation(v) }
     }
 
     internal fun PaintViewModel.updateBrushCompositeOp(op: String) {
         brushCompositeOp = op
+        saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushCompositeOp(op) }
+    }
+
+    internal fun PaintViewModel.updateBrushAntiAliasing(v: Int) {
+        brushAntiAliasing = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTipShape(v: Int) {
+        brushTipShape = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushRandomFlipX(v: Boolean) {
+        brushRandomFlipX = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushRandomFlipY(v: Boolean) {
+        brushRandomFlipY = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushFollowDirection(v: Boolean) {
+        brushFollowDirection = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushStreamline(v: Double) {
+        brushStreamline = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTaper(v: Double) {
+        brushTaper = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTextureEnabled(v: Boolean) {
+        brushTextureEnabled = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTextureScale(v: Double) {
+        brushTextureScale = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTextureStrength(v: Double) {
+        brushTextureStrength = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushTextureMode(v: String) {
+        brushTextureMode = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushHueJitter(v: Double) {
+        brushHueJitter = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSatJitter(v: Double) {
+        brushSatJitter = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushValJitter(v: Double) {
+        brushValJitter = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSecondaryMix(v: Double) {
+        brushSecondaryMix = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureColorMix(v: Boolean) {
+        brushPressureColorMix = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureEnabled(v: Boolean) {
+        brushPressureEnabled = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureSize(v: Double) {
+        brushPressureSize = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureOpacity(v: Double) {
+        brushPressureOpacity = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureFlow(v: Double) {
+        brushPressureFlow = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSpeedSize(v: Double) {
+        brushSpeedSize = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPressureCurve(v: Int) {
+        brushPressureCurve = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
+        brushMinSizeLimit = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushMaxSizeLimit(v: Double) {
+        brushMaxSizeLimit = v
+        saveBrushParam()
     }
 
     internal fun PaintViewModel.saveBrushParam() {
         val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
-        brushParams[name] = BrushParams(brushSize, brushOpacity, brushFlow)
+        brushParams[name] = BrushParams(
+            size = brushSize,
+            opacity = brushOpacity,
+            flow = brushFlow,
+            spacing = brushSpacing,
+            angle = brushAngle,
+            scatter = brushScatter,
+            fade = brushFade,
+            softness = brushSoftness,
+            ratio = brushRatio,
+            sharpness = brushSharpness,
+            rotation = brushRotation,
+            compositeOp = brushCompositeOp,
+            antiAliasing = brushAntiAliasing,
+            tipShape = brushTipShape,
+            randomFlipX = brushRandomFlipX,
+            randomFlipY = brushRandomFlipY,
+            followDirection = brushFollowDirection,
+            streamline = brushStreamline,
+            taper = brushTaper,
+            textureEnabled = brushTextureEnabled,
+            textureScale = brushTextureScale,
+            textureStrength = brushTextureStrength,
+            textureMode = brushTextureMode,
+            hueJitter = brushHueJitter,
+            satJitter = brushSatJitter,
+            valJitter = brushValJitter,
+            secondaryMix = brushSecondaryMix,
+            pressureColorMix = brushPressureColorMix,
+            pressureEnabled = brushPressureEnabled,
+            pressureSize = brushPressureSize,
+            pressureOpacity = brushPressureOpacity,
+            pressureFlow = brushPressureFlow,
+            speedSize = brushSpeedSize,
+            pressureCurve = brushPressureCurve,
+            minSizeLimit = brushMinSizeLimit,
+            maxSizeLimit = brushMaxSizeLimit,
+        )
         persistBrushParams()
     }
 
@@ -212,6 +401,39 @@ import kotlinx.coroutines.launch
                 o.put("s", p.size)
                 o.put("o", p.opacity)
                 o.put("f", p.flow)
+                o.put("sp", p.spacing)
+                o.put("ang", p.angle)
+                o.put("sc", p.scatter)
+                o.put("fa", p.fade)
+                o.put("so", p.softness)
+                o.put("ra", p.ratio)
+                o.put("sh", p.sharpness)
+                o.put("ro", p.rotation)
+                o.put("cop", p.compositeOp)
+                o.put("aa", p.antiAliasing)
+                o.put("ts", p.tipShape)
+                o.put("rfx", p.randomFlipX)
+                o.put("rfy", p.randomFlipY)
+                o.put("fd", p.followDirection)
+                o.put("sl", p.streamline)
+                o.put("tp", p.taper)
+                o.put("te", p.textureEnabled)
+                o.put("tscl", p.textureScale)
+                o.put("tstr", p.textureStrength)
+                o.put("tm", p.textureMode)
+                o.put("hj", p.hueJitter)
+                o.put("sj", p.satJitter)
+                o.put("vj", p.valJitter)
+                o.put("sm", p.secondaryMix)
+                o.put("pcm", p.pressureColorMix)
+                o.put("pe", p.pressureEnabled)
+                o.put("ps", p.pressureSize)
+                o.put("po", p.pressureOpacity)
+                o.put("pf", p.pressureFlow)
+                o.put("ss", p.speedSize)
+                o.put("pc", p.pressureCurve)
+                o.put("mins", p.minSizeLimit)
+                o.put("maxs", p.maxSizeLimit)
                 json.put(o)
             }
             prefs().edit().putString("brush_params", json.toString()).apply()
@@ -253,8 +475,44 @@ import kotlinx.coroutines.launch
             val json = org.json.JSONArray(raw)
             for (i in 0 until json.length()) {
                 val o = json.getJSONObject(i)
-                brushParams[o.getString("n")] =
-                    BrushParams(o.getDouble("s"), o.getDouble("o"), o.getDouble("f"))
+                brushParams[o.getString("n")] = BrushParams(
+                    size = o.optDouble("s", 20.0),
+                    opacity = o.optDouble("o", 1.0),
+                    flow = o.optDouble("f", 1.0),
+                    spacing = o.optDouble("sp", 0.1),
+                    angle = o.optDouble("ang", 0.0),
+                    scatter = o.optDouble("sc", 0.0),
+                    fade = o.optDouble("fa", 0.0),
+                    softness = o.optDouble("so", 0.5),
+                    ratio = o.optDouble("ra", 1.0),
+                    sharpness = o.optDouble("sh", 0.0),
+                    rotation = o.optDouble("ro", 0.0),
+                    compositeOp = o.optString("cop", "normal"),
+                    antiAliasing = o.optInt("aa", 1),
+                    tipShape = o.optInt("ts", 0),
+                    randomFlipX = o.optBoolean("rfx", false),
+                    randomFlipY = o.optBoolean("rfy", false),
+                    followDirection = o.optBoolean("fd", false),
+                    streamline = o.optDouble("sl", 0.0),
+                    taper = o.optDouble("tp", 0.0),
+                    textureEnabled = o.optBoolean("te", false),
+                    textureScale = o.optDouble("tscl", 1.0),
+                    textureStrength = o.optDouble("tstr", 0.5),
+                    textureMode = o.optString("tm", "multiply"),
+                    hueJitter = o.optDouble("hj", 0.0),
+                    satJitter = o.optDouble("sj", 0.0),
+                    valJitter = o.optDouble("vj", 0.0),
+                    secondaryMix = o.optDouble("sm", 0.0),
+                    pressureColorMix = o.optBoolean("pcm", false),
+                    pressureEnabled = o.optBoolean("pe", true),
+                    pressureSize = o.optDouble("ps", 1.0),
+                    pressureOpacity = o.optDouble("po", 1.0),
+                    pressureFlow = o.optDouble("pf", 1.0),
+                    speedSize = o.optDouble("ss", 0.0),
+                    pressureCurve = o.optInt("pc", 0),
+                    minSizeLimit = o.optDouble("mins", 1.0),
+                    maxSizeLimit = o.optDouble("maxs", 500.0),
+                )
             }
         } catch (_: Exception) {
         }
@@ -313,6 +571,39 @@ import kotlinx.coroutines.launch
                 brushSize = saved.size
                 brushOpacity = saved.opacity
                 brushFlow = saved.flow
+                brushSpacing = saved.spacing
+                brushAngle = saved.angle
+                brushScatter = saved.scatter
+                brushFade = saved.fade
+                brushSoftness = saved.softness
+                brushRatio = saved.ratio
+                brushSharpness = saved.sharpness
+                brushRotation = saved.rotation
+                brushCompositeOp = saved.compositeOp
+                brushAntiAliasing = saved.antiAliasing
+                brushTipShape = saved.tipShape
+                brushRandomFlipX = saved.randomFlipX
+                brushRandomFlipY = saved.randomFlipY
+                brushFollowDirection = saved.followDirection
+                brushStreamline = saved.streamline
+                brushTaper = saved.taper
+                brushTextureEnabled = saved.textureEnabled
+                brushTextureScale = saved.textureScale
+                brushTextureStrength = saved.textureStrength
+                brushTextureMode = saved.textureMode
+                brushHueJitter = saved.hueJitter
+                brushSatJitter = saved.satJitter
+                brushValJitter = saved.valJitter
+                brushSecondaryMix = saved.secondaryMix
+                brushPressureColorMix = saved.pressureColorMix
+                brushPressureEnabled = saved.pressureEnabled
+                brushPressureSize = saved.pressureSize
+                brushPressureOpacity = saved.pressureOpacity
+                brushPressureFlow = saved.pressureFlow
+                brushSpeedSize = saved.speedSize
+                brushPressureCurve = saved.pressureCurve
+                brushMinSizeLimit = saved.minSizeLimit
+                brushMaxSizeLimit = saved.maxSizeLimit
             } else {
                 // First use: the preset's own defaults
                 val d = ReverieCoreBridge.brushPresetDefaults(index)
@@ -327,6 +618,15 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushSize(saved.size)
                 ReverieCoreBridge.setBrushOpacity(saved.opacity)
                 ReverieCoreBridge.setBrushFlow(saved.flow)
+                ReverieCoreBridge.setBrushSpacing(saved.spacing)
+                ReverieCoreBridge.setBrushAngle(saved.angle)
+                ReverieCoreBridge.setBrushScatter(saved.scatter)
+                ReverieCoreBridge.setBrushFade(saved.fade)
+                ReverieCoreBridge.setBrushSoftness(saved.softness)
+                ReverieCoreBridge.setBrushRatio(saved.ratio)
+                ReverieCoreBridge.setBrushSharpness(saved.sharpness)
+                ReverieCoreBridge.setBrushRotation(saved.rotation)
+                ReverieCoreBridge.setBrushCompositeOp(saved.compositeOp)
             }
             if (ReverieCoreBridge.loadBrushPreset(index)) {
                 brushPresetIndex = index
@@ -399,4 +699,5 @@ import kotlinx.coroutines.launch
         saveBrushParam()
         runCore(render = false) { ReverieCoreBridge.setBrushOpacity(v) }
     }
+
 
