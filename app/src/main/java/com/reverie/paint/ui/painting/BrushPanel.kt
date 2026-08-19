@@ -320,24 +320,15 @@ fun BrushPanel(
                             presetIndex = v.index,
                             onBack = { view = BrushView.List },
                             onOpenStudio = {
-                                studioPresetIndex = v.index
-                                showStudioDialog = true
+                                vm.brushPresetIndex = v.index
+                                vm.brushStudioOpen = true
+                                onClose()
                             },
                         )
                     }
                 }
             }
         }
-    }
-
-    // ---- Brush Studio Dialog (画世界 Pro 风格全功能工作室) ----
-    if (showStudioDialog) {
-        BrushStudioDialog(
-            vm = vm,
-            presetIndex = studioPresetIndex,
-            onDismiss = { showStudioDialog = false },
-            hazeState = hazeState,
-        )
     }
 
     // ---- dialogs -----------------------------------------------------

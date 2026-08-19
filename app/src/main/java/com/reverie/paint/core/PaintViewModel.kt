@@ -200,6 +200,7 @@ class PaintViewModel : ViewModel() {
     // layer getters after add/remove/select/visibility operations.
     var layerPanelOpen by mutableStateOf(false)
     var brushPanelOpen by mutableStateOf(false)
+    var brushStudioOpen by mutableStateOf(false)
 
     // Brush panel persistence state
     var brushPanelSelectedCategory by mutableStateOf("全部")

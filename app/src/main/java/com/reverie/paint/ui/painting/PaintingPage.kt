@@ -1021,6 +1021,25 @@ fun PaintingPage(vm: PaintViewModel) {
             )
         }
 
+        // Brush Studio full-screen dedicated page
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.brushStudioOpen,
+            enter =
+                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
+                    slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 4 },
+            exit =
+                fadeOut(tween(180)) +
+                    slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 4 },
+            modifier = Modifier.zIndex(600f),
+        ) {
+            BrushStudioPage(
+                vm = vm,
+                presetIndex = vm.brushPresetIndex,
+                onBack = { vm.brushStudioOpen = false },
+                hazeState = hazeState,
+            )
+        }
+
         // More Settings full-screen overlay (stays inside painting page, back returns to canvas)
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.moreSettingsOpen,
