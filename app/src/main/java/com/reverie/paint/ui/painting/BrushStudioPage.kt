@@ -48,6 +48,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
@@ -60,7 +62,7 @@ import java.nio.ByteOrder
 import kotlin.math.*
 
 enum class StudioTab(val title: String, val subtitle: String, val iconRes: Int) {
-    TIP("笔尖库", "Tip Library", R.drawable.ic_pencil),
+    TIP("笔尖形状", "Tip & Mask", R.drawable.ic_pencil),
     STROKE("笔画动态", "Dynamics", R.drawable.ic_line),
     COLOR("色彩涂抹", "Color & Smudge", R.drawable.ic_palette),
     GEOMETRY("几何罗盘", "Geometry", R.drawable.ic_rotate_cw),
@@ -70,10 +72,10 @@ enum class StudioTab(val title: String, val subtitle: String, val iconRes: Int) 
 }
 
 data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
-data class BrushTipItem(val filename: String, val name: String, val bitmap: Bitmap?)
+data class BrushTipItem(val filename: String, val name: String, val isCustom: Boolean, val bitmap: Bitmap?)
 
 /**
- * GBR / PNG 笔尖贴图解码工具
+ * GBR / PNG / GIH / JPG 笔尖贴图解码工具
  */
 private object BrushTipDecoder {
     private val cache = mutableMapOf<String, Bitmap?>()
@@ -82,7 +84,6 @@ private object BrushTipDecoder {
         if (filename.isBlank()) return null
         if (cache.containsKey(filename)) return cache[filename]
         val bmp = runCatching {
-            // First check app internal filesDir brushes
             val internalFile = File(File(context.filesDir, "brushes"), filename)
             val stream = if (internalFile.exists()) {
                 internalFile.inputStream()
@@ -90,11 +91,11 @@ private object BrushTipDecoder {
                 context.assets.open("brushes/$filename")
             }
             stream.use { s ->
-                if (filename.endsWith(".png", ignoreCase = true)) {
+                if (filename.endsWith(".png", true) || filename.endsWith(".jpg", true) || filename.endsWith(".jpeg", true)) {
                     BitmapFactory.decodeStream(s)
-                } else if (filename.endsWith(".gbr", ignoreCase = true)) {
+                } else if (filename.endsWith(".gbr", true)) {
                     decodeGbr(s.readBytes())
-                } else if (filename.endsWith(".gih", ignoreCase = true)) {
+                } else if (filename.endsWith(".gih", true)) {
                     decodeGih(s.readBytes())
                 } else {
                     null
@@ -151,7 +152,7 @@ private object BrushTipDecoder {
 
 /**
  * 笔刷工作室独立全屏页面 (Dedicated Full-Screen Brush Studio Page)
- * 极简高级莫兰迪灰调设计，支持新建、复制、导入、删除与全量 Krita 笔尖库
+ * 极简高级莫兰迪灰调设计，内置笔尖浮窗选择与自定义笔尖导入
  */
 @Composable
 fun BrushStudioPage(
@@ -169,12 +170,25 @@ fun BrushStudioPage(
     var showNewBrushDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showTipPickerModal by remember { mutableStateOf(false) }
 
     // SAF Import Launcher for brush preset (.kpp, .bundle, .gbr, .png)
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val ok = vm.importBrushFromUri(uri)
             Toast.makeText(context, if (ok) "笔刷导入成功" else "导入失败，请检查文件格式", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // SAF Import Launcher for Custom Brush Tip Image (.png, .jpg, .gbr, .gih)
+    val importTipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val res = vm.importCustomBrushTip(uri)
+            if (res != null) {
+                Toast.makeText(context, "自定义笔尖导入成功", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "笔尖导入失败", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -187,28 +201,46 @@ fun BrushStudioPage(
     var shapeRgbAffectsAlpha by remember { mutableStateOf(true) }
     var roundnessDirection by remember { mutableStateOf(1) } // 0: 水平, 1: 垂直
 
-    // Load full list of Krita bundled brush tips with decoded graphical thumbnails
+    // Load full list of Krita bundled and custom brush tips
     val allTipItems = remember(context, vm.brushTipAsset) {
         val list = mutableListOf<BrushTipItem>()
+        // 1. Preset Default Tip
         list.add(
             BrushTipItem(
                 filename = "",
-                name = "当前预设笔尖",
+                name = "预设默认笔尖",
+                isCustom = false,
                 bitmap = preset?.thumbBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) },
             )
         )
+        // 2. Custom User Tips in filesDir/brushes
+        val customDir = File(context.filesDir, "brushes")
+        if (customDir.exists()) {
+            customDir.listFiles()?.forEach { f ->
+                val name = f.name
+                if (name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".gbr", true) || name.endsWith(".gih", true)) {
+                    val bmp = BrushTipDecoder.loadTip(context, name)
+                    if (bmp != null) {
+                        list.add(BrushTipItem(filename = name, name = "自定义: ${name.substringBeforeLast(".")}", isCustom = true, bitmap = bmp))
+                    }
+                }
+            }
+        }
+        // 3. Bundled Tips in assets/brushes
         val files = runCatching { context.assets.list("brushes")?.toList() }.getOrNull() ?: emptyList()
         files.sorted().forEach { f ->
             if (f.endsWith(".png", true) || f.endsWith(".gbr", true) || f.endsWith(".gih", true)) {
-                val cleanName = f.substringBeforeLast(".")
-                    .replace("A_", "")
-                    .replace("Z_", "")
-                    .replace("P_", "")
-                    .replace("M_", "")
-                    .replace("_", " ")
-                val bmp = BrushTipDecoder.loadTip(context, f)
-                if (bmp != null) {
-                    list.add(BrushTipItem(filename = f, name = cleanName, bitmap = bmp))
+                if (list.none { it.filename == f }) {
+                    val cleanName = f.substringBeforeLast(".")
+                        .replace("A_", "")
+                        .replace("Z_", "")
+                        .replace("P_", "")
+                        .replace("M_", "")
+                        .replace("_", " ")
+                    val bmp = BrushTipDecoder.loadTip(context, f)
+                    if (bmp != null) {
+                        list.add(BrushTipItem(filename = f, name = cleanName, isCustom = false, bitmap = bmp))
+                    }
                 }
             }
         }
@@ -505,6 +537,8 @@ fun BrushStudioPage(
                                         onShapeRgbAffectsAlpha = { shapeRgbAffectsAlpha = it },
                                         roundnessDirection = roundnessDirection,
                                         onRoundnessDirection = { roundnessDirection = it },
+                                        onOpenTipPicker = { showTipPickerModal = true },
+                                        onImportCustomTip = { importTipLauncher.launch(arrayOf("*/*")) },
                                         cardBg = cardBg,
                                         borderCol = borderCol,
                                         textMain = textMain,
@@ -546,6 +580,26 @@ fun BrushStudioPage(
                     }
                 }
             }
+        }
+
+        // Floating Modal: Brush Tip Library Picker (浮窗笔尖选择器)
+        if (showTipPickerModal) {
+            BrushTipPickerModal(
+                allTips = allTipItems,
+                currentAsset = vm.brushTipAsset,
+                onSelectTip = { asset ->
+                    vm.updateBrushTipAsset(asset)
+                    showTipPickerModal = false
+                },
+                onImportTip = {
+                    importTipLauncher.launch(arrayOf("*/*"))
+                },
+                onDismiss = { showTipPickerModal = false },
+                cardBg = cardBg,
+                borderCol = borderCol,
+                textMain = textMain,
+                textSub = textSub,
+            )
         }
 
         // Dialogs
@@ -605,7 +659,7 @@ fun BrushStudioPage(
 }
 
 // ==========================================
-// Tab 0: 笔尖库 (Tip Library & Mask)
+// Tab 0: 笔尖形状 (Tip & Mask) - 纯净精简卡片
 // ==========================================
 @Composable
 private fun TipTabContent(
@@ -620,57 +674,94 @@ private fun TipTabContent(
     onShapeRgbAffectsAlpha: (Boolean) -> Unit,
     roundnessDirection: Int,
     onRoundnessDirection: (Int) -> Unit,
+    onOpenTipPicker: () -> Unit,
+    onImportCustomTip: () -> Unit,
     cardBg: Color,
     borderCol: Color,
     textMain: Color,
     textSub: Color,
 ) {
-    StudioSectionHeader("Krita 笔尖图形库 (点击即换笔尖)", textSub)
+    StudioSectionHeader("当前笔尖贴图与选择", textSub)
 
-    // Visual Graphical Grid of Krita Brush Tips
-    Box(
+    // Current active tip preview card with floating picker trigger
+    val curTipItem = remember(vm.brushTipAsset, allTips) {
+        allTips.firstOrNull { it.filename == vm.brushTipAsset } ?: allTips.firstOrNull()
+    }
+
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(240.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(cardBg)
             .border(1.dp, borderCol, RoundedCornerShape(8.dp))
-            .padding(6.dp),
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 64.dp),
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF18181C))
+                .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                .clickable { onOpenTipPicker() }
+                .padding(3.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            items(allTips) { item ->
-                val isSelected = vm.brushTipAsset == item.filename
+            CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)))
+            if (curTipItem?.bitmap != null) {
+                Image(
+                    bitmap = curTipItem.bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().padding(2.dp),
+                )
+            } else {
+                Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White))
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                curTipItem?.name ?: "默认笔尖",
+                color = textMain,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                if (curTipItem?.isCustom == true) "用户自定义贴图" else "Krita 内置贴图",
+                color = textSub,
+                fontSize = 11.sp,
+            )
+
+            Spacer(Modifier.height(2.dp))
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(
                     modifier = Modifier
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) Color(0xFF32323A) else Color(0xFF1B1B1F))
-                        .border(1.dp, if (isSelected) Color(0xFF888899) else Color(0xFF26262C), RoundedCornerShape(6.dp))
-                        .clickable { vm.updateBrushTipAsset(item.filename) }
-                        .padding(4.dp),
-                    contentAlignment = Alignment.Center,
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF2C2C34))
+                        .clickable { onOpenTipPicker() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(3.dp)))
-                    if (item.bitmap != null) {
-                        Image(
-                            bitmap = item.bitmap.asImageBitmap(),
-                            contentDescription = item.name,
-                            modifier = Modifier.fillMaxSize().padding(2.dp),
-                        )
-                    } else {
-                        Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White))
-                    }
+                    Text("浏览笔尖库", color = textMain, fontSize = 11.sp)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF2C2C34))
+                        .clickable { onImportCustomTip() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text("导入自定义", color = textMain, fontSize = 11.sp)
                 }
             }
         }
     }
 
-    StudioSectionHeader("笔尖形态与生成 (Auto Brush)", textSub)
+    StudioSectionHeader("生成式笔尖 (Auto Brush)", textSub)
     val tipTypes = listOf("圆形笔尖 (Round)", "方形笔尖 (Square)")
     Column(
         modifier = Modifier
@@ -711,6 +802,154 @@ private fun TipTabContent(
 
     StudioSwitchItem("水平随机翻转 (Flip X)", vm.brushRandomFlipX, textMain = textMain) { vm.updateBrushRandomFlipX(it) }
     StudioSwitchItem("垂直随机翻转 (Flip Y)", vm.brushRandomFlipY, textMain = textMain) { vm.updateBrushRandomFlipY(it) }
+}
+
+// ==========================================
+// Floating Modal: Brush Tip Library Picker (内置笔尖浮窗选择器)
+// ==========================================
+@Composable
+private fun BrushTipPickerModal(
+    allTips: List<BrushTipItem>,
+    currentAsset: String,
+    onSelectTip: (String) -> Unit,
+    onImportTip: () -> Unit,
+    onDismiss: () -> Unit,
+    cardBg: Color,
+    borderCol: Color,
+    textMain: Color,
+    textSub: Color,
+) {
+    var filterCategory by remember { mutableStateOf("全部") } // "全部", "内置", "自定义"
+
+    val displayedTips = remember(filterCategory, allTips) {
+        when (filterCategory) {
+            "内置" -> allTips.filter { !it.isCustom }
+            "自定义" -> allTips.filter { it.isCustom }
+            else -> allTips
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .noRippleClickable(onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 320.dp, max = 560.dp)
+                    .fillMaxWidth(0.88f)
+                    .fillMaxHeight(0.78f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF1A1A1E))
+                    .border(1.dp, borderCol, RoundedCornerShape(14.dp))
+                    .clickable(enabled = false) {},
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "笔尖贴图库",
+                            color = textMain,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        Spacer(Modifier.width(10.dp))
+
+                        // Category Pills
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf("全部", "内置", "自定义").forEach { cat ->
+                                val sel = filterCategory == cat
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (sel) Color(0xFF34343E) else Color(0xFF222227))
+                                        .border(1.dp, if (sel) Color(0xFF70707C) else Color.Transparent, RoundedCornerShape(4.dp))
+                                        .clickable { filterCategory = cat }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                ) {
+                                    Text(
+                                        cat,
+                                        color = if (sel) textMain else textSub,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        // Import Custom Tip button
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF26262D))
+                                .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                                .clickable { onImportTip() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = textMain, modifier = Modifier.size(13.dp))
+                            Text("导入笔尖", color = textMain, fontSize = 11.sp)
+                        }
+
+                        Spacer(Modifier.width(6.dp))
+
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                            Icon(painterResource(R.drawable.ic_x), contentDescription = "关闭", tint = textSub, modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol))
+                    Spacer(Modifier.height(10.dp))
+
+                    // Grid
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 64.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(displayedTips) { item ->
+                            val isSelected = currentAsset == item.filename
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) Color(0xFF34343E) else Color(0xFF141416))
+                                    .border(1.dp, if (isSelected) Color(0xFF9090A0) else Color(0xFF26262B), RoundedCornerShape(6.dp))
+                                    .clickable { onSelectTip(item.filename) }
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(3.dp)))
+                                if (item.bitmap != null) {
+                                    Image(
+                                        bitmap = item.bitmap.asImageBitmap(),
+                                        contentDescription = item.name,
+                                        modifier = Modifier.fillMaxSize().padding(2.dp),
+                                    )
+                                } else {
+                                    Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ==========================================

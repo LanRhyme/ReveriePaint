@@ -983,4 +983,34 @@ import kotlinx.coroutines.launch
         return true
     }
 
+    /** 导入用户自定义笔尖贴图 (PNG, GBR, GIH, JPG) 并设置为当前笔刷笔尖 */
+    internal fun PaintViewModel.importCustomBrushTip(uri: android.net.Uri): String? {
+        return try {
+            val resolver = appContext.contentResolver
+            val filename = runCatching {
+                resolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                }
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "tip_${System.currentTimeMillis()}.png"
+
+            val cleanName = if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".jpg", true)) {
+                filename
+            } else {
+                "$filename.png"
+            }
+            val brushDir = File(appContext.filesDir, "brushes")
+            if (!brushDir.exists()) brushDir.mkdirs()
+            val target = File(brushDir, cleanName)
+            resolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            }
+            updateBrushTipAsset(cleanName)
+            cleanName
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "importCustomBrushTip failed", e)
+            null
+        }
+    }
+
 
