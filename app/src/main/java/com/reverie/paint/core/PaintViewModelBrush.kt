@@ -790,4 +790,197 @@ import kotlinx.coroutines.launch
         runCore(render = false) { ReverieCoreBridge.setBrushOpacity(v) }
     }
 
+    /** Reload all brush presets from filesDir and update Compose state */
+    internal fun PaintViewModel.reloadBrushPresets(selectName: String? = null) {
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val brushDir = File(appContext.filesDir, "brushes")
+        val list = ArrayList<BrushPresetInfo>()
+        runCore(after = {
+            brushPresets = list.toList()
+            if (brushPresets.isNotEmpty()) {
+                val targetIndex = if (selectName != null) {
+                    val idx = brushPresets.indexOfFirst { it.name == selectName }
+                    if (idx >= 0) idx else 0
+                } else {
+                    brushPresetIndex.coerceIn(0, brushPresets.size - 1)
+                }
+                selectBrushPreset(targetIndex)
+            }
+        }) {
+            ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
+            val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
+            list.clear()
+            for (i in 0 until n) {
+                val nm = ReverieCoreBridge.brushPresetName(i)
+                list.add(
+                    BrushPresetInfo(
+                        index = i,
+                        name = nm,
+                        thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+                        group = userBrushGroups[nm] ?: inferBrushGroup(nm),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** 复制指定笔刷 */
+    internal fun PaintViewModel.duplicateBrushPreset(presetIndex: Int, newName: String? = null): Boolean {
+        val src = brushPresets.getOrNull(presetIndex) ?: return false
+        val cleanName = newName?.trim()?.ifEmpty { null } ?: "${src.name} 副本"
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val srcFile = File(dir, "${src.name}.kpp")
+        val dstFile = File(dir, "$cleanName.kpp")
+        if (srcFile.exists()) {
+            srcFile.copyTo(dstFile, overwrite = true)
+        }
+        val srcParams = brushParams[src.name] ?: BrushParams()
+        brushParams[cleanName] = srcParams.copy()
+        persistBrushParams()
+        if (userBrushGroups.containsKey(src.name)) {
+            userBrushGroups = userBrushGroups + (cleanName to userBrushGroups[src.name]!!)
+            saveBrushGroups()
+        }
+        reloadBrushPresets(selectName = cleanName)
+        return true
+    }
+
+    /** 创建全新自定义笔刷 */
+    internal fun PaintViewModel.createNewBrushPreset(
+        name: String,
+        group: String = "自定义",
+        basePresetIndex: Int = 0,
+        tipAsset: String = "",
+        paintOpId: String = "defaultpaintop",
+    ): Boolean {
+        val cleanName = name.trim().ifEmpty { "自定义笔刷_${(System.currentTimeMillis() % 10000)}" }
+        val dir = File(appContext.filesDir, "paintoppresets")
+        if (!dir.exists()) dir.mkdirs()
+        val base = brushPresets.getOrNull(basePresetIndex)
+        val baseFile = base?.let { File(dir, "${it.name}.kpp") }
+        val targetFile = File(dir, "$cleanName.kpp")
+        if (baseFile != null && baseFile.exists()) {
+            baseFile.copyTo(targetFile, overwrite = true)
+        } else {
+            val first = dir.listFiles()?.firstOrNull { it.name.endsWith(".kpp") }
+            first?.copyTo(targetFile, overwrite = true)
+        }
+        brushParams[cleanName] = BrushParams(
+            tipAsset = tipAsset,
+            paintOpId = paintOpId,
+        )
+        persistBrushParams()
+        userBrushGroups = userBrushGroups + (cleanName to group)
+        if (!customBrushGroups.contains(group) && group != "全部") {
+            customBrushGroups = customBrushGroups + group
+        }
+        saveBrushGroups()
+        reloadBrushPresets(selectName = cleanName)
+        return true
+    }
+
+    /** 导入外部笔刷文件 (.kpp, .bundle, .gbr, .png) */
+    internal fun PaintViewModel.importBrushFromUri(uri: android.net.Uri): Boolean {
+        return try {
+            val resolver = appContext.contentResolver
+            val filename = runCatching {
+                resolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                }
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "import_${System.currentTimeMillis()}"
+
+            val dir = File(appContext.filesDir, "paintoppresets")
+            if (!dir.exists()) dir.mkdirs()
+
+            if (filename.endsWith(".kpp", ignoreCase = true)) {
+                val target = File(dir, filename)
+                resolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                val presetName = filename.substringBeforeLast(".")
+                userBrushGroups = userBrushGroups + (presetName to "导入")
+                if (!customBrushGroups.contains("导入")) {
+                    customBrushGroups = customBrushGroups + "导入"
+                }
+                saveBrushGroups()
+                reloadBrushPresets(selectName = presetName)
+                true
+            } else if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".abr", true)) {
+                val brushDir = File(appContext.filesDir, "brushes")
+                if (!brushDir.exists()) brushDir.mkdirs()
+                val target = File(brushDir, filename)
+                resolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                val presetName = filename.substringBeforeLast(".")
+                createNewBrushPreset(name = presetName, group = "导入", tipAsset = filename)
+                true
+            } else if (filename.endsWith(".bundle", true) || filename.endsWith(".zip", true)) {
+                resolver.openInputStream(uri)?.use { input ->
+                    val tempZip = File(appContext.cacheDir, "bundle_temp.zip")
+                    tempZip.outputStream().use { input.copyTo(it) }
+                    val zip = ZipFile(tempZip)
+                    for (entry in zip.entries()) {
+                        if (entry.name.contains("paintoppresets/") && entry.name.endsWith(".kpp")) {
+                            val name = entry.name.substringAfterLast("/")
+                            val out = File(dir, name)
+                            zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
+                        } else if (entry.name.contains("brushes/")) {
+                            val brushDir = File(appContext.filesDir, "brushes")
+                            if (!brushDir.exists()) brushDir.mkdirs()
+                            val name = entry.name.substringAfterLast("/")
+                            val out = File(brushDir, name)
+                            zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
+                        }
+                    }
+                    zip.close()
+                    tempZip.delete()
+                }
+                reloadBrushPresets()
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "importBrushFromUri failed", e)
+            false
+        }
+    }
+
+    /** 删除指定笔刷 */
+    internal fun PaintViewModel.deleteBrushPreset(presetIndex: Int): Boolean {
+        val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val file = File(dir, "${preset.name}.kpp")
+        if (file.exists()) file.delete()
+        brushParams.remove(preset.name)
+        persistBrushParams()
+        userBrushGroups = userBrushGroups - preset.name
+        saveBrushGroups()
+        reloadBrushPresets()
+        return true
+    }
+
+    /** 重命名笔刷 */
+    internal fun PaintViewModel.renameBrushPreset(presetIndex: Int, newName: String): Boolean {
+        val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        val clean = newName.trim().ifEmpty { return false }
+        if (clean == preset.name) return true
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val src = File(dir, "${preset.name}.kpp")
+        val dst = File(dir, "$clean.kpp")
+        if (src.exists()) src.renameTo(dst)
+        val p = brushParams.remove(preset.name)
+        if (p != null) brushParams[clean] = p
+        persistBrushParams()
+        val g = userBrushGroups[preset.name]
+        if (g != null) {
+            userBrushGroups = (userBrushGroups - preset.name) + (clean to g)
+        }
+        saveBrushGroups()
+        reloadBrushPresets(selectName = clean)
+        return true
+    }
+
 

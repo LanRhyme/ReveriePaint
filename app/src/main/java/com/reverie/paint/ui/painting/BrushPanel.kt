@@ -58,6 +58,9 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.ReSlider
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+
 /**
  * Brush library panel with Krita's real bundled presets (.kpp).
  * Main view = category rail + preset list. Tapping the already-selected
@@ -84,13 +87,19 @@ fun BrushPanel(
     }
     var selectedCategory by remember { mutableStateOf(vm.brushPanelSelectedCategory) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
+    var showNewBrushDialog by remember { mutableStateOf(false) }
+    var renamePresetName by remember { mutableStateOf<String?>(null) }
     var editingCategoryName by remember { mutableStateOf<String?>(null) }
     var groupPendingDelete by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var movePresetName by remember { mutableStateOf<String?>(null) }
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
-    var showStudioDialog by remember { mutableStateOf(false) }
-    var studioPresetIndex by remember { mutableStateOf(vm.brushPresetIndex) }
+
+    val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            vm.importBrushFromUri(uri)
+        }
+    }
 
     var view by remember {
         mutableStateOf<BrushView>(
@@ -296,21 +305,51 @@ fun BrushPanel(
                                 }
                             }
 
-                            // Bottom toolbar (kept from the original panel design)
+                            // Bottom toolbar
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
                                     .background(Morandi.panel.copy(alpha = opacity))
-                                    .padding(horizontal = 16.dp),
+                                    .padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Morandi.panelHi)
+                                        .clickable { showNewBrushDialog = true }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = Morandi.text, modifier = Modifier.size(14.dp))
+                                    Text("新建笔刷", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+
+                                Spacer(Modifier.width(8.dp))
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Morandi.panelHi)
+                                        .clickable { importBrushLauncher.launch(arrayOf("*/*")) }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(painterResource(R.drawable.ic_export_tab), contentDescription = null, tint = Morandi.text, modifier = Modifier.size(14.dp))
+                                    Text("导入", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+
                                 Spacer(Modifier.weight(1f))
-                                Icon(painterResource(R.drawable.ic_plus), contentDescription = "新建组", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable { showNewGroupDialog = true })
-                                Spacer(Modifier.width(16.dp))
-                                Icon(painterResource(R.drawable.ic_folder), contentDescription = "Folder", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
-                                Spacer(Modifier.width(16.dp))
-                                Icon(painterResource(R.drawable.ic_menu), contentDescription = "Menu", tint = Morandi.icon, modifier = Modifier.size(20.dp).clickable {})
+
+                                Icon(
+                                    painterResource(R.drawable.ic_folder_plus),
+                                    contentDescription = "新建组",
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(18.dp).clickable { showNewGroupDialog = true }
+                                )
                             }
                         }
                     }
@@ -332,6 +371,30 @@ fun BrushPanel(
     }
 
     // ---- dialogs -----------------------------------------------------
+    if (showNewBrushDialog) {
+        NewBrushPresetDialog(
+            groups = categories.filter { it != "全部" },
+            onDismiss = { showNewBrushDialog = false },
+            onCreate = { name, group ->
+                vm.createNewBrushPreset(name = name, group = group)
+                showNewBrushDialog = false
+            },
+        )
+    }
+    if (renamePresetName != null) {
+        val rn = renamePresetName!!
+        val pIdx = vm.brushPresets.indexOfFirst { it.name == rn }
+        RenameBrushPresetDialog(
+            initialName = rn,
+            onDismiss = { renamePresetName = null },
+            onRename = { newName ->
+                if (pIdx >= 0) {
+                    vm.renameBrushPreset(pIdx, newName)
+                }
+                renamePresetName = null
+            },
+        )
+    }
     if (showNewGroupDialog) {
         NewBrushGroupDialog(
             existing = categories.filter { it != "全部" },
@@ -346,12 +409,20 @@ fun BrushPanel(
     }
     if (reorderPresetName != null) {
         val rp = reorderPresetName!!
+        val pIdx = vm.brushPresets.indexOfFirst { it.name == rp }
         ReorderBrushMenu(
             presetName = rp,
             onDismiss = { reorderPresetName = null },
             onUp = { vm.moveBrushUp(rp) },
             onDown = { vm.moveBrushDown(rp) },
             onMoveGroup = { movePresetName = rp },
+            onDuplicate = {
+                if (pIdx >= 0) vm.duplicateBrushPreset(pIdx)
+            },
+            onRename = { renamePresetName = rp },
+            onDelete = {
+                if (pIdx >= 0) vm.deleteBrushPreset(pIdx)
+            },
         )
     }
     if (movePresetName != null) {
@@ -368,7 +439,7 @@ fun BrushPanel(
     }
 }
 
-/** Long-press menu: move up/down within the list, or move to a group. */
+/** Long-press menu: move up/down, duplicate, rename, delete or move to a group. */
 @Composable
 private fun ReorderBrushMenu(
     presetName: String,
@@ -376,13 +447,23 @@ private fun ReorderBrushMenu(
     onUp: () -> Unit,
     onDown: () -> Unit,
     onMoveGroup: () -> Unit,
+    onDuplicate: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(presetName, color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
         text = {
             Column(Modifier.fillMaxWidth()) {
-                listOf("上移" to onUp, "下移" to onDown, "移动到组..." to onMoveGroup).forEach { (label, act) ->
+                listOf(
+                    "复制笔刷" to onDuplicate,
+                    "重命名" to onRename,
+                    "上移" to onUp,
+                    "下移" to onDown,
+                    "移动到组..." to onMoveGroup,
+                    "删除此笔刷" to onDelete,
+                ).forEach { (label, act) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -391,14 +472,98 @@ private fun ReorderBrushMenu(
                                 onDismiss()
                                 act()
                             }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                     ) {
-                        Text(label, color = Morandi.text, fontSize = 14.sp)
+                        Text(
+                            label,
+                            color = if (label.startsWith("删除")) Color(0xFFC86464) else Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = if (label.startsWith("删除")) FontWeight.SemiBold else FontWeight.Normal,
+                        )
                     }
                 }
             }
         },
         confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
+}
+
+/** Dialog to create a new custom brush preset. */
+@Composable
+private fun NewBrushPresetDialog(
+    groups: List<String>,
+    onDismiss: () -> Unit,
+    onCreate: (String, String) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var selectedGroup by remember { mutableStateOf(groups.firstOrNull() ?: "自定义") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建笔刷", color = Morandi.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("输入笔刷名称", color = Morandi.subText, fontSize = 12.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Morandi.text, fontSize = 14.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Morandi.panel, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onCreate(name.trim(), selectedGroup) }
+            ) { Text("创建", color = Morandi.accent) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
+}
+
+/** Dialog to rename a brush preset. */
+@Composable
+private fun RenameBrushPresetDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("重命名笔刷", color = Morandi.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("输入新名称", color = Morandi.subText, fontSize = 12.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Morandi.text, fontSize = 14.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Morandi.panel, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onRename(name.trim()) }
+            ) { Text("保存", color = Morandi.accent) }
+        },
         dismissButton = {
             androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
         },

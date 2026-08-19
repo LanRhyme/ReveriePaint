@@ -3,7 +3,10 @@ package com.reverie.paint.ui.painting
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -51,9 +54,7 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeChild
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
@@ -81,13 +82,20 @@ private object BrushTipDecoder {
         if (filename.isBlank()) return null
         if (cache.containsKey(filename)) return cache[filename]
         val bmp = runCatching {
-            context.assets.open("brushes/$filename").use { stream ->
+            // First check app internal filesDir brushes
+            val internalFile = File(File(context.filesDir, "brushes"), filename)
+            val stream = if (internalFile.exists()) {
+                internalFile.inputStream()
+            } else {
+                context.assets.open("brushes/$filename")
+            }
+            stream.use { s ->
                 if (filename.endsWith(".png", ignoreCase = true)) {
-                    BitmapFactory.decodeStream(stream)
+                    BitmapFactory.decodeStream(s)
                 } else if (filename.endsWith(".gbr", ignoreCase = true)) {
-                    decodeGbr(stream.readBytes())
+                    decodeGbr(s.readBytes())
                 } else if (filename.endsWith(".gih", ignoreCase = true)) {
-                    decodeGih(stream.readBytes())
+                    decodeGih(s.readBytes())
                 } else {
                     null
                 }
@@ -129,7 +137,6 @@ private object BrushTipDecoder {
     }
 
     private fun decodeGih(bytes: ByteArray): Bitmap? {
-        // Find embedded GBR header inside GIH file
         if (bytes.size < 64) return null
         for (i in 0 until bytes.size - 28) {
             if (bytes[i] == 0.toByte() && bytes[i + 1] == 0.toByte() && (bytes[i + 6] == 0.toByte() && bytes[i + 7] == 2.toByte())) {
@@ -144,7 +151,7 @@ private object BrushTipDecoder {
 
 /**
  * 笔刷工作室独立全屏页面 (Dedicated Full-Screen Brush Studio Page)
- * 极简高级莫兰迪灰调设计，纯交互式试画板与 Krita 全量图形化笔尖库
+ * 极简高级莫兰迪灰调设计，支持新建、复制、导入、删除与全量 Krita 笔尖库
  */
 @Composable
 fun BrushStudioPage(
@@ -159,6 +166,17 @@ fun BrushStudioPage(
     val preset = vm.brushPresets.getOrNull(presetIndex)
     var selectedTab by remember { mutableStateOf(StudioTab.TIP) }
     var showMenu by remember { mutableStateOf(false) }
+    var showNewBrushDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    // SAF Import Launcher for brush preset (.kpp, .bundle, .gbr, .png)
+    val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val ok = vm.importBrushFromUri(uri)
+            Toast.makeText(context, if (ok) "笔刷导入成功" else "导入失败，请检查文件格式", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Scratchpad interactive test strokes
     val scratchStrokes = remember { mutableStateListOf<List<ScratchPoint>>() }
@@ -170,7 +188,7 @@ fun BrushStudioPage(
     var roundnessDirection by remember { mutableStateOf(1) } // 0: 水平, 1: 垂直
 
     // Load full list of Krita bundled brush tips with decoded graphical thumbnails
-    val allTipItems = remember(context) {
+    val allTipItems = remember(context, vm.brushTipAsset) {
         val list = mutableListOf<BrushTipItem>()
         list.add(
             BrushTipItem(
@@ -217,7 +235,7 @@ fun BrushStudioPage(
                     .fillMaxWidth()
                     .height(52.dp)
                     .background(panelBg)
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onClick = onBack) {
@@ -256,14 +274,79 @@ fun BrushStudioPage(
 
                 Spacer(Modifier.weight(1f))
 
-                // Reset action
-                IconButton(onClick = { vm.resetBrushParams() }) {
+                // New Brush action
+                IconButton(onClick = { showNewBrushDialog = true }) {
                     Icon(
-                        painterResource(R.drawable.ic_refresh),
-                        contentDescription = "重置参数",
+                        painterResource(R.drawable.ic_plus),
+                        contentDescription = "新建笔刷",
                         tint = textSub,
                         modifier = Modifier.size(18.dp),
                     )
+                }
+
+                // Duplicate action
+                IconButton(onClick = {
+                    if (presetIndex in vm.brushPresets.indices) {
+                        vm.duplicateBrushPreset(presetIndex)
+                        Toast.makeText(context, "已创建副本", Toast.LENGTH_SHORT).show()
+                    }
+                }) {
+                    Icon(
+                        painterResource(R.drawable.ic_copy),
+                        contentDescription = "复制笔刷",
+                        tint = textSub,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                // Import action
+                IconButton(onClick = { importBrushLauncher.launch(arrayOf("*/*")) }) {
+                    Icon(
+                        painterResource(R.drawable.ic_export_tab),
+                        contentDescription = "导入外部笔刷",
+                        tint = textSub,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                // Overflow Menu
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(
+                            painterResource(R.drawable.ic_dots_vertical),
+                            contentDescription = "更多操作",
+                            tint = textSub,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false },
+                        modifier = Modifier.background(panelBg),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("重命名当前笔刷", color = textMain, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                showRenameDialog = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("重置当前参数为默认值", color = textMain, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                vm.resetBrushParams()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("删除当前笔刷", color = Color(0xFFC86464), fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                showDeleteConfirmDialog = true
+                            },
+                        )
+                    }
                 }
             }
 
@@ -440,13 +523,83 @@ fun BrushStudioPage(
                                     )
                                     StudioTab.TEXTURE -> TextureTabContent(vm = vm, cardBg = cardBg, borderCol = borderCol, textMain = textMain, textSub = textSub)
                                     StudioTab.PRESSURE -> PressureTabContent(vm = vm, cardBg = cardBg, borderCol = borderCol, textMain = textMain, textSub = textSub)
-                                    StudioTab.ENGINE -> EngineTabContent(vm = vm, preset = preset, cardBg = cardBg, borderCol = borderCol, textMain = textMain, textSub = textSub)
+                                    StudioTab.ENGINE -> EngineTabContent(
+                                        vm = vm,
+                                        presetIndex = presetIndex,
+                                        preset = preset,
+                                        cardBg = cardBg,
+                                        borderCol = borderCol,
+                                        textMain = textMain,
+                                        textSub = textSub,
+                                        onDuplicate = {
+                                            if (presetIndex in vm.brushPresets.indices) {
+                                                vm.duplicateBrushPreset(presetIndex)
+                                                Toast.makeText(context, "已创建副本", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        onRename = { showRenameDialog = true },
+                                        onDelete = { showDeleteConfirmDialog = true },
+                                    )
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Dialogs
+        if (showNewBrushDialog) {
+            StudioNewBrushDialog(
+                onDismiss = { showNewBrushDialog = false },
+                onCreate = { name, group ->
+                    vm.createNewBrushPreset(name = name, group = group)
+                    showNewBrushDialog = false
+                    Toast.makeText(context, "已创建新笔刷", Toast.LENGTH_SHORT).show()
+                },
+                cardBg = cardBg,
+                textMain = textMain,
+                textSub = textSub,
+                borderCol = borderCol,
+            )
+        }
+
+        if (showRenameDialog && preset != null) {
+            StudioRenameDialog(
+                initialName = preset.name,
+                onDismiss = { showRenameDialog = false },
+                onRename = { newName ->
+                    vm.renameBrushPreset(presetIndex, newName)
+                    showRenameDialog = false
+                },
+                cardBg = cardBg,
+                textMain = textMain,
+                textSub = textSub,
+                borderCol = borderCol,
+            )
+        }
+
+        if (showDeleteConfirmDialog && preset != null) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirmDialog = false },
+                title = { Text("确认删除笔刷", color = textMain, fontSize = 15.sp) },
+                text = { Text("确定要删除笔刷 \"${preset.name}\" 吗？此操作无法撤销。", color = textSub, fontSize = 13.sp) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        vm.deleteBrushPreset(presetIndex)
+                        showDeleteConfirmDialog = false
+                        Toast.makeText(context, "笔刷已删除", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Text("删除", color = Color(0xFFC86464))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                        Text("取消", color = textSub)
+                    }
+                },
+                containerColor = cardBg,
+            )
         }
     }
 }
@@ -713,7 +866,18 @@ private fun PressureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Col
 // Tab 6: 引擎与属性 (Engine & Limits)
 // ==========================================
 @Composable
-private fun EngineTabContent(vm: PaintViewModel, preset: BrushPresetInfo?, cardBg: Color, borderCol: Color, textMain: Color, textSub: Color) {
+private fun EngineTabContent(
+    vm: PaintViewModel,
+    presetIndex: Int,
+    preset: BrushPresetInfo?,
+    cardBg: Color,
+    borderCol: Color,
+    textMain: Color,
+    textSub: Color,
+    onDuplicate: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
     StudioSectionHeader("Krita 笔刷引擎 (PaintOp Engine)", textSub)
     val engines = listOf(
         "defaultpaintop" to "像素引擎 (Pixel)",
@@ -799,6 +963,45 @@ private fun EngineTabContent(vm: PaintViewModel, preset: BrushPresetInfo?, cardB
     StudioSectionHeader("尺寸上下限限制", textSub)
     StudioSliderItem("最小尺寸限制", vm.brushMinSizeLimit, 1.0, 50.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMinSizeLimit(it) }
     StudioSliderItem("最大尺寸限制", vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMaxSizeLimit(it) }
+
+    StudioSectionHeader("笔刷管理与预设操作", textSub)
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = onDuplicate,
+            modifier = Modifier.weight(1f).height(38.dp),
+            shape = RoundedCornerShape(6.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
+        ) {
+            Text("复制副本", color = textMain, fontSize = 12.sp)
+        }
+        Button(
+            onClick = onRename,
+            modifier = Modifier.weight(1f).height(38.dp),
+            shape = RoundedCornerShape(6.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
+        ) {
+            Text("重命名", color = textMain, fontSize = 12.sp)
+        }
+    }
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Button(
+            onClick = { vm.resetBrushParams() },
+            modifier = Modifier.weight(1f).height(38.dp),
+            shape = RoundedCornerShape(6.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
+        ) {
+            Text("重置参数", color = textMain, fontSize = 12.sp)
+        }
+        Button(
+            onClick = onDelete,
+            modifier = Modifier.weight(1f).height(38.dp),
+            shape = RoundedCornerShape(6.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1E1E)),
+        ) {
+            Text("删除此笔刷", color = Color(0xFFC86464), fontSize = 12.sp)
+        }
+    }
 }
 
 // ==========================================
@@ -1049,4 +1252,104 @@ private fun ScratchpadCanvas(
         strokes.forEach { drawScratch(it) }
         drawScratch(currentStroke)
     }
+}
+
+// ==========================================
+// Dialogs
+// ==========================================
+
+@Composable
+private fun StudioNewBrushDialog(
+    onDismiss: () -> Unit,
+    onCreate: (String, String) -> Unit,
+    cardBg: Color,
+    textMain: Color,
+    textSub: Color,
+    borderCol: Color,
+) {
+    var name by remember { mutableStateOf("") }
+    var group by remember { mutableStateOf("自定义") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("新建笔刷", color = textMain, fontSize = 15.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("输入新笔刷名称", color = textSub, fontSize = 12.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 14.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF18181C), RoundedCornerShape(6.dp))
+                        .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onCreate(name.trim(), group) },
+            ) {
+                Text("创建", color = if (name.isNotBlank()) textMain else textSub)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = textSub)
+            }
+        },
+        containerColor = cardBg,
+    )
+}
+
+@Composable
+private fun StudioRenameDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+    cardBg: Color,
+    textMain: Color,
+    textSub: Color,
+    borderCol: Color,
+) {
+    var name by remember { mutableStateOf(initialName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("重命名笔刷", color = textMain, fontSize = 15.sp) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("输入新名称", color = textSub, fontSize = 12.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 14.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF18181C), RoundedCornerShape(6.dp))
+                        .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = name.isNotBlank(),
+                onClick = { onRename(name.trim()) },
+            ) {
+                Text("保存", color = if (name.isNotBlank()) textMain else textSub)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = textSub)
+            }
+        },
+        containerColor = cardBg,
+    )
 }
