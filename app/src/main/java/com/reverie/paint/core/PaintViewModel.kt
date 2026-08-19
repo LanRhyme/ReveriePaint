@@ -175,6 +175,15 @@ class PaintViewModel : ViewModel() {
     var brushPressureCurve by mutableStateOf(0) // 0: 线性, 1: 柔和, 2: 硬朗, 3: S型
     var brushMinSizeLimit by mutableStateOf(1.0)
     var brushMaxSizeLimit by mutableStateOf(500.0)
+    var brushTipAsset by mutableStateOf("")
+    var brushPaintOpId by mutableStateOf("defaultpaintop")
+    var brushAirbrush by mutableStateOf(false)
+    var brushAirbrushRate by mutableStateOf(0.05)
+    var brushSmudgeRate by mutableStateOf(0.5)
+    var brushSmudgeLength by mutableStateOf(0.5)
+    var brushSpikes by mutableStateOf(2)
+    var brushJitterAngle by mutableStateOf(0.0)
+    var brushJitterSize by mutableStateOf(0.0)
 
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
@@ -1139,6 +1148,15 @@ data class BrushParams(
     val pressureCurve: Int = 0,
     val minSizeLimit: Double = 1.0,
     val maxSizeLimit: Double = 500.0,
+    val tipAsset: String = "",
+    val paintOpId: String = "defaultpaintop",
+    val airbrush: Boolean = false,
+    val airbrushRate: Double = 0.05,
+    val smudgeRate: Double = 0.5,
+    val smudgeLength: Double = 0.5,
+    val spikes: Int = 2,
+    val jitterAngle: Double = 0.0,
+    val jitterSize: Double = 0.0,
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */

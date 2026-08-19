@@ -162,6 +162,15 @@ import kotlinx.coroutines.launch
         brushPressureCurve = 0
         brushMinSizeLimit = 1.0
         brushMaxSizeLimit = 500.0
+        brushTipAsset = ""
+        brushPaintOpId = "defaultpaintop"
+        brushAirbrush = false
+        brushAirbrushRate = 0.05
+        brushSmudgeRate = 0.5
+        brushSmudgeLength = 0.5
+        brushSpikes = 2
+        brushJitterAngle = 0.0
+        brushJitterSize = 0.0
 
         runCore(after = {
             val d = ReverieCoreBridge.brushPresetDefaults(brushPresetIndex)
@@ -339,6 +348,51 @@ import kotlinx.coroutines.launch
         saveBrushParam()
     }
 
+    internal fun PaintViewModel.updateBrushTipAsset(asset: String) {
+        brushTipAsset = asset
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushPaintOpId(id: String) {
+        brushPaintOpId = id
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushAirbrush(v: Boolean) {
+        brushAirbrush = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushAirbrushRate(v: Double) {
+        brushAirbrushRate = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeRate(v: Double) {
+        brushSmudgeRate = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeLength(v: Double) {
+        brushSmudgeLength = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushSpikes(v: Int) {
+        brushSpikes = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushJitterAngle(v: Double) {
+        brushJitterAngle = v
+        saveBrushParam()
+    }
+
+    internal fun PaintViewModel.updateBrushJitterSize(v: Double) {
+        brushJitterSize = v
+        saveBrushParam()
+    }
+
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
         brushMinSizeLimit = v
         saveBrushParam()
@@ -388,6 +442,15 @@ import kotlinx.coroutines.launch
             pressureCurve = brushPressureCurve,
             minSizeLimit = brushMinSizeLimit,
             maxSizeLimit = brushMaxSizeLimit,
+            tipAsset = brushTipAsset,
+            paintOpId = brushPaintOpId,
+            airbrush = brushAirbrush,
+            airbrushRate = brushAirbrushRate,
+            smudgeRate = brushSmudgeRate,
+            smudgeLength = brushSmudgeLength,
+            spikes = brushSpikes,
+            jitterAngle = brushJitterAngle,
+            jitterSize = brushJitterSize,
         )
         persistBrushParams()
     }
@@ -434,6 +497,15 @@ import kotlinx.coroutines.launch
                 o.put("pc", p.pressureCurve)
                 o.put("mins", p.minSizeLimit)
                 o.put("maxs", p.maxSizeLimit)
+                o.put("ta", p.tipAsset)
+                o.put("poid", p.paintOpId)
+                o.put("ab", p.airbrush)
+                o.put("abr", p.airbrushRate)
+                o.put("smr", p.smudgeRate)
+                o.put("sml", p.smudgeLength)
+                o.put("spk", p.spikes)
+                o.put("ja", p.jitterAngle)
+                o.put("js", p.jitterSize)
                 json.put(o)
             }
             prefs().edit().putString("brush_params", json.toString()).apply()
@@ -512,6 +584,15 @@ import kotlinx.coroutines.launch
                     pressureCurve = o.optInt("pc", 0),
                     minSizeLimit = o.optDouble("mins", 1.0),
                     maxSizeLimit = o.optDouble("maxs", 500.0),
+                    tipAsset = o.optString("ta", ""),
+                    paintOpId = o.optString("poid", "defaultpaintop"),
+                    airbrush = o.optBoolean("ab", false),
+                    airbrushRate = o.optDouble("abr", 0.05),
+                    smudgeRate = o.optDouble("smr", 0.5),
+                    smudgeLength = o.optDouble("sml", 0.5),
+                    spikes = o.optInt("spk", 2),
+                    jitterAngle = o.optDouble("ja", 0.0),
+                    jitterSize = o.optDouble("js", 0.0),
                 )
             }
         } catch (_: Exception) {
@@ -604,6 +685,15 @@ import kotlinx.coroutines.launch
                 brushPressureCurve = saved.pressureCurve
                 brushMinSizeLimit = saved.minSizeLimit
                 brushMaxSizeLimit = saved.maxSizeLimit
+                brushTipAsset = saved.tipAsset
+                brushPaintOpId = saved.paintOpId
+                brushAirbrush = saved.airbrush
+                brushAirbrushRate = saved.airbrushRate
+                brushSmudgeRate = saved.smudgeRate
+                brushSmudgeLength = saved.smudgeLength
+                brushSpikes = saved.spikes
+                brushJitterAngle = saved.jitterAngle
+                brushJitterSize = saved.jitterSize
             } else {
                 // First use: the preset's own defaults
                 val d = ReverieCoreBridge.brushPresetDefaults(index)
