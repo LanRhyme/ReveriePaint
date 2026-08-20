@@ -278,7 +278,7 @@ fun SliderFineTunePopup(
                             )
                         }
 
-                        // Value Pill with animated content
+                        // Value Pill
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
@@ -286,21 +286,12 @@ fun SliderFineTunePopup(
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AnimatedContent(
-                                targetState = valueText,
-                                transitionSpec = {
-                                    (fadeIn(tween(120)) + slideInVertically { -it / 2 })
-                                        .togetherWith(fadeOut(tween(100)) + slideOutVertically { it / 2 })
-                                },
-                                label = "val_anim"
-                            ) { targetVal ->
-                                Text(
-                                    text = targetVal,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.accent,
-                                )
-                            }
+                            Text(
+                                text = valueText,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.accent,
+                            )
                         }
                     }
 
@@ -522,6 +513,7 @@ fun ReVerticalSlider(
 ) {
     val colors = Theme.current
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
     var trackPx by remember { mutableIntStateOf(1) }
     var isDragging by remember { mutableStateOf(false) }
@@ -615,9 +607,10 @@ fun ReVerticalSlider(
             ) {
                 // Live Tooltip while dragging
                 if (isDragging) {
+                    val tooltipOffsetPx = with(density) { (trackWidth + 20).dp.roundToPx() }
                     Popup(
                         alignment = Alignment.CenterStart,
-                        offset = androidx.compose.ui.unit.IntOffset(90, 0)
+                        offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, 0)
                     ) {
                         Box(
                             modifier = Modifier

@@ -39,6 +39,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -131,24 +133,38 @@ fun ToolRail(
                             t.label,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
-                                tooltipTool = t
                                 if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                    tooltipTool = null
                                     onOpenBrush()
+                                } else if (tool == t) {
+                                    tooltipTool = null
                                 } else {
+                                    tooltipTool = t
                                     onTool(t)
                                 }
                             },
                             selected = tool == t,
                         )
                         if (tooltipTool == t) {
-                            Popup(alignment = Alignment.CenterEnd, offset = IntOffset(110, 0)) {
+                            val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+                            Popup(
+                                alignment = Alignment.CenterStart,
+                                offset = IntOffset(tooltipOffsetPx, 0)
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Morandi.panelHi)
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panel)
+                                        .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
-                                    Text(t.label, color = Morandi.text, fontSize = 12.sp)
+                                    Text(
+                                        t.label,
+                                        color = Morandi.text,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
