@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -587,11 +590,11 @@ fun HomePage(vm: PaintViewModel) {
                                     }
                                 }
                             } else {
-                                LazyVerticalGrid(
-                                    columns = GridCells.Fixed(2),
+                                LazyVerticalStaggeredGrid(
+                                    columns = StaggeredGridCells.Fixed(2),
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalItemSpacing = 16.dp,
                                     contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
                                 ) {
                                     itemsIndexed(displayProjects, key = { _, it -> it.filePath }) { index, p ->
@@ -937,12 +940,14 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
                                                     }
                                                 } else {
-                                                    // Single artwork card (Pure Canvas Aesthetic with realistic paper elevation)
+                                                    // Single artwork card (Pure Canvas Aesthetic with natural aspect ratio)
+                                                    val rawRatio = if (p.width > 0 && p.height > 0) p.width.toFloat() / p.height.toFloat() else 1.0f
+                                                    val artworkRatio = rawRatio.coerceIn(0.5f, 2.0f)
                                                     Box(
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(1f)
+                                                                .aspectRatio(artworkRatio)
                                                                 .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
                                                                 .clip(RoundedCornerShape(8.dp))
                                                                 .background(Color.White)
@@ -963,7 +968,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             Image(
                                                                 bitmap = thumb.asImageBitmap(),
                                                                 contentDescription = null,
-                                                                contentScale = ContentScale.Fit,
+                                                                contentScale = ContentScale.Crop,
                                                                 modifier = Modifier.fillMaxSize(),
                                                             )
                                                         } else {
