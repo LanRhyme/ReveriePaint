@@ -226,7 +226,7 @@ fun AboutSettingsSubPage(
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            text = "v1.0.0",
+                            text = "v1.0.0-Preview1",
                             color = Morandi.accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
