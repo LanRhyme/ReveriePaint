@@ -591,7 +591,7 @@ fun HomePage(vm: PaintViewModel) {
                                 }
                             } else {
                                 LazyVerticalStaggeredGrid(
-                                    columns = StaggeredGridCells.Fixed(2),
+                                    columns = StaggeredGridCells.Adaptive(minSize = 160.dp),
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalItemSpacing = 16.dp,
@@ -751,12 +751,21 @@ fun HomePage(vm: PaintViewModel) {
                                                                 ThumbnailCache.get(item.previewPath, item.lastModified)
                                                             }
                                                         }
+                                                    val folderRatio =
+                                                        remember(p.items) {
+                                                            val firstItem = p.items.firstOrNull()
+                                                            if (firstItem != null && firstItem.width > 0 && firstItem.height > 0) {
+                                                                (firstItem.width.toFloat() / firstItem.height.toFloat()).coerceIn(0.6f, 1.8f)
+                                                            } else {
+                                                                1.0f
+                                                            }
+                                                        }
 
                                                     Box(
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(1f),
+                                                                .aspectRatio(folderRatio),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
                                                         // Stacked layer 1 (bottom left loose tilt & offset)
