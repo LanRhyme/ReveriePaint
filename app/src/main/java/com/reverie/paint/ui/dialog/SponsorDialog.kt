@@ -37,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -55,28 +56,18 @@ private data class SponsorItem(
     var bitmap by mutableStateOf<ImageBitmap?>(null)
 }
 
+private fun md5(input: String): String {
+    val md = MessageDigest.getInstance("MD5")
+    val digest = md.digest(input.toByteArray(Charsets.UTF_8))
+    return digest.joinToString("") { "%02x".format(it) }
+}
+
 @Composable
 fun SponsorsDialog(onDismiss: () -> Unit) {
     var sponsors by remember { mutableStateOf<List<SponsorItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            try {
-                // Fetch public sponsor info or default community list
-                val list = mutableListOf<SponsorItem>()
-                // Simulated or cached sponsors if no public endpoint
-                list.add(SponsorItem("爱发电赞助者", "", "1", "100.00", System.currentTimeMillis() / 1000, "自选赞助"))
-                sponsors = list
-                isLoading = false
-            } catch (e: Exception) {
-                error = e.message ?: "Unknown error"
-                isLoading = false
-            }
-        }
-    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -101,7 +92,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             strokeWidth = 3.dp,
                         )
                         Text(
-                            "正在加载赞助者列表...",
+                            "正在加载赞助者...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Morandi.subText,
                         )
@@ -124,7 +115,8 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                else -> {
+                sponsors.isEmpty() -> {
+                    // Exact MicYou Empty State
                     Box(modifier = Modifier.fillMaxSize()) {
                         Column(modifier = Modifier.fillMaxSize()) {
                             // Top Header
@@ -144,7 +136,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                         color = Morandi.accent,
                                     )
                                     Text(
-                                        "感谢所有支持 ReveriePaint 独立开发的伙伴",
+                                        "0 位赞助者",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Morandi.subText,
                                     )
@@ -175,7 +167,108 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                     .padding(horizontal = 14.dp, vertical = 10.dp),
                             ) {
                                 Text(
-                                    "数据来源于爱发电公开赞助记录。您的每一份支持都是本项目持续维护与优化的最大动力！",
+                                    "此处仅显示爱发电上对项目发起者个人 LanRhyme 的赞助。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Morandi.subText,
+                                    lineHeight = 18.sp,
+                                )
+                            }
+
+                            // Empty Center
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Text("❤️", fontSize = 48.sp)
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    "暂无赞助者，等待好心人出现 (｡•́︿•̀｡)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Morandi.subText,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+
+                        // Floating Action Button (MicYou Style)
+                        FloatingActionButton(
+                            onClick = {
+                                try {
+                                    uriHandler.openUri("https://afdian.com/a/LanRhyme")
+                                } catch (_: Exception) {}
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(20.dp),
+                            containerColor = Morandi.accent,
+                            contentColor = Morandi.onAccent,
+                            shape = CircleShape,
+                        ) {
+                            Icon(
+                                Icons.Default.Favorite,
+                                contentDescription = "前往爱发电赞助",
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            // Top Header
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Morandi.panelHi)
+                                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column {
+                                    Text(
+                                        "赞助者",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Morandi.accent,
+                                    )
+                                    Text(
+                                        "${sponsors.size} 位赞助者",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Morandi.subText,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(Morandi.panel),
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "关闭",
+                                        tint = Morandi.text,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+
+                            // Disclaimer banner
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Morandi.panel)
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                            ) {
+                                Text(
+                                    "此处仅显示爱发电上对项目发起者个人 LanRhyme 的赞助。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Morandi.subText,
                                     lineHeight = 18.sp,
@@ -196,7 +289,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             }
                         }
 
-                        // Floating Action Button to Afdian
+                        // Floating Action Button
                         FloatingActionButton(
                             onClick = {
                                 try {
@@ -210,18 +303,11 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             contentColor = Morandi.onAccent,
                             shape = CircleShape,
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    Icons.Default.Favorite,
-                                    contentDescription = "前往爱发电赞助",
-                                    modifier = Modifier.size(20.dp),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("前往爱发电赞助", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
+                            Icon(
+                                Icons.Default.Favorite,
+                                contentDescription = "前往爱发电赞助",
+                                modifier = Modifier.size(24.dp),
+                            )
                         }
                     }
                 }

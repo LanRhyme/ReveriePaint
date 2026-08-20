@@ -46,7 +46,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.min
@@ -107,15 +106,17 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                             )
                         )
                     }
-                } else {
-                    // Fallback to core contributors
-                    list.add(GitHubContributor("LanRhyme", "https://avatars.githubusercontent.com/u/108481484", "https://github.com/LanRhyme", 50))
-                    list.add(GitHubContributor("Krita Foundation", "https://avatars.githubusercontent.com/u/497746", "https://github.com/KDE/krita", 30))
-                    list.add(GitHubContributor("Qt Project", "https://avatars.githubusercontent.com/u/1429999", "https://github.com/qt", 20))
                 }
 
                 if (list.isEmpty()) {
-                    list.add(GitHubContributor("LanRhyme", "", "https://github.com/LanRhyme", 10))
+                    list.add(
+                        GitHubContributor(
+                            login = "LanRhyme",
+                            avatarUrl = "https://avatars.githubusercontent.com/u/113491998?v=4",
+                            htmlUrl = "https://github.com/LanRhyme",
+                            contributions = 207,
+                        )
+                    )
                 }
 
                 bubbles = list.map { c ->
@@ -147,16 +148,14 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                     }
                 }
             } catch (e: Exception) {
-                // Fallback
+                // Fallback on network error
                 val fallbackList = listOf(
-                    GitHubContributor("LanRhyme", "", "https://github.com/LanRhyme", 50),
-                    GitHubContributor("Krita Foundation", "", "https://github.com/KDE/krita", 30),
-                    GitHubContributor("Qt Project", "", "https://github.com/qt", 20),
+                    GitHubContributor("LanRhyme", "https://avatars.githubusercontent.com/u/113491998?v=4", "https://github.com/LanRhyme", 207),
                 )
                 bubbles = fallbackList.map { c ->
                     ContributorBubble(
                         contributor = c,
-                        size = 80f,
+                        size = 85f,
                         floatPhase = Random.nextFloat() * 6.28f,
                         floatAmpX = 6f,
                         floatAmpY = 6f,
@@ -165,6 +164,21 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                     )
                 }
                 isLoading = false
+
+                // Load avatar for fallback
+                bubbles.forEach { bubble ->
+                    launch(Dispatchers.IO) {
+                        try {
+                            if (bubble.contributor.avatarUrl.isNotBlank()) {
+                                val imgUrl = URL(bubble.contributor.avatarUrl)
+                                val imgStream = imgUrl.openStream()
+                                val bytes = imgStream.readBytes()
+                                imgStream.close()
+                                bubble.bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
             }
         }
     }
