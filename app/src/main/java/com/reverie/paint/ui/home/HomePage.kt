@@ -799,7 +799,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.86f)
-                                                                    .aspectRatio(ratio2)
+                                                                    .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
                                                                     .offset(x = fanBottomOffsetX, y = fanBottomOffsetY)
                                                                     .rotate(fanBottomAngle)
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
@@ -835,7 +835,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.88f)
-                                                                    .aspectRatio(ratio1)
+                                                                    .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
                                                                     .offset(x = fanMiddleOffsetX, y = fanMiddleOffsetY)
                                                                     .rotate(fanMiddleAngle)
                                                                     .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
@@ -871,7 +871,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.92f)
-                                                                    .aspectRatio(ratio0)
+                                                                    .aspectRatio(ratio0, matchHeightConstraintsFirst = ratio0 < 1.0f)
                                                                     .rotate(fanTopAngle)
                                                                     .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
@@ -991,7 +991,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.92f)
-                                                                    .aspectRatio(rawRatio)
+                                                                    .aspectRatio(rawRatio, matchHeightConstraintsFirst = rawRatio < 1.0f)
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
