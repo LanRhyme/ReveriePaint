@@ -246,6 +246,7 @@ class PaintViewModel : ViewModel() {
     var blurBackground by mutableStateOf(false) // 背景毛玻璃效果，默认关闭
     var accentColorHex by mutableStateOf("#5E8BA8")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
+    var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
 
@@ -639,15 +640,45 @@ class PaintViewModel : ViewModel() {
         applyCurrentTheme()
     }
 
+    fun updateThemeMode(mode: String) {
+        themeMode = mode
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("themeMode", mode)
+                .apply()
+        }
+        applyCurrentTheme()
+    }
+
+    fun isCurrentlyDark(): Boolean {
+        return when (themeMode) {
+            "LIGHT" -> false
+            "SYSTEM" -> {
+                if (::appContext.isInitialized) {
+                    val uiMode =
+                        appContext.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                    uiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+                } else {
+                    true
+                }
+            }
+            else -> true
+        }
+    }
+
     fun applyCurrentTheme() {
         if (!::appContext.isInitialized) return
+        val dark = isCurrentlyDark()
         val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
         if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             com.reverie.paint.ui.theme.Theme.current =
-                com.reverie.paint.ui.theme.getMonetColors(appContext, parsedAccent)
+                com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent)
         } else {
+            val base = if (dark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
             com.reverie.paint.ui.theme.Theme.current =
-                com.reverie.paint.ui.theme.MorandiColors.copy(
+                base.copy(
                     accent = parsedAccent,
                     accentHi = parsedAccent,
                 )
@@ -706,6 +737,7 @@ class PaintViewModel : ViewModel() {
             blurBackground = prefs.getBoolean("blurBackground", false)
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
+            themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)

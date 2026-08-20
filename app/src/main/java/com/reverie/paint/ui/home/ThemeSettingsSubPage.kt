@@ -127,6 +127,51 @@ internal fun ThemeSettingsSubPage(
         // Section: 外观与取色
         SettingCategoryHeader("外观与主题")
 
+        Text(
+            text = "色彩模式",
+            color = colors.text,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(colors.panel)
+                .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val modes = listOf(
+                "DARK" to "深色",
+                "LIGHT" to "浅色",
+                "SYSTEM" to "跟随系统"
+            )
+            modes.forEach { (modeKey, modeTitle) ->
+                val isSelected = vm.themeMode == modeKey
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) colors.accent else Color.Transparent)
+                        .clickable { vm.updateThemeMode(modeKey) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = modeTitle,
+                        color = if (isSelected) colors.onAccent else colors.text,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
         SettingSwitchRow(
             title = "莫奈取色 (Monet 动态色彩)",
             summary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

@@ -3,6 +3,7 @@ package com.reverie.paint.ui.theme
 import android.content.Context
 import android.os.Build
 import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,8 +36,8 @@ data class AppColors(
     val canvasShadow: Color, // drop shadow under the document
 )
 
-/** Default Morandi palette - low saturation, warm/cool elegant tones. */
-val MorandiColors =
+/** Default Morandi Dark palette - deep elegant charcoal slate. */
+val MorandiDarkColors =
     AppColors(
         bg = Color(0xFF121316), // Deep refined Morandi charcoal
         panel = Color(0xFF1E2024), // Balanced low-saturation slate panel
@@ -54,11 +55,38 @@ val MorandiColors =
         canvasShadow = Color(0x73000000),
     )
 
+/** Default Morandi Light palette - serene warm off-white and pure surfaces. */
+val MorandiLightColors =
+    AppColors(
+        bg = Color(0xFFF6F7F9), // Soft elegant light grey background
+        panel = Color(0xFFFFFFFF), // Pure crisp white panel
+        panelHi = Color(0xFFEBECEF), // Raised interactive card surface
+        accent = Color(0xFF4A7491), // Deepened Morandi blue for light legibility
+        accentHi = Color(0xFF658CA6),
+        onAccent = Color(0xFFFFFFFF),
+        text = Color(0xFF1E2125), // Crisp readable dark charcoal text
+        subText = Color(0xFF70757E), // Balanced secondary text
+        canvasBg = Color(0xFFE2E5E9), // Clean neutral workspace backdrop
+        border = Color(0xFFE2E4E8), // Subtle light hairline border
+        icon = Color(0xFF4C515B),
+        scrim = Color(0x66000000),
+        gridLine = Color(0xFFCFD3DA),
+        canvasShadow = Color(0x2E000000),
+    )
+
+/** Alias for backward compatibility */
+val MorandiColors = MorandiDarkColors
+
 /** Build Monet dynamic color theme for Android 12+ (Material You) */
-fun getMonetColors(context: Context, fallbackAccent: Color = Color(0xFF5E8BA8)): AppColors {
+fun getMonetColors(
+    context: Context,
+    isDark: Boolean = true,
+    fallbackAccent: Color = Color(0xFF5E8BA8)
+): AppColors {
+    val fallbackBase = if (isDark) MorandiDarkColors else MorandiLightColors
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {
-            val scheme = dynamicDarkColorScheme(context)
+            val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             AppColors(
                 bg = scheme.background,
                 panel = scheme.surface,
@@ -68,18 +96,18 @@ fun getMonetColors(context: Context, fallbackAccent: Color = Color(0xFF5E8BA8)):
                 onAccent = scheme.onPrimary,
                 text = scheme.onBackground,
                 subText = scheme.onSurfaceVariant,
-                canvasBg = scheme.background,
+                canvasBg = if (isDark) scheme.background else scheme.surfaceVariant.copy(alpha = 0.5f),
                 border = scheme.outlineVariant.copy(alpha = 0.45f),
                 icon = scheme.onSurfaceVariant,
-                scrim = Color(0x99000000),
+                scrim = if (isDark) Color(0x99000000) else Color(0x66000000),
                 gridLine = scheme.outline.copy(alpha = 0.25f),
-                canvasShadow = Color(0x73000000),
+                canvasShadow = if (isDark) Color(0x73000000) else Color(0x2E000000),
             )
         } catch (_: Throwable) {
-            MorandiColors.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+            fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)
         }
     }
-    return MorandiColors.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+    return fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)
 }
 
 /**
