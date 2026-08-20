@@ -765,7 +765,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     val ratio0 =
                                                         remember(item0?.width, item0?.height) {
                                                             if (item0 != null && item0.width > 0 && item0.height > 0) {
-                                                                (item0.width.toFloat() / item0.height.toFloat()).coerceIn(0.55f, 1.8f)
+                                                                (item0.width.toFloat() / item0.height.toFloat()).coerceIn(0.72f, 1.38f)
                                                             } else {
                                                                 1.0f
                                                             }
@@ -773,7 +773,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     val ratio1 =
                                                         remember(item1?.width, item1?.height, ratio0) {
                                                             if (item1 != null && item1.width > 0 && item1.height > 0) {
-                                                                (item1.width.toFloat() / item1.height.toFloat()).coerceIn(0.55f, 1.8f)
+                                                                (item1.width.toFloat() / item1.height.toFloat()).coerceIn(0.72f, 1.38f)
                                                             } else {
                                                                 ratio0
                                                             }
@@ -781,9 +781,22 @@ fun HomePage(vm: PaintViewModel) {
                                                     val ratio2 =
                                                         remember(item2?.width, item2?.height, ratio0) {
                                                             if (item2 != null && item2.width > 0 && item2.height > 0) {
-                                                                (item2.width.toFloat() / item2.height.toFloat()).coerceIn(0.55f, 1.8f)
+                                                                (item2.width.toFloat() / item2.height.toFloat()).coerceIn(0.72f, 1.38f)
                                                             } else {
                                                                 ratio0
+                                                            }
+                                                        }
+
+                                                    // Folder container ratio is anchored to the item ratio closest to 1:1
+                                                    val folderContainerRatio =
+                                                        remember(p.items, ratio0, ratio1, ratio2) {
+                                                            if (p.items.isEmpty()) {
+                                                                1.0f
+                                                            } else {
+                                                                val list = mutableListOf(ratio0)
+                                                                if (item1 != null) list.add(ratio1)
+                                                                if (item2 != null) list.add(ratio2)
+                                                                list.minByOrNull { kotlin.math.abs(it - 1.0f) } ?: 1.0f
                                                             }
                                                         }
 
@@ -791,7 +804,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(ratio0),
+                                                                .aspectRatio(folderContainerRatio),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
                                                         // Stacked layer 1 (bottom left loose tilt & offset with its own aspect ratio)
@@ -978,9 +991,9 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
                                                     }
                                                 } else {
-                                                    // Single artwork card (Pure Canvas Aesthetic with natural aspect ratio)
+                                                    // Single artwork card (Pure Canvas Aesthetic with comfortable natural aspect ratio)
                                                     val rawRatio = if (p.width > 0 && p.height > 0) p.width.toFloat() / p.height.toFloat() else 1.0f
-                                                    val artworkRatio = rawRatio.coerceIn(0.5f, 2.0f)
+                                                    val artworkRatio = rawRatio.coerceIn(0.72f, 1.38f)
                                                     Box(
                                                         modifier =
                                                             Modifier
