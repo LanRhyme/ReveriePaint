@@ -135,8 +135,10 @@ fun HomePage(vm: PaintViewModel) {
         }
 
     // Refresh projects upon entering
-    LaunchedEffect(currentFolder) {
-        vm.refreshProjects()
+    LaunchedEffect(currentFolder, selectedTab, vm.currentPage) {
+        if (selectedTab == 0) {
+            vm.refreshProjects()
+        }
     }
 
     // Handle back navigation for nested states (Folder, Selection Mode, Search Mode, Settings Subpage)

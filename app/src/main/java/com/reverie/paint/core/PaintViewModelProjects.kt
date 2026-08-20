@@ -26,13 +26,22 @@ import java.io.File
 import java.util.zip.ZipFile
 
 internal fun PaintViewModel.projectDir(): java.io.File {
-    val extDir = appContext.getExternalFilesDir("projects")
-    if (extDir != null) {
-        if (!extDir.exists()) extDir.mkdirs()
-        return extDir
-    }
     val intDir = java.io.File(appContext.filesDir, "projects")
     if (!intDir.exists()) intDir.mkdirs()
+
+    // Seamlessly migrate any legacy projects from external storage to internal storage
+    try {
+        val extDir = appContext.getExternalFilesDir("projects")
+        if (extDir != null && extDir.exists() && extDir.isDirectory) {
+            extDir.listFiles()?.forEach { extFile ->
+                val destFile = java.io.File(intDir, extFile.name)
+                if (!destFile.exists()) {
+                    extFile.copyRecursively(destFile, overwrite = true)
+                }
+            }
+        }
+    } catch (_: Exception) {}
+
     return intDir
 }
 
@@ -425,6 +434,7 @@ internal fun PaintViewModel.goHome() {
     recorder.endSession()
     stopPaintingTimer()
     currentPage = Page.HOME
+    refreshProjects()
 }
 
 internal fun PaintViewModel.goCreate() {
