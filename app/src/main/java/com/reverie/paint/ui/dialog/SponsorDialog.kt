@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -37,13 +36,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 private data class SponsorItem(
     val userName: String,
@@ -56,6 +58,15 @@ private data class SponsorItem(
     var bitmap by mutableStateOf<ImageBitmap?>(null)
 }
 
+private val okHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+}
+
 private fun md5(input: String): String {
     val md = MessageDigest.getInstance("MD5")
     val digest = md.digest(input.toByteArray(Charsets.UTF_8))
@@ -65,33 +76,18 @@ private fun md5(input: String): String {
 private fun downloadAvatarBitmap(urlString: String): ImageBitmap? {
     if (urlString.isBlank()) return null
     return try {
-        var curUrl = urlString
-        var redirects = 0
-        while (redirects < 5) {
-            val conn = URL(curUrl).openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
-            conn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
-
-            val code = conn.responseCode
-            if (code == HttpURLConnection.HTTP_MOVED_TEMP || code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_SEE_OTHER || code == 307 || code == 308) {
-                val loc = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (loc != null) {
-                    curUrl = loc
-                    redirects++
-                    continue
-                }
-            }
-            if (code in 200..299) {
-                val bytes = conn.inputStream.use { it.readBytes() }
-                return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-            }
-            break
+        val request = Request.Builder()
+            .url(urlString)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
+        val response = okHttpClient.newCall(request).execute()
+        if (response.isSuccessful) {
+            val bytes = response.body?.bytes() ?: return null
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } else {
+            null
         }
-        null
     } catch (_: Exception) {
         null
     }
@@ -129,29 +125,27 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             val signStr = "${apiToken}params${paramsJson}ts${ts}user_id${userId}"
                             val sign = md5(signStr)
 
-                            val requestBody = JSONObject().apply {
+                            val requestJson = JSONObject().apply {
                                 put("user_id", userId)
                                 put("params", paramsJson)
                                 put("ts", ts)
                                 put("sign", sign)
                             }
 
-                            val url = URL("https://afdian.com/api/open/query-sponsor")
-                            val conn = url.openConnection() as HttpURLConnection
-                            conn.requestMethod = "POST"
-                            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                            conn.setRequestProperty("Accept", "application/json")
-                            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
-                            conn.doOutput = true
-                            conn.connectTimeout = 12000
-                            conn.readTimeout = 12000
+                            val mediaType = "application/json; charset=utf-8".toMediaType()
+                            val body = requestJson.toString().toRequestBody(mediaType)
 
-                            conn.outputStream.use { os ->
-                                os.write(requestBody.toString().toByteArray(Charsets.UTF_8))
-                            }
+                            val request = Request.Builder()
+                                .url("https://afdian.com/api/open/query-sponsor")
+                                .post(body)
+                                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+                                .header("Accept", "application/json")
+                                .build()
 
-                            if (conn.responseCode in 200..299) {
-                                val resText = conn.inputStream.bufferedReader().use { it.readText() }
+                            val response = okHttpClient.newCall(request).execute()
+
+                            if (response.isSuccessful) {
+                                val resText = response.body?.string() ?: "{}"
                                 val json = JSONObject(resText)
                                 if (json.optInt("ec", -1) == 200) {
                                     val dataObj = json.optJSONObject("data")
@@ -184,7 +178,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                     break
                                 }
                             } else {
-                                error = "HTTP ${conn.responseCode}"
+                                error = "HTTP ${response.code}"
                                 break
                             }
                         }

@@ -124,4 +124,5 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("dev.chrisbanes.haze:haze:1.5.3")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

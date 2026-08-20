@@ -44,9 +44,10 @@ import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
@@ -71,36 +72,30 @@ private data class ContributorBubble(
     val floatSpeedY: Float, // vertical oscillation speed factor
 )
 
+private val okHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+}
+
 private fun downloadAvatarBitmap(urlString: String): ImageBitmap? {
     if (urlString.isBlank()) return null
     return try {
-        var curUrl = urlString
-        var redirects = 0
-        while (redirects < 5) {
-            val conn = URL(curUrl).openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = true
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
-            conn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
-
-            val code = conn.responseCode
-            if (code == HttpURLConnection.HTTP_MOVED_TEMP || code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_SEE_OTHER || code == 307 || code == 308) {
-                val loc = conn.getHeaderField("Location")
-                conn.disconnect()
-                if (loc != null) {
-                    curUrl = loc
-                    redirects++
-                    continue
-                }
-            }
-            if (code in 200..299) {
-                val bytes = conn.inputStream.use { it.readBytes() }
-                return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-            }
-            break
+        val request = Request.Builder()
+            .url(urlString)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            .build()
+        val response = okHttpClient.newCall(request).execute()
+        if (response.isSuccessful) {
+            val bytes = response.body?.bytes() ?: return null
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } else {
+            null
         }
-        null
     } catch (_: Exception) {
         null
     }
@@ -117,16 +112,17 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {
-                val url = URL("https://api.github.com/repos/LanRhyme/ReveriePaint/contributors")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) ReveriePaintApp")
-                conn.setRequestProperty("Accept", "application/vnd.github+json")
-                conn.connectTimeout = 10000
-                conn.readTimeout = 10000
+                val request = Request.Builder()
+                    .url("https://api.github.com/repos/LanRhyme/ReveriePaint/contributors")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) ReveriePaintApp")
+                    .header("Accept", "application/vnd.github+json")
+                    .build()
 
+                val response = okHttpClient.newCall(request).execute()
                 val list = mutableListOf<GitHubContributor>()
-                if (conn.responseCode in 200..299) {
-                    val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
+
+                if (response.isSuccessful) {
+                    val jsonText = response.body?.string() ?: "[]"
                     val array = JSONArray(jsonText)
                     for (i in 0 until array.length()) {
                         val obj = array.getJSONObject(i)
@@ -178,7 +174,6 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                     }
                 }
             } catch (e: Exception) {
-                // Fallback on network error
                 val fallbackList = listOf(
                     GitHubContributor("LanRhyme", "https://avatars.githubusercontent.com/u/113491998?v=4", "https://github.com/LanRhyme", 207),
                 )
