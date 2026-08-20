@@ -62,6 +62,41 @@ private fun md5(input: String): String {
     return digest.joinToString("") { "%02x".format(it) }
 }
 
+private fun downloadAvatarBitmap(urlString: String): ImageBitmap? {
+    if (urlString.isBlank()) return null
+    return try {
+        var curUrl = urlString
+        var redirects = 0
+        while (redirects < 5) {
+            val conn = URL(curUrl).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+            conn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_MOVED_TEMP || code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_SEE_OTHER || code == 307 || code == 308) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (loc != null) {
+                    curUrl = loc
+                    redirects++
+                    continue
+                }
+            }
+            if (code in 200..299) {
+                val bytes = conn.inputStream.use { it.readBytes() }
+                return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }
+            break
+        }
+        null
+    } catch (_: Exception) {
+        null
+    }
+}
+
 @Composable
 fun SponsorsDialog(onDismiss: () -> Unit) {
     var sponsors by remember { mutableStateOf<List<SponsorItem>>(emptyList()) }
@@ -150,15 +185,10 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                     // Load avatars in parallel
                     sponsors.forEach { item ->
                         launch(Dispatchers.IO) {
-                            try {
-                                if (item.userAvatar.isNotBlank()) {
-                                    val imgUrl = URL(item.userAvatar)
-                                    val imgStream = imgUrl.openStream()
-                                    val bytes = imgStream.readBytes()
-                                    imgStream.close()
-                                    item.bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                                }
-                            } catch (_: Exception) {}
+                            val bmp = downloadAvatarBitmap(item.userAvatar)
+                            if (bmp != null) {
+                                item.bitmap = bmp
+                            }
                         }
                     }
                 } catch (e: Exception) {

@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -70,13 +69,47 @@ private data class ContributorBubble(
     val floatAmpY: Float, // vertical float amplitude (dp)
     val floatSpeedX: Float, // horizontal oscillation speed factor
     val floatSpeedY: Float, // vertical oscillation speed factor
-) {
-    var bitmap by mutableStateOf<ImageBitmap?>(null)
+)
+
+private fun downloadAvatarBitmap(urlString: String): ImageBitmap? {
+    if (urlString.isBlank()) return null
+    return try {
+        var curUrl = urlString
+        var redirects = 0
+        while (redirects < 5) {
+            val conn = URL(curUrl).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+            conn.setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+
+            val code = conn.responseCode
+            if (code == HttpURLConnection.HTTP_MOVED_TEMP || code == HttpURLConnection.HTTP_MOVED_PERM || code == HttpURLConnection.HTTP_SEE_OTHER || code == 307 || code == 308) {
+                val loc = conn.getHeaderField("Location")
+                conn.disconnect()
+                if (loc != null) {
+                    curUrl = loc
+                    redirects++
+                    continue
+                }
+            }
+            if (code in 200..299) {
+                val bytes = conn.inputStream.use { it.readBytes() }
+                return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+            }
+            break
+        }
+        null
+    } catch (_: Exception) {
+        null
+    }
 }
 
 @Composable
 fun ContributorsDialog(onDismiss: () -> Unit) {
     var bubbles by remember { mutableStateOf<List<ContributorBubble>>(emptyList()) }
+    val avatarMap = remember { mutableStateMapOf<String, ImageBitmap>() }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
@@ -86,10 +119,10 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
             try {
                 val url = URL("https://api.github.com/repos/LanRhyme/ReveriePaint/contributors")
                 val conn = url.openConnection() as HttpURLConnection
-                conn.setRequestProperty("User-Agent", "ReveriePaintApp")
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) ReveriePaintApp")
                 conn.setRequestProperty("Accept", "application/vnd.github+json")
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
+                conn.connectTimeout = 10000
+                conn.readTimeout = 10000
 
                 val list = mutableListOf<GitHubContributor>()
                 if (conn.responseCode in 200..299) {
@@ -120,7 +153,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                 }
 
                 bubbles = list.map { c ->
-                    val sz = 70f + min(c.contributions.toFloat() * 2f, 50f)
+                    val sz = 75f + min(c.contributions.toFloat() * 1.5f, 45f)
                     ContributorBubble(
                         contributor = c,
                         size = sz,
@@ -136,15 +169,12 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                 // Load avatar images in parallel
                 bubbles.forEach { bubble ->
                     launch(Dispatchers.IO) {
-                        try {
-                            if (bubble.contributor.avatarUrl.isNotBlank()) {
-                                val imgUrl = URL(bubble.contributor.avatarUrl)
-                                val imgStream = imgUrl.openStream()
-                                val bytes = imgStream.readBytes()
-                                imgStream.close()
-                                bubble.bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        val bmp = downloadAvatarBitmap(bubble.contributor.avatarUrl)
+                        if (bmp != null) {
+                            withContext(Dispatchers.Main) {
+                                avatarMap[bubble.contributor.login] = bmp
                             }
-                        } catch (_: Exception) {}
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -165,18 +195,14 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                 }
                 isLoading = false
 
-                // Load avatar for fallback
                 bubbles.forEach { bubble ->
                     launch(Dispatchers.IO) {
-                        try {
-                            if (bubble.contributor.avatarUrl.isNotBlank()) {
-                                val imgUrl = URL(bubble.contributor.avatarUrl)
-                                val imgStream = imgUrl.openStream()
-                                val bytes = imgStream.readBytes()
-                                imgStream.close()
-                                bubble.bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        val bmp = downloadAvatarBitmap(bubble.contributor.avatarUrl)
+                        if (bmp != null) {
+                            withContext(Dispatchers.Main) {
+                                avatarMap[bubble.contributor.login] = bmp
                             }
-                        } catch (_: Exception) {}
+                        }
                     }
                 }
             }
@@ -239,6 +265,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                 else -> {
                     FloatingBubbleGrid(
                         bubbles = bubbles,
+                        avatarMap = avatarMap,
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = 80.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
@@ -310,6 +337,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
 @Composable
 private fun FloatingBubbleGrid(
     bubbles: List<ContributorBubble>,
+    avatarMap: Map<String, ImageBitmap>,
     modifier: Modifier = Modifier,
     onClick: (String) -> Unit,
 ) {
@@ -339,8 +367,10 @@ private fun FloatingBubbleGrid(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         BubbleFlowLayout(bubbles = bubbles, time = time) { bubble, offsetX, offsetY ->
+            val avatarBitmap = avatarMap[bubble.contributor.login]
             ContributorBubbleItem(
                 bubble = bubble,
+                avatarBitmap = avatarBitmap,
                 offsetX = offsetX,
                 offsetY = offsetY,
                 onClick = { onClick(bubble.contributor.htmlUrl) },
@@ -386,6 +416,7 @@ private fun BubbleFlowLayout(
 @Composable
 private fun ContributorBubbleItem(
     bubble: ContributorBubble,
+    avatarBitmap: ImageBitmap?,
     offsetX: Float,
     offsetY: Float,
     onClick: () -> Unit,
@@ -411,9 +442,9 @@ private fun ContributorBubbleItem(
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
-            if (bubble.bitmap != null) {
+            if (avatarBitmap != null) {
                 Image(
-                    bitmap = bubble.bitmap!!,
+                    bitmap = avatarBitmap,
                     contentDescription = bubble.contributor.login,
                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                     contentScale = ContentScale.Crop,
