@@ -69,6 +69,108 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val uriHandler = LocalUriHandler.current
 
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val userId = com.reverie.paint.BuildConfig.AIFADIAN_USER_ID
+            val apiToken = com.reverie.paint.BuildConfig.AIFADIAN_API_TOKEN
+
+            if (userId.isNotBlank() && apiToken.isNotBlank()) {
+                isLoading = true
+                try {
+                    val allSponsors = mutableListOf<SponsorItem>()
+                    var currentPage = 1
+                    var totalPages = 1
+                    val ts = System.currentTimeMillis() / 1000
+
+                    while (currentPage <= totalPages) {
+                        val paramsJson = "{\"page\":$currentPage,\"per_page\":100}"
+                        val signStr = "${apiToken}params${paramsJson}ts${ts}user_id${userId}"
+                        val sign = md5(signStr)
+
+                        val requestBody = JSONObject().apply {
+                            put("user_id", userId)
+                            put("params", paramsJson)
+                            put("ts", ts)
+                            put("sign", sign)
+                        }
+
+                        val url = URL("https://afdian.com/api/open/query-sponsor")
+                        val conn = url.openConnection() as HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                        conn.setRequestProperty("Accept", "application/json")
+                        conn.doOutput = true
+                        conn.connectTimeout = 10000
+                        conn.readTimeout = 10000
+
+                        conn.outputStream.use { os ->
+                            os.write(requestBody.toString().toByteArray(Charsets.UTF_8))
+                        }
+
+                        if (conn.responseCode in 200..299) {
+                            val resText = conn.inputStream.bufferedReader().use { it.readText() }
+                            val json = JSONObject(resText)
+                            if (json.optInt("ec", -1) == 200) {
+                                val dataObj = json.optJSONObject("data")
+                                if (dataObj != null) {
+                                    totalPages = dataObj.optInt("total_page", 1)
+                                    val listArr = dataObj.optJSONArray("list")
+                                    if (listArr != null) {
+                                        for (i in 0 until listArr.length()) {
+                                            val item = listArr.getJSONObject(i)
+                                            val userObj = item.optJSONObject("user")
+                                            val planObj = item.optJSONObject("current_plan")
+                                            allSponsors.add(
+                                                SponsorItem(
+                                                    userName = userObj?.optString("name", "Anonymous") ?: "Anonymous",
+                                                    userAvatar = userObj?.optString("avatar", "") ?: "",
+                                                    userId = userObj?.optString("user_id", "") ?: "",
+                                                    amount = item.optString("all_sum_amount", "0"),
+                                                    timestamp = item.optLong("first_pay_time", item.optLong("create_time", 0)),
+                                                    planName = planObj?.optString("name", "")?.ifBlank { null },
+                                                )
+                                            )
+                                        }
+                                    }
+                                    currentPage++
+                                } else {
+                                    break
+                                }
+                            } else {
+                                break
+                            }
+                        } else {
+                            break
+                        }
+                    }
+                    val sorted = allSponsors.sortedByDescending { it.timestamp }
+                    sponsors = sorted
+                    isLoading = false
+
+                    // Load avatars in parallel
+                    sponsors.forEach { item ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                if (item.userAvatar.isNotBlank()) {
+                                    val imgUrl = URL(item.userAvatar)
+                                    val imgStream = imgUrl.openStream()
+                                    val bytes = imgStream.readBytes()
+                                    imgStream.close()
+                                    item.bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    error = e.message
+                    isLoading = false
+                }
+            } else {
+                isLoading = false
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),

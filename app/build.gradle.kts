@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -16,11 +17,28 @@ val prebuiltJni = rootProject.file("third_party/android-native-libs/libreverie_j
 val buildNative = project.hasProperty("buildNative")
 val usePrebuiltJni = prebuiltJni && !buildNative
 
+val localProps = Properties()
+val localPropsFile = rootProject.file("local.properties")
+if (localPropsFile.isFile) {
+    localProps.load(localPropsFile.inputStream())
+}
+val aifadianApiToken = (project.findProperty("AIFADIAN_API_TOKEN") as? String)
+    ?: System.getenv("AIFADIAN_API_TOKEN")
+    ?: localProps.getProperty("AIFADIAN_API_TOKEN", "")
+
+val aifadianUserId = (project.findProperty("AIFADIAN_USER_ID") as? String)
+    ?: System.getenv("AIFADIAN_USER_ID")
+    ?: localProps.getProperty("AIFADIAN_USER_ID", "")
+
 android {
     namespace = "com.reverie.paint"
     compileSdk = 36
 
     ndkVersion = "25.2.9519653"
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "com.reverie.paint"
@@ -28,6 +46,9 @@ android {
         targetSdk = 33
         versionCode = 1
         versionName = "0.1.0"
+
+        buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
+        buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
 
         ndk {
             abiFilters += listOf("arm64-v8a")
