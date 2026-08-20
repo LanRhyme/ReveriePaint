@@ -245,6 +245,7 @@ class PaintViewModel : ViewModel() {
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(false) // 背景毛玻璃效果，默认关闭
     var accentColorHex by mutableStateOf("#5E8BA8")
+    var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
 
@@ -616,20 +617,40 @@ class PaintViewModel : ViewModel() {
 
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
-        val color =
-            com.reverie.paint.ui.theme
-                .parseColor(hex)
-        com.reverie.paint.ui.theme.Theme.current =
-            com.reverie.paint.ui.theme.Theme.current.copy(
-                accent = color,
-                accentHi = color,
-            )
         if (::appContext.isInitialized) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putString("accentColor", hex)
                 .apply()
+        }
+        applyCurrentTheme()
+    }
+
+    fun updateMonetEnabled(enable: Boolean) {
+        monetEnabled = enable
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("monetEnabled", enable)
+                .apply()
+        }
+        applyCurrentTheme()
+    }
+
+    fun applyCurrentTheme() {
+        if (!::appContext.isInitialized) return
+        val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
+        if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            com.reverie.paint.ui.theme.Theme.current =
+                com.reverie.paint.ui.theme.getMonetColors(appContext, parsedAccent)
+        } else {
+            com.reverie.paint.ui.theme.Theme.current =
+                com.reverie.paint.ui.theme.MorandiColors.copy(
+                    accent = parsedAccent,
+                    accentHi = parsedAccent,
+                )
         }
     }
 
@@ -684,6 +705,7 @@ class PaintViewModel : ViewModel() {
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             blurBackground = prefs.getBoolean("blurBackground", false)
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
+            monetEnabled = prefs.getBoolean("monetEnabled", false)
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
@@ -706,14 +728,7 @@ class PaintViewModel : ViewModel() {
                 ReverieCoreBridge.setBrushColor(brushColor)
             }
 
-            val parsedColor =
-                com.reverie.paint.ui.theme
-                    .parseColor(accentColorHex)
-            com.reverie.paint.ui.theme.Theme.current =
-                com.reverie.paint.ui.theme.Theme.current.copy(
-                    accent = parsedColor,
-                    accentHi = parsedColor,
-                )
+            applyCurrentTheme()
         }
     }
 

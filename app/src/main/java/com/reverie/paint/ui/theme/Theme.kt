@@ -1,5 +1,8 @@
 package com.reverie.paint.ui.theme
 
+import android.content.Context
+import android.os.Build
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,24 +35,52 @@ data class AppColors(
     val canvasShadow: Color, // drop shadow under the document
 )
 
-/** Default Morandi palette - low saturation, warm/cool tones. */
+/** Default Morandi palette - low saturation, warm/cool elegant tones. */
 val MorandiColors =
     AppColors(
-        bg = Color(0xFF0C0C0D), // Ultra dark interface background
-        panel = Color(0xFF1B1C1E), // Slightly lighter for panels
-        panelHi = Color(0xFF26282A),
-        accent = Color(0xFF5E8BA8), // Morandi blue accent, slightly muted
-        accentHi = Color(0xFF769EBB),
+        bg = Color(0xFF121316), // Deep refined Morandi charcoal
+        panel = Color(0xFF1E2024), // Balanced low-saturation slate panel
+        panelHi = Color(0xFF2A2D33), // Raised button and card surface
+        accent = Color(0xFF5E8BA8), // Refined Morandi blue
+        accentHi = Color(0xFF7CA4BE),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFFE2E2E2),
-        subText = Color(0xFF989A9C),
-        canvasBg = Color(0xFF2C2D30), // Brightened dark grey behind canvas
-        border = Color(0xFF323438),
-        icon = Color(0xFFB5B7B9),
+        text = Color(0xFFE8EAED), // Clean readable text
+        subText = Color(0xFF9DA1A7), // Gentle subtext
+        canvasBg = Color(0xFF191A1D), // Neutral workspace background
+        border = Color(0xFF32353C), // Muted crisp border
+        icon = Color(0xFFBAC0C7),
         scrim = Color(0x99000000),
-        gridLine = Color(0xFF3F4145),
-        canvasShadow = Color(0x66000000),
+        gridLine = Color(0xFF383B42),
+        canvasShadow = Color(0x73000000),
     )
+
+/** Build Monet dynamic color theme for Android 12+ (Material You) */
+fun getMonetColors(context: Context, fallbackAccent: Color = Color(0xFF5E8BA8)): AppColors {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        return try {
+            val scheme = dynamicDarkColorScheme(context)
+            AppColors(
+                bg = scheme.background,
+                panel = scheme.surface,
+                panelHi = scheme.surfaceVariant,
+                accent = scheme.primary,
+                accentHi = scheme.primaryContainer,
+                onAccent = scheme.onPrimary,
+                text = scheme.onBackground,
+                subText = scheme.onSurfaceVariant,
+                canvasBg = scheme.background,
+                border = scheme.outlineVariant.copy(alpha = 0.45f),
+                icon = scheme.onSurfaceVariant,
+                scrim = Color(0x99000000),
+                gridLine = scheme.outline.copy(alpha = 0.25f),
+                canvasShadow = Color(0x73000000),
+            )
+        } catch (_: Throwable) {
+            MorandiColors.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+        }
+    }
+    return MorandiColors.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+}
 
 /**
  * Active theme. UI code reads [Theme.current]; a theme system can swap

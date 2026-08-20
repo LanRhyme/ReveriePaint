@@ -1,5 +1,6 @@
 package com.reverie.paint.ui.home
 
+import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -72,6 +73,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.parseColor
+
 @Composable
 internal fun ThemeSettingsSubPage(
     vm: PaintViewModel,
@@ -81,8 +83,8 @@ internal fun ThemeSettingsSubPage(
     var showCustomColorDialog by remember { mutableStateOf(false) }
 
     val presetSwatches = listOf(
-        "#5E8BA8", "#C9ADA7", "#8D9E8F", "#B4552D",
-        "#5A6E8A", "#7C8F9E", "#9A8F7B", "#3E6B89"
+        "#5E8BA8", "#7C8F9E", "#8D9E8F", "#C9ADA7",
+        "#B4552D", "#5A6E8A", "#9A8F7B", "#A27B8A"
     )
 
     Column(
@@ -122,17 +124,36 @@ internal fun ThemeSettingsSubPage(
             )
         }
 
-        // Section: 主色调
-        SettingCategoryHeader("外观")
+        // Section: 外观与取色
+        SettingCategoryHeader("外观与主题")
+
+        SettingSwitchRow(
+            title = "莫奈取色 (Monet 动态色彩)",
+            summary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                "跟随系统壁纸与 Material You 动态提取界面主题色"
+            } else {
+                "需要 Android 12 及以上系统支持"
+            },
+            checked = vm.monetEnabled,
+            enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+            onCheckedChange = { vm.updateMonetEnabled(it) }
+        )
+
+        Spacer(Modifier.height(16.dp))
+
         Text(
-            text = "主色调",
-            color = colors.text,
+            text = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "主色调 (莫奈动态接管中)" else "主色调",
+            color = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) colors.subText else colors.text,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(vertical = 4.dp)
         )
         Text(
-            text = "应用于按钮、滑块及高亮强调色",
+            text = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                "点击下方色块可关闭莫奈取色并应用指定颜色"
+            } else {
+                "应用于按钮、滑块及高亮强调色"
+            },
             color = colors.subText,
             fontSize = 12.sp,
             modifier = Modifier.padding(bottom = 14.dp)
@@ -146,7 +167,7 @@ internal fun ThemeSettingsSubPage(
         ) {
             items(presetSwatches) { hex ->
                 val swatchColor = parseColor(hex)
-                val isSelected = vm.accentColorHex.equals(hex, ignoreCase = true)
+                val isSelected = !vm.monetEnabled && vm.accentColorHex.equals(hex, ignoreCase = true)
                 Box(
                     modifier = Modifier
                         .size(42.dp)
@@ -158,6 +179,9 @@ internal fun ThemeSettingsSubPage(
                             shape = CircleShape
                         )
                         .clickable {
+                            if (vm.monetEnabled) {
+                                vm.updateMonetEnabled(false)
+                            }
                             vm.updateAccentColor(hex)
                         },
                     contentAlignment = Alignment.Center
@@ -175,7 +199,7 @@ internal fun ThemeSettingsSubPage(
 
             // Custom color button
             item {
-                val isCustomSelected = presetSwatches.none { it.equals(vm.accentColorHex, ignoreCase = true) }
+                val isCustomSelected = !vm.monetEnabled && presetSwatches.none { it.equals(vm.accentColorHex, ignoreCase = true) }
                 val currentCustomColor = if (isCustomSelected) parseColor(vm.accentColorHex) else colors.panel
                 Box(
                     modifier = Modifier
@@ -188,6 +212,9 @@ internal fun ThemeSettingsSubPage(
                             shape = CircleShape
                         )
                         .clickable {
+                            if (vm.monetEnabled) {
+                                vm.updateMonetEnabled(false)
+                            }
                             showCustomColorDialog = true
                         },
                     contentAlignment = Alignment.Center

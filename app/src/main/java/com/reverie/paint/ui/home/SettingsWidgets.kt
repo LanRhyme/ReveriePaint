@@ -206,27 +206,28 @@ internal fun SettingSwitchRow(
     title: String,
     summary: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val colors = Theme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                color = colors.text,
+                color = if (enabled) colors.text else colors.subText.copy(alpha = 0.6f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Normal
             )
             Spacer(Modifier.height(2.dp))
             Text(
                 text = summary,
-                color = colors.subText,
+                color = if (enabled) colors.subText else colors.subText.copy(alpha = 0.5f),
                 fontSize = 12.sp,
                 lineHeight = 16.sp
             )
@@ -234,6 +235,7 @@ internal fun SettingSwitchRow(
         Spacer(Modifier.width(12.dp))
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = colors.panelHi,
