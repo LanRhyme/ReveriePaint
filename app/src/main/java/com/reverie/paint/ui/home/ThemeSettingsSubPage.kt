@@ -339,6 +339,8 @@ internal fun ThemeSettingsSubPage(
                 vm.updateImmersiveMode(it)
             }
         )
+
+        Spacer(Modifier.height(100.dp))
     }
 
     if (showCustomColorDialog) {

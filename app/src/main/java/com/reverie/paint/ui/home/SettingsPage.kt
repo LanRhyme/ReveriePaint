@@ -207,5 +207,7 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
             summary = "版本、作者与系统架构信息",
             onClick = { onNavigate(SettingsSubPage.ABOUT) },
         )
+
+        Spacer(Modifier.height(100.dp))
     }
 }

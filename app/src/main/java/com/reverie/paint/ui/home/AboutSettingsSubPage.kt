@@ -401,7 +401,7 @@ fun AboutSettingsSubPage(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(100.dp))
     }
 
     // 贡献者对话框 (MicYou 浮动气泡动画)

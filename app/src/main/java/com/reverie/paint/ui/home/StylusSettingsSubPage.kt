@@ -279,6 +279,8 @@ internal fun StylusSettingsSubPage(
                 }
             }
         }
+
+        Spacer(Modifier.height(100.dp))
     }
 
     if (showHelpDialog) {
