@@ -77,6 +77,7 @@ enum class SettingsSubPage {
     MAIN,
     THEME,
     STYLUS,
+    ABOUT,
 }
 
 @Composable
@@ -96,6 +97,9 @@ fun SettingsPageContent(
             vm.settingsInitialSubPage = "MAIN"
         } else if (vm.settingsInitialSubPage == "THEME") {
             subPage = SettingsSubPage.THEME
+            vm.settingsInitialSubPage = "MAIN"
+        } else if (vm.settingsInitialSubPage == "ABOUT") {
+            subPage = SettingsSubPage.ABOUT
             vm.settingsInitialSubPage = "MAIN"
         }
     }
@@ -142,6 +146,12 @@ fun SettingsPageContent(
                     onBack = { subPage = SettingsSubPage.MAIN },
                 )
             }
+
+            SettingsSubPage.ABOUT -> {
+                AboutSettingsSubPage(
+                    onBack = { subPage = SettingsSubPage.MAIN },
+                )
+            }
         }
     }
 }
@@ -184,6 +194,18 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
             title = "手写笔设置",
             summary = "笔模式、光标显示、驻停成形与全局压力曲线",
             onClick = { onNavigate(SettingsSubPage.STYLUS) },
+        )
+
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
+        Spacer(Modifier.height(8.dp))
+
+        // Native Android settings row: 关于应用
+        SettingNavRow(
+            iconRes = R.drawable.ic_info_circle,
+            title = "关于应用",
+            summary = "版本、作者与系统架构信息",
+            onClick = { onNavigate(SettingsSubPage.ABOUT) },
         )
     }
 }
