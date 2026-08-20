@@ -77,7 +77,33 @@ val MorandiLightColors =
 /** Alias for backward compatibility */
 val MorandiColors = MorandiDarkColors
 
-/** Build Monet dynamic color theme for Android 12+ (Material You) */
+/** Soften and calibrate Monet dynamic color to Morandi saturation and luminance range */
+private fun Color.toMorandiAccent(isDark: Boolean): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.colorToHSV(
+        android.graphics.Color.argb(
+            (alpha * 255).toInt(),
+            (red * 255).toInt(),
+            (green * 255).toInt(),
+            (blue * 255).toInt()
+        ),
+        hsv
+    )
+    // Coerce saturation to calm Morandi muted range (25% - 48%)
+    hsv[1] = hsv[1].coerceIn(0.24f, 0.46f)
+    // Coerce brightness/value for optimal contrast and elegance
+    hsv[2] = if (isDark) hsv[2].coerceIn(0.62f, 0.78f) else hsv[2].coerceIn(0.42f, 0.58f)
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+private fun blendColors(base: Color, tint: Color, tintWeight: Float): Color {
+    val r = base.red * (1f - tintWeight) + tint.red * tintWeight
+    val g = base.green * (1f - tintWeight) + tint.green * tintWeight
+    val b = base.blue * (1f - tintWeight) + tint.blue * tintWeight
+    return Color(red = r, green = g, blue = b, alpha = base.alpha)
+}
+
+/** Build Monet dynamic color theme for Android 12+ (Material You) with Morandi tuning */
 fun getMonetColors(
     context: Context,
     isDark: Boolean = true,
@@ -87,21 +113,22 @@ fun getMonetColors(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {
             val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            AppColors(
-                bg = if (isDark) scheme.background else scheme.surfaceContainer,
-                panel = if (isDark) scheme.surface else scheme.surface,
-                panelHi = if (isDark) scheme.surfaceVariant else scheme.surfaceContainerHigh,
-                accent = scheme.primary,
-                accentHi = scheme.primaryContainer,
-                onAccent = scheme.onPrimary,
-                text = scheme.onBackground,
-                subText = scheme.onSurfaceVariant,
-                canvasBg = if (isDark) scheme.background else scheme.surfaceContainerHighest,
-                border = scheme.outlineVariant.copy(alpha = 0.45f),
-                icon = scheme.onSurfaceVariant,
-                scrim = if (isDark) Color(0x99000000) else Color(0x66000000),
-                gridLine = scheme.outline.copy(alpha = 0.25f),
-                canvasShadow = if (isDark) Color(0x73000000) else Color(0x2E000000),
+            val morandiAccent = scheme.primary.toMorandiAccent(isDark)
+            val morandiAccentHi = scheme.primaryContainer.toMorandiAccent(isDark)
+
+            val tintColor = scheme.primary
+            val bgTintWeight = if (isDark) 0.05f else 0.03f
+            val panelTintWeight = if (isDark) 0.06f else 0.02f
+            val panelHiTintWeight = if (isDark) 0.08f else 0.04f
+
+            fallbackBase.copy(
+                bg = blendColors(fallbackBase.bg, tintColor, bgTintWeight),
+                panel = blendColors(fallbackBase.panel, tintColor, panelTintWeight),
+                panelHi = blendColors(fallbackBase.panelHi, tintColor, panelHiTintWeight),
+                canvasBg = blendColors(fallbackBase.canvasBg, tintColor, bgTintWeight),
+                accent = morandiAccent,
+                accentHi = morandiAccentHi,
+                border = blendColors(fallbackBase.border, tintColor, 0.05f),
             )
         } catch (_: Throwable) {
             fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)

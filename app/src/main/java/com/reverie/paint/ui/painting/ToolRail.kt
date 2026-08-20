@@ -147,6 +147,7 @@ fun ToolRail(
                         )
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+                            val popupAlpha = vm.popupPanelOpacity
                             Popup(
                                 alignment = Alignment.CenterStart,
                                 offset = IntOffset(tooltipOffsetPx, 0)
@@ -155,8 +156,8 @@ fun ToolRail(
                                     modifier = Modifier
                                         .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Morandi.panel)
-                                        .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                                        .background(Morandi.panel.copy(alpha = popupAlpha))
+                                        .border(1.dp, Morandi.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
                                     Text(

@@ -608,6 +608,7 @@ fun ReVerticalSlider(
                 // Live Tooltip while dragging
                 if (isDragging) {
                     val tooltipOffsetPx = with(density) { (trackWidth + 20).dp.roundToPx() }
+                    val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
                     Popup(
                         alignment = Alignment.CenterStart,
                         offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, 0)
@@ -616,8 +617,8 @@ fun ReVerticalSlider(
                             modifier = Modifier
                                 .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(colors.panel)
-                                .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                                .background(colors.panel.copy(alpha = popupAlpha))
+                                .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Text(
