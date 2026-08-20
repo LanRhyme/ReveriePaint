@@ -47,6 +47,8 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Theme
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
@@ -94,6 +96,7 @@ fun HomePage(vm: PaintViewModel) {
     val colors = Theme.current
     val selectedTab = vm.homeSelectedTab
     val context = LocalContext.current
+    val hazeState = remember { HazeState() }
 
     // Search and selection modes
     var isSearchActive by remember { mutableStateOf(false) }
@@ -232,7 +235,7 @@ fun HomePage(vm: PaintViewModel) {
         )
     }
 
-    Column(
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
@@ -244,7 +247,7 @@ fun HomePage(vm: PaintViewModel) {
                 fadeIn(tween(220, easing = FastOutSlowInEasing))
                     .togetherWith(fadeOut(tween(160)))
             },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize().haze(hazeState),
             label = "HomeTabTransition",
         ) { tabIndex ->
             if (tabIndex == 0) {
@@ -1216,6 +1219,14 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-        HomeBottomBar(colors = colors, vm = vm, selectedTab = selectedTab)
+        HomeBottomBar(
+            colors = colors,
+            vm = vm,
+            selectedTab = selectedTab,
+            hazeState = hazeState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding(),
+        )
     }
 }
