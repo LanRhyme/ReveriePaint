@@ -13,12 +13,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -34,10 +34,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -100,100 +100,119 @@ private fun downloadAvatarBitmap(urlString: String): ImageBitmap? {
 @Composable
 fun SponsorsDialog(onDismiss: () -> Unit) {
     var sponsors by remember { mutableStateOf<List<SponsorItem>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var reloadTrigger by remember { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(reloadTrigger) {
         withContext(Dispatchers.IO) {
             val userId = com.reverie.paint.BuildConfig.AIFADIAN_USER_ID
             val apiToken = com.reverie.paint.BuildConfig.AIFADIAN_API_TOKEN
 
             if (userId.isNotBlank() && apiToken.isNotBlank()) {
                 isLoading = true
-                try {
-                    val allSponsors = mutableListOf<SponsorItem>()
-                    var currentPage = 1
-                    var totalPages = 1
-                    val ts = System.currentTimeMillis() / 1000
+                error = null
+                var attempt = 0
+                var success = false
 
-                    while (currentPage <= totalPages) {
-                        val paramsJson = "{\"page\":$currentPage,\"per_page\":100}"
-                        val signStr = "${apiToken}params${paramsJson}ts${ts}user_id${userId}"
-                        val sign = md5(signStr)
+                while (attempt < 3 && !success) {
+                    attempt++
+                    try {
+                        val allSponsors = mutableListOf<SponsorItem>()
+                        var currentPage = 1
+                        var totalPages = 1
+                        val ts = System.currentTimeMillis() / 1000
 
-                        val requestBody = JSONObject().apply {
-                            put("user_id", userId)
-                            put("params", paramsJson)
-                            put("ts", ts)
-                            put("sign", sign)
-                        }
+                        while (currentPage <= totalPages) {
+                            val paramsJson = "{\"page\":$currentPage,\"per_page\":100}"
+                            val signStr = "${apiToken}params${paramsJson}ts${ts}user_id${userId}"
+                            val sign = md5(signStr)
 
-                        val url = URL("https://afdian.com/api/open/query-sponsor")
-                        val conn = url.openConnection() as HttpURLConnection
-                        conn.requestMethod = "POST"
-                        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                        conn.setRequestProperty("Accept", "application/json")
-                        conn.doOutput = true
-                        conn.connectTimeout = 10000
-                        conn.readTimeout = 10000
+                            val requestBody = JSONObject().apply {
+                                put("user_id", userId)
+                                put("params", paramsJson)
+                                put("ts", ts)
+                                put("sign", sign)
+                            }
 
-                        conn.outputStream.use { os ->
-                            os.write(requestBody.toString().toByteArray(Charsets.UTF_8))
-                        }
+                            val url = URL("https://afdian.com/api/open/query-sponsor")
+                            val conn = url.openConnection() as HttpURLConnection
+                            conn.requestMethod = "POST"
+                            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                            conn.setRequestProperty("Accept", "application/json")
+                            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36")
+                            conn.doOutput = true
+                            conn.connectTimeout = 12000
+                            conn.readTimeout = 12000
 
-                        if (conn.responseCode in 200..299) {
-                            val resText = conn.inputStream.bufferedReader().use { it.readText() }
-                            val json = JSONObject(resText)
-                            if (json.optInt("ec", -1) == 200) {
-                                val dataObj = json.optJSONObject("data")
-                                if (dataObj != null) {
-                                    totalPages = dataObj.optInt("total_page", 1)
-                                    val listArr = dataObj.optJSONArray("list")
-                                    if (listArr != null) {
-                                        for (i in 0 until listArr.length()) {
-                                            val item = listArr.getJSONObject(i)
-                                            val userObj = item.optJSONObject("user")
-                                            val planObj = item.optJSONObject("current_plan")
-                                            allSponsors.add(
-                                                SponsorItem(
-                                                    userName = userObj?.optString("name", "Anonymous") ?: "Anonymous",
-                                                    userAvatar = userObj?.optString("avatar", "") ?: "",
-                                                    userId = userObj?.optString("user_id", "") ?: "",
-                                                    amount = item.optString("all_sum_amount", "0"),
-                                                    timestamp = item.optLong("first_pay_time", item.optLong("create_time", 0)),
-                                                    planName = planObj?.optString("name", "")?.ifBlank { null },
+                            conn.outputStream.use { os ->
+                                os.write(requestBody.toString().toByteArray(Charsets.UTF_8))
+                            }
+
+                            if (conn.responseCode in 200..299) {
+                                val resText = conn.inputStream.bufferedReader().use { it.readText() }
+                                val json = JSONObject(resText)
+                                if (json.optInt("ec", -1) == 200) {
+                                    val dataObj = json.optJSONObject("data")
+                                    if (dataObj != null) {
+                                        totalPages = dataObj.optInt("total_page", 1)
+                                        val listArr = dataObj.optJSONArray("list")
+                                        if (listArr != null) {
+                                            for (i in 0 until listArr.length()) {
+                                                val item = listArr.getJSONObject(i)
+                                                val userObj = item.optJSONObject("user")
+                                                val planObj = item.optJSONObject("current_plan")
+                                                allSponsors.add(
+                                                    SponsorItem(
+                                                        userName = userObj?.optString("name", "Anonymous") ?: "Anonymous",
+                                                        userAvatar = userObj?.optString("avatar", "") ?: "",
+                                                        userId = userObj?.optString("user_id", "") ?: "",
+                                                        amount = item.optString("all_sum_amount", "0"),
+                                                        timestamp = item.optLong("first_pay_time", item.optLong("create_time", 0)),
+                                                        planName = planObj?.optString("name", "")?.ifBlank { null },
+                                                    )
                                                 )
-                                            )
+                                            }
                                         }
+                                        currentPage++
+                                    } else {
+                                        break
                                     }
-                                    currentPage++
                                 } else {
+                                    error = json.optString("em", "API 响应异常")
                                     break
                                 }
                             } else {
+                                error = "HTTP ${conn.responseCode}"
                                 break
                             }
-                        } else {
-                            break
                         }
-                    }
-                    val sorted = allSponsors.sortedByDescending { it.timestamp }
-                    sponsors = sorted
-                    isLoading = false
 
-                    // Load avatars in parallel
-                    sponsors.forEach { item ->
-                        launch(Dispatchers.IO) {
-                            val bmp = downloadAvatarBitmap(item.userAvatar)
-                            if (bmp != null) {
-                                item.bitmap = bmp
+                        if (error == null) {
+                            val sorted = allSponsors.sortedByDescending { it.timestamp }
+                            sponsors = sorted
+                            success = true
+                            isLoading = false
+
+                            // Load avatars in parallel
+                            sponsors.forEach { item ->
+                                launch(Dispatchers.IO) {
+                                    val bmp = downloadAvatarBitmap(item.userAvatar)
+                                    if (bmp != null) {
+                                        item.bitmap = bmp
+                                    }
+                                }
                             }
                         }
+                    } catch (e: Exception) {
+                        if (attempt < 3) {
+                            delay(800)
+                        } else {
+                            error = "网络连接受阻，请检查设备联网状态或稍后重试"
+                            isLoading = false
+                        }
                     }
-                } catch (e: Exception) {
-                    error = e.message
-                    isLoading = false
                 }
             } else {
                 isLoading = false
@@ -224,7 +243,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             strokeWidth = 3.dp,
                         )
                         Text(
-                            "正在加载赞助者...",
+                            "正在加载爱发电赞助者数据...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Morandi.subText,
                         )
@@ -235,15 +254,34 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                     Column(
                         modifier = Modifier.align(Alignment.Center).padding(32.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Text("⚠️", fontSize = 48.sp)
+                        Text("⚠️", fontSize = 42.sp)
                         Text(
                             error ?: "加载失败",
                             color = Morandi.subText,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
+                            lineHeight = 20.sp,
                         )
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panel)
+                                .clickable { reloadTrigger++ }
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Refresh,
+                                contentDescription = "重试",
+                                tint = Morandi.accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("重新加载", color = Morandi.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
@@ -326,7 +364,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             }
                         }
 
-                        // Floating Action Button (MicYou Style)
+                        // Floating Action Button
                         FloatingActionButton(
                             onClick = {
                                 try {
