@@ -480,7 +480,7 @@ fun BrushPanel(
     if (categoryMenuTarget != null) {
         val cat = categoryMenuTarget!!
         val catIdx = categories.indexOf(cat)
-        val isBuiltIn = isBuiltInBrushGroup(cat)
+        val isBuiltIn = vm.isBuiltInGroup(cat)
         CategoryMenuDialog(
             categoryName = cat,
             isBuiltIn = isBuiltIn,

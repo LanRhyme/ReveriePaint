@@ -1180,6 +1180,16 @@ data class BrushPresetInfo(
     val isBuiltIn: Boolean = false,
 )
 
-val BUILT_IN_BRUSH_GROUPS = setOf("全部", "橡皮擦", "基础", "铅笔", "勾线", "马克笔", "鬃毛", "干笔", "粉笔", "湿笔", "水彩", "混合", "导入")
+val BUILT_IN_BRUSH_GROUPS = setOf(
+    "全部", "橡皮擦", "基础", "铅笔", "勾线", "马克笔", "鬃毛",
+    "干笔", "粉笔", "湿笔", "水彩", "混合", "调整", "形状",
+    "像素画", "特效", "纹理", "滤镜", "印章", "喷枪", "其他", "导入"
+)
 
-fun isBuiltInBrushGroup(group: String): Boolean = BUILT_IN_BRUSH_GROUPS.contains(group)
+fun isBuiltInBrushGroup(group: String, presets: List<BrushPresetInfo> = emptyList()): Boolean {
+    if (BUILT_IN_BRUSH_GROUPS.contains(group)) return true
+    if (presets.any { it.isBuiltIn && it.group == group }) return true
+    return false
+}
+
+fun PaintViewModel.isBuiltInGroup(group: String): Boolean = isBuiltInBrushGroup(group, brushPresets)

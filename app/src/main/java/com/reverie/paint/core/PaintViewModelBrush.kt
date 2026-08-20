@@ -170,7 +170,7 @@ import kotlinx.coroutines.launch
     }
 
     internal fun PaintViewModel.renameBrushGroup(oldName: String, newName: String): Boolean {
-        if (isBuiltInBrushGroup(oldName)) return false
+        if (isBuiltInGroup(oldName)) return false
         val clean = newName.trim().ifEmpty { return false }
         if (clean == oldName) return true
         if (customBrushGroups.contains(oldName)) {
@@ -967,7 +967,7 @@ import kotlinx.coroutines.launch
 
     /** 删除自定义笔刷组 (内置组不可删除) */
     internal fun PaintViewModel.deleteBrushGroup(name: String): Boolean {
-        if (isBuiltInBrushGroup(name)) return false // 内置组禁止删除
+        if (isBuiltInGroup(name)) return false // 内置组禁止删除
         if (!customBrushGroups.contains(name)) return false
         customBrushGroups = customBrushGroups.filter { it != name }
         userBrushGroups = userBrushGroups.filterValues { it != name }
