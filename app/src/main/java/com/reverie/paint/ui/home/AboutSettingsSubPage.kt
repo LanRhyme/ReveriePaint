@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.ui.dialog.ContributorsDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
@@ -226,7 +227,7 @@ fun AboutSettingsSubPage(
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            text = "v1.0.0-Preview1",
+                            text = "v${BuildConfig.VERSION_NAME}",
                             color = Morandi.accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -258,43 +259,29 @@ fun AboutSettingsSubPage(
         Column(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            // 1. 开发者 (Top Rounded)
-            AboutGroupItem(
-                icon = Icons.Rounded.Person,
-                title = "开发者",
-                summary = "LanRhyme",
-                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
-                onClick = null,
-            )
-
-            // 2. Github 仓库 (Middle Rounded)
+            // 访问官网 (Top Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Language,
-                title = "Github 仓库",
-                summary = "https://github.com/LanRhyme/ReveriePaint",
-                isLink = true,
-                shape = RoundedCornerShape(4.dp),
-                onClick = {
-                    try {
-                        uriHandler.openUri("https://github.com/LanRhyme/ReveriePaint")
-                    } catch (_: Exception) {}
-                },
+                title = "项目官网",
+                summary = "访问 ReveriePaint 官方主页",
+                shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
+                onClick = { uriHandler.openUri("https://github.com/LanRhyme/ReveriePaint") },
             )
 
-            // 3. 贡献者 (Middle Rounded)
+            // 参与开源贡献 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.People,
-                title = "贡献者",
-                summary = "感谢每一位为本项目做出贡献的人",
+                title = "贡献者鸣谢",
+                summary = "查看参与项目设计与代码贡献的开发者",
                 shape = RoundedCornerShape(4.dp),
                 onClick = { showContributorsDialog = true },
             )
 
-            // 4. 赞助者 (Bottom Rounded)
+            // 爱发电赞助 (Bottom Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Favorite,
-                title = "赞助者",
-                summary = "查看爱发电赞助者",
+                title = "赞助与支持",
+                summary = "在爱发电支持作者与后续开发维护",
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
                 onClick = { showSponsorsDialog = true },
             )
@@ -302,7 +289,7 @@ fun AboutSettingsSubPage(
 
         Spacer(Modifier.height(16.dp))
 
-        // 4. Contiguous Card Group 2: 应用与维护
+        // 4. Contiguous Card Group 2: 应用与系统
         Text(
             text = "应用与系统",
             color = Morandi.accent,
@@ -319,7 +306,7 @@ fun AboutSettingsSubPage(
             AboutGroupItem(
                 icon = Icons.Rounded.Info,
                 title = "版本",
-                summary = "1.0.0",
+                summary = BuildConfig.VERSION_NAME,
                 rightWidget = {
                     Text(
                         text = "检查更新",
@@ -331,14 +318,14 @@ fun AboutSettingsSubPage(
                             .background(Morandi.panel)
                             .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                             .clickable {
-                                Toast.makeText(context, "当前已是最新版本 (v1.0.0)", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "当前已是最新版本 (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
                             }
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                     )
                 },
                 shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
                 onClick = {
-                    Toast.makeText(context, "当前已是最新版本 (v1.0.0)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "当前已是最新版本 (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
                 },
             )
 
