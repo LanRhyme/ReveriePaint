@@ -139,6 +139,7 @@ class PaintViewModel : ViewModel() {
 
     // Custom display order of presets (persisted); empty = default (sorted)
     var brushOrder by mutableStateOf<List<String>>(emptyList())
+    var categoryOrder by mutableStateOf<List<String>>(emptyList())
     var brushFlow by mutableStateOf(1.0)
     var brushSpacing by mutableStateOf(0.1)
     var brushAngle by mutableStateOf(0.0)

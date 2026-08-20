@@ -18,6 +18,9 @@ import androidx.compose.ui.res.painterResource
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -83,10 +86,19 @@ fun BrushPanel(
     hazeState: HazeState? = null,
 ) {
     val context = LocalContext.current
-    val categories = remember(vm.brushPresets, vm.customBrushGroups) {
+    val rawCategories = remember(vm.brushPresets, vm.customBrushGroups) {
         listOf("全部") +
             vm.brushPresets.map { it.group }.distinct() +
             vm.customBrushGroups.filter { g -> vm.brushPresets.none { it.group == g } }
+    }
+    val categories = remember(rawCategories, vm.categoryOrder) {
+        if (vm.categoryOrder.isEmpty()) {
+            rawCategories
+        } else {
+            val ordered = vm.categoryOrder.filter { rawCategories.contains(it) }
+            val remaining = rawCategories.filter { !vm.categoryOrder.contains(it) }
+            (ordered + remaining).distinct()
+        }
     }
     var selectedCategory by remember { mutableStateOf(vm.brushPanelSelectedCategory) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
@@ -94,9 +106,13 @@ fun BrushPanel(
     var renamePresetName by remember { mutableStateOf<String?>(null) }
     var editingCategoryName by remember { mutableStateOf<String?>(null) }
     var groupPendingDelete by remember { mutableStateOf<String?>(null) }
+    var categoryMenuTarget by remember { mutableStateOf<String?>(null) }
+    var renameCategoryTarget by remember { mutableStateOf<String?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var movePresetName by remember { mutableStateOf<String?>(null) }
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
+    var draggingPresetName by remember { mutableStateOf<String?>(null) }
+    var dragAccumulatedY by remember { mutableStateOf(0f) }
 
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -194,7 +210,6 @@ fun BrushPanel(
                                 ) {
                                     items(categories) { cat ->
                                         val sel = cat == selectedCategory
-                                        val isBuiltIn = isBuiltInBrushGroup(cat)
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -202,13 +217,7 @@ fun BrushPanel(
                                                 .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
                                                 .combinedClickable(
                                                     onClick = { selectedCategory = cat },
-                                                    onLongClick = {
-                                                        if (isBuiltIn) {
-                                                            Toast.makeText(context, "内置分类不可删除", Toast.LENGTH_SHORT).show()
-                                                        } else {
-                                                            groupPendingDelete = cat
-                                                        }
-                                                    },
+                                                    onLongClick = { categoryMenuTarget = cat },
                                                 ),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
@@ -257,19 +266,67 @@ fun BrushPanel(
                                         } else {
                                             vm.brushPresets.filter { it.group == selectedCategory }
                                         }
-                                        items(filtered) { preset ->
+                                        items(filtered, key = { it.name }) { preset ->
                                             val isSelected = preset.index == vm.brushPresetIndex
+                                            val isDragging = draggingPresetName == preset.name
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(52.dp)
+                                                    .graphicsLayer {
+                                                        if (isDragging) {
+                                                            translationY = dragAccumulatedY
+                                                            shadowElevation = 16f
+                                                            scaleX = 1.03f
+                                                            scaleY = 1.03f
+                                                        }
+                                                    }
+                                                    .zIndex(if (isDragging) 10f else 0f)
                                                     .clip(RoundedCornerShape(8.dp))
-                                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.15f) else Morandi.panel.copy(alpha = 0.5f))
+                                                    .background(
+                                                        if (isDragging) Morandi.panelHi
+                                                        else if (isSelected) Morandi.accent.copy(alpha = 0.15f)
+                                                        else Morandi.panel.copy(alpha = 0.5f)
+                                                    )
                                                     .border(
-                                                        width = if (isSelected) 1.5.dp else 0.dp,
-                                                        color = if (isSelected) Morandi.accent else Color.Transparent,
+                                                        width = if (isDragging) 2.dp else if (isSelected) 1.5.dp else 0.dp,
+                                                        color = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
                                                         shape = RoundedCornerShape(8.dp)
                                                     )
+                                                    .pointerInput(preset.name) {
+                                                        detectDragGesturesAfterLongPress(
+                                                            onDragStart = {
+                                                                draggingPresetName = preset.name
+                                                                dragAccumulatedY = 0f
+                                                            },
+                                                            onDragEnd = {
+                                                                draggingPresetName = null
+                                                                dragAccumulatedY = 0f
+                                                            },
+                                                            onDragCancel = {
+                                                                draggingPresetName = null
+                                                                dragAccumulatedY = 0f
+                                                            },
+                                                            onDrag = { change, dragAmount ->
+                                                                change.consume()
+                                                                dragAccumulatedY += dragAmount.y
+                                                                val threshold = 110f
+                                                                if (dragAccumulatedY > threshold) {
+                                                                    val curIdx = vm.brushPresets.indexOfFirst { it.name == preset.name }
+                                                                    if (curIdx >= 0 && curIdx < vm.brushPresets.size - 1) {
+                                                                        vm.reorderBrushPresets(curIdx, curIdx + 1)
+                                                                        dragAccumulatedY -= threshold
+                                                                    }
+                                                                } else if (dragAccumulatedY < -threshold) {
+                                                                    val curIdx = vm.brushPresets.indexOfFirst { it.name == preset.name }
+                                                                    if (curIdx > 0) {
+                                                                        vm.reorderBrushPresets(curIdx, curIdx - 1)
+                                                                        dragAccumulatedY += threshold
+                                                                    }
+                                                                }
+                                                            }
+                                                        )
+                                                    }
                                                     .combinedClickable(
                                                         onClick = {
                                                             if (isSelected) view = BrushView.Detail(preset.index)
@@ -420,6 +477,34 @@ fun BrushPanel(
             },
         )
     }
+    if (categoryMenuTarget != null) {
+        val cat = categoryMenuTarget!!
+        val catIdx = categories.indexOf(cat)
+        val isBuiltIn = isBuiltInBrushGroup(cat)
+        CategoryMenuDialog(
+            categoryName = cat,
+            isBuiltIn = isBuiltIn,
+            canMoveUp = catIdx > 0,
+            canMoveDown = catIdx >= 0 && catIdx < categories.size - 1,
+            onDismiss = { categoryMenuTarget = null },
+            onMoveUp = { vm.moveCategoryUp(cat, categories) },
+            onMoveDown = { vm.moveCategoryDown(cat, categories) },
+            onRename = { renameCategoryTarget = cat },
+            onDelete = { groupPendingDelete = cat },
+        )
+    }
+    if (renameCategoryTarget != null) {
+        val cat = renameCategoryTarget!!
+        RenameBrushGroupDialog(
+            initialName = cat,
+            onDismiss = { renameCategoryTarget = null },
+            onRename = { newName ->
+                vm.renameBrushGroup(cat, newName)
+                if (selectedCategory == cat) selectedCategory = newName
+                renameCategoryTarget = null
+            },
+        )
+    }
     if (reorderPresetName != null) {
         val rp = reorderPresetName!!
         val preset = vm.brushPresets.firstOrNull { it.name == rp }
@@ -478,6 +563,107 @@ fun BrushPanel(
     }
 }
 
+/** Long-press menu for categories: move up/down, rename, delete. */
+@Composable
+private fun CategoryMenuDialog(
+    categoryName: String,
+    isBuiltIn: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onDismiss: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("分类: $categoryName", color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                val menuItems = mutableListOf<Pair<String, () -> Unit>>()
+                if (canMoveUp) {
+                    menuItems.add("上移分类" to onMoveUp)
+                }
+                if (canMoveDown) {
+                    menuItems.add("下移分类" to onMoveDown)
+                }
+                if (!isBuiltIn) {
+                    menuItems.add("重命名分类" to onRename)
+                    menuItems.add("删除此分类" to onDelete)
+                } else {
+                    menuItems.add("(内置分类 · 固定名称)" to {})
+                }
+                menuItems.forEach { (label, act) ->
+                    val isDelete = label.startsWith("删除")
+                    val isHint = label.startsWith("(")
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(enabled = !isHint) {
+                                onDismiss()
+                                act()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            label,
+                            color = if (isDelete) Color(0xFFC86464) else if (isHint) Morandi.subText.copy(alpha = 0.6f) else Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = if (isDelete) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
+}
+
+/** Dialog to rename a custom brush category. */
+@Composable
+private fun RenameBrushGroupDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onRename: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(initialName) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("重命名分类", color = Morandi.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("输入新的分类名称", color = Morandi.subText, fontSize = 12.sp)
+                androidx.compose.foundation.text.BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = Morandi.text, fontSize = 14.sp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Morandi.panel, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(
+                enabled = name.isNotBlank() && name.trim() != initialName,
+                onClick = { onRename(name.trim()) }
+            ) { Text("确定", color = Morandi.accent) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+        },
+        containerColor = Morandi.panelHi,
+    )
+}
+
 /** Long-press menu: move up/down, duplicate, rename, delete or move to a group. */
 @Composable
 private fun ReorderBrushMenu(
@@ -498,11 +684,13 @@ private fun ReorderBrushMenu(
             Column(Modifier.fillMaxWidth()) {
                 val menuItems = mutableListOf(
                     "复制笔刷" to onDuplicate,
-                    "重命名" to onRename,
-                    "上移" to onUp,
-                    "下移" to onDown,
-                    "移动到组..." to onMoveGroup,
                 )
+                if (!isBuiltIn) {
+                    menuItems.add("重命名" to onRename)
+                }
+                menuItems.add("上移" to onUp)
+                menuItems.add("下移" to onDown)
+                menuItems.add("移动到组..." to onMoveGroup)
                 if (!isBuiltIn) {
                     menuItems.add("删除此笔刷" to onDelete)
                 }
@@ -560,6 +748,7 @@ private fun NewBrushPresetDialog(
                         .background(Morandi.panel, RoundedCornerShape(6.dp))
                         .padding(10.dp),
                 )
+                Text("基准模板: Basic-1 (基础笔刷)", color = Morandi.subText.copy(alpha = 0.7f), fontSize = 11.sp)
             }
         },
         confirmButton = {

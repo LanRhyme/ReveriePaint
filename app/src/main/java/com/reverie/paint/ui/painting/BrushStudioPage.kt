@@ -1224,13 +1224,27 @@ private fun EngineTabContent(
         ) {
             Text("复制副本", color = textMain, fontSize = 12.sp)
         }
-        Button(
-            onClick = onRename,
-            modifier = Modifier.weight(1f).height(38.dp),
-            shape = RoundedCornerShape(6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
-        ) {
-            Text("重命名", color = textMain, fontSize = 12.sp)
+        if (preset?.isBuiltIn == true) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF1E1E22))
+                    .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("重命名 (内置固定)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
+            }
+        } else {
+            Button(
+                onClick = onRename,
+                modifier = Modifier.weight(1f).height(38.dp),
+                shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = cardBg),
+            ) {
+                Text("重命名", color = textMain, fontSize = 12.sp)
+            }
         }
     }
 
@@ -1279,6 +1293,7 @@ private fun InfoTabContent(
     borderCol: Color,
     textMain: Color,
     textSub: Color,
+    onRenamePreset: () -> Unit = {},
 ) {
     val isBuiltIn = preset?.isBuiltIn == true
     StudioSectionHeader("基本信息与作者归属", textSub)
@@ -1293,8 +1308,51 @@ private fun InfoTabContent(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // Preset Name
-        Text("笔刷名称", color = textSub, fontSize = 11.sp)
-        Text(preset?.name ?: "自定义笔刷", color = textMain, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("笔刷名称", color = textSub, fontSize = 11.sp)
+            if (isBuiltIn) {
+                Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
+                Text("(Krita 内置 · 固定只读)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+            }
+        }
+
+        if (isBuiltIn) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF19191D))
+                    .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+            ) {
+                Text(preset?.name ?: "内置笔刷", color = textSub, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF19191D))
+                    .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                    .clickable { onRenamePreset() }
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    preset?.name ?: "自定义笔刷",
+                    color = textMain,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    painterResource(R.drawable.ic_pencil),
+                    contentDescription = "修改名称",
+                    tint = textSub,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.4f)))
 

@@ -568,6 +568,7 @@ internal fun PaintViewModel.loadBrushPresets() {
     }
     // Restore persisted user brush groups and custom order
     loadBrushGroups()
+    loadCategoryOrder()
     val orderJson = prefs().getString("brush_order", null)
     brushOrder =
         if (orderJson != null) {

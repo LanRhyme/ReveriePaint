@@ -117,6 +117,75 @@ import kotlinx.coroutines.launch
         saveBrushOrder()
     }
 
+    /** 拖拽直接指定位置重排序 */
+    internal fun PaintViewModel.reorderBrushPresets(fromIndex: Int, toIndex: Int) {
+        if (fromIndex == toIndex || fromIndex !in brushPresets.indices || toIndex !in brushPresets.indices) return
+        val newList = brushPresets.toMutableList()
+        val item = newList.removeAt(fromIndex)
+        newList.add(toIndex, item)
+        brushPresets = newList
+        brushOrder = newList.map { it.name }
+        saveBrushOrder()
+    }
+
+    internal fun PaintViewModel.saveCategoryOrder() {
+        try {
+            val arr = org.json.JSONArray()
+            for (c in categoryOrder) arr.put(c)
+            prefs().edit().putString("category_order", arr.toString()).apply()
+        } catch (e: Exception) {
+        }
+    }
+
+    internal fun PaintViewModel.loadCategoryOrder() {
+        try {
+            val raw = prefs().getString("category_order", null) ?: return
+            val arr = org.json.JSONArray(raw)
+            categoryOrder = (0 until arr.length()).map { arr.getString(it) }
+        } catch (e: Exception) {
+        }
+    }
+
+    internal fun PaintViewModel.reorderCategory(from: Int, to: Int, allCategories: List<String>) {
+        val list = allCategories.toMutableList()
+        if (from == to || from !in list.indices || to !in list.indices) return
+        val item = list.removeAt(from)
+        list.add(to, item)
+        categoryOrder = list
+        saveCategoryOrder()
+    }
+
+    internal fun PaintViewModel.moveCategoryUp(cat: String, allCategories: List<String>) {
+        val idx = allCategories.indexOf(cat)
+        if (idx > 0) {
+            reorderCategory(idx, idx - 1, allCategories)
+        }
+    }
+
+    internal fun PaintViewModel.moveCategoryDown(cat: String, allCategories: List<String>) {
+        val idx = allCategories.indexOf(cat)
+        if (idx >= 0 && idx < allCategories.size - 1) {
+            reorderCategory(idx, idx + 1, allCategories)
+        }
+    }
+
+    internal fun PaintViewModel.renameBrushGroup(oldName: String, newName: String): Boolean {
+        if (isBuiltInBrushGroup(oldName)) return false
+        val clean = newName.trim().ifEmpty { return false }
+        if (clean == oldName) return true
+        if (customBrushGroups.contains(oldName)) {
+            customBrushGroups = customBrushGroups.map { if (it == oldName) clean else it }
+        }
+        userBrushGroups = userBrushGroups.mapValues { if (it.value == oldName) clean else it.value }
+        saveBrushGroups()
+        if (categoryOrder.contains(oldName)) {
+            categoryOrder = categoryOrder.map { if (it == oldName) clean else it }
+            saveCategoryOrder()
+        }
+        reloadBrushPresets()
+        return true
+    }
+
     internal fun PaintViewModel.updateBrushFlow(v: Double) {
         brushFlow = v
         saveBrushParam()
@@ -906,18 +975,25 @@ import kotlinx.coroutines.launch
         return true
     }
 
-    /** 创建全新自定义笔刷 */
+    /** 创建全新自定义笔刷 (默认基于 Basic-1) */
     internal fun PaintViewModel.createNewBrushPreset(
         name: String,
         group: String = "自定义",
-        basePresetIndex: Int = 0,
+        basePresetIndex: Int = -1,
         tipAsset: String = "",
         paintOpId: String = "defaultpaintop",
     ): Boolean {
         val cleanName = name.trim().ifEmpty { "自定义笔刷_${(System.currentTimeMillis() % 10000)}" }
         val dir = File(appContext.filesDir, "paintoppresets")
         if (!dir.exists()) dir.mkdirs()
-        val base = brushPresets.getOrNull(basePresetIndex)
+        
+        // 默认基准预设选择 b)_Basic-1
+        val base = if (basePresetIndex in brushPresets.indices) {
+            brushPresets[basePresetIndex]
+        } else {
+            brushPresets.firstOrNull { it.name == "b)_Basic-1" || it.name.contains("Basic-1") }
+                ?: brushPresets.firstOrNull()
+        }
         val baseFile = base?.let { File(dir, "${it.name}.kpp") }
         val targetFile = File(dir, "$cleanName.kpp")
         if (baseFile != null && baseFile.exists()) {
@@ -926,9 +1002,12 @@ import kotlinx.coroutines.launch
             val first = dir.listFiles()?.firstOrNull { it.name.endsWith(".kpp") }
             first?.copyTo(targetFile, overwrite = true)
         }
-        brushParams[cleanName] = BrushParams(
-            tipAsset = tipAsset,
-            paintOpId = paintOpId,
+        val baseParams = base?.name?.let { brushParams[it] }
+        brushParams[cleanName] = (baseParams?.copy() ?: BrushParams()).copy(
+            tipAsset = if (tipAsset.isNotEmpty()) tipAsset else (baseParams?.tipAsset ?: ""),
+            paintOpId = if (paintOpId.isNotEmpty() && paintOpId != "defaultpaintop") paintOpId else (baseParams?.paintOpId ?: "defaultpaintop"),
+            author = "原创创作者",
+            isAuthorLocked = false,
         )
         persistBrushParams()
         userBrushGroups = userBrushGroups + (cleanName to group)
@@ -1020,11 +1099,12 @@ import kotlinx.coroutines.launch
         }
     }
 
-
-
-    /** 重命名笔刷 */
+    /** 重命名笔刷 (内置笔刷固定禁止重命名) */
     internal fun PaintViewModel.renameBrushPreset(presetIndex: Int, newName: String): Boolean {
         val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        if (preset.isBuiltIn) {
+            return false // 内置笔刷固定名称，禁止修改
+        }
         val clean = newName.trim().ifEmpty { return false }
         if (clean == preset.name) return true
         val dir = File(appContext.filesDir, "paintoppresets")
@@ -1039,6 +1119,10 @@ import kotlinx.coroutines.launch
             userBrushGroups = (userBrushGroups - preset.name) + (clean to g)
         }
         saveBrushGroups()
+        if (brushOrder.contains(preset.name)) {
+            brushOrder = brushOrder.map { if (it == preset.name) clean else it }
+            saveBrushOrder()
+        }
         reloadBrushPresets(selectName = clean)
         return true
     }
