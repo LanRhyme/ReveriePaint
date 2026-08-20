@@ -604,6 +604,7 @@ internal fun PaintViewModel.loadBrushPresets() {
         android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
         val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
         android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
+        val builtInNames = appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()
         list.clear()
         for (i in 0 until n) {
             val nm = ReverieCoreBridge.brushPresetName(i)
@@ -613,6 +614,7 @@ internal fun PaintViewModel.loadBrushPresets() {
                     name = nm,
                     thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
                     group = userBrushGroups[nm] ?: inferBrushGroup(nm),
+                    isBuiltIn = builtInNames.contains(nm),
                 ),
             )
         }

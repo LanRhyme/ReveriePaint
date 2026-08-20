@@ -372,13 +372,15 @@ fun BrushStudioPage(
                                 vm.resetBrushParams()
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text("删除当前笔刷", color = Color(0xFFC86464), fontSize = 13.sp) },
-                            onClick = {
-                                showMenu = false
-                                showDeleteConfirmDialog = true
-                            },
-                        )
+                        if (preset?.isBuiltIn != true) {
+                            DropdownMenuItem(
+                                text = { Text("删除当前笔刷", color = Color(0xFFC86464), fontSize = 13.sp) },
+                                onClick = {
+                                    showMenu = false
+                                    showDeleteConfirmDialog = true
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -1241,13 +1243,27 @@ private fun EngineTabContent(
         ) {
             Text("重置参数", color = textMain, fontSize = 12.sp)
         }
-        Button(
-            onClick = onDelete,
-            modifier = Modifier.weight(1f).height(38.dp),
-            shape = RoundedCornerShape(6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1E1E)),
-        ) {
-            Text("删除此笔刷", color = Color(0xFFC86464), fontSize = 12.sp)
+        if (preset?.isBuiltIn == true) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF1E1E22))
+                    .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("内置笔刷 (不可删除)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
+            }
+        } else {
+            Button(
+                onClick = onDelete,
+                modifier = Modifier.weight(1f).height(38.dp),
+                shape = RoundedCornerShape(6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1E1E)),
+            ) {
+                Text("删除此笔刷", color = Color(0xFFC86464), fontSize = 12.sp)
+            }
         }
     }
 }
@@ -1264,6 +1280,7 @@ private fun InfoTabContent(
     textMain: Color,
     textSub: Color,
 ) {
+    val isBuiltIn = preset?.isBuiltIn == true
     StudioSectionHeader("基本信息与作者归属", textSub)
 
     Column(
@@ -1281,16 +1298,30 @@ private fun InfoTabContent(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.4f)))
 
-        // Author Field (with lock indicator for shared/imported brushes)
+        // Author Field (with lock indicator for built-in and shared/imported brushes)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("笔刷作者", color = textSub, fontSize = 11.sp)
-            if (vm.brushIsAuthorLocked) {
+            if (isBuiltIn) {
+                Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
+                Text("(Krita 内置 · 固定只读)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+            } else if (vm.brushIsAuthorLocked) {
                 Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
                 Text("(分享导入 · 只读锁定)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
             }
         }
 
-        if (vm.brushIsAuthorLocked) {
+        if (isBuiltIn) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF19191D))
+                    .border(1.dp, borderCol, RoundedCornerShape(6.dp))
+                    .padding(10.dp),
+            ) {
+                Text("Krita", color = textMain, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        } else if (vm.brushIsAuthorLocked) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

@@ -667,6 +667,7 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.selectBrushPreset(index: Int) {
         val preset = brushPresets.getOrNull(index)
+        val isBuiltIn = preset?.isBuiltIn == true
         val saved = if (preset != null) brushParams[preset.name] else null
         runCore(after = {
             if (saved != null) {
@@ -715,8 +716,8 @@ import kotlinx.coroutines.launch
                 brushSpikes = saved.spikes
                 brushJitterAngle = saved.jitterAngle
                 brushJitterSize = saved.jitterSize
-                brushAuthor = saved.author
-                brushIsAuthorLocked = saved.isAuthorLocked
+                brushAuthor = if (isBuiltIn) "Krita" else saved.author
+                brushIsAuthorLocked = if (isBuiltIn) true else saved.isAuthorLocked
                 brushDescription = saved.description
                 brushVersion = saved.version
             } else {
@@ -727,6 +728,8 @@ import kotlinx.coroutines.launch
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                 }
+                brushAuthor = if (isBuiltIn) "Krita" else "原创创作者"
+                brushIsAuthorLocked = isBuiltIn
             }
         }) {
             if (saved != null) {
@@ -819,6 +822,7 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.reloadBrushPresets(selectName: String? = null) {
         val dir = File(appContext.filesDir, "paintoppresets")
         val brushDir = File(appContext.filesDir, "brushes")
+        val builtInNames = appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()
         val list = ArrayList<BrushPresetInfo>()
         runCore(after = {
             brushPresets = list.toList()
@@ -843,13 +847,14 @@ import kotlinx.coroutines.launch
                         name = nm,
                         thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
                         group = userBrushGroups[nm] ?: inferBrushGroup(nm),
+                        isBuiltIn = builtInNames.contains(nm),
                     ),
                 )
             }
         }
     }
 
-    /** 复制指定笔刷 */
+    /** 复制指定笔刷 (复制出的笔刷不受内置作者锁定及不可删除限制) */
     internal fun PaintViewModel.duplicateBrushPreset(presetIndex: Int, newName: String? = null): Boolean {
         val src = brushPresets.getOrNull(presetIndex) ?: return false
         val cleanName = newName?.trim()?.ifEmpty { null } ?: "${src.name} 副本"
@@ -860,13 +865,44 @@ import kotlinx.coroutines.launch
             srcFile.copyTo(dstFile, overwrite = true)
         }
         val srcParams = brushParams[src.name] ?: BrushParams()
-        brushParams[cleanName] = srcParams.copy()
+        // 复制出的笔刷作者可自由修改，且非内置
+        brushParams[cleanName] = srcParams.copy(
+            author = if (src.isBuiltIn) "Krita (副本)" else srcParams.author,
+            isAuthorLocked = false,
+        )
         persistBrushParams()
         if (userBrushGroups.containsKey(src.name)) {
             userBrushGroups = userBrushGroups + (cleanName to userBrushGroups[src.name]!!)
             saveBrushGroups()
         }
         reloadBrushPresets(selectName = cleanName)
+        return true
+    }
+
+    /** 删除指定笔刷 (内置笔刷不可删除) */
+    internal fun PaintViewModel.deleteBrushPreset(presetIndex: Int): Boolean {
+        val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        if (preset.isBuiltIn) {
+            return false // 内置笔刷禁止删除
+        }
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val file = File(dir, "${preset.name}.kpp")
+        if (file.exists()) file.delete()
+        brushParams.remove(preset.name)
+        persistBrushParams()
+        userBrushGroups = userBrushGroups - preset.name
+        saveBrushGroups()
+        reloadBrushPresets()
+        return true
+    }
+
+    /** 删除自定义笔刷组 (内置组不可删除) */
+    internal fun PaintViewModel.deleteBrushGroup(name: String): Boolean {
+        if (isBuiltInBrushGroup(name)) return false // 内置组禁止删除
+        if (!customBrushGroups.contains(name)) return false
+        customBrushGroups = customBrushGroups.filter { it != name }
+        userBrushGroups = userBrushGroups.filterValues { it != name }
+        saveBrushGroups()
         return true
     }
 
@@ -984,19 +1020,7 @@ import kotlinx.coroutines.launch
         }
     }
 
-    /** 删除指定笔刷 */
-    internal fun PaintViewModel.deleteBrushPreset(presetIndex: Int): Boolean {
-        val preset = brushPresets.getOrNull(presetIndex) ?: return false
-        val dir = File(appContext.filesDir, "paintoppresets")
-        val file = File(dir, "${preset.name}.kpp")
-        if (file.exists()) file.delete()
-        brushParams.remove(preset.name)
-        persistBrushParams()
-        userBrushGroups = userBrushGroups - preset.name
-        saveBrushGroups()
-        reloadBrushPresets()
-        return true
-    }
+
 
     /** 重命名笔刷 */
     internal fun PaintViewModel.renameBrushPreset(presetIndex: Int, newName: String): Boolean {

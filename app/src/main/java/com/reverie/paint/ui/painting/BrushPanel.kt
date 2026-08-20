@@ -16,6 +16,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
 import android.graphics.BitmapFactory
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,6 +82,7 @@ fun BrushPanel(
     opacity: Float = 0.95f,
     hazeState: HazeState? = null,
 ) {
+    val context = LocalContext.current
     val categories = remember(vm.brushPresets, vm.customBrushGroups) {
         listOf("全部") +
             vm.brushPresets.map { it.group }.distinct() +
@@ -191,12 +194,22 @@ fun BrushPanel(
                                 ) {
                                     items(categories) { cat ->
                                         val sel = cat == selectedCategory
+                                        val isBuiltIn = isBuiltInBrushGroup(cat)
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(42.dp)
                                                 .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
-                                                .clickable { selectedCategory = cat },
+                                                .combinedClickable(
+                                                    onClick = { selectedCategory = cat },
+                                                    onLongClick = {
+                                                        if (isBuiltIn) {
+                                                            Toast.makeText(context, "内置分类不可删除", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            groupPendingDelete = cat
+                                                        }
+                                                    },
+                                                ),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
                                             Text(
@@ -409,9 +422,12 @@ fun BrushPanel(
     }
     if (reorderPresetName != null) {
         val rp = reorderPresetName!!
-        val pIdx = vm.brushPresets.indexOfFirst { it.name == rp }
+        val preset = vm.brushPresets.firstOrNull { it.name == rp }
+        val pIdx = preset?.index ?: -1
+        val isBuiltIn = preset?.isBuiltIn == true
         ReorderBrushMenu(
             presetName = rp,
+            isBuiltIn = isBuiltIn,
             onDismiss = { reorderPresetName = null },
             onUp = { vm.moveBrushUp(rp) },
             onDown = { vm.moveBrushDown(rp) },
@@ -423,6 +439,29 @@ fun BrushPanel(
             onDelete = {
                 if (pIdx >= 0) vm.deleteBrushPreset(pIdx)
             },
+        )
+    }
+    if (groupPendingDelete != null) {
+        val grp = groupPendingDelete!!
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { groupPendingDelete = null },
+            title = { Text("删除自定义分组", color = Morandi.text, fontSize = 15.sp) },
+            text = { Text("确定要删除分类「$grp」吗？组内的笔刷将保留并移至默认分类。", color = Morandi.subText, fontSize = 13.sp) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    vm.deleteBrushGroup(grp)
+                    if (selectedCategory == grp) selectedCategory = "全部"
+                    groupPendingDelete = null
+                }) {
+                    Text("删除", color = Color(0xFFC86464))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { groupPendingDelete = null }) {
+                    Text("取消", color = Morandi.subText)
+                }
+            },
+            containerColor = Morandi.panelHi,
         )
     }
     if (movePresetName != null) {
@@ -443,6 +482,7 @@ fun BrushPanel(
 @Composable
 private fun ReorderBrushMenu(
     presetName: String,
+    isBuiltIn: Boolean,
     onDismiss: () -> Unit,
     onUp: () -> Unit,
     onDown: () -> Unit,
@@ -456,14 +496,17 @@ private fun ReorderBrushMenu(
         title = { Text(presetName, color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
         text = {
             Column(Modifier.fillMaxWidth()) {
-                listOf(
+                val menuItems = mutableListOf(
                     "复制笔刷" to onDuplicate,
                     "重命名" to onRename,
                     "上移" to onUp,
                     "下移" to onDown,
                     "移动到组..." to onMoveGroup,
-                    "删除此笔刷" to onDelete,
-                ).forEach { (label, act) ->
+                )
+                if (!isBuiltIn) {
+                    menuItems.add("删除此笔刷" to onDelete)
+                }
+                menuItems.forEach { (label, act) ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

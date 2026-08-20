@@ -1176,4 +1176,9 @@ data class BrushPresetInfo(
     val name: String,
     val thumbBytes: ByteArray,
     val group: String = "", // effective group (custom override or inferred)
+    val isBuiltIn: Boolean = false,
 )
+
+val BUILT_IN_BRUSH_GROUPS = setOf("全部", "橡皮擦", "基础", "铅笔", "勾线", "马克笔", "鬃毛", "干笔", "粉笔", "湿笔", "水彩", "混合", "导入")
+
+fun isBuiltInBrushGroup(group: String): Boolean = BUILT_IN_BRUSH_GROUPS.contains(group)
