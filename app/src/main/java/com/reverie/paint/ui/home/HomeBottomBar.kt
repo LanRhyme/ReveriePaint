@@ -71,7 +71,8 @@ internal fun HomeBottomBar(
                         Modifier.hazeChild(
                             state = hazeState,
                             style = HazeStyle(
-                                tint = HazeTint(colors.panel.copy(alpha = 0.72f)),
+                                backgroundColor = colors.panel,
+                                tint = HazeTint(colors.panel.copy(alpha = 0.75f)),
                                 blurRadius = 24.dp,
                                 noiseFactor = 0.05f,
                             ),
