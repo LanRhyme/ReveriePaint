@@ -590,11 +590,11 @@ fun HomePage(vm: PaintViewModel) {
                                     }
                                 }
                             } else {
-                                LazyVerticalStaggeredGrid(
-                                    columns = StaggeredGridCells.Adaptive(minSize = 160.dp),
+                                LazyVerticalGrid(
+                                    columns = GridCells.Adaptive(minSize = 160.dp),
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalItemSpacing = 16.dp,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
                                     contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
                                 ) {
                                     itemsIndexed(displayProjects, key = { _, it -> it.filePath }) { index, p ->
@@ -787,24 +787,11 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                    // Folder container ratio is anchored to the item ratio closest to 1:1
-                                                    val folderContainerRatio =
-                                                        remember(p.items, ratio0, ratio1, ratio2) {
-                                                            if (p.items.isEmpty()) {
-                                                                1.0f
-                                                            } else {
-                                                                val list = mutableListOf(ratio0)
-                                                                if (item1 != null) list.add(ratio1)
-                                                                if (item2 != null) list.add(ratio2)
-                                                                list.minByOrNull { kotlin.math.abs(it - 1.0f) } ?: 1.0f
-                                                            }
-                                                        }
-
                                                     Box(
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(folderContainerRatio),
+                                                                .aspectRatio(1f),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
                                                         // Stacked layer 1 (bottom left loose tilt & offset with its own aspect ratio)
@@ -991,48 +978,55 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
                                                     }
                                                 } else {
-                                                    // Single artwork card (Pure Canvas Aesthetic with comfortable natural aspect ratio)
+                                                    // Single artwork card in uniform 1:1 cell with pure canvas aspect ratio
                                                     val rawRatio = if (p.width > 0 && p.height > 0) p.width.toFloat() / p.height.toFloat() else 1.0f
-                                                    val artworkRatio = rawRatio.coerceIn(0.72f, 1.38f)
                                                     Box(
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(artworkRatio)
-                                                                .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
-                                                                .clip(RoundedCornerShape(8.dp))
-                                                                .background(Color.White)
-                                                                .border(
-                                                                    if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
-                                                                    if (isSelectMode &&
-                                                                        isSelected
-                                                                    ) {
-                                                                        colors.accent
-                                                                    } else {
-                                                                        Color.Black.copy(alpha = 0.12f)
-                                                                    },
-                                                                    RoundedCornerShape(8.dp),
-                                                                ),
+                                                                .aspectRatio(1f),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
-                                                        if (thumb != null) {
-                                                            Image(
-                                                                bitmap = thumb.asImageBitmap(),
-                                                                contentDescription = null,
-                                                                contentScale = ContentScale.Crop,
-                                                                modifier = Modifier.fillMaxSize(),
-                                                            )
-                                                        } else {
-                                                            Box(
-                                                                modifier = Modifier.fillMaxSize(),
-                                                                contentAlignment = Alignment.Center,
-                                                            ) {
-                                                                Icon(
-                                                                    painterResource(R.drawable.ic_canvas_tab),
+                                                        Box(
+                                                            modifier =
+                                                                Modifier
+                                                                    .fillMaxSize(0.92f)
+                                                                    .aspectRatio(rawRatio)
+                                                                    .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
+                                                                    .clip(RoundedCornerShape(8.dp))
+                                                                    .background(Color.White)
+                                                                    .border(
+                                                                        if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
+                                                                        if (isSelectMode &&
+                                                                            isSelected
+                                                                        ) {
+                                                                            colors.accent
+                                                                        } else {
+                                                                            Color.Black.copy(alpha = 0.12f)
+                                                                        },
+                                                                        RoundedCornerShape(8.dp),
+                                                                    ),
+                                                            contentAlignment = Alignment.Center,
+                                                        ) {
+                                                            if (thumb != null) {
+                                                                Image(
+                                                                    bitmap = thumb.asImageBitmap(),
                                                                     contentDescription = null,
-                                                                    tint = Color(0xFFB0B0B0),
-                                                                    modifier = Modifier.size(36.dp),
+                                                                    contentScale = ContentScale.Crop,
+                                                                    modifier = Modifier.fillMaxSize(),
                                                                 )
+                                                            } else {
+                                                                Box(
+                                                                    modifier = Modifier.fillMaxSize(),
+                                                                    contentAlignment = Alignment.Center,
+                                                                ) {
+                                                                    Icon(
+                                                                        painterResource(R.drawable.ic_canvas_tab),
+                                                                        contentDescription = null,
+                                                                        tint = Color(0xFFB0B0B0),
+                                                                        modifier = Modifier.size(36.dp),
+                                                                    )
+                                                                }
                                                             }
                                                         }
 
