@@ -55,22 +55,22 @@ val MorandiDarkColors =
         canvasShadow = Color(0x73000000),
     )
 
-/** Default Morandi Light palette - serene warm off-white and pure surfaces. */
+/** Default Morandi Light palette - serene light grey background with pure white cards. */
 val MorandiLightColors =
     AppColors(
-        bg = Color(0xFFF6F7F9), // Soft elegant light grey background
-        panel = Color(0xFFFFFFFF), // Pure crisp white panel
-        panelHi = Color(0xFFEBECEF), // Raised interactive card surface
-        accent = Color(0xFF4A7491), // Deepened Morandi blue for light legibility
-        accentHi = Color(0xFF658CA6),
+        bg = Color(0xFFE6E8EC), // Page background: clearly deeper/darker than foreground white cards
+        panel = Color(0xFFFFFFFF), // Pure white foreground cards/panels
+        panelHi = Color(0xFFF0F2F5), // Inner card surfaces/pills
+        accent = Color(0xFF3E6988), // Refined Morandi blue with crisp legibility on white and grey
+        accentHi = Color(0xFF5681A0),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFF1E2125), // Crisp readable dark charcoal text
-        subText = Color(0xFF70757E), // Balanced secondary text
-        canvasBg = Color(0xFFE2E5E9), // Clean neutral workspace backdrop
-        border = Color(0xFFE2E4E8), // Subtle light hairline border
-        icon = Color(0xFF4C515B),
+        text = Color(0xFF141619), // Crisp deep dark text
+        subText = Color(0xFF666B74), // Balanced secondary text
+        canvasBg = Color(0xFFD8DCE2), // Clean neutral workspace backdrop
+        border = Color(0xFFD3D7DF), // Subtle light hairline border
+        icon = Color(0xFF313640),
         scrim = Color(0x66000000),
-        gridLine = Color(0xFFCFD3DA),
+        gridLine = Color(0xFFCCD1DA),
         canvasShadow = Color(0x2E000000),
     )
 
@@ -88,15 +88,15 @@ fun getMonetColors(
         return try {
             val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             AppColors(
-                bg = scheme.background,
-                panel = scheme.surface,
-                panelHi = scheme.surfaceVariant,
+                bg = if (isDark) scheme.background else scheme.surfaceContainer,
+                panel = if (isDark) scheme.surface else scheme.surface,
+                panelHi = if (isDark) scheme.surfaceVariant else scheme.surfaceContainerHigh,
                 accent = scheme.primary,
                 accentHi = scheme.primaryContainer,
                 onAccent = scheme.onPrimary,
                 text = scheme.onBackground,
                 subText = scheme.onSurfaceVariant,
-                canvasBg = if (isDark) scheme.background else scheme.surfaceVariant.copy(alpha = 0.5f),
+                canvasBg = if (isDark) scheme.background else scheme.surfaceContainerHighest,
                 border = scheme.outlineVariant.copy(alpha = 0.45f),
                 icon = scheme.onSurfaceVariant,
                 scrim = if (isDark) Color(0x99000000) else Color(0x66000000),

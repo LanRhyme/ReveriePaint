@@ -335,8 +335,8 @@ private fun PressureCurveEditor(
             .fillMaxWidth()
             .aspectRatio(1.25f)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF1E2022))
-            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .background(colors.panel)
+            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -403,7 +403,7 @@ private fun PressureCurveEditor(
             val h = size.height
 
             // Draw 4x4 Grid
-            val gridColor = Color(0xFF2E3135)
+            val gridColor = colors.gridLine
             for (i in 1..3) {
                 val gx = w * (i / 4f)
                 val gy = h * (i / 4f)
@@ -426,7 +426,7 @@ private fun PressureCurveEditor(
 
                 drawPath(
                     path = path,
-                    color = Color(0xFFE2E6EC),
+                    color = colors.text,
                     style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                 )
 
@@ -437,18 +437,18 @@ private fun PressureCurveEditor(
                     val isDragging = idx == draggingPointIdx
                     if (isDragging) {
                         drawCircle(
-                            color = Color(0x66388AF6),
+                            color = colors.accent.copy(alpha = 0.35f),
                             radius = 12.dp.toPx(),
                             center = Offset(cx, cy)
                         )
                     }
                     drawCircle(
-                        color = Color(0xFF388AF6),
+                        color = colors.accent,
                         radius = if (idx == 0 || idx == sorted.size - 1) 5.dp.toPx() else 4.dp.toPx(),
                         center = Offset(cx, cy)
                     )
                     drawCircle(
-                        color = Color.White,
+                        color = colors.onAccent,
                         radius = 2.5.dp.toPx(),
                         center = Offset(cx, cy)
                     )

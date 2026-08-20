@@ -104,7 +104,7 @@ fun AboutSettingsSubPage(
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(Morandi.panelHi)
+                    .background(Morandi.panel)
                     .border(1.dp, Morandi.border, CircleShape)
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center,
@@ -133,7 +133,7 @@ fun AboutSettingsSubPage(
                 .fillMaxWidth()
                 .height(if (compact) 110.dp else 135.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panelHi)
+                .background(Morandi.panel)
                 .border(1.dp, Morandi.border, RoundedCornerShape(22.dp)),
         ) {
             // Painterly fluid acrylic & watercolor waves
@@ -370,7 +370,7 @@ fun AboutSettingsSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panelHi)
+                .background(Morandi.panel)
                 .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
                 .padding(18.dp),
         ) {
@@ -445,7 +445,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                 .fillMaxWidth(0.95f)
                 .height(460.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panelHi)
+                .background(Morandi.panel)
                 .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
                 .padding(20.dp),
         ) {
@@ -474,7 +474,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Morandi.panel)
+                                .background(Morandi.panelHi)
                                 .padding(12.dp),
                         ) {
                             Column {
@@ -492,7 +492,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(Morandi.panelHi)
+                                            .background(Morandi.panel)
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                     ) {
                                         Text(
@@ -551,7 +551,8 @@ private fun AboutGroupItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Morandi.panelHi)
+            .background(Morandi.panel)
+            .border(1.dp, Morandi.border, shape)
             .then(
                 if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
             )
@@ -566,20 +567,12 @@ private fun AboutGroupItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = title,
-                        tint = Morandi.accent,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(22.dp),
+                )
 
                 Spacer(Modifier.width(14.dp))
 
