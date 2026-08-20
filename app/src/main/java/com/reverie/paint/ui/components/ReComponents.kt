@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -140,7 +142,7 @@ fun ReVerticalSlider(
     fraction: Float,
     onFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    trackWidth: Int = 24,
+    trackWidth: Int = 18,
     trackHeight: Int = 100,
     tooltipText: String? = null,
 ) {
@@ -151,9 +153,12 @@ fun ReVerticalSlider(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.height((trackHeight + 14).dp),
+        modifier = modifier.height((trackHeight + if (label.isNotEmpty()) 16 else 0).dp),
     ) {
-        Text(label, color = colors.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        if (label.isNotEmpty()) {
+            Text(label, color = colors.subText, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
+        }
         Box(
             modifier =
                 Modifier
@@ -172,6 +177,7 @@ fun ReVerticalSlider(
                             change.consume()
                         }
                     },
+            contentAlignment = Alignment.BottomCenter,
         ) {
             // Value tooltip
             if (isDragging) {
@@ -179,35 +185,66 @@ fun ReVerticalSlider(
                     alignment = Alignment.CenterStart,
                     offset = androidx.compose.ui.unit.IntOffset(100, 0)
                 ) {
-                    Box(modifier = Modifier
-                        .background(colors.panel, RoundedCornerShape(8.dp))
-                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .shadow(6.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panel)
+                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
                         Text(
                             tooltipText ?: "${(localFraction * 100).toInt()}",
                             color = colors.text,
                             fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
             }
-            // Track
+
+            val capsuleRadius = (trackWidth / 2).dp
+
+            // Track background & Outline Border
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape((trackWidth / 2).dp))
-                    .background(colors.panelHi)
-            )
-            // Thumb indicator
+                    .clip(RoundedCornerShape(capsuleRadius))
+                    .background(colors.panel.copy(alpha = 0.5f))
+                    .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
+            ) {
+                // Active progress fill (from bottom up)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(localFraction.coerceIn(0f, 1f))
+                        .align(Alignment.BottomCenter)
+                        .clip(RoundedCornerShape(capsuleRadius))
+                        .background(colors.accent.copy(alpha = 0.25f))
+                )
+            }
+
+            // Refined Thumb knob with clean border and center dot
+            val thumbSize = (trackWidth - 2).coerceAtLeast(14).dp
+            val thumbPadding = ((trackWidth.dp - thumbSize) / 2)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = (localFraction * (trackHeight - trackWidth)).dp)
-                    .size(trackWidth.dp)
+                    .padding(bottom = (localFraction * (trackHeight - trackWidth)).dp + thumbPadding)
+                    .size(thumbSize)
+                    .shadow(2.dp, CircleShape, spotColor = colors.accent.copy(alpha = 0.35f))
                     .clip(CircleShape)
-                    .background(colors.text)
-                    .border(2.dp, colors.panelHi, CircleShape)
-            )
+                    .background(colors.panel)
+                    .border(2.dp, colors.accent, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(colors.accent)
+                )
+            }
         }
     }
 }

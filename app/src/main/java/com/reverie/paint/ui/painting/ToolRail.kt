@@ -212,7 +212,7 @@ fun ToolRail(
                             .size(24.dp)
                             .clip(CircleShape)
                             .background(parseColor(brushColor))
-                            .border(1.5.dp, Morandi.panelHi, CircleShape)
+                            .border(1.5.dp, Morandi.border, CircleShape)
                     )
                 }
                 Spacer(Modifier.height(5.dp))
@@ -222,7 +222,7 @@ fun ToolRail(
                     brushSize = brushSize,
                     onBrushSize = onBrushSize,
                 )
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(6.dp))
                 if (vm.quickSliderMode == 1) {
                     FlowGroup(
                         flow = vm.brushFlow,
@@ -279,16 +279,13 @@ private fun BrushSizeGroup(
     brushSize: Double,
     onBrushSize: (Double) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("S", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-        ReVerticalSlider(
-            label = "",
-            fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
-            onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
-            trackHeight = 140,
-            tooltipText = "${kotlin.math.round(brushSize).toInt()}",
-        )
-    }
+    ReVerticalSlider(
+        label = "S",
+        fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
+        onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
+        trackHeight = 120,
+        tooltipText = "${kotlin.math.round(brushSize).toInt()}",
+    )
 }
 
 /** Vertical opacity control: value + slider, 0..1 linear. */
@@ -297,16 +294,13 @@ private fun OpacityGroup(
     opacity: Double,
     onOpacity: (Double) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("O", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-        ReVerticalSlider(
-            label = "",
-            fraction = opacity.toFloat(),
-            onFraction = { onOpacity(it.toDouble()) },
-            trackHeight = 140,
-            tooltipText = "${(opacity * 100).roundToInt()}%",
-        )
-    }
+    ReVerticalSlider(
+        label = "O",
+        fraction = opacity.toFloat(),
+        onFraction = { onOpacity(it.toDouble()) },
+        trackHeight = 120,
+        tooltipText = "${(opacity * 100).roundToInt()}%",
+    )
 }
 
 /** Vertical flow control: value + slider, 0..1 linear. */
@@ -315,14 +309,11 @@ private fun FlowGroup(
     flow: Double,
     onFlow: (Double) -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("F", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
-        ReVerticalSlider(
-            label = "",
-            fraction = flow.toFloat(),
-            onFraction = { onFlow(it.toDouble()) },
-            trackHeight = 140,
-            tooltipText = "${(flow * 100).roundToInt()}%",
-        )
-    }
+    ReVerticalSlider(
+        label = "F",
+        fraction = flow.toFloat(),
+        onFraction = { onFlow(it.toDouble()) },
+        trackHeight = 120,
+        tooltipText = "${(flow * 100).roundToInt()}%",
+    )
 }
