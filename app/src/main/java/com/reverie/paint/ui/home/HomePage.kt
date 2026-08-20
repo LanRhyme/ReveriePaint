@@ -744,20 +744,46 @@ fun HomePage(vm: PaintViewModel) {
                                                     }
 
                                                 if (p.isFolder) {
-                                                    // Procreate-style loose layered fan stack visual
-                                                    val subThumbs =
-                                                        remember(p.items) {
-                                                            p.items.take(3).mapNotNull { item ->
-                                                                ThumbnailCache.get(item.previewPath, item.lastModified)
-                                                            }
+                                                    // Procreate-style loose layered fan stack visual with irregular aspect ratios
+                                                    val item0 = p.items.getOrNull(0)
+                                                    val item1 = p.items.getOrNull(1)
+                                                    val item2 = p.items.getOrNull(2)
+
+                                                    val thumb0 =
+                                                        remember(item0?.previewPath, item0?.lastModified) {
+                                                            item0?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
                                                         }
-                                                    val folderRatio =
-                                                        remember(p.items) {
-                                                            val firstItem = p.items.firstOrNull()
-                                                            if (firstItem != null && firstItem.width > 0 && firstItem.height > 0) {
-                                                                (firstItem.width.toFloat() / firstItem.height.toFloat()).coerceIn(0.6f, 1.8f)
+                                                    val thumb1 =
+                                                        remember(item1?.previewPath, item1?.lastModified) {
+                                                            item1?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
+                                                        }
+                                                    val thumb2 =
+                                                        remember(item2?.previewPath, item2?.lastModified) {
+                                                            item2?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
+                                                        }
+
+                                                    val ratio0 =
+                                                        remember(item0?.width, item0?.height) {
+                                                            if (item0 != null && item0.width > 0 && item0.height > 0) {
+                                                                (item0.width.toFloat() / item0.height.toFloat()).coerceIn(0.55f, 1.8f)
                                                             } else {
                                                                 1.0f
+                                                            }
+                                                        }
+                                                    val ratio1 =
+                                                        remember(item1?.width, item1?.height, ratio0) {
+                                                            if (item1 != null && item1.width > 0 && item1.height > 0) {
+                                                                (item1.width.toFloat() / item1.height.toFloat()).coerceIn(0.55f, 1.8f)
+                                                            } else {
+                                                                ratio0
+                                                            }
+                                                        }
+                                                    val ratio2 =
+                                                        remember(item2?.width, item2?.height, ratio0) {
+                                                            if (item2 != null && item2.width > 0 && item2.height > 0) {
+                                                                (item2.width.toFloat() / item2.height.toFloat()).coerceIn(0.55f, 1.8f)
+                                                            } else {
+                                                                ratio0
                                                             }
                                                         }
 
@@ -765,14 +791,15 @@ fun HomePage(vm: PaintViewModel) {
                                                         modifier =
                                                             Modifier
                                                                 .fillMaxWidth()
-                                                                .aspectRatio(folderRatio),
+                                                                .aspectRatio(ratio0),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
-                                                        // Stacked layer 1 (bottom left loose tilt & offset)
+                                                        // Stacked layer 1 (bottom left loose tilt & offset with its own aspect ratio)
                                                         Box(
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.86f)
+                                                                    .aspectRatio(ratio2)
                                                                     .offset(x = fanBottomOffsetX, y = fanBottomOffsetY)
                                                                     .rotate(fanBottomAngle)
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
@@ -785,9 +812,9 @@ fun HomePage(vm: PaintViewModel) {
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
-                                                            if (subThumbs.size > 2) {
+                                                            if (thumb2 != null) {
                                                                 Image(
-                                                                    bitmap = subThumbs[2].asImageBitmap(),
+                                                                    bitmap = thumb2.asImageBitmap(),
                                                                     contentDescription = null,
                                                                     contentScale = ContentScale.Crop,
                                                                     modifier = Modifier.fillMaxSize(),
@@ -803,11 +830,12 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                        // Stacked layer 2 (middle right loose tilt & offset)
+                                                        // Stacked layer 2 (middle right loose tilt & offset with its own aspect ratio)
                                                         Box(
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.88f)
+                                                                    .aspectRatio(ratio1)
                                                                     .offset(x = fanMiddleOffsetX, y = fanMiddleOffsetY)
                                                                     .rotate(fanMiddleAngle)
                                                                     .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
@@ -820,9 +848,9 @@ fun HomePage(vm: PaintViewModel) {
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
-                                                            if (subThumbs.size > 1) {
+                                                            if (thumb1 != null) {
                                                                 Image(
-                                                                    bitmap = subThumbs[1].asImageBitmap(),
+                                                                    bitmap = thumb1.asImageBitmap(),
                                                                     contentDescription = null,
                                                                     contentScale = ContentScale.Crop,
                                                                     modifier = Modifier.fillMaxSize(),
@@ -838,11 +866,12 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                        // Foreground main folder cover
+                                                        // Foreground main folder cover (with its own aspect ratio)
                                                         Box(
                                                             modifier =
                                                                 Modifier
-                                                                    .fillMaxSize(0.91f)
+                                                                    .fillMaxSize(0.92f)
+                                                                    .aspectRatio(ratio0)
                                                                     .rotate(fanTopAngle)
                                                                     .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
@@ -860,9 +889,9 @@ fun HomePage(vm: PaintViewModel) {
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
-                                                            if (thumb != null) {
+                                                            if (thumb0 != null) {
                                                                 Image(
-                                                                    bitmap = thumb.asImageBitmap(),
+                                                                    bitmap = thumb0.asImageBitmap(),
                                                                     contentDescription = null,
                                                                     contentScale = ContentScale.Crop,
                                                                     modifier = Modifier.fillMaxSize(),
