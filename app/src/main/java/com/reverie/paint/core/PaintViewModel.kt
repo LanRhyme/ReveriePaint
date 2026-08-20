@@ -253,9 +253,9 @@ class PaintViewModel : ViewModel() {
 
     // View Display Settings (参考图 1)
     var quickSliderMode by mutableIntStateOf(0) // 0: 不透明度, 1: 流量
-    var brushSizePresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
-    var brushOpacityPresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
-    var brushFlowPresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
+    var brushSizePresets by mutableStateOf<List<Double?>>(listOf(2.0, 5.0, 10.0, 20.0, 40.0, 80.0, 120.0, 200.0, 350.0))
+    var brushOpacityPresets by mutableStateOf<List<Double?>>(listOf(0.10, 0.25, 0.40, 0.50, 0.65, 0.75, 0.85, 0.95, 1.00))
+    var brushFlowPresets by mutableStateOf<List<Double?>>(listOf(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.75, 0.90, 1.00))
     var canvasRotationEnabled by mutableStateOf(true) // 画布可旋转
     var magnificationInterpolation by mutableStateOf(true) // 放大插值
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
@@ -862,7 +862,12 @@ class PaintViewModel : ViewModel() {
                 return result
             }
         }
-        return listOf(null, null, null, null, null, null, null, null, null)
+        return when (key) {
+            "brushSizePresets" -> listOf(2.0, 5.0, 10.0, 20.0, 40.0, 80.0, 120.0, 200.0, 350.0)
+            "brushOpacityPresets" -> listOf(0.10, 0.25, 0.40, 0.50, 0.65, 0.75, 0.85, 0.95, 1.00)
+            "brushFlowPresets" -> listOf(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.75, 0.90, 1.00)
+            else -> listOf(null, null, null, null, null, null, null, null, null)
+        }
     }
 
     fun updateColorPickerMode(mode: String) {

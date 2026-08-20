@@ -142,8 +142,13 @@ fun ReButton(
 // ---------- Fine-tuning & Preset Bookmarks Floating Popup ----------
 @Composable
 fun SliderFineTunePopup(
+    title: String,
+    iconRes: Int = com.reverie.paint.R.drawable.ic_brush,
     valueText: String,
+    fraction: Float,
+    onFraction: (Float) -> Unit,
     onStep: (Boolean) -> Unit,
+    quickChips: List<Pair<String, () -> Unit>> = emptyList(),
     presets: List<Double?>,
     onSelectPreset: (Double) -> Unit,
     onSavePreset: (Int) -> Unit,
@@ -154,109 +159,202 @@ fun SliderFineTunePopup(
     val colors = Theme.current
     Popup(
         alignment = Alignment.CenterStart,
-        offset = androidx.compose.ui.unit.IntOffset(90, 0),
+        offset = androidx.compose.ui.unit.IntOffset(80, 0),
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.PopupProperties(focusable = true),
     ) {
         Box(
             modifier = Modifier
-                .width(190.dp)
-                .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                .clip(RoundedCornerShape(16.dp))
+                .width(228.dp)
+                .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.35f))
+                .clip(RoundedCornerShape(18.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                .padding(10.dp)
+                .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                .padding(14.dp)
         ) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // Top Stepper Row (<  value  >    +)
+                // Header (Icon + Title + Value Chip)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Stepper group
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        // Left step button (<)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.panelHi.copy(alpha = 0.6f))
-                                .clickable { onStep(false) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                                contentDescription = "减少",
-                                tint = colors.text,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .rotate(90f),
-                            )
-                        }
-
-                        // Current Value
+                        Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = title,
+                            tint = colors.accent,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Text(
-                            text = valueText,
-                            fontSize = 15.sp,
+                            text = title,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = colors.text,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.defaultMinSize(minWidth = 52.dp).padding(horizontal = 4.dp),
                         )
-
-                        // Right step button (>)
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.panelHi.copy(alpha = 0.6f))
-                                .clickable { onStep(true) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                                contentDescription = "增加",
-                                tint = colors.text,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .rotate(-90f),
-                            )
-                        }
                     }
 
-                    // Save / Add Preset Button (+)
+                    // Value Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(colors.accent.copy(alpha = 0.12f))
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = valueText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.accent,
+                        )
+                    }
+                }
+
+                // Micro Adjustment Stepper + Horizontal Mini Slider
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Left step button (<)
                     Box(
                         modifier = Modifier
                             .size(28.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.accent.copy(alpha = 0.15f))
-                            .clickable { onSavePreset(-1) },
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panelHi)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                            .clickable { onStep(false) },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            painterResource(com.reverie.paint.R.drawable.ic_plus),
+                            painterResource(com.reverie.paint.R.drawable.ic_chevron),
+                            contentDescription = "微调减少",
+                            tint = colors.text,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .rotate(90f),
+                        )
+                    }
+
+                    // Horizontal Fine Slider
+                    Box(modifier = Modifier.weight(1f)) {
+                        ReSlider(
+                            value = fraction,
+                            onValue = onFraction,
+                            height = 16,
+                        )
+                    }
+
+                    // Right step button (>)
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panelHi)
+                            .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                            .clickable { onStep(true) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painterResource(com.reverie.paint.R.drawable.ic_chevron),
+                            contentDescription = "微调增加",
+                            tint = colors.text,
+                            modifier = Modifier
+                                .size(14.dp)
+                                .rotate(-90f),
+                        )
+                    }
+                }
+
+                // Quick Jump Chips Row
+                if (quickChips.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        quickChips.forEach { (chipLabel, onChipClick) ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colors.panelHi)
+                                    .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                                    .clickable { onChipClick() }
+                                    .padding(vertical = 4.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = chipLabel,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = colors.subText,
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Presets Section Divider
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(colors.border.copy(alpha = 0.6f))
+                )
+
+                // Presets Header Row (常用预设 + 存入当前)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "常用预设",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.subText,
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.accent.copy(alpha = 0.12f))
+                            .clickable { onSavePreset(-1) }
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
                             contentDescription = "保存预设",
                             tint = colors.accent,
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            text = "存入当前",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.accent,
                         )
                     }
                 }
 
                 // 3x3 Presets Grid
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     for (row in 0 until 3) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             for (col in 0 until 3) {
@@ -265,11 +363,11 @@ fun SliderFineTunePopup(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .aspectRatio(1f)
+                                        .aspectRatio(1.15f)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
                                         .border(
-                                            0.5.dp,
+                                            1.dp,
                                             if (presetVal != null) colors.border else colors.border.copy(alpha = 0.35f),
                                             RoundedCornerShape(8.dp)
                                         )
@@ -299,6 +397,13 @@ fun SliderFineTunePopup(
                                             color = colors.text,
                                             maxLines = 1,
                                         )
+                                    } else {
+                                        Icon(
+                                            painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
+                                            contentDescription = "添加预设",
+                                            tint = colors.subText.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(12.dp),
+                                        )
                                     }
                                 }
                             }
@@ -319,8 +424,11 @@ fun ReVerticalSlider(
     modifier: Modifier = Modifier,
     trackWidth: Int = 26,
     trackHeight: Int = 175,
+    title: String = "数值微调",
+    iconRes: Int = com.reverie.paint.R.drawable.ic_brush,
     valueText: String,
     onStep: ((Boolean) -> Unit)? = null,
+    quickChips: List<Pair<String, () -> Unit>> = emptyList(),
     presets: List<Double?> = emptyList(),
     onSelectPreset: ((Double) -> Unit)? = null,
     onSavePreset: ((Int) -> Unit)? = null,
@@ -333,122 +441,133 @@ fun ReVerticalSlider(
     var isDragging by remember { mutableStateOf(false) }
     var showPopup by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = modifier.height(trackHeight.dp),
-        contentAlignment = Alignment.BottomCenter,
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier,
     ) {
-        // Fine-tune & Preset Popup
-        if (showPopup && onStep != null) {
-            SliderFineTunePopup(
-                valueText = valueText,
-                onStep = onStep,
-                presets = presets,
-                onSelectPreset = { p ->
-                    onSelectPreset?.invoke(p)
-                },
-                onSavePreset = { idx ->
-                    onSavePreset?.invoke(idx)
-                },
-                onDeletePreset = { idx ->
-                    onDeletePreset?.invoke(idx)
-                },
-                formatPreset = formatPreset,
-                onDismiss = { showPopup = false },
+        // Label above slider
+        if (label.isNotEmpty()) {
+            Text(
+                text = label,
+                color = colors.subText,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
             )
+            Spacer(Modifier.height(4.dp))
         }
 
         Box(
-            modifier =
-                Modifier
-                    .width(trackWidth.dp)
-                    .height(trackHeight.dp)
-                    .onSizeChanged { trackPx = it.height }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                showPopup = !showPopup
-                            }
-                        )
-                    }
-                    .pointerInput(Unit) {
-                        detectDragGestures(
-                            onDragStart = { isDragging = true },
-                            onDragEnd = { isDragging = false },
-                            onDragCancel = { isDragging = false }
-                        ) { change, _ ->
-                            val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
-                            localFraction = value
-                            onFraction(value)
-                            change.consume()
-                        }
-                    },
+            modifier = Modifier.height(trackHeight.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            // Live Tooltip while dragging
-            if (isDragging) {
-                Popup(
-                    alignment = Alignment.CenterStart,
-                    offset = androidx.compose.ui.unit.IntOffset(90, 0)
+            // Fine-tune & Preset Popup
+            if (showPopup && onStep != null) {
+                SliderFineTunePopup(
+                    title = title,
+                    iconRes = iconRes,
+                    valueText = valueText,
+                    fraction = localFraction,
+                    onFraction = { frac ->
+                        localFraction = frac
+                        onFraction(frac)
+                    },
+                    onStep = onStep,
+                    quickChips = quickChips,
+                    presets = presets,
+                    onSelectPreset = { p ->
+                        onSelectPreset?.invoke(p)
+                    },
+                    onSavePreset = { idx ->
+                        onSavePreset?.invoke(idx)
+                    },
+                    onDeletePreset = { idx ->
+                        onDeletePreset?.invoke(idx)
+                    },
+                    formatPreset = formatPreset,
+                    onDismiss = { showPopup = false },
+                )
+            }
+
+            Box(
+                modifier =
+                    Modifier
+                        .width(trackWidth.dp)
+                        .height(trackHeight.dp)
+                        .onSizeChanged { trackPx = it.height }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    showPopup = !showPopup
+                                }
+                            )
+                        }
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { isDragging = true },
+                                onDragEnd = { isDragging = false },
+                                onDragCancel = { isDragging = false }
+                            ) { change, _ ->
+                                val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
+                                localFraction = value
+                                onFraction(value)
+                                change.consume()
+                            }
+                        },
+                contentAlignment = Alignment.BottomCenter,
+            ) {
+                // Live Tooltip while dragging
+                if (isDragging) {
+                    Popup(
+                        alignment = Alignment.CenterStart,
+                        offset = androidx.compose.ui.unit.IntOffset(90, 0)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panel)
+                                .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                valueText,
+                                color = colors.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+
+                val capsuleRadius = (trackWidth / 2).dp
+
+                // Track background & Outline Border
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(capsuleRadius))
+                        .background(colors.panel.copy(alpha = 0.55f))
+                        .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
                 ) {
+                    // Active progress fill level (from bottom up)
                     Box(
                         modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panel)
-                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                            .fillMaxWidth()
+                            .fillMaxHeight(localFraction.coerceIn(0f, 1f))
+                            .align(Alignment.BottomCenter)
+                            .clip(RoundedCornerShape(capsuleRadius))
+                            .background(colors.accent.copy(alpha = 0.35f))
                     ) {
-                        Text(
-                            valueText,
-                            color = colors.text,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
+                        // Level indicator bar at top of fill
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(2.dp)
+                                .align(Alignment.TopCenter)
+                                .background(colors.accent)
                         )
                     }
                 }
-            }
-
-            val capsuleRadius = (trackWidth / 2).dp
-
-            // Track background & Outline Border
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(capsuleRadius))
-                    .background(colors.panel.copy(alpha = 0.6f))
-                    .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
-            ) {
-                // Active progress fill (from bottom up)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(localFraction.coerceIn(0f, 1f))
-                        .align(Alignment.BottomCenter)
-                        .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.accent.copy(alpha = 0.25f))
-                )
-            }
-
-            // Indicator Badge: Circular Button with centered letter (e.g. S / O / F)
-            val thumbSize = (trackWidth - 2).coerceAtLeast(22).dp
-            val thumbPadding = ((trackWidth.dp - thumbSize) / 2)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = (localFraction * (trackHeight - trackWidth)).dp + thumbPadding)
-                    .size(thumbSize)
-                    .shadow(3.dp, CircleShape, spotColor = colors.accent.copy(alpha = 0.35f))
-                    .clip(CircleShape)
-                    .background(colors.panel)
-                    .border(1.5.dp, colors.border, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = colors.text,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
             }
         }
     }

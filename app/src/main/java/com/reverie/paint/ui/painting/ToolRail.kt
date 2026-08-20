@@ -293,8 +293,10 @@ private fun BrushSizeGroup(
 
     ReVerticalSlider(
         label = "S",
+        title = "笔刷大小",
+        iconRes = R.drawable.ic_brush,
         fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
-        onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
+        onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it.toDouble())) },
         trackWidth = 26,
         trackHeight = 175,
         valueText = formattedValue,
@@ -308,6 +310,12 @@ private fun BrushSizeGroup(
             val newSize = if (increase) (brushSize + step).coerceAtMost(500.0) else (brushSize - step).coerceAtLeast(1.0)
             onBrushSize(newSize)
         },
+        quickChips = listOf(
+            "2px" to { onBrushSize(2.0) },
+            "10px" to { onBrushSize(10.0) },
+            "40px" to { onBrushSize(40.0) },
+            "120px" to { onBrushSize(120.0) },
+        ),
         presets = vm.brushSizePresets,
         onSelectPreset = { onBrushSize(it) },
         onSavePreset = { idx -> vm.saveSizePreset(brushSize, idx) },
@@ -334,6 +342,8 @@ private fun OpacityGroup(
 
     ReVerticalSlider(
         label = "O",
+        title = "不透明度",
+        iconRes = R.drawable.ic_eye,
         fraction = opacity.toFloat(),
         onFraction = { onOpacity(it.toDouble()) },
         trackWidth = 26,
@@ -344,6 +354,12 @@ private fun OpacityGroup(
             val newOpacity = if (increase) (opacity + step).coerceAtMost(1.0) else (opacity - step).coerceAtLeast(0.01)
             onOpacity(newOpacity)
         },
+        quickChips = listOf(
+            "25%" to { onOpacity(0.25) },
+            "50%" to { onOpacity(0.50) },
+            "75%" to { onOpacity(0.75) },
+            "100%" to { onOpacity(1.00) },
+        ),
         presets = vm.brushOpacityPresets,
         onSelectPreset = { onOpacity(it) },
         onSavePreset = { idx -> vm.saveOpacityPreset(opacity, idx) },
@@ -368,6 +384,8 @@ private fun FlowGroup(
 
     ReVerticalSlider(
         label = "F",
+        title = "画笔流量",
+        iconRes = R.drawable.ic_gradient,
         fraction = flow.toFloat(),
         onFraction = { onFlow(it.toDouble()) },
         trackWidth = 26,
@@ -378,6 +396,12 @@ private fun FlowGroup(
             val newFlow = if (increase) (flow + step).coerceAtMost(1.0) else (flow - step).coerceAtLeast(0.01)
             onFlow(newFlow)
         },
+        quickChips = listOf(
+            "25%" to { onFlow(0.25) },
+            "50%" to { onFlow(0.50) },
+            "75%" to { onFlow(0.75) },
+            "100%" to { onFlow(1.00) },
+        ),
         presets = vm.brushFlowPresets,
         onSelectPreset = { onFlow(it) },
         onSavePreset = { idx -> vm.saveFlowPreset(flow, idx) },
