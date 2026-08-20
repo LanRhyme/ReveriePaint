@@ -220,6 +220,7 @@ fun ToolRail(
                 // step buttons (+/-) that repeat while held, and the slider
                 BrushSizeGroup(
                     vm = vm,
+                    hazeState = hazeState,
                     brushSize = brushSize,
                     onBrushSize = onBrushSize,
                 )
@@ -227,12 +228,14 @@ fun ToolRail(
                 if (vm.quickSliderMode == 1) {
                     FlowGroup(
                         vm = vm,
+                        hazeState = hazeState,
                         flow = vm.brushFlow,
                         onFlow = { vm.updateBrushFlow(it) },
                     )
                 } else {
                     OpacityGroup(
                         vm = vm,
+                        hazeState = hazeState,
                         opacity = brushOpacity,
                         onOpacity = onOpacity,
                     )
@@ -280,6 +283,7 @@ fun toolIcon(tool: Tool): Int =
 @Composable
 private fun BrushSizeGroup(
     vm: PaintViewModel,
+    hazeState: HazeState? = null,
     brushSize: Double,
     onBrushSize: (Double) -> Unit,
 ) {
@@ -322,7 +326,9 @@ private fun BrushSizeGroup(
         onDeletePreset = { idx -> vm.removeSizePreset(idx) },
         formatPreset = { p ->
             if (p < 10.0) String.format(java.util.Locale.US, "%.1f", p) else "${p.toInt()}"
-        }
+        },
+        vm = vm,
+        hazeState = hazeState,
     )
 }
 
@@ -330,6 +336,7 @@ private fun BrushSizeGroup(
 @Composable
 private fun OpacityGroup(
     vm: PaintViewModel,
+    hazeState: HazeState? = null,
     opacity: Double,
     onOpacity: (Double) -> Unit,
 ) {
@@ -364,7 +371,9 @@ private fun OpacityGroup(
         onSelectPreset = { onOpacity(it) },
         onSavePreset = { idx -> vm.saveOpacityPreset(opacity, idx) },
         onDeletePreset = { idx -> vm.removeOpacityPreset(idx) },
-        formatPreset = { p -> "${(p * 100).roundToInt()}%" }
+        formatPreset = { p -> "${(p * 100).roundToInt()}%" },
+        vm = vm,
+        hazeState = hazeState,
     )
 }
 
@@ -372,6 +381,7 @@ private fun OpacityGroup(
 @Composable
 private fun FlowGroup(
     vm: PaintViewModel,
+    hazeState: HazeState? = null,
     flow: Double,
     onFlow: (Double) -> Unit,
 ) {
@@ -406,6 +416,8 @@ private fun FlowGroup(
         onSelectPreset = { onFlow(it) },
         onSavePreset = { idx -> vm.saveFlowPreset(flow, idx) },
         onDeletePreset = { idx -> vm.removeFlowPreset(idx) },
-        formatPreset = { p -> "${(p * 100).roundToInt()}%" }
+        formatPreset = { p -> "${(p * 100).roundToInt()}%" },
+        vm = vm,
+        hazeState = hazeState,
     )
 }

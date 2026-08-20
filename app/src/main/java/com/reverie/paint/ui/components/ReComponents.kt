@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.layout.aspectRatio
@@ -58,7 +59,21 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlin.math.roundToInt
@@ -159,240 +174,319 @@ fun SliderFineTunePopup(
     onSavePreset: (Int) -> Unit,
     onDeletePreset: (Int) -> Unit,
     formatPreset: (Double) -> String,
+    vm: PaintViewModel? = null,
+    hazeState: HazeState? = null,
     onDismiss: () -> Unit,
 ) {
     val colors = Theme.current
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
+    val popupOffsetPx = with(density) { 52.dp.roundToPx() }
+
+    var leftPressed by remember { mutableStateOf(false) }
+    var rightPressed by remember { mutableStateOf(false) }
+    var addPressed by remember { mutableStateOf(false) }
+
+    val leftScale by animateFloatAsState(if (leftPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "leftScale")
+    val rightScale by animateFloatAsState(if (rightPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "rightScale")
+    val addScale by animateFloatAsState(if (addPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "addScale")
 
     Popup(
         alignment = Alignment.CenterStart,
-        offset = androidx.compose.ui.unit.IntOffset(80, 0),
+        offset = androidx.compose.ui.unit.IntOffset(popupOffsetPx, 0),
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.PopupProperties(focusable = true),
     ) {
-        Box(
-            modifier = Modifier
-                .width(220.dp)
-                .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                .clip(RoundedCornerShape(16.dp))
-                .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                .padding(14.dp)
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f)) + slideInHorizontally(initialOffsetX = { -20 }),
+            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.92f)
         ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Box(
+                modifier = Modifier
+                    .width(224.dp)
+                    .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.3f))
+                    .clip(RoundedCornerShape(18.dp))
+                    .then(
+                        if (vm?.blurBackground == true && hazeState != null) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = HazeStyle(
+                                    backgroundColor = colors.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f)),
+                                    tint = HazeTint(colors.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f))),
+                                    blurRadius = 24.dp,
+                                    noiseFactor = 0.05f,
+                                )
+                            )
+                        } else {
+                            Modifier.background(colors.panel.copy(alpha = popupAlpha))
+                        }
+                    )
+                    .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                    .padding(14.dp)
             ) {
-                // Header (Icon + Title + Value Chip)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    // Header (Icon + Title + Animated Value Chip)
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(iconRes),
+                                contentDescription = title,
+                                tint = colors.accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = title,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.text,
+                            )
+                        }
+
+                        // Value Pill with animated content
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.accent.copy(alpha = 0.12f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            AnimatedContent(
+                                targetState = valueText,
+                                transitionSpec = {
+                                    (fadeIn(tween(120)) + slideInVertically { -it / 2 })
+                                        .togetherWith(fadeOut(tween(100)) + slideOutVertically { it / 2 })
+                                },
+                                label = "val_anim"
+                            ) { targetVal ->
+                                Text(
+                                    text = targetVal,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.accent,
+                                )
+                            }
+                        }
+                    }
+
+                    // Micro Adjustment Stepper + Horizontal Mini Slider
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(
-                            painter = painterResource(iconRes),
-                            contentDescription = title,
-                            tint = colors.accent,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = title,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.text,
-                        )
-                    }
-
-                    // Value Pill
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.accent.copy(alpha = 0.12f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = valueText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.accent,
-                        )
-                    }
-                }
-
-                // Micro Adjustment Stepper + Horizontal Mini Slider
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Left step button (<)
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panelHi)
-                            .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onStep(false)
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                            contentDescription = "微调减少",
-                            tint = colors.text,
+                        // Left step button (<)
+                        Box(
                             modifier = Modifier
-                                .size(14.dp)
-                                .rotate(90f),
-                        )
+                                .size(28.dp)
+                                .scale(leftScale)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panelHi)
+                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            leftPressed = true
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            tryAwaitRelease()
+                                            leftPressed = false
+                                        },
+                                        onTap = { onStep(false) }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painterResource(com.reverie.paint.R.drawable.ic_chevron),
+                                contentDescription = "微调减少",
+                                tint = colors.text,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .rotate(90f),
+                            )
+                        }
+
+                        // Horizontal Fine Slider
+                        Box(modifier = Modifier.weight(1f)) {
+                            ReSlider(
+                                value = fraction,
+                                onValue = onFraction,
+                                height = 16,
+                            )
+                        }
+
+                        // Right step button (>)
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .scale(rightScale)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panelHi)
+                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            rightPressed = true
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            tryAwaitRelease()
+                                            rightPressed = false
+                                        },
+                                        onTap = { onStep(true) }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                painterResource(com.reverie.paint.R.drawable.ic_chevron),
+                                contentDescription = "微调增加",
+                                tint = colors.text,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .rotate(-90f),
+                            )
+                        }
                     }
 
-                    // Horizontal Fine Slider
-                    Box(modifier = Modifier.weight(1f)) {
-                        ReSlider(
-                            value = fraction,
-                            onValue = onFraction,
-                            height = 16,
-                        )
-                    }
-
-                    // Right step button (>)
+                    // Presets Section Divider
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panelHi)
-                            .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onStep(true)
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                            contentDescription = "微调增加",
-                            tint = colors.text,
-                            modifier = Modifier
-                                .size(14.dp)
-                                .rotate(-90f),
-                        )
-                    }
-                }
-
-                // Presets Section Divider
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(0.5.dp)
-                        .background(colors.border.copy(alpha = 0.5f))
-                )
-
-                // Presets Header Row (常用预设 + 存入当前)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "常用预设",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.subText,
+                            .fillMaxWidth()
+                            .height(0.5.dp)
+                            .background(colors.border.copy(alpha = 0.5f))
                     )
 
+                    // Presets Header Row (常用预设 + 存入当前)
                     Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.accent.copy(alpha = 0.12f))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onSavePreset(-1)
-                            }
-                            .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        Icon(
-                            painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
-                            contentDescription = "保存预设",
-                            tint = colors.accent,
-                            modifier = Modifier.size(11.dp),
-                        )
                         Text(
-                            text = "存入当前",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.accent,
+                            text = "常用预设",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.subText,
                         )
-                    }
-                }
 
-                // 3x3 Presets Grid
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    for (row in 0 until 3) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            for (col in 0 until 3) {
-                                val idx = row * 3 + col
-                                val presetVal = presets.getOrNull(idx)
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1.2f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
-                                        .border(
-                                            0.5.dp,
-                                            if (presetVal != null) colors.border else colors.border.copy(alpha = 0.35f),
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .pointerInput(idx, presetVal) {
-                                            detectTapGestures(
-                                                onTap = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    if (presetVal != null) {
-                                                        onSelectPreset(presetVal)
-                                                    } else {
-                                                        onSavePreset(idx)
-                                                    }
-                                                },
-                                                onLongPress = {
-                                                    if (presetVal != null) {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        onDeletePreset(idx)
-                                                    }
-                                                }
-                                            )
+                            modifier = Modifier
+                                .scale(addScale)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.accent.copy(alpha = 0.12f))
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            addPressed = true
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            tryAwaitRelease()
+                                            addPressed = false
                                         },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    if (presetVal != null) {
-                                        Text(
-                                            text = formatPreset(presetVal),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = colors.text,
-                                            maxLines = 1,
-                                        )
-                                    } else {
-                                        Icon(
-                                            painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
-                                            contentDescription = "添加预设",
-                                            tint = colors.subText.copy(alpha = 0.3f),
-                                            modifier = Modifier.size(11.dp),
-                                        )
+                                        onTap = { onSavePreset(-1) }
+                                    )
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
+                                contentDescription = "保存预设",
+                                tint = colors.accent,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            Text(
+                                text = "存入当前",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.accent,
+                            )
+                        }
+                    }
+
+                    // 3x3 Presets Grid
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        for (row in 0 until 3) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                for (col in 0 until 3) {
+                                    val idx = row * 3 + col
+                                    val presetVal = presets.getOrNull(idx)
+                                    var isTilePressed by remember { mutableStateOf(false) }
+                                    val tileScale by animateFloatAsState(
+                                        if (isTilePressed) 0.88f else 1f,
+                                        spring(dampingRatio = 0.6f, stiffness = 500f),
+                                        label = "tileScale"
+                                    )
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(1.2f)
+                                            .scale(tileScale)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
+                                            .border(
+                                                0.5.dp,
+                                                if (presetVal != null) colors.border else colors.border.copy(alpha = 0.35f),
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .pointerInput(idx, presetVal) {
+                                                detectTapGestures(
+                                                    onPress = {
+                                                        isTilePressed = true
+                                                        tryAwaitRelease()
+                                                        isTilePressed = false
+                                                    },
+                                                    onTap = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        if (presetVal != null) {
+                                                            onSelectPreset(presetVal)
+                                                        } else {
+                                                            onSavePreset(idx)
+                                                        }
+                                                    },
+                                                    onLongPress = {
+                                                        if (presetVal != null) {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            onDeletePreset(idx)
+                                                        }
+                                                    }
+                                                )
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (presetVal != null) {
+                                            Text(
+                                                text = formatPreset(presetVal),
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = colors.text,
+                                                maxLines = 1,
+                                            )
+                                        } else {
+                                            Icon(
+                                                painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
+                                                contentDescription = "添加预设",
+                                                tint = colors.subText.copy(alpha = 0.3f),
+                                                modifier = Modifier.size(11.dp),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -423,6 +517,8 @@ fun ReVerticalSlider(
     onSavePreset: ((Int) -> Unit)? = null,
     onDeletePreset: ((Int) -> Unit)? = null,
     formatPreset: (Double) -> String = { "${it.toInt()}" },
+    vm: PaintViewModel? = null,
+    hazeState: HazeState? = null,
 ) {
     val colors = Theme.current
     val haptic = LocalHapticFeedback.current
@@ -475,6 +571,8 @@ fun ReVerticalSlider(
                         onDeletePreset?.invoke(idx)
                     },
                     formatPreset = formatPreset,
+                    vm = vm,
+                    hazeState = hazeState,
                     onDismiss = { showPopup = false },
                 )
             }
@@ -550,13 +648,12 @@ fun ReVerticalSlider(
                         .background(colors.panel.copy(alpha = 0.55f))
                         .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
                 ) {
-                    // Active progress fill level (from bottom up)
+                    // Active progress fill level (FLAT TOP, seamless with indicator bar!)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .fillMaxHeight(localFraction.coerceIn(0f, 1f))
                             .align(Alignment.BottomCenter)
-                            .clip(RoundedCornerShape(capsuleRadius))
                             .background(colors.accent.copy(alpha = 0.30f))
                     )
                 }
