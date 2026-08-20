@@ -69,6 +69,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.HazeStyle
@@ -184,24 +189,43 @@ fun SliderFineTunePopup(
     val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
     val popupOffsetPx = with(density) { 52.dp.roundToPx() }
 
-    var leftPressed by remember { mutableStateOf(false) }
-    var rightPressed by remember { mutableStateOf(false) }
-    var addPressed by remember { mutableStateOf(false) }
+    val visibleState = remember { MutableTransitionState(false) }
+    LaunchedEffect(Unit) {
+        visibleState.targetState = true
+    }
 
-    val leftScale by animateFloatAsState(if (leftPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "leftScale")
-    val rightScale by animateFloatAsState(if (rightPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "rightScale")
-    val addScale by animateFloatAsState(if (addPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "addScale")
+    LaunchedEffect(visibleState.currentState, visibleState.targetState) {
+        if (!visibleState.currentState && !visibleState.targetState) {
+            onDismiss()
+        }
+    }
+
+    val leftInteraction = remember { MutableInteractionSource() }
+    val isLeftPressed by leftInteraction.collectIsPressedAsState()
+    val leftScale by animateFloatAsState(if (isLeftPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "leftScale")
+
+    val rightInteraction = remember { MutableInteractionSource() }
+    val isRightPressed by rightInteraction.collectIsPressedAsState()
+    val rightScale by animateFloatAsState(if (isRightPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "rightScale")
+
+    val addInteraction = remember { MutableInteractionSource() }
+    val isAddPressed by addInteraction.collectIsPressedAsState()
+    val addScale by animateFloatAsState(if (isAddPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "addScale")
 
     Popup(
         alignment = Alignment.CenterStart,
         offset = androidx.compose.ui.unit.IntOffset(popupOffsetPx, 0),
-        onDismissRequest = onDismiss,
+        onDismissRequest = { visibleState.targetState = false },
         properties = androidx.compose.ui.window.PopupProperties(focusable = true),
     ) {
         AnimatedVisibility(
-            visible = true,
-            enter = fadeIn(tween(180)) + scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f)) + slideInHorizontally(initialOffsetX = { -20 }),
-            exit = fadeOut(tween(120)) + scaleOut(targetScale = 0.92f)
+            visibleState = visibleState,
+            enter = fadeIn(tween(220, easing = LinearOutSlowInEasing)) +
+                    slideInHorizontally(tween(220, easing = LinearOutSlowInEasing)) { -it / 2 } +
+                    scaleIn(initialScale = 0.92f, animationSpec = tween(220, easing = LinearOutSlowInEasing)),
+            exit = fadeOut(tween(160, easing = FastOutLinearInEasing)) +
+                   slideOutHorizontally(tween(160, easing = FastOutLinearInEasing)) { -it / 2 } +
+                   scaleOut(targetScale = 0.92f, animationSpec = tween(160, easing = FastOutLinearInEasing))
         ) {
             Box(
                 modifier = Modifier
@@ -294,16 +318,12 @@ fun SliderFineTunePopup(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
                                 .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            leftPressed = true
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            tryAwaitRelease()
-                                            leftPressed = false
-                                        },
-                                        onTap = { onStep(false) }
-                                    )
+                                .clickable(
+                                    interactionSource = leftInteraction,
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onStep(false)
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -334,16 +354,12 @@ fun SliderFineTunePopup(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
                                 .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            rightPressed = true
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            tryAwaitRelease()
-                                            rightPressed = false
-                                        },
-                                        onTap = { onStep(true) }
-                                    )
+                                .clickable(
+                                    interactionSource = rightInteraction,
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onStep(true)
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -384,16 +400,12 @@ fun SliderFineTunePopup(
                                 .scale(addScale)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.accent.copy(alpha = 0.12f))
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onPress = {
-                                            addPressed = true
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            tryAwaitRelease()
-                                            addPressed = false
-                                        },
-                                        onTap = { onSavePreset(-1) }
-                                    )
+                                .clickable(
+                                    interactionSource = addInteraction,
+                                    indication = null
+                                ) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSavePreset(-1)
                                 }
                                 .padding(horizontal = 6.dp, vertical = 2.5.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -427,18 +439,11 @@ fun SliderFineTunePopup(
                                 for (col in 0 until 3) {
                                     val idx = row * 3 + col
                                     val presetVal = presets.getOrNull(idx)
-                                    var isTilePressed by remember { mutableStateOf(false) }
-                                    val tileScale by animateFloatAsState(
-                                        if (isTilePressed) 0.88f else 1f,
-                                        spring(dampingRatio = 0.6f, stiffness = 500f),
-                                        label = "tileScale"
-                                    )
 
                                     Box(
                                         modifier = Modifier
                                             .weight(1f)
                                             .aspectRatio(1.2f)
-                                            .scale(tileScale)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
                                             .border(
@@ -448,11 +453,6 @@ fun SliderFineTunePopup(
                                             )
                                             .pointerInput(idx, presetVal) {
                                                 detectTapGestures(
-                                                    onPress = {
-                                                        isTilePressed = true
-                                                        tryAwaitRelease()
-                                                        isTilePressed = false
-                                                    },
                                                     onTap = {
                                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                         if (presetVal != null) {
