@@ -107,7 +107,32 @@ internal fun CanvasOverlay(
                 )
                 
                 // Draw the actual canvas image over the checkerboard
-                drawImage(image, topLeft = Offset(-image.width / 2f, -image.height / 2f))
+                val imagePaint = android.graphics.Paint().apply {
+                    isFilterBitmap = vm.magnificationInterpolation
+                    isAntiAlias = vm.magnificationInterpolation
+                    isDither = true
+                }
+                nativeCanvas.drawBitmap(image.asAndroidBitmap(), -image.width / 2f, -image.height / 2f, imagePaint)
+
+                // Pixel grid on high zoom (scale >= 4.0)
+                if (vm.pixelGridEnabled && scale >= 4f) {
+                    val halfW = image.width / 2f
+                    val halfH = image.height / 2f
+                    val gridAlpha = ((scale - 4f) / 4f).coerceIn(0f, 1f) * 0.15f
+                    if (gridAlpha > 0.01f) {
+                        val gridPaint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
+                            strokeWidth = 1f / scale
+                            style = android.graphics.Paint.Style.STROKE
+                        }
+                        for (gx in 0..image.width) {
+                            nativeCanvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, gridPaint)
+                        }
+                        for (gy in 0..image.height) {
+                            nativeCanvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, gridPaint)
+                        }
+                    }
+                }
 
                 // Draw transform preview
                 val previewBmp = vm.transformPreviewBitmap

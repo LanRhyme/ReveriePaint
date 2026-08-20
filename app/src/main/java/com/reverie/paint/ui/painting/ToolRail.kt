@@ -223,10 +223,17 @@ fun ToolRail(
                     onBrushSize = onBrushSize,
                 )
                 Spacer(Modifier.height(5.dp))
-                OpacityGroup(
-                    opacity = brushOpacity,
-                    onOpacity = onOpacity,
-                )
+                if (vm.quickSliderMode == 1) {
+                    FlowGroup(
+                        flow = vm.brushFlow,
+                        onFlow = { vm.updateBrushFlow(it) },
+                    )
+                } else {
+                    OpacityGroup(
+                        opacity = brushOpacity,
+                        onOpacity = onOpacity,
+                    )
+                }
             }
         }
     }
@@ -298,6 +305,24 @@ private fun OpacityGroup(
             onFraction = { onOpacity(it.toDouble()) },
             trackHeight = 140,
             tooltipText = "${(opacity * 100).roundToInt()}%",
+        )
+    }
+}
+
+/** Vertical flow control: value + slider, 0..1 linear. */
+@Composable
+private fun FlowGroup(
+    flow: Double,
+    onFlow: (Double) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("F", color = Morandi.subText, fontSize = 9.sp, fontWeight = FontWeight.Medium)
+        ReVerticalSlider(
+            label = "",
+            fraction = flow.toFloat(),
+            onFraction = { onFlow(it.toDouble()) },
+            trackHeight = 140,
+            tooltipText = "${(flow * 100).roundToInt()}%",
         )
     }
 }

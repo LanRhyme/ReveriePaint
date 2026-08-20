@@ -18,6 +18,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -86,7 +90,16 @@ import kotlin.math.roundToInt
  * bar, dark grid workspace with a centered white canvas.
  */
 @Composable
-fun PaintingPage(vm: PaintViewModel) {
+fun PaintingPage(
+    vm: PaintViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try {
+            focusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
     var zoom by remember { mutableFloatStateOf(1f) }
     var rotation by remember { mutableFloatStateOf(0f) }
     var panX by remember { mutableFloatStateOf(0f) }
@@ -259,7 +272,14 @@ fun PaintingPage(vm: PaintViewModel) {
 
     val hazeState = remember { HazeState() }
 
-    Box(Modifier.fillMaxSize().background(Morandi.canvasBg)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Morandi.canvasBg)
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { vm.handleKeyEvent(it) }
+    ) {
         // ---- Canvas workspace
         Box(
             modifier =
@@ -831,7 +851,7 @@ fun PaintingPage(vm: PaintViewModel) {
         )
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = vm.actionToastMessage != null,
+            visible = vm.undoToastEnabled && vm.actionToastMessage != null,
             enter =
                 androidx.compose.animation.fadeIn(
                     androidx.compose.animation.core

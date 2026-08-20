@@ -532,6 +532,8 @@ internal fun PaintViewModel.refreshDisplay() {
 
 internal fun PaintViewModel.loadBrushPresets() {
     loadToolOptions()
+    loadViewSettings()
+    loadShortcuts()
     loadBrushParams()
     // Copy the bundled presets from assets to filesDir once
     val dir = java.io.File(appContext.filesDir, "paintoppresets")

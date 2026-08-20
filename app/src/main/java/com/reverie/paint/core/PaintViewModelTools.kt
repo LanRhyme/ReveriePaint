@@ -142,6 +142,9 @@ internal fun PaintViewModel.touchStart(
         )
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
+    smoothedStrokeX = x
+    smoothedStrokeY = y
+    smoothedStrokePressure = effPressure
     runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure) }
 }
 
@@ -151,25 +154,39 @@ internal fun PaintViewModel.touchMove(
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
-    val (effX, effY) = if (brushStreamline > 0.0) {
-        val alpha = (1.0 - brushStreamline * 0.75).coerceIn(0.1, 1.0).toFloat()
+    val effPressure = computeEffectivePressure(pressure)
+    val stabFactor = maxOf(strokeStabilizer.toDouble(), brushStreamline).coerceIn(0.0, 0.98)
+    val (effX, effY, effP) = if (stabFactor > 0.0) {
+        // Krita weighted stabilizer: adaptive distance & exponential smoothing
+        val alpha = (1.0 - stabFactor * 0.88).coerceIn(0.04, 1.0).toFloat()
         smoothedStrokeX += (x - smoothedStrokeX) * alpha
         smoothedStrokeY += (y - smoothedStrokeY) * alpha
-        Pair(smoothedStrokeX, smoothedStrokeY)
+        smoothedStrokePressure += (effPressure - smoothedStrokePressure) * alpha.toDouble()
+        Triple(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure)
     } else {
-        Pair(x, y)
+        smoothedStrokeX = x
+        smoothedStrokeY = y
+        smoothedStrokePressure = effPressure
+        Triple(x, y, effPressure)
     }
-    val effPressure = computeEffectivePressure(pressure)
     if (recorder.recording) {
-        recorder.strokeMove(effX, effY, effPressure.toFloat())
+        recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    runCore { ReverieCoreBridge.touchStrokeMove(effX.toDouble(), effY.toDouble(), effPressure) }
+    runCore { ReverieCoreBridge.touchStrokeMove(effX.toDouble(), effY.toDouble(), effP) }
 }
 
 internal fun PaintViewModel.touchEnd() {
     isModified = true
     totalStrokes++
     onPaintingActivity()
+    val stabFactor = maxOf(strokeStabilizer.toDouble(), brushStreamline).coerceIn(0.0, 0.98)
+    if (stabFactor > 0.0) {
+        // Tail finish compensation
+        if (recorder.recording) {
+            recorder.strokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure.toFloat())
+        }
+        runCore { ReverieCoreBridge.touchStrokeMove(smoothedStrokeX.toDouble(), smoothedStrokeY.toDouble(), smoothedStrokePressure) }
+    }
     if (brushHueJitter > 0.0 || brushSatJitter > 0.0 || brushValJitter > 0.0 || brushSecondaryMix > 0.0) {
         runCore(render = false) { ReverieCoreBridge.setBrushColor(brushColor) }
     }

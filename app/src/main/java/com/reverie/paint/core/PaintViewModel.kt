@@ -240,13 +240,27 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
-    // UI Settings (persisted)
+    // UI & View Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(false) // 背景毛玻璃效果，默认关闭
     var accentColorHex by mutableStateOf("#5E8BA8")
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
+
+    // View Display Settings (参考图 1)
+    var quickSliderMode by mutableIntStateOf(0) // 0: 不透明度, 1: 流量
+    var canvasRotationEnabled by mutableStateOf(true) // 画布可旋转
+    var magnificationInterpolation by mutableStateOf(true) // 放大插值
+    var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
+    var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
+
+    // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0)
+    var strokeStabilizer by mutableStateOf(0.15f)
+    var smoothedStrokePressure by mutableStateOf(1.0)
+
+    // Keyboard Shortcuts (参考图 2)
+    var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
     var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，仅缩放旋转)
