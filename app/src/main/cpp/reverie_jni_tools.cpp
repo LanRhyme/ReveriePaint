@@ -35,9 +35,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_drawPolygon(JNIEnv *env, jobject, 
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_gradientFill(JNIEnv *, jobject, jint x1, jint y1, jint x2, jint y2, jint type)
+Java_com_reverie_paint_core_ReverieCoreBridge_gradientFill(JNIEnv *, jobject, jint x1, jint y1, jint x2, jint y2, jint type, jint repeat, jboolean reverse)
 {
-    core()->gradientFill(x1, y1, x2, y2, type);
+    core()->gradientFill(x1, y1, x2, y2, type, repeat, reverse);
 }
 
 JNIEXPORT void JNICALL
@@ -188,9 +188,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_cropCanvas(JNIEnv *, jobject, jint
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_floodFillAt(JNIEnv *, jobject, jint x, jint y, jint tolerance)
+Java_com_reverie_paint_core_ReverieCoreBridge_floodFillAt(JNIEnv *, jobject, jint x, jint y, jint tolerance, jboolean sampleMerged)
 {
-    core()->floodFillAt(x, y, tolerance);
+    core()->floodFillAt(x, y, tolerance, sampleMerged);
 }
 
 JNIEXPORT jstring JNICALL

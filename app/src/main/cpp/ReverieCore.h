@@ -226,7 +226,7 @@ public:
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
-    void floodFillAt(int x, int y, int tolerance = 24);
+    void floodFillAt(int x, int y, int tolerance = 24, bool sampleMerged = false);
 
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
     void drawShape(int kind, int x1, int y1, int x2, int y2, bool filled = false);
@@ -236,15 +236,15 @@ public:
     bool shapeFilled() const { return m_shapeFilled; }
     // kind 0=line, 1=rect, 2=ellipse, 3=closed polygon, 4=polyline
     void drawPolygon(const QVector<QPoint> &points, bool closed);
-    void gradientFill(int x1, int y1, int x2, int y2, int type = 0);
+    void gradientFill(int x1, int y1, int x2, int y2, int type = 0, int repeat = 0, bool reverse = false);
     void selectShape(int kind, int x1, int y1, int x2, int y2);
     void selectPolygon(const QVector<QPoint> &points);
     void lassoSelect(const QVector<QPoint> &points);
     // Magnetic lasso: edge-snapping path from 'from' to 'to' (Krita's
     // KisMagneticWorker logic, self-contained A* over a Sobel edge map)
     QVector<QPoint> magneticLasso(const QPoint &from, const QPoint &to, int radius);
-    void selectContiguousAt(int x, int y, int tolerance = 24);
-    void selectSimilarAt(int x, int y, int tolerance = 24);
+    void selectContiguousAt(int x, int y, int tolerance = 24, bool sampleMerged = true);
+    void selectSimilarAt(int x, int y, int tolerance = 24, bool sampleMerged = true);
     void moveLayerContent(int dx, int dy);
     // Krita transform tool: apply scale/shear/rotation/translate around the
     // content bounding-box centre. With an active selection only the selected

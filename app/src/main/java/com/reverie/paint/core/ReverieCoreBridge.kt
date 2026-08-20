@@ -130,6 +130,8 @@ object ReverieCoreBridge {
         x2: Int,
         y2: Int,
         type: Int,
+        repeat: Int = 0,
+        reverse: Boolean = false,
     )
 
     external fun selectShape(
@@ -207,6 +209,7 @@ object ReverieCoreBridge {
         x: Int,
         y: Int,
         tolerance: Int,
+        sampleMerged: Boolean = false,
     )
 
     external fun setBrushSize(size: Double)
@@ -354,12 +357,14 @@ object ReverieCoreBridge {
         x: Int,
         y: Int,
         tolerance: Int,
+        sampleMerged: Boolean = true,
     )
 
     external fun selectSimilarAt(
         x: Int,
         y: Int,
         tolerance: Int,
+        sampleMerged: Boolean = true,
     )
 
     external fun lassoFill(

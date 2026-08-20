@@ -279,9 +279,12 @@ internal fun SelectionFloatPanel(
                 }
             }
 
-            // Row 2: Magic Wand / Similar Tolerance Slider
+            // Row 2: Magic Wand / Similar Tolerance Slider + Reference Layers
             if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
-                Box(modifier = Modifier.width(220.dp)) {
+                Column(
+                    modifier = Modifier.width(220.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     ToolFloatSlider(
                         label = "容差",
                         valueText = "${vm.selectionTolerance}",
@@ -289,6 +292,22 @@ internal fun SelectionFloatPanel(
                         value = vm.selectionTolerance.toFloat(),
                         onValue = { vm.updateSelectionTolerance(it.toInt()) },
                     )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("参考:", color = Morandi.subText, fontSize = 11.sp)
+                        ToolFloatChip(
+                            "当前图层",
+                            selected = vm.selectionSampleLayers == 0,
+                            onClick = { vm.updateSelectionSampleLayers(0) }
+                        )
+                        ToolFloatChip(
+                            "全部图层",
+                            selected = vm.selectionSampleLayers == 1,
+                            onClick = { vm.updateSelectionSampleLayers(1) }
+                        )
+                    }
                 }
             }
 

@@ -274,7 +274,9 @@ internal fun PaintViewModel.gradientFill(
     y1: Int,
     x2: Int,
     y2: Int,
-    type: Int = 0,
+    type: Int = gradientType,
+    repeat: Int = gradientRepeat,
+    reverse: Boolean = gradientReverse,
 ) {
     if (recorder.recording) {
         recorder.toolOp(T_GRADIENT) {
@@ -285,7 +287,7 @@ internal fun PaintViewModel.gradientFill(
             it.f32(y2.toFloat())
         }
     }
-    runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type) }
+    runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
 }
 
 internal fun PaintViewModel.selectShape(
@@ -751,6 +753,7 @@ internal fun PaintViewModel.cancelTransformPreview() {
 
 internal fun PaintViewModel.updateSelectionMode(mode: Int) {
     selectionMode = mode
+    saveToolOptions()
     if (recorder.recording) {
         recorder.toolOp(T_SELECT_MODE) { it.u8(mode) }
     }
@@ -1014,6 +1017,107 @@ internal fun PaintViewModel.lassoSelect(points: List<Pair<Int, Int>>) {
 
 internal fun PaintViewModel.updateSelectionTolerance(value: Int) {
     selectionTolerance = value.coerceIn(0, 255)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateSelectionSampleLayers(value: Int) {
+    selectionSampleLayers = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateFillTolerance(value: Int) {
+    fillTolerance = value.coerceIn(0, 255)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateFillSampleLayers(value: Int) {
+    fillSampleLayers = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateGradientType(value: Int) {
+    gradientType = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateGradientRepeat(value: Int) {
+    gradientRepeat = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateGradientReverse(value: Boolean) {
+    gradientReverse = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateShapeStrokeWidth(value: Double) {
+    shapeStrokeWidth = value
+    saveToolOptions()
+    runCore(render = false) { ReverieCoreBridge.setShapeStrokeWidth(value) }
+}
+
+internal fun PaintViewModel.updateShapeFillMode(value: Int) {
+    shapeFillMode = value
+    saveToolOptions()
+    runCore(render = false) { ReverieCoreBridge.setShapeFilled(value == 1 || value == 2) }
+}
+
+internal fun PaintViewModel.updateShapeKeepAspect(value: Boolean) {
+    shapeKeepAspect = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updatePickerSampleLayers(value: Int) {
+    pickerSampleLayers = value
+    pickerCurrentLayerOnly = value == 0
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.saveToolOptions() {
+    try {
+        val o = org.json.JSONObject()
+        o.put("fill_tol", fillTolerance)
+        o.put("fill_sample", fillSampleLayers)
+        o.put("fill_op", fillOpacity)
+        o.put("fill_cop", fillCompositeOp)
+        o.put("grad_type", gradientType)
+        o.put("grad_repeat", gradientRepeat)
+        o.put("grad_rev", gradientReverse)
+        o.put("shape_w", shapeStrokeWidth)
+        o.put("shape_fill", shapeFillMode)
+        o.put("shape_aspect", shapeKeepAspect)
+        o.put("sel_mode", selectionMode)
+        o.put("sel_tol", selectionTolerance)
+        o.put("sel_sample", selectionSampleLayers)
+        o.put("sel_feather", selectionFeatherRadius)
+        o.put("picker_sample", pickerSampleLayers)
+        prefs().edit().putString("tool_options", o.toString()).apply()
+    } catch (_: Exception) {
+    }
+}
+
+internal fun PaintViewModel.loadToolOptions() {
+    try {
+        val raw = prefs().getString("tool_options", null) ?: return
+        val o = org.json.JSONObject(raw)
+        fillTolerance = o.optInt("fill_tol", 24)
+        fillSampleLayers = o.optInt("fill_sample", 0)
+        fillOpacity = o.optDouble("fill_op", 1.0)
+        fillCompositeOp = o.optString("fill_cop", "normal")
+        gradientType = o.optInt("grad_type", 0)
+        gradientRepeat = o.optInt("grad_repeat", 0)
+        gradientReverse = o.optBoolean("grad_rev", false)
+        shapeStrokeWidth = o.optDouble("shape_w", 4.0)
+        shapeFillMode = o.optInt("shape_fill", 0)
+        shapeKeepAspect = o.optBoolean("shape_aspect", false)
+        selectionMode = o.optInt("sel_mode", 0)
+        selectionTolerance = o.optInt("sel_tol", 24)
+        selectionSampleLayers = o.optInt("sel_sample", 1)
+        selectionFeatherRadius = o.optInt("sel_feather", 0)
+        pickerSampleLayers = o.optInt("picker_sample", 1)
+        pickerCurrentLayerOnly = pickerSampleLayers == 0
+    } catch (_: Exception) {
+    }
 }
 
 internal fun PaintViewModel.selectContiguous(
@@ -1021,6 +1125,7 @@ internal fun PaintViewModel.selectContiguous(
     y: Int,
 ) {
     val tol = selectionTolerance
+    val sampleMerged = selectionSampleLayers == 1
     if (recorder.recording) {
         recorder.toolOp(T_CONTIGUOUS) {
             it.f32(x.toFloat())
@@ -1038,7 +1143,7 @@ internal fun PaintViewModel.selectContiguous(
         selectionOverlayBitmap = ov
         hasSelection = ov != null
     }) {
-        ReverieCoreBridge.selectContiguousAt(x, y, tol)
+        ReverieCoreBridge.selectContiguousAt(x, y, tol, sampleMerged)
         ov = buildSelectionOverlayLocked()
     }
 }
@@ -1048,6 +1153,7 @@ internal fun PaintViewModel.selectSimilar(
     y: Int,
 ) {
     val tol = selectionTolerance
+    val sampleMerged = selectionSampleLayers == 1
     if (recorder.recording) {
         recorder.toolOp(T_SIMILAR) {
             it.f32(x.toFloat())
@@ -1065,7 +1171,7 @@ internal fun PaintViewModel.selectSimilar(
         selectionOverlayBitmap = ov
         hasSelection = ov != null
     }) {
-        ReverieCoreBridge.selectSimilarAt(x, y, tol)
+        ReverieCoreBridge.selectSimilarAt(x, y, tol, sampleMerged)
         ov = buildSelectionOverlayLocked()
     }
 }
@@ -1116,7 +1222,7 @@ internal fun PaintViewModel.drawShape(
     y1: Float,
     x2: Float,
     y2: Float,
-    filled: Boolean = false,
+    filled: Boolean = shapeFillMode == 1 || shapeFillMode == 2,
 ) {
     if (recorder.recording) {
         recorder.toolOp(T_SHAPE) {
@@ -1136,7 +1242,8 @@ internal fun PaintViewModel.drawShape(
 internal fun PaintViewModel.floodFill(
     x: Float,
     y: Float,
-    tolerance: Int = 24,
+    tolerance: Int = fillTolerance,
+    sampleMerged: Boolean = fillSampleLayers == 1,
 ) {
     if (recorder.recording) {
         recorder.toolOp(T_FILL) {
@@ -1145,5 +1252,5 @@ internal fun PaintViewModel.floodFill(
             it.u16(tolerance.coerceIn(0, 65535))
         }
     }
-    runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance) }
+    runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged) }
 }

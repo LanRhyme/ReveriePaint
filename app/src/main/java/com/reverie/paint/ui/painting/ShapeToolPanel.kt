@@ -1,8 +1,8 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -12,27 +12,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
-import com.reverie.paint.ui.components.ReButton
-import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
-
 import dev.chrisbanes.haze.HazeState
 
 /**
- * Shape tools options panel - Krita tool-options floating capsule (same as
- * the selection panel): it never covers the canvas, only a compact capsule
- * at the bottom
+ * Shape tools options panel - Krita tool-options floating capsule
  */
 @Composable
 fun ShapeToolPanel(
     vm: PaintViewModel,
     tool: Tool,
     vertexCount: Int,
-    strokeWidth: Float,
-    filled: Boolean,
-    onStrokeWidth: (Float) -> Unit,
-    onFilled: (Boolean) -> Unit,
+    strokeWidth: Float = vm.shapeStrokeWidth.toFloat(),
+    filled: Boolean = vm.shapeFillMode == 1,
+    keepAspect: Boolean = vm.shapeKeepAspect,
+    onStrokeWidth: (Float) -> Unit = { vm.updateShapeStrokeWidth(it.toDouble()) },
+    onFilled: (Boolean) -> Unit = { vm.updateShapeFillMode(if (it) 1 else 0) },
+    onKeepAspect: (Boolean) -> Unit = { vm.updateShapeKeepAspect(it) },
     onFinish: () -> Unit,
     onCancel: () -> Unit,
     hazeState: HazeState? = null,
@@ -51,11 +48,15 @@ fun ShapeToolPanel(
             }
         }
     } else {
-        // line / rect / ellipse: stroke width + fill
+        // line / rect / ellipse: stroke width + fill + 1:1 aspect ratio constraint
         ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToolFloatChip(label = "填充", selected = filled, onClick = { onFilled(!filled) })
-                Box(modifier = Modifier.width(180.dp)) {
+                if (tool == Tool.RECT || tool == Tool.ELLIPSE) {
+                    val aspectLabel = if (tool == Tool.RECT) "1:1 正方形" else "1:1 正圆"
+                    ToolFloatChip(label = aspectLabel, selected = keepAspect, onClick = { onKeepAspect(!keepAspect) })
+                }
+                Box(modifier = Modifier.width(150.dp)) {
                     ToolFloatSlider(
                         label = "描边",
                         valueText = "${strokeWidth.roundToInt()}px",

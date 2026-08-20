@@ -271,6 +271,27 @@ class PaintViewModel : ViewModel() {
     var colorPickerMode by mutableStateOf("SQUARE")
         internal set
 
+    // Tool options states (persisted)
+    var fillTolerance by mutableIntStateOf(24)
+    var fillSampleLayers by mutableIntStateOf(0) // 0: 当前图层, 1: 全部图层
+    var fillOpacity by mutableStateOf(1.0)
+    var fillCompositeOp by mutableStateOf("normal")
+
+    var gradientType by mutableIntStateOf(0) // 0: 线性, 1: 径向, 2: 角度
+    var gradientRepeat by mutableIntStateOf(0) // 0: 无, 1: 重复, 2: 往返
+    var gradientReverse by mutableStateOf(false)
+
+    var shapeStrokeWidth by mutableStateOf(4.0)
+    var shapeFillMode by mutableIntStateOf(0) // 0: 仅描边, 1: 仅填充, 2: 描边与填充
+    var shapeKeepAspect by mutableStateOf(false)
+
+    var selectionMode by mutableIntStateOf(0) // 0: 替换, 1: 添加, 2: 减去, 3: 相交
+    var selectionTolerance by mutableIntStateOf(24)
+    var selectionSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
+    var selectionFeatherRadius by mutableIntStateOf(0)
+
+    var pickerSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
+
     var settingsInitialSubPage by mutableStateOf("MAIN")
 
     // 图层面板多选（右滑选中）
@@ -1029,8 +1050,6 @@ class PaintViewModel : ViewModel() {
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
 
     var transformPreviewBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
-    var selectionMode by mutableStateOf(0)
-    var selectionTolerance by mutableStateOf(24)
     internal val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
 
     // Name-keyed mirror: layer indices change on every move/group op, so the

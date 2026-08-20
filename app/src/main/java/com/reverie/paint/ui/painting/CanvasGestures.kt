@@ -523,7 +523,14 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                                     Tool.ELLIPSE -> 2
                                     else -> 0
                                 }
-                            vm.drawShape(kind, firstImage.x, firstImage.y, shapeEnd.x, shapeEnd.y)
+                            var ex = shapeEnd.x
+                            var ey = shapeEnd.y
+                            if (vm.shapeKeepAspect && (kind == 1 || kind == 2)) {
+                                val maxDim = maxOf(kotlin.math.abs(ex - firstImage.x), kotlin.math.abs(ey - firstImage.y))
+                                ex = if (ex >= firstImage.x) firstImage.x + maxDim else firstImage.x - maxDim
+                                ey = if (ey >= firstImage.y) firstImage.y + maxDim else firstImage.y - maxDim
+                            }
+                            vm.drawShape(kind, firstImage.x, firstImage.y, ex, ey)
                         }
 
                         pointClickTool -> {
@@ -536,7 +543,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                             val x2 = shapeEnd.x.toInt()
                             val y2 = shapeEnd.y.toInt()
                             when (tool) {
-                                Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, gradientType)
+                                Tool.GRADIENT -> vm.gradientFill(x1, y1, x2, y2, vm.gradientType, vm.gradientRepeat, vm.gradientReverse)
                                 Tool.SELECT_RECT -> vm.selectShape(0, x1, y1, x2, y2)
                                 Tool.SELECT_ELLIPSE -> vm.selectShape(1, x1, y1, x2, y2)
                                 else -> Unit

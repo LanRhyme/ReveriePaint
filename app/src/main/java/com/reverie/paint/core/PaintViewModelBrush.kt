@@ -801,6 +801,14 @@ import kotlinx.coroutines.launch
                 brushIsAuthorLocked = isBuiltIn
             }
         }) {
+            if (ReverieCoreBridge.loadBrushPreset(index)) {
+                brushPresetIndex = index
+                updateCurrentToolBrushState { it.copy(presetIndex = index) }
+                try {
+                    prefs().edit().putInt("last_brush_preset_index", index).apply()
+                } catch (_: Exception) {
+                }
+            }
             if (saved != null) {
                 ReverieCoreBridge.setBrushSize(saved.size)
                 ReverieCoreBridge.setBrushOpacity(saved.opacity)
@@ -814,14 +822,6 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushSharpness(saved.sharpness)
                 ReverieCoreBridge.setBrushRotation(saved.rotation)
                 ReverieCoreBridge.setBrushCompositeOp(saved.compositeOp)
-            }
-            if (ReverieCoreBridge.loadBrushPreset(index)) {
-                brushPresetIndex = index
-                updateCurrentToolBrushState { it.copy(presetIndex = index) }
-                try {
-                    prefs().edit().putInt("last_brush_preset_index", index).apply()
-                } catch (_: Exception) {
-                }
             }
         }
     }

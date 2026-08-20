@@ -174,17 +174,18 @@ bool ReverieCore::renderPendingDirty() const
     return m_document && !m_dirtyRect.isNull();
 }
 
-void ReverieCore::floodFillAt(int x, int y, int tolerance)
+void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) return;
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) return;
+    KisPaintDeviceSP targetDevice = currentPaintDevice();
+    if (!targetDevice) return;
+    KisPaintDeviceSP srcDevice = sampleMerged ? image->projection() : targetDevice;
 
-    KisTransaction txn(kundo2_i18n("Fill"), device);
+    KisTransaction txn(kundo2_i18n("Fill"), targetDevice);
     
-    KisFillPainter painter(device);
+    KisFillPainter painter(targetDevice);
     painter.setFillThreshold(tolerance);
     if (m_selection) {
         painter.setSelection(m_selection);
@@ -202,10 +203,10 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance)
         painter.setCompositeOpId(COMPOSITE_OVER);
     }
 
-    // fillColor will flood fill starting from x, y
-    painter.fillColor(x, y, device);
+    // fillColor will flood fill starting from x, y sampling from srcDevice
+    painter.fillColor(x, y, srcDevice);
 
-    device->setDirty();
+    targetDevice->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
@@ -233,12 +234,6 @@ QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
             .arg(pixel[0], 2, 16, QLatin1Char('0'));
 }
 
-// Restore pixels outside the active selection after a QImage-based edit
-// (drawShape / drawPolygon / gradientFill / moveLayerContent), so those
-// tools are constrained to the selection exactly like Krita. 'edited' is the
-// region-sized image, 'original' its pre-edit copy, 'selMask' the full
-// document mask, and offsetX/offsetY locate 'edited' inside the document.
-
 void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool filled)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -248,14 +243,14 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
 
     KisTransaction txn(kundo2_i18n("Shape"), device);
     KisPainter painter(device);
-
+    
     KoColor paintColor(QColor(m_brushColor), image->colorSpace());
     painter.setPaintColor(paintColor);
     painter.setBackgroundColor(paintColor);
     painter.setOpacityF(m_brushOpacity);
     
     painter.setStrokeStyle(KisPainter::StrokeStyleBrush);
-    painter.setFillStyle((filled || m_shapeFilled) ? KisPainter::FillStyleForegroundColor : KisPainter::FillStyleNone);
+    painter.setFillStyle(filled ? KisPainter::FillStyleForegroundColor : KisPainter::FillStyleNone);
     
     if (m_selection) {
         painter.setSelection(m_selection);
@@ -269,26 +264,15 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
         }
     }
     
-    // We must run paint operations inside Krita's thread-safe executor logic if it uses stroke jobs
-    // but for simple single-frame shapes, KisPainter handles it synchronously if we don't set a RunnableStrokeJobsInterface.
-    // Wait, Krita's KisPainter requires a fake executor if we use paint ops asynchronously?
-    // In Krita, KisToolShape uses KisPainter normally.
     painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
     
-    QRectF r(QPointF(x1, y1), QPointF(x2, y2));
-    r = r.normalized();
-
-    switch (kind) {
-    case 1: 
-        painter.paintRect(r); 
-        break;
-    case 2: 
-        painter.paintEllipse(r); 
-        break;
-    default: 
-        // KisPainter::paintLine takes KisPaintInformation.
-        painter.paintLine(KisPaintInformation(QPointF(x1, y1)), KisPaintInformation(QPointF(x2, y2)), nullptr);
-        break;
+    QRect rect(qMin(x1, x2), qMin(y1, y2), qAbs(x2 - x1), qAbs(y2 - y1));
+    if (kind == 0) { // Line
+        painter.drawLine(QPointF(x1, y1), QPointF(x2, y2));
+    } else if (kind == 1) { // Rect
+        painter.paintRect(rect);
+    } else if (kind == 2) { // Ellipse
+        painter.paintEllipse(rect);
     }
 
     device->setDirty();
@@ -299,13 +283,13 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
 
 void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
 {
-    if (points.size() < 2) return;
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
+    if (points.size() < 2) return;
 
-    KisTransaction txn(kundo2_i18n("Shape"), device);
+    KisTransaction txn(kundo2_i18n("Polygon"), device);
     KisPainter painter(device);
     
     KoColor paintColor(QColor(m_brushColor), image->colorSpace());
@@ -347,7 +331,7 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     m_redoCount = 0;
 }
 
-void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
+void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type, int repeat, bool reverse)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
@@ -369,16 +353,30 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
     if (!fgColor.isValid()) fgColor = Qt::black;
     fgColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
 
-    QColor bgColor(m_brushColor);
-    bgColor.setAlphaF(0.0);
+    QColor bgColor(m_brushSecondaryColor);
+    if (!bgColor.isValid()) {
+        bgColor = QColor(m_brushColor);
+        bgColor.setAlphaF(0.0);
+    } else {
+        bgColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    }
+
+    if (reverse) {
+        std::swap(fgColor, bgColor);
+    }
 
     QPointF p1(x1, y1);
     QPointF p2(x2, y2);
+
+    QGradient::Spread spread = QGradient::PadSpread;
+    if (repeat == 1) spread = QGradient::RepeatSpread;
+    else if (repeat == 2) spread = QGradient::ReflectSpread;
 
     if (type == 1) { // Radial
         qreal r = QLineF(p1, p2).length();
         if (r < 1.0) r = 1.0;
         QRadialGradient grad(p1, r);
+        grad.setSpread(spread);
         grad.setColorAt(0.0, fgColor);
         grad.setColorAt(1.0, bgColor);
         qp.setBrush(grad);
@@ -390,6 +388,7 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type)
         qp.setBrush(grad);
     } else { // Linear
         QLinearGradient grad(p1, p2);
+        grad.setSpread(spread);
         grad.setColorAt(0.0, fgColor);
         grad.setColorAt(1.0, bgColor);
         qp.setBrush(grad);

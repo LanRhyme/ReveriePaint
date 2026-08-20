@@ -563,16 +563,18 @@ fun PaintingPage(vm: PaintViewModel) {
                 vm = vm,
                 tool = tool,
                 vertexCount = polyPoints.size,
-                strokeWidth = shapeStrokeWidth,
-                filled = shapeFilled,
+                strokeWidth = vm.shapeStrokeWidth.toFloat(),
+                filled = vm.shapeFillMode == 1,
+                keepAspect = vm.shapeKeepAspect,
                 hazeState = hazeState,
                 onStrokeWidth = {
-                    shapeStrokeWidth = it
-                    vm.setShapeStrokeWidth(it.toDouble())
+                    vm.updateShapeStrokeWidth(it.toDouble())
                 },
                 onFilled = {
-                    shapeFilled = it
-                    vm.setShapeFilled(it)
+                    vm.updateShapeFillMode(if (it) 1 else 0)
+                },
+                onKeepAspect = {
+                    vm.updateShapeKeepAspect(it)
                 },
                 onFinish = {
                     if (polyPoints.isNotEmpty()) {
@@ -661,7 +663,16 @@ fun PaintingPage(vm: PaintViewModel) {
                         .tween(200),
                 ),
         ) {
-            GradientPanel(vm = vm, type = gradientType, onType = { gradientType = it }, hazeState = hazeState)
+            GradientPanel(
+                vm = vm,
+                type = vm.gradientType,
+                onType = { vm.updateGradientType(it) },
+                repeat = vm.gradientRepeat,
+                onRepeat = { vm.updateGradientRepeat(it) },
+                reverse = vm.gradientReverse,
+                onReverse = { vm.updateGradientReverse(it) },
+                hazeState = hazeState,
+            )
         }
         // Solo-mode floating panel (bottom center, same style as fill/gradient
         // tool panels): 常规 keeps the layer's own effects, 取消所有效果
@@ -729,7 +740,14 @@ fun PaintingPage(vm: PaintViewModel) {
                         .tween(200),
                 ),
         ) {
-            FillPanel(vm = vm, tolerance = fillTolerance, onTolerance = { fillTolerance = it }, hazeState = hazeState)
+            FillPanel(
+                vm = vm,
+                tolerance = vm.fillTolerance,
+                onTolerance = { vm.updateFillTolerance(it) },
+                sampleLayers = vm.fillSampleLayers,
+                onSampleLayers = { vm.updateFillSampleLayers(it) },
+                hazeState = hazeState,
+            )
         }
         androidx.compose.animation.AnimatedVisibility(
             visible = tool == Tool.LIQUIFY,

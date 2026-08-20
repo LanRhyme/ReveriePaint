@@ -95,7 +95,7 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
 // Build a selection from a boolean mask (BFS / global scan results).
 // Install a new selection from a mask, honouring the current merge mode
 
-void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
+void ReverieCore::selectContiguousAt(int x, int y, int tolerance, bool sampleMerged)
 {
     KisImageSP image = m_document;
     if (!image) {
@@ -108,9 +108,9 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
-    // Krita magic-wand semantics: match against the visible composite
-    // (projection), not a single layer's raw pixels
-    KisPaintDeviceSP device = image->projection();
+    // Match against the visible composite (projection) or current layer
+    KisPaintDeviceSP device = sampleMerged ? image->projection() : currentPaintDevice();
+    if (!device) return;
     QElapsedTimer wt;
     wt.start();
     image->waitForDone();
@@ -228,7 +228,7 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance)
     RPC_LOG("RPC wandT fill=%ldms visited=%d", long(tFillMs), (int)visited);
 }
 
-void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
+void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged)
 {
     KisImageSP image = m_document;
     if (!image) {
@@ -241,8 +241,9 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance)
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
-    // Krita similar-color semantics: match against the visible composite
-    KisPaintDeviceSP device = image->projection();
+    // Match against the visible composite (projection) or current layer
+    KisPaintDeviceSP device = sampleMerged ? image->projection() : currentPaintDevice();
+    if (!device) return;
     image->waitForDone();
     QVector<quint8> bytes(size_t(iw) * ih * 4);
     device->readBytes(bytes.data(), 0, 0, iw, ih);
