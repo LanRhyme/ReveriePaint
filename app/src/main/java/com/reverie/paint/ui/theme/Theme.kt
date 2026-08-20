@@ -89,10 +89,10 @@ private fun Color.toMorandiAccent(isDark: Boolean): Color {
         ),
         hsv
     )
-    // Coerce saturation to calm Morandi muted range (25% - 48%)
-    hsv[1] = hsv[1].coerceIn(0.24f, 0.46f)
-    // Coerce brightness/value for optimal contrast and elegance
-    hsv[2] = if (isDark) hsv[2].coerceIn(0.62f, 0.78f) else hsv[2].coerceIn(0.42f, 0.58f)
+    // Coerce saturation to calm Morandi muted range (22% - 42%)
+    hsv[1] = hsv[1].coerceIn(0.22f, 0.42f)
+    // Coerce brightness/value: comfortable, deeper Morandi tones without high brightness glare
+    hsv[2] = if (isDark) hsv[2].coerceIn(0.48f, 0.65f) else hsv[2].coerceIn(0.32f, 0.48f)
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
@@ -117,9 +117,9 @@ fun getMonetColors(
             val morandiAccentHi = scheme.primaryContainer.toMorandiAccent(isDark)
 
             val tintColor = scheme.primary
-            val bgTintWeight = if (isDark) 0.05f else 0.03f
-            val panelTintWeight = if (isDark) 0.06f else 0.02f
-            val panelHiTintWeight = if (isDark) 0.08f else 0.04f
+            val bgTintWeight = if (isDark) 0.025f else 0.015f
+            val panelTintWeight = if (isDark) 0.035f else 0.012f
+            val panelHiTintWeight = if (isDark) 0.045f else 0.02f
 
             fallbackBase.copy(
                 bg = blendColors(fallbackBase.bg, tintColor, bgTintWeight),
@@ -128,7 +128,7 @@ fun getMonetColors(
                 canvasBg = blendColors(fallbackBase.canvasBg, tintColor, bgTintWeight),
                 accent = morandiAccent,
                 accentHi = morandiAccentHi,
-                border = blendColors(fallbackBase.border, tintColor, 0.05f),
+                border = blendColors(fallbackBase.border, tintColor, 0.035f),
             )
         } catch (_: Throwable) {
             fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)

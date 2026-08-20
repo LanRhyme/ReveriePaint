@@ -396,8 +396,19 @@ fun PaintingPage(
             }
         }
 
-        // ---- Top bar ----
-        TopBar(
+        val currentDensity = androidx.compose.ui.platform.LocalDensity.current
+        val scaledDensity = remember(currentDensity, vm.paintingUiScale) {
+            androidx.compose.ui.unit.Density(
+                density = currentDensity.density * vm.paintingUiScale,
+                fontScale = currentDensity.fontScale * vm.paintingUiScale
+            )
+        }
+
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalDensity provides scaledDensity
+        ) {
+            // ---- Top bar ----
+            TopBar(
             modifier = Modifier.align(Alignment.TopEnd),
             vm = vm,
             opacity = vm.uiOpacity,
@@ -1213,6 +1224,7 @@ fun PaintingPage(
                     }
                 }
             }
+        }
         }
     }
 }

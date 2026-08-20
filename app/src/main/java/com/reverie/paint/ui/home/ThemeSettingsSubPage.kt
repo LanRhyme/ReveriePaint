@@ -301,6 +301,23 @@ internal fun ThemeSettingsSubPage(
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.4f)))
         Spacer(Modifier.height(16.dp))
 
+        // Section: 界面尺寸与缩放
+        SettingCategoryHeader("界面尺寸")
+
+        SettingSliderRow(
+            title = "绘画界面整体大小",
+            summary = "缩放画布四周的工具栏、顶栏及各浮动面板 (${(vm.paintingUiScale * 100).toInt()}%)",
+            value = ((vm.paintingUiScale - 0.75f) / (1.35f - 0.75f)).coerceIn(0f, 1f),
+            onValueChange = { fraction ->
+                val newScale = 0.75f + fraction * (1.35f - 0.75f)
+                vm.updatePaintingUiScale(newScale)
+            }
+        )
+
+        Spacer(Modifier.height(20.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.4f)))
+        Spacer(Modifier.height(16.dp))
+
         // Section: 显示与效果
         SettingCategoryHeader("显示与效果")
 

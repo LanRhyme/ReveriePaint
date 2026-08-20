@@ -248,6 +248,7 @@ class PaintViewModel : ViewModel() {
     var accentColorHex by mutableStateOf("#5E8BA8")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
+    var paintingUiScale by mutableStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableStateOf(0)
 
@@ -620,6 +621,17 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updatePaintingUiScale(scale: Float) {
+        paintingUiScale = scale.coerceIn(0.70f, 1.40f)
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("paintingUiScale", paintingUiScale)
+                .apply()
+        }
+    }
+
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
         if (::appContext.isInitialized) {
@@ -738,6 +750,7 @@ class PaintViewModel : ViewModel() {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
+            paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             blurBackground = prefs.getBoolean("blurBackground", false)
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
