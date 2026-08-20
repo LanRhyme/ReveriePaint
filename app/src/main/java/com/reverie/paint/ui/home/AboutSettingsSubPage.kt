@@ -2,7 +2,7 @@ package com.reverie.paint.ui.home
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -26,21 +26,27 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Article
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,11 +71,16 @@ import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Theme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.sin
 
 /**
  * Bespoke Artistic About Page for ReveriePaint
- * Combining Custom ROM expressive clarity with digital painting artistic atmosphere
  */
 @Composable
 fun AboutSettingsSubPage(
@@ -81,23 +92,8 @@ fun AboutSettingsSubPage(
     val context = LocalContext.current
 
     var showContributorsDialog by remember { mutableStateOf(false) }
-
-    // Safely retrieve application icon
-    val appIconBitmap = remember(context) {
-        try {
-            val pm = context.packageManager
-            val d = pm.getApplicationIcon(context.packageName)
-            val w = d.intrinsicWidth.coerceAtLeast(96)
-            val h = d.intrinsicHeight.coerceAtLeast(96)
-            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            val cv = Canvas(bmp)
-            d.setBounds(0, 0, w, h)
-            d.draw(cv)
-            bmp.asImageBitmap()
-        } catch (_: Exception) {
-            null
-        }
-    }
+    var showSponsorsDialog by remember { mutableStateOf(false) }
+    var showLicensesDialog by remember { mutableStateOf(false) }
 
     // Subtle wave animation for the painting canvas header
     val infiniteTransition = rememberInfiniteTransition(label = "artHeader")
@@ -152,39 +148,39 @@ fun AboutSettingsSubPage(
 
         Spacer(Modifier.height(16.dp))
 
-        // 2. Artistic Hero Canvas Banner
+        // 2. Artistic Header Banner (No app icon, pure typography & fluid art waves)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 130.dp else 160.dp)
-                .clip(RoundedCornerShape(24.dp))
+                .height(if (compact) 110.dp else 135.dp)
+                .clip(RoundedCornerShape(22.dp))
                 .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(24.dp)),
+                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp)),
         ) {
             // Painterly fluid acrylic & watercolor waves
             ComposeCanvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
 
-                // Base ambient glow
+                // Ambient glow
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.35f),
+                            Morandi.accent.copy(alpha = 0.30f),
                             Color.Transparent,
                         ),
-                        center = Offset(w * 0.75f, h * 0.4f),
+                        center = Offset(w * 0.8f, h * 0.35f),
                         radius = w * 0.6f,
                     ),
-                    center = Offset(w * 0.75f, h * 0.4f),
+                    center = Offset(w * 0.8f, h * 0.35f),
                     radius = w * 0.6f,
                 )
 
-                // Smooth organic wave paths
+                // Wave Layer 1
                 val p1 = Path().apply {
                     moveTo(0f, h * 0.5f)
                     for (x in 0..w.toInt() step 15) {
-                        val y = h * 0.55f + sin((x / w * 4f) + phase).toFloat() * 18.dp.toPx()
+                        val y = h * 0.55f + sin((x / w * 4f) + phase).toFloat() * 16.dp.toPx()
                         lineTo(x.toFloat(), y)
                     }
                     lineTo(w, h)
@@ -195,17 +191,18 @@ fun AboutSettingsSubPage(
                     path = p1,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.12f),
-                            Morandi.accent.copy(alpha = 0.25f),
+                            Morandi.accent.copy(alpha = 0.10f),
+                            Morandi.accent.copy(alpha = 0.22f),
                             Morandi.panel.copy(alpha = 0.1f),
                         )
                     ),
                 )
 
+                // Wave Layer 2
                 val p2 = Path().apply {
-                    moveTo(0f, h * 0.7f)
+                    moveTo(0f, h * 0.68f)
                     for (x in 0..w.toInt() step 15) {
-                        val y = h * 0.72f + sin((x / w * 5f) - phase * 0.8f).toFloat() * 14.dp.toPx()
+                        val y = h * 0.70f + sin((x / w * 5f) - phase * 0.8f).toFloat() * 12.dp.toPx()
                         lineTo(x.toFloat(), y)
                     }
                     lineTo(w, h)
@@ -217,85 +214,59 @@ fun AboutSettingsSubPage(
                     brush = Brush.horizontalGradient(
                         listOf(
                             Morandi.panel.copy(alpha = 0.2f),
-                            Morandi.accent.copy(alpha = 0.20f),
-                            Morandi.accent.copy(alpha = 0.08f),
+                            Morandi.accent.copy(alpha = 0.18f),
+                            Morandi.accent.copy(alpha = 0.06f),
                         )
                     ),
                 )
             }
 
-            // Banner Content Overlay
-            Row(
+            // Banner Title & Subtitle
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = if (compact) 16.dp else 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                    .padding(horizontal = if (compact) 18.dp else 24.dp),
+                verticalArrangement = Arrangement.Center,
             ) {
-                // App Logo
-                if (appIconBitmap != null) {
-                    Image(
-                        bitmap = appIconBitmap,
-                        contentDescription = "ReveriePaint",
-                        modifier = Modifier
-                            .size(if (compact) 54.dp else 68.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .border(1.5.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(18.dp)),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(
+                        text = "ReveriePaint",
+                        color = colors.text,
+                        fontSize = if (compact) 22.sp else 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
                     )
-                } else {
                     Box(
                         modifier = Modifier
-                            .size(if (compact) 54.dp else 68.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Morandi.accent),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("RP", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(Modifier.width(18.dp))
-
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Morandi.accent.copy(alpha = 0.18f))
+                            .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            text = "ReveriePaint",
-                            color = colors.text,
-                            fontSize = if (compact) 20.sp else 24.sp,
+                            text = "v1.0.0",
+                            color = Morandi.accent,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp,
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.accent.copy(alpha = 0.18f))
-                                .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text(
-                                text = "v1.0.0",
-                                color = Morandi.accent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "移动端与平板专业数字绘画创作软件",
-                        color = Morandi.subText,
-                        fontSize = if (compact) 11.sp else 12.sp,
-                        fontWeight = FontWeight.Normal,
-                    )
                 }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "移动端与平板专业数字绘画创作软件",
+                    color = Morandi.subText,
+                    fontSize = if (compact) 11.sp else 13.sp,
+                    fontWeight = FontWeight.Normal,
+                )
             }
         }
 
         Spacer(Modifier.height(20.dp))
 
-        // 3. Contiguous Card Group 1: 创作者与社区 (Custom ROM Group Style)
+        // 3. Contiguous Card Group 1: 项目与社区 (Custom ROM Group Style)
         Text(
             text = "项目与社区",
             color = Morandi.accent,
@@ -345,13 +316,8 @@ fun AboutSettingsSubPage(
                 icon = Icons.Rounded.Favorite,
                 title = "赞助者",
                 summary = "查看爱发电赞助者",
-                isLink = true,
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
-                onClick = {
-                    try {
-                        uriHandler.openUri("https://afdian.com/a/LanRhyme")
-                    } catch (_: Exception) {}
-                },
+                onClick = { showSponsorsDialog = true },
             )
         }
 
@@ -359,7 +325,7 @@ fun AboutSettingsSubPage(
 
         // 4. Contiguous Card Group 2: 应用与维护
         Text(
-            text = "应用与维护",
+            text = "应用与系统",
             color = Morandi.accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -397,6 +363,15 @@ fun AboutSettingsSubPage(
                 },
             )
 
+            // 第三方开源许可 (Middle Rounded)
+            AboutGroupItem(
+                icon = Icons.Rounded.Description,
+                title = "第三方开源许可",
+                summary = "查看使用的开源库与许可证",
+                shape = RoundedCornerShape(4.dp),
+                onClick = { showLicensesDialog = true },
+            )
+
             // 导出日志 (Bottom Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Article,
@@ -411,7 +386,7 @@ fun AboutSettingsSubPage(
 
         Spacer(Modifier.height(16.dp))
 
-        // 5. 软件介绍卡片 (Artistic Intro Card)
+        // 5. 软件介绍卡片
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -450,33 +425,344 @@ fun AboutSettingsSubPage(
         Spacer(Modifier.height(24.dp))
     }
 
-    // 贡献者弹窗
+    // 贡献者对话框 (支持动态获取 / 优雅展示)
     if (showContributorsDialog) {
-        Dialog(onDismissRequest = { showContributorsDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(20.dp))
-                    .padding(22.dp),
+        ContributorsDialog(onDismiss = { showContributorsDialog = false })
+    }
+
+    // 赞助者对话框 (爱发电支持)
+    if (showSponsorsDialog) {
+        SponsorsDialog(onDismiss = { showSponsorsDialog = false })
+    }
+
+    // 第三方开源许可对话框
+    if (showLicensesDialog) {
+        LicensesDialog(onDismiss = { showLicensesDialog = false })
+    }
+}
+
+// ---- 对话框组件实现 ----
+
+data class ContributorItem(
+    val name: String,
+    val role: String,
+    val avatarUrl: String? = null,
+    val htmlUrl: String? = null,
+)
+
+@Composable
+private fun ContributorsDialog(onDismiss: () -> Unit) {
+    val colors = Theme.current
+    val uriHandler = LocalUriHandler.current
+    var contributors by remember {
+        mutableStateOf(
+            listOf(
+                ContributorItem("LanRhyme", "Author & Lead Developer", htmlUrl = "https://github.com/LanRhyme"),
+                ContributorItem("Krita Foundation", "Brush & Core Engine (KDE)", htmlUrl = "https://krita.org"),
+                ContributorItem("Qt Project", "GUI & Framework Architecture", htmlUrl = "https://qt.io"),
+                ContributorItem("Skia Graphics", "2D Graphics & GPU Blit", htmlUrl = "https://skia.org"),
+            )
+        )
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .height(420.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Morandi.panelHi)
+                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
+                .padding(20.dp),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Text(
+                    text = "贡献者",
+                    color = colors.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "感谢所有为本项目做出贡献的开发者与团队",
+                    color = Morandi.subText,
+                    fontSize = 12.sp,
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(contributors) { item ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Morandi.panel)
+                                .clickable {
+                                    item.htmlUrl?.let { url ->
+                                        try {
+                                            uriHandler.openUri(url)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape)
+                                            .background(Morandi.accent.copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = item.name.first().toString(),
+                                            color = Morandi.accent,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = item.name,
+                                            color = colors.text,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            text = item.role,
+                                            color = Morandi.subText,
+                                            fontSize = 11.sp,
+                                        )
+                                    }
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Rounded.OpenInNew,
+                                    contentDescription = null,
+                                    tint = Morandi.subText,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("关闭", color = Morandi.accent, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SponsorsDialog(onDismiss: () -> Unit) {
+    val colors = Theme.current
+    val uriHandler = LocalUriHandler.current
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Morandi.panelHi)
+                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
+                .padding(22.dp),
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Rounded.Favorite,
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(36.dp),
+                )
+
+                Text(
+                    text = "赞助者支持",
+                    color = colors.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Text(
+                    text = "您的每一份支持都是 ReveriePaint 持续迭代、优化性能与加入新功能的动力！",
+                    color = Morandi.subText,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel)
+                        .padding(14.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("• 爱发电创作者：LanRhyme", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text("• 感谢所有在爱发电和社区默默支持的朋友！", color = Morandi.subText, fontSize = 11.sp)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("返回", color = Morandi.subText)
+                    }
+
                     Text(
-                        text = "贡献者",
-                        color = colors.text,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        text = "感谢所有为 ReveriePaint 提交代码、建议与反馈的开发者与创作者！\n\n• LanRhyme\n• Krita & KDE Community\n• Qt Project",
-                        color = Morandi.subText,
+                        text = "前往爱发电赞助",
+                        color = Morandi.onAccent,
                         fontSize = 13.sp,
-                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Morandi.accent)
+                            .clickable {
+                                try {
+                                    uriHandler.openUri("https://afdian.com/a/LanRhyme")
+                                } catch (_: Exception) {}
+                                onDismiss()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                     )
-                    Spacer(Modifier.height(18.dp))
-                    TextButton(onClick = { showContributorsDialog = false }) {
+                }
+            }
+        }
+    }
+}
+
+data class OpenSourceLibrary(
+    val name: String,
+    val author: String,
+    val license: String,
+    val description: String,
+)
+
+@Composable
+private fun LicensesDialog(onDismiss: () -> Unit) {
+    val colors = Theme.current
+    val libraries = listOf(
+        OpenSourceLibrary("Krita Core Engine", "KDE & Krita Foundation", "GPL-3.0", "Professional raster graphics & paintop brush pipeline"),
+        OpenSourceLibrary("Qt 6 Framework", "The Qt Company", "LGPL-3.0", "Cross-platform C++ application & GUI framework"),
+        OpenSourceLibrary("Jetpack Compose", "Google LLC", "Apache-2.0", "Android modern declarative UI toolkit"),
+        OpenSourceLibrary("Haze", "Chris Banes", "Apache-2.0", "Fast GPU glassmorphism & background blur for Compose"),
+        OpenSourceLibrary("Kotlin Standard Library & Coroutines", "JetBrains s.r.o.", "Apache-2.0", "Modern asynchronous and functional language stack"),
+        OpenSourceLibrary("AndroidX Core & Lifecycle", "Google LLC", "Apache-2.0", "Android platform extensions and lifecycle components"),
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.95f)
+                .height(460.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Morandi.panelHi)
+                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
+                .padding(20.dp),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Text(
+                    text = "第三方开源许可",
+                    color = colors.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "ReveriePaint 使用了以下优秀的开源项目与组件",
+                    color = Morandi.subText,
+                    fontSize = 12.sp,
+                )
+
+                Spacer(Modifier.height(14.dp))
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(libraries) { lib ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Morandi.panel)
+                                .padding(12.dp),
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = lib.name,
+                                        color = colors.text,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Morandi.panelHi)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            text = lib.license,
+                                            color = Morandi.accent,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = lib.author,
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    text = lib.description,
+                                    color = Morandi.subText.copy(alpha = 0.8f),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) {
                         Text("确定", color = Morandi.accent, fontWeight = FontWeight.Bold)
                     }
                 }
