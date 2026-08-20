@@ -23,6 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
+import kotlin.math.roundToInt
 
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
@@ -252,6 +253,9 @@ class PaintViewModel : ViewModel() {
 
     // View Display Settings (参考图 1)
     var quickSliderMode by mutableIntStateOf(0) // 0: 不透明度, 1: 流量
+    var brushSizePresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
+    var brushOpacityPresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
+    var brushFlowPresets by mutableStateOf<List<Double?>>(listOf(null, null, null, null, null, null, null, null, null))
     var canvasRotationEnabled by mutableStateOf(true) // 画布可旋转
     var magnificationInterpolation by mutableStateOf(true) // 放大插值
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
@@ -760,8 +764,105 @@ class PaintViewModel : ViewModel() {
                 ReverieCoreBridge.setBrushColor(brushColor)
             }
 
+            brushSizePresets = loadSliderPresets("brushSizePresets")
+            brushOpacityPresets = loadSliderPresets("brushOpacityPresets")
+            brushFlowPresets = loadSliderPresets("brushFlowPresets")
+
             applyCurrentTheme()
         }
+    }
+
+    fun saveSizePreset(size: Double, slotIndex: Int = -1) {
+        val list = brushSizePresets.toMutableList()
+        val targetIdx = if (slotIndex in 0..8) {
+            slotIndex
+        } else {
+            val emptyIdx = list.indexOfFirst { it == null }
+            if (emptyIdx != -1) emptyIdx else 0
+        }
+        list[targetIdx] = (size * 100.0).roundToInt() / 100.0
+        brushSizePresets = list
+        persistSliderPresets("brushSizePresets", list)
+    }
+
+    fun removeSizePreset(slotIndex: Int) {
+        if (slotIndex in 0..8) {
+            val list = brushSizePresets.toMutableList()
+            list[slotIndex] = null
+            brushSizePresets = list
+            persistSliderPresets("brushSizePresets", list)
+        }
+    }
+
+    fun saveOpacityPreset(opacity: Double, slotIndex: Int = -1) {
+        val list = brushOpacityPresets.toMutableList()
+        val targetIdx = if (slotIndex in 0..8) {
+            slotIndex
+        } else {
+            val emptyIdx = list.indexOfFirst { it == null }
+            if (emptyIdx != -1) emptyIdx else 0
+        }
+        list[targetIdx] = (opacity * 100.0).roundToInt() / 100.0
+        brushOpacityPresets = list
+        persistSliderPresets("brushOpacityPresets", list)
+    }
+
+    fun removeOpacityPreset(slotIndex: Int) {
+        if (slotIndex in 0..8) {
+            val list = brushOpacityPresets.toMutableList()
+            list[slotIndex] = null
+            brushOpacityPresets = list
+            persistSliderPresets("brushOpacityPresets", list)
+        }
+    }
+
+    fun saveFlowPreset(flow: Double, slotIndex: Int = -1) {
+        val list = brushFlowPresets.toMutableList()
+        val targetIdx = if (slotIndex in 0..8) {
+            slotIndex
+        } else {
+            val emptyIdx = list.indexOfFirst { it == null }
+            if (emptyIdx != -1) emptyIdx else 0
+        }
+        list[targetIdx] = (flow * 100.0).roundToInt() / 100.0
+        brushFlowPresets = list
+        persistSliderPresets("brushFlowPresets", list)
+    }
+
+    fun removeFlowPreset(slotIndex: Int) {
+        if (slotIndex in 0..8) {
+            val list = brushFlowPresets.toMutableList()
+            list[slotIndex] = null
+            brushFlowPresets = list
+            persistSliderPresets("brushFlowPresets", list)
+        }
+    }
+
+    private fun persistSliderPresets(key: String, list: List<Double?>) {
+        if (::appContext.isInitialized) {
+            val str = list.joinToString(",") { it?.toString() ?: "null" }
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString(key, str)
+                .apply()
+        }
+    }
+
+    private fun loadSliderPresets(key: String): List<Double?> {
+        if (::appContext.isInitialized) {
+            val str = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).getString(key, null)
+            if (!str.isNullOrBlank()) {
+                val parts = str.split(",")
+                val result = MutableList<Double?>(9) { null }
+                for (i in 0 until 9.coerceAtMost(parts.size)) {
+                    val p = parts[i].trim()
+                    result[i] = if (p == "null" || p.isEmpty()) null else p.toDoubleOrNull()
+                }
+                return result
+            }
+        }
+        return listOf(null, null, null, null, null, null, null, null, null)
     }
 
     fun updateColorPickerMode(mode: String) {

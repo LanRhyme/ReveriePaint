@@ -219,17 +219,20 @@ fun ToolRail(
                 // Brush size: Krita top-bar style - always-visible value,
                 // step buttons (+/-) that repeat while held, and the slider
                 BrushSizeGroup(
+                    vm = vm,
                     brushSize = brushSize,
                     onBrushSize = onBrushSize,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 if (vm.quickSliderMode == 1) {
                     FlowGroup(
+                        vm = vm,
                         flow = vm.brushFlow,
                         onFlow = { vm.updateBrushFlow(it) },
                     )
                 } else {
                     OpacityGroup(
+                        vm = vm,
                         opacity = brushOpacity,
                         onOpacity = onOpacity,
                     )
@@ -276,47 +279,109 @@ fun toolIcon(tool: Tool): Int =
  */
 @Composable
 private fun BrushSizeGroup(
+    vm: PaintViewModel,
     brushSize: Double,
     onBrushSize: (Double) -> Unit,
 ) {
+    val formattedValue = if (brushSize < 10.0) {
+        String.format(java.util.Locale.US, "%.2f", brushSize)
+    } else if (brushSize < 100.0) {
+        if (brushSize % 1.0 == 0.0) "${brushSize.toInt()}" else String.format(java.util.Locale.US, "%.1f", brushSize)
+    } else {
+        "${kotlin.math.round(brushSize).toInt()}"
+    }
+
     ReVerticalSlider(
         label = "S",
         fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
         onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
-        trackWidth = 24,
-        trackHeight = 140,
-        tooltipText = "${kotlin.math.round(brushSize).toInt()}",
+        trackWidth = 26,
+        trackHeight = 175,
+        valueText = formattedValue,
+        onStep = { increase ->
+            val step = when {
+                brushSize < 5.0 -> 0.1
+                brushSize < 20.0 -> 0.5
+                brushSize < 100.0 -> 1.0
+                else -> 5.0
+            }
+            val newSize = if (increase) (brushSize + step).coerceAtMost(500.0) else (brushSize - step).coerceAtLeast(1.0)
+            onBrushSize(newSize)
+        },
+        presets = vm.brushSizePresets,
+        onSelectPreset = { onBrushSize(it) },
+        onSavePreset = { idx -> vm.saveSizePreset(brushSize, idx) },
+        onDeletePreset = { idx -> vm.removeSizePreset(idx) },
+        formatPreset = { p ->
+            if (p < 10.0) String.format(java.util.Locale.US, "%.1f", p) else "${p.toInt()}"
+        }
     )
 }
 
 /** Vertical opacity control: value + slider, 0..1 linear. */
 @Composable
 private fun OpacityGroup(
+    vm: PaintViewModel,
     opacity: Double,
     onOpacity: (Double) -> Unit,
 ) {
+    val pct = opacity * 100.0
+    val formattedValue = if (pct < 10.0) {
+        String.format(java.util.Locale.US, "%.1f%%", pct)
+    } else {
+        "${pct.roundToInt()}%"
+    }
+
     ReVerticalSlider(
         label = "O",
         fraction = opacity.toFloat(),
         onFraction = { onOpacity(it.toDouble()) },
-        trackWidth = 24,
-        trackHeight = 140,
-        tooltipText = "${(opacity * 100).roundToInt()}%",
+        trackWidth = 26,
+        trackHeight = 175,
+        valueText = formattedValue,
+        onStep = { increase ->
+            val step = 0.01
+            val newOpacity = if (increase) (opacity + step).coerceAtMost(1.0) else (opacity - step).coerceAtLeast(0.01)
+            onOpacity(newOpacity)
+        },
+        presets = vm.brushOpacityPresets,
+        onSelectPreset = { onOpacity(it) },
+        onSavePreset = { idx -> vm.saveOpacityPreset(opacity, idx) },
+        onDeletePreset = { idx -> vm.removeOpacityPreset(idx) },
+        formatPreset = { p -> "${(p * 100).roundToInt()}%" }
     )
 }
 
 /** Vertical flow control: value + slider, 0..1 linear. */
 @Composable
 private fun FlowGroup(
+    vm: PaintViewModel,
     flow: Double,
     onFlow: (Double) -> Unit,
 ) {
+    val pct = flow * 100.0
+    val formattedValue = if (pct < 10.0) {
+        String.format(java.util.Locale.US, "%.1f%%", pct)
+    } else {
+        "${pct.roundToInt()}%"
+    }
+
     ReVerticalSlider(
         label = "F",
         fraction = flow.toFloat(),
         onFraction = { onFlow(it.toDouble()) },
-        trackWidth = 24,
-        trackHeight = 140,
-        tooltipText = "${(flow * 100).roundToInt()}%",
+        trackWidth = 26,
+        trackHeight = 175,
+        valueText = formattedValue,
+        onStep = { increase ->
+            val step = 0.01
+            val newFlow = if (increase) (flow + step).coerceAtMost(1.0) else (flow - step).coerceAtLeast(0.01)
+            onFlow(newFlow)
+        },
+        presets = vm.brushFlowPresets,
+        onSelectPreset = { onFlow(it) },
+        onSavePreset = { idx -> vm.saveFlowPreset(flow, idx) },
+        onDeletePreset = { idx -> vm.removeFlowPreset(idx) },
+        formatPreset = { p -> "${(p * 100).roundToInt()}%" }
     )
 }
