@@ -1,8 +1,6 @@
 package com.reverie.paint.ui.home
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -11,21 +9,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas as ComposeCanvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -33,20 +20,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Article
+import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +42,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -69,14 +52,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
+import com.reverie.paint.ui.dialog.ContributorsDialog
+import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Theme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.math.sin
 
 /**
@@ -374,7 +353,7 @@ fun AboutSettingsSubPage(
 
             // 导出日志 (Bottom Rounded)
             AboutGroupItem(
-                icon = Icons.Rounded.Article,
+                icon = Icons.AutoMirrored.Rounded.Article,
                 title = "导出日志",
                 summary = "导出应用运行日志以供调试",
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
@@ -425,7 +404,7 @@ fun AboutSettingsSubPage(
         Spacer(Modifier.height(24.dp))
     }
 
-    // 贡献者对话框 (支持动态获取 / 优雅展示)
+    // 贡献者对话框 (MicYou 浮动气泡动画)
     if (showContributorsDialog) {
         ContributorsDialog(onDismiss = { showContributorsDialog = false })
     }
@@ -435,224 +414,9 @@ fun AboutSettingsSubPage(
         SponsorsDialog(onDismiss = { showSponsorsDialog = false })
     }
 
-    // 第三方开源许可对话框
+    // 第三方开源许可对话框 (MicYou OpenSourceLibraries 规范)
     if (showLicensesDialog) {
         LicensesDialog(onDismiss = { showLicensesDialog = false })
-    }
-}
-
-// ---- 对话框组件实现 ----
-
-data class ContributorItem(
-    val name: String,
-    val role: String,
-    val avatarUrl: String? = null,
-    val htmlUrl: String? = null,
-)
-
-@Composable
-private fun ContributorsDialog(onDismiss: () -> Unit) {
-    val colors = Theme.current
-    val uriHandler = LocalUriHandler.current
-    var contributors by remember {
-        mutableStateOf(
-            listOf(
-                ContributorItem("LanRhyme", "Author & Lead Developer", htmlUrl = "https://github.com/LanRhyme"),
-                ContributorItem("Krita Foundation", "Brush & Core Engine (KDE)", htmlUrl = "https://krita.org"),
-                ContributorItem("Qt Project", "GUI & Framework Architecture", htmlUrl = "https://qt.io"),
-                ContributorItem("Skia Graphics", "2D Graphics & GPU Blit", htmlUrl = "https://skia.org"),
-            )
-        )
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .height(420.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
-                .padding(20.dp),
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "贡献者",
-                    color = colors.text,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "感谢所有为本项目做出贡献的开发者与团队",
-                    color = Morandi.subText,
-                    fontSize = 12.sp,
-                )
-
-                Spacer(Modifier.height(14.dp))
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(contributors) { item ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Morandi.panel)
-                                .clickable {
-                                    item.htmlUrl?.let { url ->
-                                        try {
-                                            uriHandler.openUri(url)
-                                        } catch (_: Exception) {}
-                                    }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(34.dp)
-                                            .clip(CircleShape)
-                                            .background(Morandi.accent.copy(alpha = 0.2f)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            text = item.name.first().toString(),
-                                            color = Morandi.accent,
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                    Spacer(Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            text = item.name,
-                                            color = colors.text,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
-                                        Spacer(Modifier.height(2.dp))
-                                        Text(
-                                            text = item.role,
-                                            color = Morandi.subText,
-                                            fontSize = 11.sp,
-                                        )
-                                    }
-                                }
-
-                                Icon(
-                                    imageVector = Icons.Rounded.OpenInNew,
-                                    contentDescription = null,
-                                    tint = Morandi.subText,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("关闭", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SponsorsDialog(onDismiss: () -> Unit) {
-    val colors = Theme.current
-    val uriHandler = LocalUriHandler.current
-
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
-                .padding(22.dp),
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Favorite,
-                    contentDescription = null,
-                    tint = Morandi.accent,
-                    modifier = Modifier.size(36.dp),
-                )
-
-                Text(
-                    text = "赞助者支持",
-                    color = colors.text,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-
-                Text(
-                    text = "您的每一份支持都是 ReveriePaint 持续迭代、优化性能与加入新功能的动力！",
-                    color = Morandi.subText,
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Morandi.panel)
-                        .padding(14.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("• 爱发电创作者：LanRhyme", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Text("• 感谢所有在爱发电和社区默默支持的朋友！", color = Morandi.subText, fontSize = 11.sp)
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("返回", color = Morandi.subText)
-                    }
-
-                    Text(
-                        text = "前往爱发电赞助",
-                        color = Morandi.onAccent,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.accent)
-                            .clickable {
-                                try {
-                                    uriHandler.openUri("https://afdian.com/a/LanRhyme")
-                                } catch (_: Exception) {}
-                                onDismiss()
-                            }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
-                }
-            }
-        }
     }
 }
 
