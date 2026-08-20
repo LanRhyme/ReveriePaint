@@ -54,6 +54,11 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import com.reverie.paint.ui.theme.Theme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlin.math.roundToInt
@@ -157,6 +162,8 @@ fun SliderFineTunePopup(
     onDismiss: () -> Unit,
 ) {
     val colors = Theme.current
+    val haptic = LocalHapticFeedback.current
+
     Popup(
         alignment = Alignment.CenterStart,
         offset = androidx.compose.ui.unit.IntOffset(80, 0),
@@ -165,11 +172,11 @@ fun SliderFineTunePopup(
     ) {
         Box(
             modifier = Modifier
-                .width(228.dp)
-                .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                .clip(RoundedCornerShape(18.dp))
+                .width(220.dp)
+                .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.35f))
+                .clip(RoundedCornerShape(16.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(14.dp)
         ) {
             Column(
@@ -203,7 +210,7 @@ fun SliderFineTunePopup(
                     // Value Pill
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(colors.accent.copy(alpha = 0.12f))
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                         contentAlignment = Alignment.Center,
@@ -230,7 +237,10 @@ fun SliderFineTunePopup(
                             .clip(RoundedCornerShape(8.dp))
                             .background(colors.panelHi)
                             .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                            .clickable { onStep(false) },
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onStep(false)
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -259,7 +269,10 @@ fun SliderFineTunePopup(
                             .clip(RoundedCornerShape(8.dp))
                             .background(colors.panelHi)
                             .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
-                            .clickable { onStep(true) },
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onStep(true)
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -273,41 +286,12 @@ fun SliderFineTunePopup(
                     }
                 }
 
-                // Quick Jump Chips Row
-                if (quickChips.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        quickChips.forEach { (chipLabel, onChipClick) ->
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(colors.panelHi)
-                                    .border(0.5.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                    .clickable { onChipClick() }
-                                    .padding(vertical = 4.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = chipLabel,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = colors.subText,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Presets Section Divider
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(0.5.dp)
-                        .background(colors.border.copy(alpha = 0.6f))
+                        .background(colors.border.copy(alpha = 0.5f))
                 )
 
                 // Presets Header Row (常用预设 + 存入当前)
@@ -325,10 +309,13 @@ fun SliderFineTunePopup(
 
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(colors.accent.copy(alpha = 0.12f))
-                            .clickable { onSavePreset(-1) }
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onSavePreset(-1)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
@@ -336,7 +323,7 @@ fun SliderFineTunePopup(
                             painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
                             contentDescription = "保存预设",
                             tint = colors.accent,
-                            modifier = Modifier.size(12.dp),
+                            modifier = Modifier.size(11.dp),
                         )
                         Text(
                             text = "存入当前",
@@ -349,12 +336,12 @@ fun SliderFineTunePopup(
 
                 // 3x3 Presets Grid
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     for (row in 0 until 3) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             for (col in 0 until 3) {
@@ -363,17 +350,18 @@ fun SliderFineTunePopup(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .aspectRatio(1.15f)
+                                        .aspectRatio(1.2f)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
                                         .border(
-                                            1.dp,
+                                            0.5.dp,
                                             if (presetVal != null) colors.border else colors.border.copy(alpha = 0.35f),
                                             RoundedCornerShape(8.dp)
                                         )
                                         .pointerInput(idx, presetVal) {
                                             detectTapGestures(
                                                 onTap = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     if (presetVal != null) {
                                                         onSelectPreset(presetVal)
                                                     } else {
@@ -382,6 +370,7 @@ fun SliderFineTunePopup(
                                                 },
                                                 onLongPress = {
                                                     if (presetVal != null) {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         onDeletePreset(idx)
                                                     }
                                                 }
@@ -401,8 +390,8 @@ fun SliderFineTunePopup(
                                         Icon(
                                             painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
                                             contentDescription = "添加预设",
-                                            tint = colors.subText.copy(alpha = 0.4f),
-                                            modifier = Modifier.size(12.dp),
+                                            tint = colors.subText.copy(alpha = 0.3f),
+                                            modifier = Modifier.size(11.dp),
                                         )
                                     }
                                 }
@@ -436,10 +425,12 @@ fun ReVerticalSlider(
     formatPreset: (Double) -> String = { "${it.toInt()}" },
 ) {
     val colors = Theme.current
+    val haptic = LocalHapticFeedback.current
     var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
     var trackPx by remember { mutableIntStateOf(1) }
     var isDragging by remember { mutableStateOf(false) }
     var showPopup by remember { mutableStateOf(false) }
+    var lastHapticStep by remember { mutableIntStateOf((fraction * 100).toInt()) }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -491,25 +482,34 @@ fun ReVerticalSlider(
             Box(
                 modifier =
                     Modifier
-                        .width(trackWidth.dp)
+                        .width((trackWidth + 6).dp)
                         .height(trackHeight.dp)
                         .onSizeChanged { trackPx = it.height }
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onTap = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     showPopup = !showPopup
                                 }
                             )
                         }
                         .pointerInput(Unit) {
                             detectDragGestures(
-                                onDragStart = { isDragging = true },
+                                onDragStart = {
+                                    isDragging = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
                                 onDragEnd = { isDragging = false },
                                 onDragCancel = { isDragging = false }
                             ) { change, _ ->
                                 val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
                                 localFraction = value
                                 onFraction(value)
+                                val curStep = (value * 50).toInt()
+                                if (curStep != lastHapticStep) {
+                                    lastHapticStep = curStep
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
                                 change.consume()
                             }
                         },
@@ -541,10 +541,11 @@ fun ReVerticalSlider(
 
                 val capsuleRadius = (trackWidth / 2).dp
 
-                // Track background & Outline Border
+                // Track Background & Outlined Border
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .width(trackWidth.dp)
+                        .fillMaxHeight()
                         .clip(RoundedCornerShape(capsuleRadius))
                         .background(colors.panel.copy(alpha = 0.55f))
                         .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
@@ -556,18 +557,42 @@ fun ReVerticalSlider(
                             .fillMaxHeight(localFraction.coerceIn(0f, 1f))
                             .align(Alignment.BottomCenter)
                             .clip(RoundedCornerShape(capsuleRadius))
-                            .background(colors.accent.copy(alpha = 0.35f))
-                    ) {
-                        // Level indicator bar at top of fill
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(2.dp)
-                                .align(Alignment.TopCenter)
-                                .background(colors.accent)
-                        )
-                    }
+                            .background(colors.accent.copy(alpha = 0.30f))
+                    )
                 }
+
+                // Dynamic Indicator Line: Spans full width, floats clearly ON TOP without being clipped!
+                val indicatorHeight by animateDpAsState(
+                    targetValue = if (isDragging) 6.dp else 3.dp,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_h"
+                )
+                val indicatorWidth by animateDpAsState(
+                    targetValue = if (isDragging) (trackWidth + 4).dp else trackWidth.dp,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_w"
+                )
+                val indicatorAlpha by animateFloatAsState(
+                    targetValue = if (isDragging) 0.85f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_alpha"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = (localFraction.coerceIn(0f, 1f) * (trackHeight - 4)).dp)
+                        .width(indicatorWidth)
+                        .height(indicatorHeight)
+                        .shadow(
+                            elevation = if (isDragging) 6.dp else 1.dp,
+                            shape = RoundedCornerShape(indicatorHeight / 2),
+                            spotColor = colors.accent.copy(alpha = 0.5f),
+                        )
+                        .clip(RoundedCornerShape(indicatorHeight / 2))
+                        .background(colors.accent.copy(alpha = indicatorAlpha))
+                        .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
+                )
             }
         }
     }
