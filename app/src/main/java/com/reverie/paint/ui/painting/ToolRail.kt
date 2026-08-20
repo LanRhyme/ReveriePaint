@@ -283,7 +283,8 @@ private fun BrushSizeGroup(
         label = "S",
         fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
         onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it)) },
-        trackHeight = 120,
+        trackWidth = 24,
+        trackHeight = 140,
         tooltipText = "${kotlin.math.round(brushSize).toInt()}",
     )
 }
@@ -298,7 +299,8 @@ private fun OpacityGroup(
         label = "O",
         fraction = opacity.toFloat(),
         onFraction = { onOpacity(it.toDouble()) },
-        trackHeight = 120,
+        trackWidth = 24,
+        trackHeight = 140,
         tooltipText = "${(opacity * 100).roundToInt()}%",
     )
 }
@@ -313,7 +315,8 @@ private fun FlowGroup(
         label = "F",
         fraction = flow.toFloat(),
         onFraction = { onFlow(it.toDouble()) },
-        trackHeight = 120,
+        trackWidth = 24,
+        trackHeight = 140,
         tooltipText = "${(flow * 100).roundToInt()}%",
     )
 }

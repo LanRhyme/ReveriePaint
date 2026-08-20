@@ -142,8 +142,8 @@ fun ReVerticalSlider(
     fraction: Float,
     onFraction: (Float) -> Unit,
     modifier: Modifier = Modifier,
-    trackWidth: Int = 18,
-    trackHeight: Int = 100,
+    trackWidth: Int = 24,
+    trackHeight: Int = 140,
     tooltipText: String? = null,
 ) {
     val colors = Theme.current
@@ -153,11 +153,11 @@ fun ReVerticalSlider(
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier.height((trackHeight + if (label.isNotEmpty()) 16 else 0).dp),
+        modifier = modifier.height((trackHeight + if (label.isNotEmpty()) 18 else 0).dp),
     ) {
         if (label.isNotEmpty()) {
-            Text(label, color = colors.subText, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(3.dp))
+            Text(label, color = colors.subText, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
         }
         Box(
             modifier =
@@ -187,7 +187,7 @@ fun ReVerticalSlider(
                 ) {
                     Box(
                         modifier = Modifier
-                            .shadow(6.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
+                            .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
                             .clip(RoundedCornerShape(8.dp))
                             .background(colors.panel)
                             .border(1.dp, colors.border, RoundedCornerShape(8.dp))
@@ -210,7 +210,7 @@ fun ReVerticalSlider(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(capsuleRadius))
-                    .background(colors.panel.copy(alpha = 0.5f))
+                    .background(colors.panel.copy(alpha = 0.6f))
                     .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
             ) {
                 // Active progress fill (from bottom up)
@@ -225,14 +225,14 @@ fun ReVerticalSlider(
             }
 
             // Refined Thumb knob with clean border and center dot
-            val thumbSize = (trackWidth - 2).coerceAtLeast(14).dp
+            val thumbSize = (trackWidth - 4).coerceAtLeast(18).dp
             val thumbPadding = ((trackWidth.dp - thumbSize) / 2)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = (localFraction * (trackHeight - trackWidth)).dp + thumbPadding)
                     .size(thumbSize)
-                    .shadow(2.dp, CircleShape, spotColor = colors.accent.copy(alpha = 0.35f))
+                    .shadow(3.dp, CircleShape, spotColor = colors.accent.copy(alpha = 0.35f))
                     .clip(CircleShape)
                     .background(colors.panel)
                     .border(2.dp, colors.accent, CircleShape),
@@ -240,7 +240,7 @@ fun ReVerticalSlider(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(4.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(colors.accent)
                 )
