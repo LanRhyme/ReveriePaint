@@ -41,24 +41,27 @@ fun ShapeToolPanel(
                 ToolFloatChip(label = "完成", selected = true, onClick = onFinish)
                 ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
                 Text(
-                    "顶点: $vertexCount",
+                    "顶点 $vertexCount",
                     color = Morandi.subText,
                     fontSize = 12.sp,
                 )
             }
         }
     } else {
-        // line / rect / ellipse: stroke width + fill + 1:1 aspect ratio constraint
+        // line / rect / ellipse: stroke width + fill + aspect ratio constraint
         ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                ToolFloatChip(label = "填充", selected = filled, onClick = { onFilled(!filled) })
                 if (tool == Tool.RECT || tool == Tool.ELLIPSE) {
-                    val aspectLabel = if (tool == Tool.RECT) "1:1 正方形" else "1:1 正圆"
-                    ToolFloatChip(label = aspectLabel, selected = keepAspect, onClick = { onKeepAspect(!keepAspect) })
+                    ToolFloatSegmented(
+                        options = listOf(0 to "描边", 1 to "填充"),
+                        selected = if (filled) 1 else 0,
+                        onSelect = { onFilled(it == 1) },
+                    )
+                    ToolFloatChip(label = "等比", selected = keepAspect, onClick = { onKeepAspect(!keepAspect) })
                 }
-                Box(modifier = Modifier.width(150.dp)) {
+                Box(modifier = Modifier.width(140.dp)) {
                     ToolFloatSlider(
-                        label = "描边",
+                        label = "粗细",
                         valueText = "${strokeWidth.roundToInt()}px",
                         range = 1f..100f,
                         value = strokeWidth,

@@ -92,7 +92,6 @@ internal fun PickerLayerSourceBar(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
-    // ---- Floating Color Picker layer-source bar (PaintWorld style) ----
     AnimatedVisibility(
         visible = tool == Tool.PICKER,
         modifier = modifier.padding(bottom = 24.dp),
@@ -113,88 +112,14 @@ internal fun PickerLayerSourceBar(
                     targetOffsetY = { it / 2 }
                 )
     ) {
-        val pickerShape = RoundedCornerShape(14.dp)
-        Box(
-            modifier = Modifier
-                .clip(pickerShape)
-                .then(
-                    if (vm.blurBackground) {
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = Morandi.panel.copy(alpha = 0.70f),
-                                tint = HazeTint(Morandi.panel.copy(alpha = 0.70f)),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f
-                            )
-                        )
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = 0.94f))
-                    }
-                )
-                .border(1.dp, Morandi.border, pickerShape)
-                .padding(6.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val currentSelected = vm.pickerCurrentLayerOnly
-                // Current Layer button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (currentSelected) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                        .clickable { vm.pickerCurrentLayerOnly = true }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_layerstack),
-                            contentDescription = "当前图层",
-                            tint = if (currentSelected) Morandi.accent else Morandi.icon,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            "当前图层",
-                            fontSize = 11.sp,
-                            color = if (currentSelected) Morandi.accent else Morandi.subText,
-                            fontWeight = if (currentSelected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
-                        )
-                    }
-                }
-
-                // All Layers button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (!currentSelected) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                        .clickable { vm.pickerCurrentLayerOnly = false }
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_layers),
-                            contentDescription = "全部图层",
-                            tint = if (!currentSelected) Morandi.accent else Morandi.icon,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            "全部图层",
-                            fontSize = 11.sp,
-                            color = if (!currentSelected) Morandi.accent else Morandi.subText,
-                            fontWeight = if (!currentSelected) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal
-                        )
-                    }
-                }
-            }
+        ToolFloatPanel(vm = vm, hazeState = hazeState) {
+            ToolFloatSegmented(
+                options = listOf(0 to "当前图层", 1 to "全部图层"),
+                selected = vm.pickerSampleLayers,
+                onSelect = { vm.updatePickerSampleLayers(it) },
+            )
         }
     }
-
 }
 
 @Composable
@@ -243,71 +168,38 @@ internal fun SelectionFloatPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Row 1: Top Segmented Mode Selector (新建, 增加, 减去, 相交)
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1B1E24))
-                    .padding(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val modes = listOf(
+            ToolFloatSegmented(
+                options = listOf(
                     0 to "新建",
                     1 to "增加",
                     2 to "减去",
                     3 to "相交",
-                )
-                modes.forEach { (modeVal, modeName) ->
-                    val isSel = vm.selectionMode == modeVal
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSel) Morandi.accent else Color.Transparent)
-                            .pointerInput(modeVal) {
-                                detectTapGestures { vm.updateSelectionMode(modeVal) }
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = modeName,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSel) Morandi.onAccent else Morandi.subText,
-                        )
-                    }
-                }
-            }
+                ),
+                selected = vm.selectionMode,
+                onSelect = { vm.updateSelectionMode(it) },
+            )
 
             // Row 2: Magic Wand / Similar Tolerance Slider + Reference Layers
             if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
-                Column(
-                    modifier = Modifier.width(220.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    modifier = Modifier.width(260.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ToolFloatSlider(
-                        label = "容差",
-                        valueText = "${vm.selectionTolerance}",
-                        range = 0f..255f,
-                        value = vm.selectionTolerance.toFloat(),
-                        onValue = { vm.updateSelectionTolerance(it.toInt()) },
-                    )
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("参考:", color = Morandi.subText, fontSize = 11.sp)
-                        ToolFloatChip(
-                            "当前图层",
-                            selected = vm.selectionSampleLayers == 0,
-                            onClick = { vm.updateSelectionSampleLayers(0) }
-                        )
-                        ToolFloatChip(
-                            "全部图层",
-                            selected = vm.selectionSampleLayers == 1,
-                            onClick = { vm.updateSelectionSampleLayers(1) }
+                    Box(modifier = Modifier.weight(1f)) {
+                        ToolFloatSlider(
+                            label = "容差",
+                            valueText = "${vm.selectionTolerance}",
+                            range = 0f..255f,
+                            value = vm.selectionTolerance.toFloat(),
+                            onValue = { vm.updateSelectionTolerance(it.toInt()) },
                         )
                     }
+                    ToolFloatSegmented(
+                        options = listOf(0 to "当前", 1 to "全部"),
+                        selected = vm.selectionSampleLayers,
+                        onSelect = { vm.updateSelectionSampleLayers(it) },
+                    )
                 }
             }
 

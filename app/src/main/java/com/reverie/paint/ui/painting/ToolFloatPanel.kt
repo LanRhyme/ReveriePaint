@@ -119,18 +119,18 @@ fun ToolFloatChip(
     Box(
         modifier = Modifier
             .scale(scale)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(
                 when {
                     selected -> Morandi.accent
                     danger -> Color(0x33B05552)
-                    else -> Morandi.panel.copy(alpha = 0.6f)
+                    else -> Morandi.panelHi
                 }
             )
             .border(
                 1.dp, 
                 if (selected) Morandi.accent else Morandi.border.copy(alpha = 0.3f), 
-                RoundedCornerShape(10.dp)
+                RoundedCornerShape(8.dp)
             )
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -142,14 +142,65 @@ fun ToolFloatChip(
                     onTap = { onClick() }
                 )
             }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             label,
-            color = if (selected) Morandi.onAccent else Morandi.text,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            color = if (selected) Morandi.onAccent else if (danger) Color(0xFFE57373) else Morandi.text,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
+    }
+}
+
+@Composable
+fun <T> ToolFloatSegmented(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Morandi.panelHi)
+            .border(1.dp, Morandi.border.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { (key, label) ->
+            val isSel = selected == key
+            var pressed by remember { mutableStateOf(false) }
+            val scale by animateFloatAsState(if (pressed) 0.94f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "segScale")
+
+            Box(
+                modifier = Modifier
+                    .scale(scale)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (isSel) Morandi.accent else Color.Transparent)
+                    .pointerInput(key) {
+                        detectTapGestures(
+                            onPress = {
+                                pressed = true
+                                tryAwaitRelease()
+                                pressed = false
+                            },
+                            onTap = { onSelect(key) }
+                        )
+                    }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSel) Morandi.onAccent else Morandi.subText,
+                )
+            }
+        }
     }
 }
 
@@ -163,14 +214,14 @@ fun ToolFloatSlider(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(label, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Normal)
         com.reverie.paint.ui.components.ReSlider(
             value = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f),
             onValue = { frac -> onValue(range.start + frac * (range.endInclusive - range.start)) },
             modifier = Modifier.weight(1f),
         )
-        Text(valueText, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(valueText, color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
