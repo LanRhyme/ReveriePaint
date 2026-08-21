@@ -147,6 +147,15 @@ internal fun PaintViewModel.touchStart(
         )
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
+    val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
+    if (curLayer?.name?.contains("滤镜") == true) {
+        showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
+        return
+    }
+    if (curLayer?.isGroup == true) {
+        showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
+        return
+    }
     smoothedStrokeX = x
     smoothedStrokeY = y
     smoothedStrokePressure = effPressure

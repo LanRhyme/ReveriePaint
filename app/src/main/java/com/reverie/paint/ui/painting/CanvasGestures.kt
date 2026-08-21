@@ -147,11 +147,31 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
         val stylus =
             down.type == androidx.compose.ui.input.pointer.PointerType.Stylus ||
                 down.type == androidx.compose.ui.input.pointer.PointerType.Eraser
+        val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
+        val isDrawingTool = tool.group == com.reverie.paint.model.ToolGroup.BRUSH ||
+            tool.group == com.reverie.paint.model.ToolGroup.FILL ||
+            tool.group == com.reverie.paint.model.ToolGroup.SHAPES
+
         var mode =
             when {
                 vm.isFilterAdjustActive -> GestureMode.PAN
 
                 vm.penOnlyMode && !stylus && (tool == Tool.BRUSH || tool == Tool.ERASER) -> GestureMode.PAN
+
+                activeLayer?.isGroup == true && isDrawingTool -> {
+                    vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+                    GestureMode.NONE
+                }
+
+                activeLayer?.name?.contains("滤镜") == true && isDrawingTool -> {
+                    vm.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
+                    GestureMode.NONE
+                }
+
+                activeLayer?.locked == true && isDrawingTool -> {
+                    vm.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+                    GestureMode.NONE
+                }
 
                 tool == Tool.FILL || tool == Tool.TEXT ||
                     tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR ||
