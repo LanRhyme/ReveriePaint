@@ -28,20 +28,6 @@ import java.util.zip.ZipFile
 internal fun PaintViewModel.projectDir(): java.io.File {
     val intDir = java.io.File(appContext.filesDir, "projects")
     if (!intDir.exists()) intDir.mkdirs()
-
-    // Seamlessly migrate any legacy projects from external storage to internal storage
-    try {
-        val extDir = appContext.getExternalFilesDir("projects")
-        if (extDir != null && extDir.exists() && extDir.isDirectory) {
-            extDir.listFiles()?.forEach { extFile ->
-                val destFile = java.io.File(intDir, extFile.name)
-                if (!destFile.exists()) {
-                    extFile.copyRecursively(destFile, overwrite = true)
-                }
-            }
-        }
-    } catch (_: Exception) {}
-
     return intDir
 }
 
@@ -211,12 +197,13 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             elapsedSeconds = p.elapsedSeconds
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
+            syncLayersFromNative()
             isBlockingLoading = false
             startPaintingTimer()
             if (isRecovered) {
                 showActionToast("已恢复到最后一次自动保存的状态", R.drawable.ic_save)
             }
-            android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified")
+            android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified, layers=${layers.size}")
         },
     ) {
         val file = java.io.File(p.filePath)
@@ -236,10 +223,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 renderW = coreW
                 renderH = coreH
                 displayBufferInvalid = true
-                syncLayersFromNative()
                 ReverieCoreBridge.setBrushColor(brushColor)
                 recorder.beginSession(coreW, coreH, file, recSessionDir())
-                android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, layers=${layers.size}")
+                android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, nativeLayers=${ReverieCoreBridge.layerCount()}")
             } else {
                 android.util.Log.e("RP_IO", "loadProject OP FAILED for ${file.absolutePath}")
             }

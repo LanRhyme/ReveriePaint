@@ -259,8 +259,14 @@ static QByteArray readAllStoreBytes(KoStore *store)
 
 bool ReverieCore::loadRevp(const QString &path)
 {
+    qWarning() << "ReverieCore::loadRevp START:" << path;
     QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Read, "", KoStore::Zip));
-    if (!store || store->bad()) {
+    if (!store) {
+        qWarning() << "ReverieCore::loadRevp createStore returned null";
+        return false;
+    }
+    if (store->bad()) {
+        qWarning() << "ReverieCore::loadRevp store->bad() is true";
         return false;
     }
 
@@ -268,18 +274,24 @@ bool ReverieCore::loadRevp(const QString &path)
     if (store->open("meta.json")) {
         metaData = readAllStoreBytes(store.data());
         store->close();
+        qWarning() << "ReverieCore::loadRevp read meta.json size:" << metaData.size();
+    } else {
+        qWarning() << "ReverieCore::loadRevp failed to open meta.json";
     }
     if (metaData.isEmpty()) {
+        qWarning() << "ReverieCore::loadRevp metaData is empty";
         return false;
     }
 
     QJsonDocument metaDoc = QJsonDocument::fromJson(metaData);
     if (!metaDoc.isObject()) {
+        qWarning() << "ReverieCore::loadRevp metaDoc is not object";
         return false;
     }
     QJsonObject meta = metaDoc.object();
     const int w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
     const int h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
+    qWarning() << "ReverieCore::loadRevp w:" << w << "h:" << h;
 
     if (w <= 0 || h <= 0) {
         return false;
@@ -362,9 +374,8 @@ bool ReverieCore::loadRevp(const QString &path)
                 if (!lData.isEmpty() && lImg.loadFromData(lData, "PNG")) {
                     KisPaintDeviceSP dev = layer->paintDevice();
                     if (dev) {
-                        const QImage conv = lImg.convertToFormat(QImage::Format_ARGB32_Premultiplied);
                         dev->clear();
-                        dev->writeBytes(reinterpret_cast<const quint8 *>(conv.constBits()), 0, 0, conv.width(), conv.height());
+                        dev->convertFromQImage(lImg, 0);
                         dev->setDirty();
                         loadedPixelData = true;
                     }
@@ -380,9 +391,6 @@ bool ReverieCore::loadRevp(const QString &path)
         }
     }
 
-    // 背景图层可见时投影底色必须是白色（newDocument 与 setLayerVisible 都会
-    // 维护这个底色，但 KisImage 的默认投影色是透明）：缺了这一步，进入工程
-    // 时背景就是透明的，直到手动隐藏再显示背景图层把底色设回白色
     if (bgLayerVisible) {
         image->setDefaultProjectionColor(KoColor(Qt::white, cs));
     }
@@ -390,8 +398,8 @@ bool ReverieCore::loadRevp(const QString &path)
     m_document = image.data();
     m_docWidth = w;
     m_docHeight = h;
-    recompositeProjection();
     syncLayersFromImage();
+    recompositeProjection();
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
     markDirty();
