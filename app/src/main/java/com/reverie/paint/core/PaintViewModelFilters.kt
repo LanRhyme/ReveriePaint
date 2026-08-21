@@ -40,15 +40,9 @@ internal fun PaintViewModel.applyFilterPreview(
     p4: Double = 0.0,
 ) {
     lastFilterPreviewParams = doubleArrayOf(filterType.toDouble(), p1, p2, p3, p4)
-    filterPreviewJob?.cancel()
-    filterPreviewJob =
-        viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
-            }
-        }
+    runCore(render = true) {
+        ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
+    }
 }
 
 internal fun PaintViewModel.applyCurvesLUTPreview(
@@ -58,15 +52,9 @@ internal fun PaintViewModel.applyCurvesLUTPreview(
     lutB: ByteArray,
 ) {
     lastFilterPreviewParams = null // LUT filters are not rebuildable from scalar params
-    filterPreviewJob?.cancel()
-    filterPreviewJob =
-        viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyCurvesLUTPreview(index, lutR, lutG, lutB)
-            }
-        }
+    runCore(render = true) {
+        ReverieCoreBridge.applyCurvesLUTPreview(index, lutR, lutG, lutB)
+    }
 }
 
 internal fun PaintViewModel.applyGradientMapPreview(
@@ -74,15 +62,9 @@ internal fun PaintViewModel.applyGradientMapPreview(
     gradientLut: IntArray,
 ) {
     lastFilterPreviewParams = null // LUT filters are not rebuildable from scalar params
-    filterPreviewJob?.cancel()
-    filterPreviewJob =
-        viewModelScope.launch(Dispatchers.Default) {
-            runCore(after = {
-                scheduleRender(immediate = true)
-            }) {
-                ReverieCoreBridge.applyGradientMapPreview(index, gradientLut)
-            }
-        }
+    runCore(render = true) {
+        ReverieCoreBridge.applyGradientMapPreview(index, gradientLut)
+    }
 }
 
 internal fun PaintViewModel.commitFilter(
@@ -113,10 +95,7 @@ internal fun PaintViewModel.cancelFilter(index: Int) {
     isFilterAdjustActive = false
     filterPreviewJob?.cancel()
     lastFilterPreviewParams = null
-    runCore(after = {
-        scheduleRender(immediate = true)
-        notifyLayerChanged()
-    }) {
+    runCore(render = true, after = ::notifyLayerChanged) {
         ReverieCoreBridge.cancelFilter(index)
     }
 }
