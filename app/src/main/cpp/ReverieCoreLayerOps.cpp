@@ -83,10 +83,9 @@ bool ReverieCore::mergeDown(int index)
     }
     KisNode *targetNode = m_layers[ti].node;
     txn.commit(image->undoAdapter());
-    m_nodeFilters.remove(e.node);
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(e.node)));
-    syncLayersFromImage();
     recompositeProjection();
+    syncLayersFromImage();
     m_currentLayer = indexOfNode(targetNode);
     markDirty();
     return true;

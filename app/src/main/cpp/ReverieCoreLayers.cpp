@@ -26,14 +26,12 @@ bool ReverieCore::isLayerEditable(int index) const
 
 KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 {
-    if (KisAdjustmentLayer *al = dynamic_cast<KisAdjustmentLayer *>(e.node)) {
-        return al->original();
-    } else if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
+    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
         return pl->paintDevice();
     } else if (KisMask *m = dynamic_cast<KisMask *>(e.node)) {
         return m->paintDevice();
     } else if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
-        return l->original() ? l->original() : (l->paintDevice() ? l->paintDevice() : l->projection());
+        return l->paintDevice() ? l->paintDevice() : l->projection();
     }
     return KisPaintDeviceSP();
 }
@@ -187,13 +185,10 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             QColor qc = QColor::fromRgba(fillColor);
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
             paintLayer->original()->setDirty();
-            newNode = paintLayer;
         } else if (type == LayerTypeAdjustment) {
-            newNode = paintLayer;
-            m_nodeFilters[newNode.data()] = { true, 2, 10.0, 0, 0, 0, QByteArray() };
-        } else {
-            newNode = paintLayer;
+            paintLayer->setCompositeOpId(QStringLiteral("overlay"));
         }
+        newNode = paintLayer;
     }
 
     pushUndoCommand(new KisImageLayerAddCommand(image, newNode, parent, above));
@@ -285,10 +280,9 @@ void ReverieCore::removeLayer(int index)
         return;
     }
     // Krita-native undo: a layer-remove command (undo re-inserts the node)
-    m_nodeFilters.remove(m_layers[index].node);
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
-    syncLayersFromImage();
     recompositeProjection();
+    syncLayersFromImage();
     markDirty();
 }
 

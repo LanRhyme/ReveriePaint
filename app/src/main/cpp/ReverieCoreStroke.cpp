@@ -75,10 +75,6 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxnActive = false;
         m_redoCount = 0;
     }
-    if (!m_nodeFilters.isEmpty()) {
-        recompositeProjection();
-        markDirty();
-    }
     m_drawing = false;
 }
 
@@ -549,26 +545,13 @@ void ReverieCore::commitStrokeToLayer()
     // Mark the region dirty on the layer device and recomposite
     device->setDirty(ext);
     recompositeProjection();
-    if (!m_nodeFilters.isEmpty()) {
-        markDirty();
-    } else {
-        markRegionDirty(ext);
-    }
+    markRegionDirty(ext);
     bumpLayerThumbGen(m_layers[m_currentLayer].node);
     m_strokeBuffer->clear();
 }
 
 void ReverieCore::endStrokeBatch()
 {
-    if (KisPaintDeviceSP target = currentPaintDevice()) {
-        if (target->interstrokeData()) {
-            KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
-            if (cmd) {
-                cmd->redo();
-                delete cmd;
-            }
-        }
-    }
     delete m_strokePainter;
     m_strokePainter = nullptr;
     m_strokeDevice = nullptr;

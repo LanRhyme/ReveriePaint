@@ -88,10 +88,6 @@ internal fun PaintViewModel.commitFilter(
     lastFilterPreviewParams = null
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.commitFilter(index, filterName)
-        val curName = ReverieCoreBridge.layerName(index)
-        if (curName.contains("滤镜") || curName.contains("盖印")) {
-            ReverieCoreBridge.setLayerName(index, "滤镜: $filterName")
-        }
     }
 }
 

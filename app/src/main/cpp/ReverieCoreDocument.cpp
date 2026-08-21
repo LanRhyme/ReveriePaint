@@ -204,28 +204,8 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
-    // Purge any stale nodes that no longer exist in the document
-    QSet<KisNode *> currentNodes;
-    for (const auto &e : m_layers) {
-        if (e.node) currentNodes.insert(e.node);
-    }
-    for (auto it = m_nodeFilters.begin(); it != m_nodeFilters.end(); ) {
-        if (!currentNodes.contains(it.key())) {
-            it = m_nodeFilters.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    if (m_nodeFilters.isEmpty()) {
-        image->refreshGraphAsync();
-        image->waitForDone();
-    } else {
-        const int w = m_docWidth;
-        const int h = m_docHeight;
-        const QRect full(0, 0, w, h);
-        compositeRange(image->projection(), 0, m_layers.size(), full);
-        image->projection()->setDirty(full);
-    }
+    image->refreshGraphAsync();
+    image->waitForDone();
 }
 
 void ReverieCore::syncLayersFromImage()

@@ -6,8 +6,20 @@
 #include "ReverieCoreInternal.h"
 
 
-void ReverieCore::processFilterImage(int filterType, double p1, double p2, double p3, double p4, QImage &img, int w, int h)
+void ReverieCore::applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4)
 {
+    if (!isLayerEditable(index)) return;
+    if (!m_filterBackupDevice || m_filterBackupIndex != index) {
+        beginFilterPreview(index);
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev || !m_filterBackupDevice) return;
+
+    const int w = m_docWidth;
+    const int h = m_docHeight;
+    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
+
     switch (filterType) {
     case 0: { // HSBC: Hue (-180..180), Sat (0..2), Bright (0..2), Contrast (0..2)
         const double hShift = p1;
@@ -597,27 +609,6 @@ void ReverieCore::processFilterImage(int filterType, double p1, double p2, doubl
     default:
         applyFilterFxCases(img, w, h, filterType, p1, p2, p3, p4);
     }
-}
-
-void ReverieCore::applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4)
-{
-    if (!isLayerEditable(index)) return;
-    if (!m_filterBackupDevice || m_filterBackupIndex != index) {
-        beginFilterPreview(index);
-    }
-    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
-    if (!dev || !m_filterBackupDevice) return;
-
-    if (m_layers[index].node) {
-        m_nodeFilters[m_layers[index].node] = { true, filterType, p1, p2, p3, p4, QByteArray() };
-    }
-
-    const int w = m_docWidth;
-    const int h = m_docHeight;
-    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
-
-    processFilterImage(filterType, p1, p2, p3, p4, img, w, h);
 
     dev->writeBytes(img.constBits(), 0, 0, w, h);
     dev->setDirty(QRect(0, 0, w, h));
@@ -633,14 +624,6 @@ void ReverieCore::applyCurvesLUTPreview(int index, const quint8 *lutR, const qui
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev || !m_filterBackupDevice) return;
-
-    if (m_layers[index].node) {
-        QByteArray lutBytes;
-        lutBytes.append(reinterpret_cast<const char *>(lutR), 256);
-        lutBytes.append(reinterpret_cast<const char *>(lutG), 256);
-        lutBytes.append(reinterpret_cast<const char *>(lutB), 256);
-        m_nodeFilters[m_layers[index].node] = { true, 13, 0, 0, 0, 0, lutBytes };
-    }
 
     const int w = m_docWidth;
     const int h = m_docHeight;
@@ -674,11 +657,6 @@ void ReverieCore::applyGradientMapPreview(int index, const quint32 *gradientLut2
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev || !m_filterBackupDevice) return;
-
-    if (m_layers[index].node) {
-        QByteArray lutBytes(reinterpret_cast<const char *>(gradientLut256), 256 * sizeof(quint32));
-        m_nodeFilters[m_layers[index].node] = { true, 30, 0, 0, 0, 0, lutBytes };
-    }
 
     const int w = m_docWidth;
     const int h = m_docHeight;
