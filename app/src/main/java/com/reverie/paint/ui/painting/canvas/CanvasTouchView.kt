@@ -6,7 +6,6 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.PointerIcon
-import android.view.ScaleGestureDetector
 import android.view.View
 import androidx.compose.runtime.MutableState
 import androidx.compose.ui.geometry.Offset
@@ -20,15 +19,19 @@ import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
- * 原生 Android View 触控层 (画世界 Pro / Krita 架构)
+ * 原生 Android View 触控层 (直接几何多点解算 + 跨 CANCEL 会话保持)
  *
- * 将系统的 onHoverEvent 与 onTouchEvent 完全解耦。
- * onHoverEvent 绝不捕获事件独占 (return false)，保证无论手写笔是否在空中悬停，
- * onTouchEvent 都能以 120Hz/240Hz 零延迟接收并处理单指/多指物理触控与手势。
+ * 针对小米 HyperOS / 触控笔悬停驱动：
+ * 1. onHoverEvent 绝不捕获独占锁 (return false)，保持硬件双通道畅通；
+ * 2. 多点触控（缩放/旋转/平移）直接在每帧计算几何质心与距离，无需等待 ScaleGestureDetector 的 slop；
+ * 3. 跨越驱动层 ACTION_CANCEL 碎片保持 120ms 变换会话，消除顿挫与瞬移；
+ * 4. ACTION_CANCEL 绝对不触发撤销，仅在真实物理抬手 (ACTION_UP) + 90ms 延迟确认后触发一次撤销。
  */
 class CanvasTouchView(context: Context) : View(context) {
 
@@ -72,25 +75,37 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private val density = context.resources.displayMetrics.density
 
-    // 绘制与手势状态
+    // 绘制状态
     private var strokeStarted = false
-    private var isTransformActive = false
-    private var isPinchMotion = false
     private var firstDocPos = Offset.Zero
     private var shapeEndDocPos = Offset.Zero
     private var previousSinglePos = Offset.Zero
-    private var previousFocusX = 0f
-    private var previousFocusY = 0f
-    private var previousAngle = 0f
-    private var touchDownTimeMs = 0L
-    private var maxTouchPointers = 0
-    private var maxTouchDisplacement = 0f
-    private var downPosA = Offset.Zero
-    private var downPosB = Offset.Zero
     private val lassoPoints = mutableListOf<Offset>()
     private var lastLassoPreviewNs = 0L
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
+
+    // 多点变换持久状态 (跨 CANCEL 保持)
+    private var isTransformActive = false
+    private var isPinchMotion = false
+    private var prevCentroid = Offset.Zero
+    private var prevDistance = 1f
+    private var prevAngle = 0f
+    private var initialCentroid = Offset.Zero
+    private var initialDistance = 1f
+    private var lastTransformTimestamp = 0L
+    private var maxTouchPointers = 0
+    private var touchDownTimeMs = 0L
+
+    // 跨碎片延迟重置任务
+    private val resetTransformRunnable = Runnable {
+        isTransformActive = false
+        isPinchMotion = false
+        maxTouchPointers = 0
+    }
+
+    // 防抖撤销任务
+    private var pendingUndoRunnable: Runnable? = null
 
     // 长按吸色
     private var isLongPressPickerActive = false
@@ -112,56 +127,6 @@ class CanvasTouchView(context: Context) : View(context) {
     private val systemDefaultPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_DEFAULT)
     } else null
-
-    // 原生 ScaleGestureDetector (处理双指缩放与平移)
-    private val scaleDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
-            isTransformActive = true
-            isPinchMotion = true
-            removeCallbacks(longPressRunnable)
-            if (strokeStarted) {
-                if (tool == Tool.LIQUIFY) vm?.liquifyCancel() else vm?.touchCancel()
-                strokeStarted = false
-            }
-            previousFocusX = detector.focusX
-            previousFocusY = detector.focusY
-            return true
-        }
-
-        override fun onScale(detector: ScaleGestureDetector): Boolean {
-            val scaleFactor = detector.scaleFactor
-            if (scaleFactor.isNaN() || scaleFactor.isInfinite()) return true
-
-            val focusX = detector.focusX
-            val focusY = detector.focusY
-            val dx = focusX - previousFocusX
-            val dy = focusY - previousFocusY
-            previousFocusX = focusX
-            previousFocusY = focusY
-
-            val localZoom = (canvasZoom * scaleFactor).coerceIn(0.05f, 32f)
-            var localPanX = canvasPanX + dx
-            var localPanY = canvasPanY + dy
-
-            // 围绕缩放中心点进行几何偏移补偿
-            val centerX = viewW / 2f + canvasPanX
-            val centerY = viewH / 2f + canvasPanY
-            val fx = focusX - centerX
-            val fy = focusY - centerY
-            localPanX += fx * (1f - scaleFactor)
-            localPanY += fy * (1f - scaleFactor)
-
-            canvasZoom = localZoom
-            canvasPanX = localPanX
-            canvasPanY = localPanY
-            onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
-            return true
-        }
-
-        override fun onScaleEnd(detector: ScaleGestureDetector) {
-            super.onScaleEnd(detector)
-        }
-    })
 
     init {
         isFocusable = true
@@ -239,7 +204,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
         }
-        // 返回 false，不独占 hover target，避免 Android 触控驱动锁定导致物理触控无法分发
         return false
     }
 
@@ -255,11 +219,15 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // -------------------------------------------------------------
-    // 2. 接触触控处理 (手写笔落笔 / 手指多点手势) - 完整支持所有触摸状态
+    // 2. 接触触控处理 (手写笔落笔 / 手指多点手势)
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
         val pointerCount = event.pointerCount
+
+        // 取消 pending 的撤销或会话重置
+        pendingUndoRunnable?.let { removeCallbacks(it) }
+        removeCallbacks(resetTransformRunnable)
 
         // 检查是否有手写笔参与触摸
         var stylusPointerIndex = -1
@@ -298,13 +266,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 MotionEvent.ACTION_MOVE -> {
                     handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                 }
-                MotionEvent.ACTION_UP -> {
-                    handleToolUp(event, docPos, isCancel = false)
-                    isCursorTouching?.value = false
-                    isCursorHovering?.value = true
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    handleToolUp(event, docPos, isCancel = true)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     isCursorTouching?.value = false
                     isCursorHovering?.value = true
                 }
@@ -312,63 +275,118 @@ class CanvasTouchView(context: Context) : View(context) {
             return true
         }
 
-        // 2. 手指触控逻辑 (支持多指缩放、单指平移、单指绘制、轻点撤销)
-        scaleDetector.onTouchEvent(event)
+        // 2. 手指触控逻辑 (支持双指缩放/旋转、单指平移、单指绘制、轻点撤销)
+        val nowMs = SystemClock.uptimeMillis()
+        maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
 
-        // 多指手势变换 (双指/三指缩放旋转平移)
-        if (pointerCount >= 2 || isTransformActive) {
+        // 双指及以上手势处理 (直接几何解算，无延迟、无 slop 门槛)
+        if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 140)) {
             removeCallbacks(longPressRunnable)
             if (strokeStarted) {
                 if (tool == Tool.LIQUIFY) v.liquifyCancel() else v.touchCancel()
                 strokeStarted = false
             }
 
-            maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
             if (pointerCount >= 2) {
                 val x0 = event.getX(0)
                 val y0 = event.getY(0)
                 val x1 = event.getX(1)
                 val y1 = event.getY(1)
-                val currentAngle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                val centroid = Offset((x0 + x1) / 2f, (y0 + y1) / 2f)
+                val distance = hypot(x1 - x0, y1 - y0).coerceAtLeast(1f)
+                val angle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
 
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_POINTER_DOWN -> {
-                        previousAngle = currentAngle
-                        previousFocusX = (x0 + x1) / 2f
-                        previousFocusY = (y0 + y1) / 2f
-                        downPosA = Offset(x0, y0)
-                        downPosB = Offset(x1, y1)
-                        isTransformActive = true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        val dRot = normalizeAngle(currentAngle - previousAngle).coerceIn(-15f, 15f)
-                        previousAngle = currentAngle
-                        if (v.canvasRotationEnabled && abs(dRot) > 0.05f) {
-                            canvasRotation += dRot
-                            onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
-                        }
-                        val distA = hypot(x0 - downPosA.x, y0 - downPosA.y)
-                        val distB = hypot(x1 - downPosB.x, y1 - downPosB.y)
-                        maxTouchDisplacement = maxOf(maxTouchDisplacement, distA, distB)
-                        if (maxTouchDisplacement > 8f * density) {
+                if (!isTransformActive || (nowMs - lastTransformTimestamp) >= 140) {
+                    // 开始新会话
+                    isTransformActive = true
+                    isPinchMotion = false
+                    prevCentroid = centroid
+                    prevDistance = distance
+                    prevAngle = angle
+                    initialCentroid = centroid
+                    initialDistance = distance
+                    touchDownTimeMs = nowMs
+                } else {
+                    val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
+                    // 若驱动复活指针引起位置巨大跳变，重锚定而不施加突变 delta
+                    if (distCentroidMoved > 100f * density) {
+                        prevCentroid = centroid
+                        prevDistance = distance
+                        prevAngle = angle
+                    } else {
+                        val k = (distance / prevDistance).coerceIn(0.6f, 1.6f)
+                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
+                        val dPanX = centroid.x - prevCentroid.x
+                        val dPanY = centroid.y - prevCentroid.y
+
+                        val totalMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
+                        val scaleRatio = distance / initialDistance
+                        if (totalMoved > 6f * density || abs(scaleRatio - 1f) > 0.02f) {
                             isPinchMotion = true
                         }
+
+                        val localZoom = (canvasZoom * k).coerceIn(0.05f, 32f)
+                        var localPanX = canvasPanX + dPanX
+                        var localPanY = canvasPanY + dPanY
+
+                        // 围绕缩放中心几何补偿
+                        val centerX = viewW / 2f + canvasPanX
+                        val centerY = viewH / 2f + canvasPanY
+                        val fx = prevCentroid.x - centerX
+                        val fy = prevCentroid.y - centerY
+                        localPanX += fx * (1f - k)
+                        localPanY += fy * (1f - k)
+
+                        canvasZoom = localZoom
+                        canvasPanX = localPanX
+                        canvasPanY = localPanY
+
+                        if (v.canvasRotationEnabled && abs(dRot) > 0.05f) {
+                            canvasRotation += dRot
+                        }
+
+                        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+
+                        prevCentroid = centroid
+                        prevDistance = distance
+                        prevAngle = angle
                     }
                 }
+                lastTransformTimestamp = nowMs
             }
 
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                val durationMs = SystemClock.uptimeMillis() - touchDownTimeMs
-                // 双指轻点撤销判定
-                if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L && maxTouchDisplacement < 18f * density) {
-                    v.undo()
-                } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 360L && maxTouchDisplacement < 22f * density) {
-                    v.redo()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_UP -> {
+                    // 真实物理抬手：判定撤销
+                    val durationMs = nowMs - touchDownTimeMs
+                    if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L) {
+                        val undoRunnable = Runnable {
+                            v.undo()
+                            isTransformActive = false
+                            isPinchMotion = false
+                            maxTouchPointers = 0
+                        }
+                        pendingUndoRunnable = undoRunnable
+                        postDelayed(undoRunnable, 90)
+                    } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 360L) {
+                        val redoRunnable = Runnable {
+                            v.redo()
+                            isTransformActive = false
+                            isPinchMotion = false
+                            maxTouchPointers = 0
+                        }
+                        pendingUndoRunnable = redoRunnable
+                        postDelayed(redoRunnable, 90)
+                    } else {
+                        isTransformActive = false
+                        isPinchMotion = false
+                        maxTouchPointers = 0
+                    }
                 }
-                isTransformActive = false
-                isPinchMotion = false
-                maxTouchPointers = 0
-                maxTouchDisplacement = 0f
+                MotionEvent.ACTION_CANCEL -> {
+                    // 驱动层 CANCEL：绝不触发撤销！保持 120ms 会话防止下一帧顿挫
+                    postDelayed(resetTransformRunnable, 120)
+                }
             }
             return true
         }
@@ -379,13 +397,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                touchDownTimeMs = SystemClock.uptimeMillis()
+                touchDownTimeMs = nowMs
                 maxTouchPointers = 1
-                maxTouchDisplacement = 0f
                 previousSinglePos = screenPos
                 firstDocPos = docPos
                 shapeEndDocPos = docPos
-                downPosA = screenPos
                 isLongPressPickerActive = false
 
                 // 笔模式下单指平移
@@ -410,8 +426,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 val deltaX = screenPos.x - previousSinglePos.x
                 val deltaY = screenPos.y - previousSinglePos.y
                 previousSinglePos = screenPos
-                val moveDist = hypot(screenPos.x - downPosA.x, screenPos.y - downPosA.y)
-                maxTouchDisplacement = maxOf(maxTouchDisplacement, moveDist)
+                val moveDist = hypot(screenPos.x - firstDocPos.x, screenPos.y - firstDocPos.y)
 
                 if (moveDist > 8f * density) {
                     removeCallbacks(longPressRunnable)
