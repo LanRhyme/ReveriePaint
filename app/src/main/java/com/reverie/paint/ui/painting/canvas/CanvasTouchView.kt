@@ -26,9 +26,9 @@ import kotlin.math.roundToInt
 /**
  * 原生 Android View 触控层 (画世界 Pro / Krita 架构)
  *
- * 彻底将系统的 onHoverEvent (手写笔空中悬停) 与 onTouchEvent (物理接触绘制与双指手势)
- * 在系统硬件分发层完全隔离，直接使用 Android 原生 ScaleGestureDetector 实现 120Hz
- * 硬件级平滑缩放与旋转，彻底消除 Compose pointerInput 混合分发引起的卡顿、丢帧与连续撤销。
+ * 将系统的 onHoverEvent 与 onTouchEvent 完全解耦。
+ * onHoverEvent 绝不捕获事件独占 (return false)，保证无论手写笔是否在空中悬停，
+ * onTouchEvent 都能以 120Hz/240Hz 零延迟接收并处理单指/多指物理触控与手势。
  */
 class CanvasTouchView(context: Context) : View(context) {
 
@@ -157,6 +157,10 @@ class CanvasTouchView(context: Context) : View(context) {
             onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
             return true
         }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) {
+            super.onScaleEnd(detector)
+        }
     })
 
     init {
@@ -205,7 +209,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // -------------------------------------------------------------
-    // 1. 悬停处理 (空中手写笔 / 鼠标) - 完全走 onHoverEvent / onGenericMotion
+    // 1. 悬停处理 (空中手写笔 / 鼠标) - 非阻塞模式，绝不独占事件
     // -------------------------------------------------------------
     override fun onHoverEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onHoverEvent(event)
@@ -223,7 +227,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         pointerIcon = systemNullPointer
                     }
                 }
-                return true
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
                 isCursorHovering?.value = false
@@ -234,30 +237,94 @@ class CanvasTouchView(context: Context) : View(context) {
                         pointerIcon = systemDefaultPointer
                     }
                 }
-                return true
             }
         }
-        return super.onHoverEvent(event)
+        // 返回 false，不独占 hover target，避免 Android 触控驱动锁定导致物理触控无法分发
+        return false
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER)) {
+            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                cursorScreenPos?.value = Offset(event.x, event.y)
+                isCursorHovering?.value = true
+                isCursorTouching?.value = false
+            }
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     // -------------------------------------------------------------
-    // 2. 接触触控处理 (手写笔落笔 / 手指多点手势) - 完全走 onTouchEvent
+    // 2. 接触触控处理 (手写笔落笔 / 手指多点手势) - 完整支持所有触摸状态
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
         val pointerCount = event.pointerCount
-        val toolType = event.getToolType(0)
-        val isStylus = toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER
-        val isDrawingTool = tool.group == ToolGroup.BRUSH || tool.group == ToolGroup.FILL || tool.group == ToolGroup.SHAPES
-        val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
 
-        // 多指手势处理 (双指缩放/旋转/平移)
-        if (!isStylus && (pointerCount >= 2 || isTransformActive)) {
+        // 检查是否有手写笔参与触摸
+        var stylusPointerIndex = -1
+        for (i in 0 until pointerCount) {
+            val type = event.getToolType(i)
+            if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
+                stylusPointerIndex = i
+                break
+            }
+        }
+        val isStylusTouch = stylusPointerIndex >= 0
+
+        // 1. 手写笔落笔绘制逻辑
+        if (isStylusTouch) {
             removeCallbacks(longPressRunnable)
-            scaleDetector.onTouchEvent(event)
+            isTransformActive = false
+            isPinchMotion = false
 
+            val x = event.getX(stylusPointerIndex)
+            val y = event.getY(stylusPointerIndex)
+            val screenPos = Offset(x, y)
+            val docPos = screenToDoc(screenPos)
+            val pressure = event.getPressure(stylusPointerIndex).coerceIn(0f, 1f)
+
+            cursorScreenPos?.value = screenPos
+            isCursorTouching?.value = true
+            isCursorHovering?.value = false
+            livePressure?.value = pressure
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    firstDocPos = docPos
+                    shapeEndDocPos = docPos
+                    handleToolDown(docPos, pressure, isStylus = true)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
+                }
+                MotionEvent.ACTION_UP -> {
+                    handleToolUp(event, docPos, isCancel = false)
+                    isCursorTouching?.value = false
+                    isCursorHovering?.value = true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    handleToolUp(event, docPos, isCancel = true)
+                    isCursorTouching?.value = false
+                    isCursorHovering?.value = true
+                }
+            }
+            return true
+        }
+
+        // 2. 手指触控逻辑 (支持多指缩放、单指平移、单指绘制、轻点撤销)
+        scaleDetector.onTouchEvent(event)
+
+        // 多指手势变换 (双指/三指缩放旋转平移)
+        if (pointerCount >= 2 || isTransformActive) {
+            removeCallbacks(longPressRunnable)
+            if (strokeStarted) {
+                if (tool == Tool.LIQUIFY) v.liquifyCancel() else v.touchCancel()
+                strokeStarted = false
+            }
+
+            maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
             if (pointerCount >= 2) {
-                maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
                 val x0 = event.getX(0)
                 val y0 = event.getY(0)
                 val x1 = event.getX(1)
@@ -271,6 +338,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         previousFocusY = (y0 + y1) / 2f
                         downPosA = Offset(x0, y0)
                         downPosB = Offset(x1, y1)
+                        isTransformActive = true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dRot = normalizeAngle(currentAngle - previousAngle).coerceIn(-15f, 15f)
@@ -292,9 +360,9 @@ class CanvasTouchView(context: Context) : View(context) {
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 val durationMs = SystemClock.uptimeMillis() - touchDownTimeMs
                 // 双指轻点撤销判定
-                if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 300L && maxTouchDisplacement < 16f * density) {
+                if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L && maxTouchDisplacement < 18f * density) {
                     v.undo()
-                } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 340L && maxTouchDisplacement < 20f * density) {
+                } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 360L && maxTouchDisplacement < 22f * density) {
                     v.redo()
                 }
                 isTransformActive = false
@@ -305,10 +373,9 @@ class CanvasTouchView(context: Context) : View(context) {
             return true
         }
 
-        // 单指手势 / 手写笔绘制处理
+        // 单指处理
         val screenPos = Offset(event.x, event.y)
         val docPos = screenToDoc(screenPos)
-        val pressure = if (isStylus) event.pressure.coerceIn(0f, 1f) else 1f
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -321,77 +388,21 @@ class CanvasTouchView(context: Context) : View(context) {
                 downPosA = screenPos
                 isLongPressPickerActive = false
 
-                // 笔模式下手指单指平移
-                if (v.penOnlyMode && !isStylus) {
+                // 笔模式下单指平移
+                if (v.penOnlyMode) {
                     return true
                 }
 
-                if (v.longPressEyedropperEnabled && (if (v.penOnlyMode) isStylus else true)) {
+                if (v.longPressEyedropperEnabled) {
                     postDelayed(longPressRunnable, 450)
                 }
 
                 cursorScreenPos?.value = screenPos
                 isCursorTouching?.value = true
                 isCursorHovering?.value = false
-                livePressure?.value = pressure
+                livePressure?.value = 1f
 
-                if (activeLayer?.isGroup == true && isDrawingTool) {
-                    v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
-                    return true
-                }
-                if (activeLayer?.locked == true && isDrawingTool) {
-                    v.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
-                    return true
-                }
-
-                when (tool) {
-                    Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                        smoothedPressure = pressure
-                        v.touchStart(docPos.x, docPos.y, pressure.toDouble())
-                        strokeStarted = true
-                    }
-                    Tool.LIQUIFY -> {
-                        liquifyPrevPos = docPos
-                        v.liquifyBegin()
-                        strokeStarted = true
-                    }
-                    Tool.PICKER -> {
-                        pickerActive?.value = true
-                        val refHex = v.brushColor
-                        pickerInitialColor?.value = parseColor(refHex)
-                        sampleColorAtScreenPos(screenPos)
-                    }
-                    Tool.FILL -> {
-                        v.floodFill(firstDocPos.x, firstDocPos.y, fillTolerance)
-                    }
-                    Tool.MAGICWAND -> {
-                        wandFlash?.value = docPos
-                        v.selectContiguous(docPos.x.toInt(), docPos.y.toInt())
-                    }
-                    Tool.SELECT_SIMILAR -> {
-                        wandFlash?.value = docPos
-                        v.selectSimilar(docPos.x.toInt(), docPos.y.toInt())
-                    }
-                    Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON, Tool.PATH -> {
-                        onPolyPoint?.invoke(docPos)
-                    }
-                    Tool.TEXT -> {
-                        onTextRequested?.invoke(docPos.x, docPos.y)
-                    }
-                    Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
-                        liveShapeStart?.value = docPos
-                        liveShapeEnd?.value = docPos
-                    }
-                    Tool.LASSO -> {
-                        lassoPoints.clear()
-                        lassoPoints.add(docPos)
-                    }
-                    Tool.MEASURE -> {
-                        measureStart?.value = docPos
-                        measureEnd?.value = docPos
-                    }
-                    else -> Unit
-                }
+                handleToolDown(docPos, 1f, isStylus = false)
                 return true
             }
 
@@ -406,8 +417,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     removeCallbacks(longPressRunnable)
                 }
 
-                // 笔模式下手指单指平移
-                if (v.penOnlyMode && !isStylus) {
+                // 笔模式下单指平移
+                if (v.penOnlyMode) {
                     canvasPanX += deltaX
                     canvasPanY += deltaY
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
@@ -420,72 +431,20 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 cursorScreenPos?.value = screenPos
-                livePressure?.value = pressure
+                livePressure?.value = 1f
 
-                when (tool) {
-                    Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                        if (!strokeStarted) {
-                            v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
-                            strokeStarted = true
-                        }
-                        for (i in 0 until event.historySize) {
-                            val hScreen = Offset(event.getHistoricalX(i), event.getHistoricalY(i))
-                            val hDoc = screenToDoc(hScreen)
-                            val hP = if (isStylus) event.getHistoricalPressure(i).coerceIn(0f, 1f) else 1f
-                            v.touchMove(hDoc.x, hDoc.y, hP.toDouble())
-                        }
-                        v.touchMove(docPos.x, docPos.y, pressure.toDouble())
-                    }
-                    Tool.LIQUIFY -> {
-                        if (strokeStarted) {
-                            v.liquify(liquifyPrevPos.x, liquifyPrevPos.y, docPos.x, docPos.y, liquifyMode, liquifyStrength.toDouble())
-                            liquifyPrevPos = docPos
-                        }
-                    }
-                    Tool.PICKER -> {
-                        sampleColorAtScreenPos(screenPos)
-                    }
-                    Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
-                        shapeEndDocPos = docPos
-                        liveShapeEnd?.value = docPos
-                    }
-                    Tool.LASSO -> {
-                        lassoPoints.add(docPos)
-                        val now = System.nanoTime()
-                        if (now - lastLassoPreviewNs > 33_000_000L) {
-                            lastLassoPreviewNs = now
-                            val p = Path().apply {
-                                if (lassoPoints.isNotEmpty()) {
-                                    moveTo(lassoPoints[0].x, lassoPoints[0].y)
-                                    for (j in 1 until lassoPoints.size) {
-                                        lineTo(lassoPoints[j].x, lassoPoints[j].y)
-                                    }
-                                }
-                            }
-                            liveSelectionPath?.value = p
-                        }
-                    }
-                    Tool.MEASURE -> {
-                        measureEnd?.value = docPos
-                    }
-                    Tool.MOVE -> {
-                        shapeEndDocPos = docPos
-                    }
-                    else -> Unit
-                }
+                handleToolMove(event, 0, docPos, 1f, isStylus = false)
                 return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
                 isCursorTouching?.value = false
-                isCursorHovering?.value = isStylus
-                if (!isStylus) {
-                    cursorScreenPos?.value = null
-                }
+                isCursorHovering?.value = false
+                cursorScreenPos?.value = null
 
-                // 笔模式下手指单指平移结束
-                if (v.penOnlyMode && !isStylus) {
+                // 笔模式下单指平移结束
+                if (v.penOnlyMode) {
                     return true
                 }
 
@@ -504,87 +463,213 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
-                when (tool) {
-                    Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                        if (strokeStarted) {
-                            if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                                v.touchCancel()
-                            } else {
-                                v.touchEnd()
-                            }
-                            strokeStarted = false
-                        }
-                    }
-                    Tool.LIQUIFY -> {
-                        if (strokeStarted) {
-                            if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                                v.liquifyCancel()
-                            } else {
-                                v.liquifyEnd()
-                            }
-                            strokeStarted = false
-                        }
-                    }
-                    Tool.LINE, Tool.RECT, Tool.ELLIPSE -> {
-                        liveShapeStart?.value = null
-                        liveShapeEnd?.value = null
-                        val kind = when (tool) {
-                            Tool.RECT -> 1
-                            Tool.ELLIPSE -> 2
-                            else -> 0
-                        }
-                        var ex = shapeEndDocPos.x
-                        var ey = shapeEndDocPos.y
-                        if (v.shapeKeepAspect && (kind == 1 || kind == 2)) {
-                            val maxDim = maxOf(abs(ex - firstDocPos.x), abs(ey - firstDocPos.y))
-                            ex = if (ex >= firstDocPos.x) firstDocPos.x + maxDim else firstDocPos.x - maxDim
-                            ey = if (ey >= firstDocPos.y) firstDocPos.y + maxDim else firstDocPos.y - maxDim
-                        }
-                        v.drawShape(kind, firstDocPos.x, firstDocPos.y, ex, ey)
-                    }
-                    Tool.GRADIENT -> {
-                        liveShapeStart?.value = null
-                        liveShapeEnd?.value = null
-                        v.gradientFill(
-                            firstDocPos.x.toInt(), firstDocPos.y.toInt(),
-                            shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt(),
-                            v.gradientType, v.gradientRepeat, v.gradientReverse
-                        )
-                    }
-                    Tool.SELECT_RECT -> {
-                        liveShapeStart?.value = null
-                        liveShapeEnd?.value = null
-                        v.selectShape(0, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
-                    }
-                    Tool.SELECT_ELLIPSE -> {
-                        liveShapeStart?.value = null
-                        liveShapeEnd?.value = null
-                        v.selectShape(1, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
-                    }
-                    Tool.LASSO -> {
-                        liveSelectionPath?.value = null
-                        if (lassoPoints.size >= 3) {
-                            val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                            v.selectPolygon(points)
-                        }
-                        lassoPoints.clear()
-                    }
-                    Tool.MOVE -> {
-                        val dx = (shapeEndDocPos.x - firstDocPos.x).roundToInt()
-                        val dy = (shapeEndDocPos.y - firstDocPos.y).roundToInt()
-                        if (dx != 0 || dy != 0) {
-                            v.moveLayerContent(dx, dy)
-                        }
-                    }
-                    Tool.PICKER -> {
-                        pickerActive?.value = false
-                    }
-                    else -> Unit
-                }
+                handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                 return true
             }
         }
 
         return super.onTouchEvent(event)
+    }
+
+    private fun handleToolDown(docPos: Offset, pressure: Float, isStylus: Boolean) {
+        val v = vm ?: return
+        val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
+        val isDrawingTool = tool.group == ToolGroup.BRUSH || tool.group == ToolGroup.FILL || tool.group == ToolGroup.SHAPES
+
+        if (activeLayer?.isGroup == true && isDrawingTool) {
+            v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+            return
+        }
+        if (activeLayer?.locked == true && isDrawingTool) {
+            v.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+            return
+        }
+
+        when (tool) {
+            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                smoothedPressure = pressure
+                v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+                strokeStarted = true
+            }
+            Tool.LIQUIFY -> {
+                liquifyPrevPos = docPos
+                v.liquifyBegin()
+                strokeStarted = true
+            }
+            Tool.PICKER -> {
+                pickerActive?.value = true
+                val refHex = v.brushColor
+                pickerInitialColor?.value = parseColor(refHex)
+                sampleColorAtScreenPos(previousSinglePos)
+            }
+            Tool.FILL -> {
+                v.floodFill(docPos.x, docPos.y, fillTolerance)
+            }
+            Tool.MAGICWAND -> {
+                wandFlash?.value = docPos
+                v.selectContiguous(docPos.x.toInt(), docPos.y.toInt())
+            }
+            Tool.SELECT_SIMILAR -> {
+                wandFlash?.value = docPos
+                v.selectSimilar(docPos.x.toInt(), docPos.y.toInt())
+            }
+            Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON, Tool.PATH -> {
+                onPolyPoint?.invoke(docPos)
+            }
+            Tool.TEXT -> {
+                onTextRequested?.invoke(docPos.x, docPos.y)
+            }
+            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+                liveShapeStart?.value = docPos
+                liveShapeEnd?.value = docPos
+            }
+            Tool.LASSO -> {
+                lassoPoints.clear()
+                lassoPoints.add(docPos)
+            }
+            Tool.MEASURE -> {
+                measureStart?.value = docPos
+                measureEnd?.value = docPos
+            }
+            else -> Unit
+        }
+    }
+
+    private fun handleToolMove(event: MotionEvent, pointerIndex: Int, docPos: Offset, pressure: Float, isStylus: Boolean) {
+        val v = vm ?: return
+
+        when (tool) {
+            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                if (!strokeStarted) {
+                    v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
+                    strokeStarted = true
+                }
+                for (i in 0 until event.historySize) {
+                    val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
+                    val hDoc = screenToDoc(hScreen)
+                    val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                    v.touchMove(hDoc.x, hDoc.y, hP.toDouble())
+                }
+                v.touchMove(docPos.x, docPos.y, pressure.toDouble())
+            }
+            Tool.LIQUIFY -> {
+                if (strokeStarted) {
+                    v.liquify(liquifyPrevPos.x, liquifyPrevPos.y, docPos.x, docPos.y, liquifyMode, liquifyStrength.toDouble())
+                    liquifyPrevPos = docPos
+                }
+            }
+            Tool.PICKER -> {
+                sampleColorAtScreenPos(previousSinglePos)
+            }
+            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+                shapeEndDocPos = docPos
+                liveShapeEnd?.value = docPos
+            }
+            Tool.LASSO -> {
+                lassoPoints.add(docPos)
+                val now = System.nanoTime()
+                if (now - lastLassoPreviewNs > 33_000_000L) {
+                    lastLassoPreviewNs = now
+                    val p = Path().apply {
+                        if (lassoPoints.isNotEmpty()) {
+                            moveTo(lassoPoints[0].x, lassoPoints[0].y)
+                            for (j in 1 until lassoPoints.size) {
+                                lineTo(lassoPoints[j].x, lassoPoints[j].y)
+                            }
+                        }
+                    }
+                    liveSelectionPath?.value = p
+                }
+            }
+            Tool.MEASURE -> {
+                measureEnd?.value = docPos
+            }
+            Tool.MOVE -> {
+                shapeEndDocPos = docPos
+            }
+            else -> Unit
+        }
+    }
+
+    private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
+        val v = vm ?: return
+
+        when (tool) {
+            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                if (strokeStarted) {
+                    if (isCancel) {
+                        v.touchCancel()
+                    } else {
+                        v.touchEnd()
+                    }
+                    strokeStarted = false
+                }
+            }
+            Tool.LIQUIFY -> {
+                if (strokeStarted) {
+                    if (isCancel) {
+                        v.liquifyCancel()
+                    } else {
+                        v.liquifyEnd()
+                    }
+                    strokeStarted = false
+                }
+            }
+            Tool.LINE, Tool.RECT, Tool.ELLIPSE -> {
+                liveShapeStart?.value = null
+                liveShapeEnd?.value = null
+                val kind = when (tool) {
+                    Tool.RECT -> 1
+                    Tool.ELLIPSE -> 2
+                    else -> 0
+                }
+                var ex = shapeEndDocPos.x
+                var ey = shapeEndDocPos.y
+                if (v.shapeKeepAspect && (kind == 1 || kind == 2)) {
+                    val maxDim = maxOf(abs(ex - firstDocPos.x), abs(ey - firstDocPos.y))
+                    ex = if (ex >= firstDocPos.x) firstDocPos.x + maxDim else firstDocPos.x - maxDim
+                    ey = if (ey >= firstDocPos.y) firstDocPos.y + maxDim else firstDocPos.y - maxDim
+                }
+                v.drawShape(kind, firstDocPos.x, firstDocPos.y, ex, ey)
+            }
+            Tool.GRADIENT -> {
+                liveShapeStart?.value = null
+                liveShapeEnd?.value = null
+                v.gradientFill(
+                    firstDocPos.x.toInt(), firstDocPos.y.toInt(),
+                    shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt(),
+                    v.gradientType, v.gradientRepeat, v.gradientReverse
+                )
+            }
+            Tool.SELECT_RECT -> {
+                liveShapeStart?.value = null
+                liveShapeEnd?.value = null
+                v.selectShape(0, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
+            }
+            Tool.SELECT_ELLIPSE -> {
+                liveShapeStart?.value = null
+                liveShapeEnd?.value = null
+                v.selectShape(1, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
+            }
+            Tool.LASSO -> {
+                liveSelectionPath?.value = null
+                if (lassoPoints.size >= 3) {
+                    val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                    v.selectPolygon(points)
+                }
+                lassoPoints.clear()
+            }
+            Tool.MOVE -> {
+                val dx = (shapeEndDocPos.x - firstDocPos.x).roundToInt()
+                val dy = (shapeEndDocPos.y - firstDocPos.y).roundToInt()
+                if (dx != 0 || dy != 0) {
+                    v.moveLayerContent(dx, dy)
+                }
+            }
+            Tool.PICKER -> {
+                pickerActive?.value = false
+            }
+            else -> Unit
+        }
     }
 }
