@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # 复制预编译 Android arm64 动态库到 jniLibs
 # 默认从仓库内置 third_party/android-native-libs 复制全部 112 个库:
 #   Krita 核心库 + 笔刷插件 + Qt for Android + KF6 + NDK 依赖 + 预编译 libreverie_jni.so

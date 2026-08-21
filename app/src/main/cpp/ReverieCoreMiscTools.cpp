@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreMiscTools.cpp - Misc tools: crop, draw text, liquify
  * (part of the ReverieCore module split; shared helpers live in

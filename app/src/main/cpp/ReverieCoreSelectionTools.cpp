@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreSelectionTools.cpp - Selection tools: magic wand, select-similar, contiguous fill, color-distance
  * (part of the ReverieCore module split; shared helpers live in

@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreFilters.cpp - Filter entry points: applyFilter, beginFilterPreview, commitFilter, cancelFilter
  * (part of the ReverieCore module split; shared helpers live in

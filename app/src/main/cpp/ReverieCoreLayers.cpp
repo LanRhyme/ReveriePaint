@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreLayers.cpp - Layer list management: add/remove/reorder, visibility, blend modes, groups, masks, locking
  * (part of the ReverieCore module split; shared helpers live in

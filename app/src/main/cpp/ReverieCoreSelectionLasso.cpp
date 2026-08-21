@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreSelectionLasso.cpp - Lasso tools: magnetic lasso, free lasso select/fill/clear
  * (part of the ReverieCore module split; shared helpers live in

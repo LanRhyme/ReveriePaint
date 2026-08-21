@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreFilterPreview.cpp - Filter preview dispatch (color filters 0-18) on the backup device
  * (part of the ReverieCore module split; shared helpers live in

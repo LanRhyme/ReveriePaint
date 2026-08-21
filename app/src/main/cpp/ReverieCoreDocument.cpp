@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreDocument.cpp - Document lifecycle: create/open/resize/close, doc metrics and display pipeline
  * (part of the ReverieCore module split; shared helpers live in

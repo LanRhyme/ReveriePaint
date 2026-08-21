@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreRender.cpp - Rendering: composite projection to bitmap, flood fill, color pick, shapes
  * (part of the ReverieCore module split; shared helpers live in

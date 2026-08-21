@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreBrush.cpp - Brush engine: paintop registration, pressure response, brush lifecycle
  * (part of the ReverieCore module split; shared helpers live in

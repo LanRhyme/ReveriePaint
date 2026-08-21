@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreLayerOps.cpp - Layer operations: copy, merge, rasterize, flatten, flip, pass-through, solo, background
  * (part of the ReverieCore module split; shared helpers live in

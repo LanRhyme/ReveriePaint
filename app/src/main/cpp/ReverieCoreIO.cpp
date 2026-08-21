@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreIO.cpp - File I/O: PSD save/load, thumbnails, project serialization
  * (part of the ReverieCore module split; shared helpers live in

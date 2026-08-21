@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # 开发者模式完整构建: 重新编译 C++ (reverie_jni) 并打包全部动态库
 #
 # AGP 9 只自动收集 CMake NEEDED 闭包的一部分 (libreverie_jni.so 直接链接的),

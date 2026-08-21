@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreTransform.cpp - Transforms: free/perspective/distort/warp mesh preview and commit
  * (part of the ReverieCore module split; shared helpers live in

@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 package com.reverie.paint.ui.painting.canvas
 
 import androidx.compose.runtime.getValue

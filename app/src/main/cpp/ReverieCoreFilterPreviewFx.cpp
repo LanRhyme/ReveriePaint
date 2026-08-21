@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreFilterPreviewFx.cpp - Filter preview FX cases (19-34): shadow, neon, ripple, twirl, scanlines...
  * (part of the ReverieCore module split; shared helpers live in

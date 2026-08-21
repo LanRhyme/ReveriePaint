@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* ============================================================
  * ReverieCoreSelection.cpp - Selection state: replace/add/subtract, feather/expand/contract, storage, alpha-ops
  * (part of the ReverieCore module split; shared helpers live in
