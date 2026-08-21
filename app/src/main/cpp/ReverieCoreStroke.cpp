@@ -215,12 +215,10 @@ void ReverieCore::flushStrokeBatch()
             std::unique_ptr<KisInterstrokeDataFactory> factory(
                 KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset));
             if (factory) {
-                if (!target->interstrokeData() || !factory->isCompatible(target->interstrokeData().data())) {
-                    KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(toQShared(factory->create(target)));
-                    if (cmd) {
-                        cmd->redo();
-                        delete cmd;
-                    }
+                KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(toQShared(factory->create(target)));
+                if (cmd) {
+                    cmd->redo();
+                    delete cmd;
                 }
             }
             m_strokePainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
@@ -552,6 +550,15 @@ void ReverieCore::commitStrokeToLayer()
 
 void ReverieCore::endStrokeBatch()
 {
+    if (KisPaintDeviceSP target = currentPaintDevice()) {
+        if (target->interstrokeData()) {
+            KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+            if (cmd) {
+                cmd->redo();
+                delete cmd;
+            }
+        }
+    }
     delete m_strokePainter;
     m_strokePainter = nullptr;
     m_strokeDevice = nullptr;

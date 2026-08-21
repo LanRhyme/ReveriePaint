@@ -369,19 +369,23 @@ internal fun LayerListView(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("滤镜图层", color = Morandi.text, fontSize = 13.sp) },
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("滤镜图层", color = Morandi.subText.copy(alpha = 0.5f), fontSize = 13.sp)
+                                Spacer(Modifier.width(6.dp))
+                                Text("(未实现)", color = Morandi.subText.copy(alpha = 0.4f), fontSize = 11.sp)
+                            }
+                        },
                         leadingIcon = {
                             Icon(
                                 painterResource(R.drawable.ic_image_adjust),
                                 null,
-                                tint = Morandi.icon,
+                                tint = Morandi.icon.copy(alpha = 0.4f),
                                 modifier = Modifier.size(16.dp),
                             )
                         },
-                        onClick = {
-                            showNewLayerMenu = false
-                            vm.addFilterLayer(onOpenFilters)
-                        },
+                        enabled = false,
+                        onClick = {},
                     )
                     DropdownMenuItem(
                         text = { Text("盖印可见图层", color = Morandi.text, fontSize = 13.sp) },
