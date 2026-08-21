@@ -757,6 +757,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    var canvasBgColorHex by mutableStateOf("DEFAULT")
+
+    fun updateCanvasBgColor(hex: String) {
+        canvasBgColorHex = hex
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("canvasBgColor", hex)
+                .apply()
+        }
+        applyCurrentTheme()
+    }
+
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
         if (::appContext.isInitialized) {
@@ -813,12 +827,20 @@ class PaintViewModel : ViewModel() {
         if (!::appContext.isInitialized) return
         val dark = isCurrentlyDark()
         val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
-        if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            com.reverie.paint.ui.theme.Theme.current =
-                com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent)
+        val baseTheme = if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent)
         } else {
-            com.reverie.paint.ui.theme.Theme.current =
-                com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent)
+            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent)
+        }
+
+        com.reverie.paint.ui.theme.Theme.current = if (canvasBgColorHex.isNotBlank() && canvasBgColorHex != "DEFAULT") {
+            try {
+                baseTheme.copy(canvasBg = com.reverie.paint.ui.theme.parseColor(canvasBgColorHex))
+            } catch (_: Exception) {
+                baseTheme
+            }
+        } else {
+            baseTheme
         }
     }
 
@@ -932,6 +954,7 @@ class PaintViewModel : ViewModel() {
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             blurBackground = prefs.getBoolean("blurBackground", false)
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
+            canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             immersiveMode = prefs.getBoolean("immersiveMode", false)

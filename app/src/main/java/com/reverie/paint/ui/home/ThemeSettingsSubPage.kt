@@ -81,6 +81,7 @@ internal fun ThemeSettingsSubPage(
 ) {
     val colors = Theme.current
     var showCustomColorDialog by remember { mutableStateOf(false) }
+    var showCustomCanvasBgDialog by remember { mutableStateOf(false) }
 
     val presetSwatches = listOf(
         "#5E8BA8", "#7C8F9E", "#8D9E8F", "#C9ADA7",
@@ -274,6 +275,136 @@ internal fun ThemeSettingsSubPage(
             }
         }
 
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "画布工作区背景",
+            color = colors.text,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(vertical = 4.dp)
+        )
+        Text(
+            text = "自定义绘画与回放界面中画布周围工作区的底色",
+            color = colors.subText,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(bottom = 14.dp)
+        )
+
+        val canvasPresetSwatches = listOf(
+            "DEFAULT",
+            "#121316",
+            "#1E2024",
+            "#2F3136",
+            "#35383F",
+            "#4E5159",
+            "#7A7E85",
+            "#B0B5BD",
+            "#D8DCE2",
+            "#F0F2F5",
+            "#000000",
+            "#FFFFFF",
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+        ) {
+            items(canvasPresetSwatches) { hex ->
+                if (hex == "DEFAULT") {
+                    val isDefaultSelected = vm.canvasBgColorHex == "DEFAULT" || vm.canvasBgColorHex.isBlank()
+                    Box(
+                        modifier = Modifier
+                            .height(42.dp)
+                            .clip(RoundedCornerShape(21.dp))
+                            .background(colors.panel)
+                            .border(
+                                width = if (isDefaultSelected) 3.dp else 1.dp,
+                                color = if (isDefaultSelected) colors.accent else colors.border,
+                                shape = RoundedCornerShape(21.dp)
+                            )
+                            .clickable { vm.updateCanvasBgColor("DEFAULT") }
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isDefaultSelected) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_check),
+                                    contentDescription = null,
+                                    tint = colors.accent,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = "跟随主题",
+                                color = if (isDefaultSelected) colors.accent else colors.text,
+                                fontSize = 13.sp,
+                                fontWeight = if (isDefaultSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                } else {
+                    val swatchColor = parseColor(hex)
+                    val isSelected = vm.canvasBgColorHex.equals(hex, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(swatchColor)
+                            .border(
+                                width = if (isSelected) 3.dp else 1.dp,
+                                color = if (isSelected) colors.accent else colors.border,
+                                shape = CircleShape
+                            )
+                            .clickable { vm.updateCanvasBgColor(hex) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            val checkTint = if (swatchColor.red * 0.299 + swatchColor.green * 0.587 + swatchColor.blue * 0.114 > 0.6) Color.Black else Color.White
+                            Icon(
+                                painter = painterResource(R.drawable.ic_check),
+                                contentDescription = null,
+                                tint = checkTint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Custom canvas background color button
+            item {
+                val isCustomSelected = vm.canvasBgColorHex != "DEFAULT" && vm.canvasBgColorHex.isNotBlank() && canvasPresetSwatches.none { it.equals(vm.canvasBgColorHex, ignoreCase = true) }
+                val currentCustomColor = if (isCustomSelected) parseColor(vm.canvasBgColorHex) else colors.panel
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(currentCustomColor)
+                        .border(
+                            width = if (isCustomSelected) 3.dp else 1.dp,
+                            color = if (isCustomSelected) colors.accent else colors.border,
+                            shape = CircleShape
+                        )
+                        .clickable { showCustomCanvasBgDialog = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    val iconTint = if (isCustomSelected) {
+                        if (currentCustomColor.red * 0.299 + currentCustomColor.green * 0.587 + currentCustomColor.blue * 0.114 > 0.6) Color.Black else Color.White
+                    } else colors.icon
+                    Icon(
+                        painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
+                        contentDescription = "自定义画布背景",
+                        tint = iconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.4f)))
         Spacer(Modifier.height(16.dp))
@@ -351,6 +482,17 @@ internal fun ThemeSettingsSubPage(
                 showCustomColorDialog = false
             },
             onDismiss = { showCustomColorDialog = false }
+        )
+    }
+
+    if (showCustomCanvasBgDialog) {
+        CustomColorDialog(
+            initialHex = if (vm.canvasBgColorHex == "DEFAULT" || vm.canvasBgColorHex.isBlank()) "#2F3136" else vm.canvasBgColorHex,
+            onConfirm = { hex ->
+                vm.updateCanvasBgColor(hex)
+                showCustomCanvasBgDialog = false
+            },
+            onDismiss = { showCustomCanvasBgDialog = false }
         )
     }
 }
