@@ -86,8 +86,8 @@ class CanvasTouchView(context: Context) : View(context) {
     private var smoothedPressure = 0.8f
 
     // 多点变换持久状态 (跨 CANCEL 保持)
-    private var isTransformActive = false
-    private var isPinchMotion = false
+    var isTransformActive = false
+    var isPinchMotion = false
     private var prevCentroid = Offset.Zero
     private var prevDistance = 1f
     private var prevAngle = 0f
@@ -96,12 +96,16 @@ class CanvasTouchView(context: Context) : View(context) {
     private var lastTransformTimestamp = 0L
     private var maxTouchPointers = 0
     private var touchDownTimeMs = 0L
+    private var lastPos0 = Offset.Zero
+    private var lastPos1 = Offset.Zero
 
     // 跨碎片延迟重置任务
     private val resetTransformRunnable = Runnable {
         isTransformActive = false
         isPinchMotion = false
         maxTouchPointers = 0
+        lastPos0 = Offset.Zero
+        lastPos1 = Offset.Zero
     }
 
     // 防抖撤销任务
@@ -245,6 +249,8 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(longPressRunnable)
             isTransformActive = false
             isPinchMotion = false
+            lastPos0 = Offset.Zero
+            lastPos1 = Offset.Zero
 
             val x = event.getX(stylusPointerIndex)
             val y = event.getY(stylusPointerIndex)
@@ -288,13 +294,22 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             if (pointerCount >= 2) {
-                val x0 = event.getX(0)
-                val y0 = event.getY(0)
-                val x1 = event.getX(1)
-                val y1 = event.getY(1)
-                val centroid = Offset((x0 + x1) / 2f, (y0 + y1) / 2f)
-                val distance = hypot(x1 - x0, y1 - y0).coerceAtLeast(1f)
-                val angle = Math.toDegrees(atan2((y1 - y0).toDouble(), (x1 - x0).toDouble())).toFloat()
+                val raw0 = Offset(event.getX(0), event.getY(0))
+                val raw1 = Offset(event.getX(1), event.getY(1))
+
+                val (p0, p1) = if (lastPos0 != Offset.Zero && lastPos1 != Offset.Zero) {
+                    val d00_11 = hypot(raw0.x - lastPos0.x, raw0.y - lastPos0.y) + hypot(raw1.x - lastPos1.x, raw1.y - lastPos1.y)
+                    val d01_10 = hypot(raw0.x - lastPos1.x, raw0.y - lastPos1.y) + hypot(raw1.x - lastPos0.x, raw1.y - lastPos0.y)
+                    if (d01_10 < d00_11) Pair(raw1, raw0) else Pair(raw0, raw1)
+                } else {
+                    Pair(raw0, raw1)
+                }
+                lastPos0 = p0
+                lastPos1 = p1
+
+                val centroid = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                val distance = hypot(p1.x - p0.x, p1.y - p0.y).coerceAtLeast(1f)
+                val angle = Math.toDegrees(atan2((p1.y - p0.y).toDouble(), (p1.x - p0.x).toDouble())).toFloat()
 
                 if (!isTransformActive || (nowMs - lastTransformTimestamp) >= 140) {
                     // 开始新会话
@@ -309,12 +324,12 @@ class CanvasTouchView(context: Context) : View(context) {
                 } else {
                     val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
                     // 若驱动复活指针引起位置巨大跳变，重锚定而不施加突变 delta
-                    if (distCentroidMoved > 100f * density) {
+                    if (distCentroidMoved > 80f * density) {
                         prevCentroid = centroid
                         prevDistance = distance
                         prevAngle = angle
                     } else {
-                        val k = (distance / prevDistance).coerceIn(0.6f, 1.6f)
+                        val k = (distance / prevDistance).coerceIn(0.7f, 1.4f)
                         val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
                         val dPanX = centroid.x - prevCentroid.x
                         val dPanY = centroid.y - prevCentroid.y
@@ -341,7 +356,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         canvasPanX = localPanX
                         canvasPanY = localPanY
 
-                        if (v.canvasRotationEnabled && abs(dRot) > 0.05f) {
+                        if (v.canvasRotationEnabled && abs(dRot) > 0.02f) {
                             canvasRotation += dRot
                         }
 

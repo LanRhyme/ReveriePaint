@@ -302,11 +302,13 @@ fun CanvasView(
                 touchView.docBitmap = bmp
                 touchView.viewW = viewW
                 touchView.viewH = viewH
-                touchView.canvasZoom = zoom
-                touchView.canvasRotation = rotation
-                touchView.canvasPanX = panX
-                touchView.canvasPanY = panY
-                touchView.canvasFitScale = fitScale
+                if (!touchView.isTransformActive) {
+                    touchView.canvasZoom = zoom
+                    touchView.canvasRotation = rotation
+                    touchView.canvasPanX = panX
+                    touchView.canvasPanY = panY
+                    touchView.canvasFitScale = fitScale
+                }
                 touchView.onTransform = onTransform
                 touchView.onTextRequested = onTextRequested
                 touchView.onPolyPoint = onPolyPoint

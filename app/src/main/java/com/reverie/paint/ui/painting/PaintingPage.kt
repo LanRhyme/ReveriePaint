@@ -327,20 +327,17 @@ fun PaintingPage(
                 panY = panY,
                 fitScale = fitScale,
                 onFitScale = {
-                    if (it != fitScale) {
-                        android.util.Log.d("ReveriePaint", "fitScale $fitScale -> $it")
-                    }
                     fitScale = it
                 },
                 onTransform = { z, r, px, py ->
-                    if (z != zoom) {
-                        android.util.Log.d("ReveriePaint", "zoom $zoom -> $z")
-                    }
                     zoom = z
                     rotation = r
                     panX = px
                     panY = py
-                    flashIndicator()
+                    if (!showIndicator) {
+                        showIndicator = true
+                    }
+                    indicatorTick++
                 },
                 onTextRequested = { x, y -> textDialogPos = x to y },
                 tool = tool,
