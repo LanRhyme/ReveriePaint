@@ -75,6 +75,10 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxnActive = false;
         m_redoCount = 0;
     }
+    if (!m_nodeFilters.isEmpty()) {
+        recompositeProjection();
+        markDirty();
+    }
     m_drawing = false;
 }
 
@@ -545,7 +549,11 @@ void ReverieCore::commitStrokeToLayer()
     // Mark the region dirty on the layer device and recomposite
     device->setDirty(ext);
     recompositeProjection();
-    markRegionDirty(ext);
+    if (!m_nodeFilters.isEmpty()) {
+        markDirty();
+    } else {
+        markRegionDirty(ext);
+    }
     bumpLayerThumbGen(m_layers[m_currentLayer].node);
     m_strokeBuffer->clear();
 }

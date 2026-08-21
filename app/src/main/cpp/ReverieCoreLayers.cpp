@@ -199,6 +199,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             KisPainter::copyAreaOptimized(QPoint(0, 0), proj, paintLayer->original(), full);
             paintLayer->original()->setDirty(full);
             newNode = paintLayer;
+            m_nodeFilters[newNode.data()] = { true, 2, 10.0, 0, 0, 0, QByteArray() };
         } else {
             newNode = paintLayer;
         }
