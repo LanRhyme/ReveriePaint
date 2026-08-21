@@ -153,6 +153,9 @@ void ReverieCore::commitFilter(int index, const QString &filterName)
 void ReverieCore::cancelFilter(int index)
 {
     if (index >= 0 && index < m_layers.size() && m_filterBackupDevice && m_filterBackupIndex == index) {
+        if (m_layers[index].node) {
+            m_nodeFilters.remove(m_layers[index].node);
+        }
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
         if (dev) {
             KisPainter::copyAreaOptimized(QPoint(0, 0), m_filterBackupDevice, dev, QRect(0, 0, m_docWidth, m_docHeight));

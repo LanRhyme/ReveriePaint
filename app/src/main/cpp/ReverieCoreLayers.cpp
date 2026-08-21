@@ -26,12 +26,14 @@ bool ReverieCore::isLayerEditable(int index) const
 
 KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
 {
-    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
+    if (KisAdjustmentLayer *al = dynamic_cast<KisAdjustmentLayer *>(e.node)) {
+        return al->original();
+    } else if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
         return pl->paintDevice();
     } else if (KisMask *m = dynamic_cast<KisMask *>(e.node)) {
         return m->paintDevice();
     } else if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
-        return l->paintDevice() ? l->paintDevice() : l->projection();
+        return l->original() ? l->original() : (l->paintDevice() ? l->paintDevice() : l->projection());
     }
     return KisPaintDeviceSP();
 }

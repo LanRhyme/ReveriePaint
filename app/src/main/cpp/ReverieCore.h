@@ -149,6 +149,7 @@ public:
     void applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4);
     void applyCurvesLUTPreview(int index, const quint8 *lutR, const quint8 *lutG, const quint8 *lutB);
     void applyGradientMapPreview(int index, const quint32 *gradientLut256);
+    void processFilterImage(int filterType, double p1, double p2, double p3, double p4, QImage &img, int w, int h);
     void commitFilter(int index, const QString &filterName);
     void cancelFilter(int index);
 
@@ -618,6 +619,17 @@ private:
     KisPaintDeviceSP m_filterBackupDevice;
     int m_filterBackupIndex = -1;
     QRect m_filterBackupExt;
+
+    struct LayerFilterConfig {
+        bool hasFilter = false;
+        int filterType = -1;
+        double p1 = 0.0;
+        double p2 = 0.0;
+        double p3 = 0.0;
+        double p4 = 0.0;
+        QByteArray lut;
+    };
+    QMap<KisNode *, LayerFilterConfig> m_nodeFilters;
 
     // Wrap a command push through the image's undo adapter and clear redo
     void pushUndoCommand(KUndo2Command *cmd);
