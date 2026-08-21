@@ -25,13 +25,14 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * 原生 Android View 触控层 (直接几何多点解算 + 跨 CANCEL 会话保持)
+ * 原生 Android View 触控层 (连续多点解算 + 单/双指碎片平滑融合)
  *
- * 针对小米 HyperOS / 触控笔悬停驱动：
- * 1. onHoverEvent 绝不捕获独占锁 (return false)，保持硬件双通道畅通；
- * 2. 多点触控（缩放/旋转/平移）直接在每帧计算几何质心与距离，无需等待 ScaleGestureDetector 的 slop；
- * 3. 跨越驱动层 ACTION_CANCEL 碎片保持 120ms 变换会话，消除顿挫与瞬移；
- * 4. ACTION_CANCEL 绝对不触发撤销，仅在真实物理抬手 (ACTION_UP) + 90ms 延迟确认后触发一次撤销。
+ * 彻底解决小米 HyperOS / 手写笔悬停下触控流被碎片化导致的顿挫感：
+ * 1. onHoverEvent 绝不独占事件；
+ * 2. 维持 150ms 连续多指手势会话；
+ * 3. 在驱动碎片交替期（短暂降为单指），将单指物理位移实时补偿为画布平移，确保 120Hz 零丢帧；
+ * 4. 两指坐标近邻配对，彻底消除 180° 旋转突变与坐标跳变；
+ * 5. ACTION_CANCEL 绝对不触发撤销，仅在真实物理抬手 (ACTION_UP) + 90ms 延迟确认后触发。
  */
 class CanvasTouchView(context: Context) : View(context) {
 
@@ -285,8 +286,8 @@ class CanvasTouchView(context: Context) : View(context) {
         val nowMs = SystemClock.uptimeMillis()
         maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
 
-        // 双指及以上手势处理 (直接几何解算，无延迟、无 slop 门槛)
-        if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 140)) {
+        // 多指手势处理 (直接几何解算 + 碎片期单指补偿)
+        if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
             removeCallbacks(longPressRunnable)
             if (strokeStarted) {
                 if (tool == Tool.LIQUIFY) v.liquifyCancel() else v.touchCancel()
@@ -311,7 +312,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 val distance = hypot(p1.x - p0.x, p1.y - p0.y).coerceAtLeast(1f)
                 val angle = Math.toDegrees(atan2((p1.y - p0.y).toDouble(), (p1.x - p0.x).toDouble())).toFloat()
 
-                if (!isTransformActive || (nowMs - lastTransformTimestamp) >= 140) {
+                if (!isTransformActive || (nowMs - lastTransformTimestamp) >= 150) {
                     // 开始新会话
                     isTransformActive = true
                     isPinchMotion = false
@@ -323,7 +324,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     touchDownTimeMs = nowMs
                 } else {
                     val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
-                    // 若驱动复活指针引起位置巨大跳变，重锚定而不施加突变 delta
+                    // 若驱动复活指针引起位置巨大跳变，平滑重锚定
                     if (distCentroidMoved > 80f * density) {
                         prevCentroid = centroid
                         prevDistance = distance
@@ -368,6 +369,36 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 lastTransformTimestamp = nowMs
+            } else if (pointerCount == 1 && isTransformActive) {
+                // 驱动碎片期（单指短暂存活）：持续将存活手指位移转化为平移，确保 100% 零丢帧
+                val cur = Offset(event.x, event.y)
+                val dist0 = hypot(cur.x - lastPos0.x, cur.y - lastPos0.y)
+                val dist1 = hypot(cur.x - lastPos1.x, cur.y - lastPos1.y)
+
+                if (dist0 < dist1 && dist0 < 60f * density) {
+                    val dx = cur.x - lastPos0.x
+                    val dy = cur.y - lastPos0.y
+                    lastPos0 = cur
+                    prevCentroid = prevCentroid + Offset(dx / 2f, dy / 2f)
+                    canvasPanX += dx
+                    canvasPanY += dy
+                    if (hypot(dx, dy) > 2f) isPinchMotion = true
+                    lastTransformTimestamp = nowMs
+                    onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                } else if (dist1 <= dist0 && dist1 < 60f * density) {
+                    val dx = cur.x - lastPos1.x
+                    val dy = cur.y - lastPos1.y
+                    lastPos1 = cur
+                    prevCentroid = prevCentroid + Offset(dx / 2f, dy / 2f)
+                    canvasPanX += dx
+                    canvasPanY += dy
+                    if (hypot(dx, dy) > 2f) isPinchMotion = true
+                    lastTransformTimestamp = nowMs
+                    onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                } else {
+                    lastPos0 = cur
+                    lastTransformTimestamp = nowMs
+                }
             }
 
             when (event.actionMasked) {
@@ -380,6 +411,8 @@ class CanvasTouchView(context: Context) : View(context) {
                             isTransformActive = false
                             isPinchMotion = false
                             maxTouchPointers = 0
+                            lastPos0 = Offset.Zero
+                            lastPos1 = Offset.Zero
                         }
                         pendingUndoRunnable = undoRunnable
                         postDelayed(undoRunnable, 90)
@@ -389,6 +422,8 @@ class CanvasTouchView(context: Context) : View(context) {
                             isTransformActive = false
                             isPinchMotion = false
                             maxTouchPointers = 0
+                            lastPos0 = Offset.Zero
+                            lastPos1 = Offset.Zero
                         }
                         pendingUndoRunnable = redoRunnable
                         postDelayed(redoRunnable, 90)
@@ -396,17 +431,19 @@ class CanvasTouchView(context: Context) : View(context) {
                         isTransformActive = false
                         isPinchMotion = false
                         maxTouchPointers = 0
+                        lastPos0 = Offset.Zero
+                        lastPos1 = Offset.Zero
                     }
                 }
                 MotionEvent.ACTION_CANCEL -> {
-                    // 驱动层 CANCEL：绝不触发撤销！保持 120ms 会话防止下一帧顿挫
-                    postDelayed(resetTransformRunnable, 120)
+                    // 驱动层 CANCEL：绝不触发撤销！保持 150ms 会话防止下一帧顿挫
+                    postDelayed(resetTransformRunnable, 150)
                 }
             }
             return true
         }
 
-        // 单指处理
+        // 单指处理 (常规模式)
         val screenPos = Offset(event.x, event.y)
         val docPos = screenToDoc(screenPos)
 
