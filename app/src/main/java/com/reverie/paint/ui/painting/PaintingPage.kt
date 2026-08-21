@@ -361,7 +361,7 @@ fun PaintingPage(
             if (vm.hasUnsavedChanges()) {
                 showExitSaveDialog = true
             } else {
-                vm.goHome()
+                vm.discardAndExit()
             }
         }
 
@@ -391,7 +391,7 @@ fun PaintingPage(
             DiscardConfirmDialog(
                 onDiscard = {
                     showDiscardConfirmDialog = false
-                    vm.goHome()
+                    vm.discardAndExit()
                 },
                 onDismiss = { showDiscardConfirmDialog = false },
             )

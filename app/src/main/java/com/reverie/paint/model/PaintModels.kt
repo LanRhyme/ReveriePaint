@@ -91,6 +91,8 @@ data class Project(
     val items: List<Project> = emptyList(),
     /** Whether the project file embeds a drawing-process recording (回放可用). */
     val hasRecording: Boolean = false,
+    /** Whether this project is an auto-saved recovery draft (自动保存草稿 / 异常退出恢复). */
+    val isAutoSaved: Boolean = false,
 )
 
 /** A canvas size preset for the create page */

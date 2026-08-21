@@ -1030,6 +1030,36 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
+                                                        // AutoSave recovery badge (自动保存 / 异常退出恢复草稿)
+                                                        if (p.isAutoSaved) {
+                                                            Box(
+                                                                modifier =
+                                                                    Modifier
+                                                                        .align(Alignment.TopStart)
+                                                                        .padding(6.dp)
+                                                                        .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
+                                                                        .clip(RoundedCornerShape(12.dp))
+                                                                        .background(colors.accent)
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                                                            ) {
+                                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                    Icon(
+                                                                        painterResource(R.drawable.ic_save),
+                                                                        contentDescription = null,
+                                                                        tint = Color.White,
+                                                                        modifier = Modifier.size(10.dp),
+                                                                    )
+                                                                    Spacer(Modifier.width(3.dp))
+                                                                    Text(
+                                                                        text = "自动保存",
+                                                                        color = Color.White,
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+
                                                         // Selection checkmark
                                                         if (isSelectMode) {
                                                             Box(
@@ -1089,10 +1119,12 @@ fun HomePage(vm: PaintViewModel) {
                                                                 "刚刚"
                                                             }
                                                         }
+                                                    val statusText = if (p.isAutoSaved) "自动保存草稿" else dateStr
                                                     Text(
-                                                        text = if (p.isFolder) "${p.items.size} 个作品" else dateStr,
-                                                        color = colors.subText,
+                                                        text = if (p.isFolder) "${p.items.size} 个作品" else statusText,
+                                                        color = if (p.isAutoSaved) colors.accent else colors.subText,
                                                         fontSize = 11.sp,
+                                                        fontWeight = if (p.isAutoSaved) FontWeight.SemiBold else FontWeight.Normal,
                                                     )
                                                     if (!p.isFolder && p.strokeCount > 0) {
                                                         Text(

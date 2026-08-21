@@ -45,6 +45,12 @@ internal fun PaintViewModel.projectDir(): java.io.File {
     return intDir
 }
 
+internal fun PaintViewModel.autoSaveDir(): File {
+    val dir = File(appContext.filesDir, "autosave")
+    if (!dir.exists()) dir.mkdirs()
+    return dir
+}
+
 // Blocking loading overlay state (used during canvas loading, saving, creating)
 
 internal fun PaintViewModel.saveProject(
@@ -59,13 +65,18 @@ internal fun PaintViewModel.saveProject(
             initialStrokeCount = totalStrokes
             isModified = false
             docName = name
+            // 显式保存成功后，清理对应的自动保存草稿
+            val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+            if (autoSaveFile.exists()) {
+                autoSaveFile.delete()
+            }
             refreshProjects()
             isBlockingLoading = false
             onComplete?.invoke()
         },
     ) {
         val fileToSave =
-            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true }
+            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
                 ?: File(projectDir(), "$name.revp")
 
         // If the name changed and we had a path, adjust destination file
@@ -106,27 +117,15 @@ internal fun PaintViewModel.autoSaveProject() {
 
     runCore(
         after = {
-            initialStrokeCount = totalStrokes
-            isModified = false
             lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
             isAutoSaving = false
-            refreshProjects()
             if (autoSaveToastEnabled) {
                 showActionToast("作品已自动保存", R.drawable.ic_save)
             }
         },
     ) {
-        val fileToSave =
-            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true }
-                ?: File(projectDir(), "$name.revp")
-
-        val finalFile =
-            if (fileToSave.nameWithoutExtension != name) {
-                File(fileToSave.parentFile, "$name.revp")
-            } else {
-                fileToSave
-            }
-        currentProjectFile = finalFile.absolutePath
+        val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+        val masterPath = currentProjectFile?.takeIf { !it.contains(".autosave") } ?: ""
 
         val extraJson =
             """
@@ -135,15 +134,33 @@ internal fun PaintViewModel.autoSaveProject() {
                 "elapsedSeconds": $elapsedSeconds,
                 "createdTime": $canvasCreatedTime,
                 "colorMode": "$colorMode",
-                "layerCount": ${layers.size}
+                "layerCount": ${layers.size},
+                "isAutoSave": true,
+                "masterFilePath": "$masterPath",
+                "docName": "$name"
             }
             """.trimIndent()
         val recBlob = recorder.serialize()
-        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
-        if (!saved && !(finalFile.exists() && finalFile.length() > 0)) {
+        val saved = ReverieCoreBridge.saveRevp(autoSaveFile.absolutePath, extraJson, recBlob)
+        if (!saved && !(autoSaveFile.exists() && autoSaveFile.length() > 0)) {
             android.util.Log.w("ReveriePaint", "autoSaveRevp failed, no artifact")
         }
     }
+}
+
+internal fun PaintViewModel.discardAndExit() {
+    val name = docName.ifBlank { "未命名作品" }
+    // 1. 删除本次会话产生的所有自动保存临时草稿
+    val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+    if (autoSaveFile.exists()) {
+        autoSaveFile.delete()
+    }
+    if (currentProjectFile != null && currentProjectFile!!.contains(".autosave")) {
+        val f = File(currentProjectFile!!)
+        if (f.exists()) f.delete()
+    }
+    // 2. 退出到画廊主页
+    goHome()
 }
 
 /** Append the session recording as a "recording" entry inside the .revp
@@ -160,20 +177,34 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     currentPage = Page.PAINTING
     isBlockingLoading = true
     blockingLoadingMessage = "正在载入画布..."
+    val isRecovered = p.isAutoSaved || p.filePath.contains(".autosave")
+
     runCore(
         after = {
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
-            isModified = false
+            isModified = isRecovered // 异常恢复的工程标记为未保存
             docWidth = coreW
             docHeight = coreH
             docName = p.name
-            currentProjectFile = p.filePath
+
+            val masterFile = File(projectDir(), "${p.name}.revp")
+            currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+                masterFile.absolutePath
+            } else if (!isRecovered) {
+                p.filePath
+            } else {
+                null
+            }
+
             elapsedSeconds = p.elapsedSeconds
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
             isBlockingLoading = false
             startPaintingTimer()
+            if (isRecovered) {
+                showActionToast("已恢复到最后一次自动保存的状态", R.drawable.ic_save)
+            }
         },
     ) {
         val file = java.io.File(p.filePath)
@@ -308,9 +339,16 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
         previewPath = f.absolutePath
     }
 
+    val isAutoSaveFile = f.name.contains(".autosave")
+    val displayName = if (f.nameWithoutExtension.endsWith(".autosave")) {
+        f.nameWithoutExtension.removeSuffix(".autosave")
+    } else {
+        f.nameWithoutExtension
+    }
+
     return com.reverie.paint.model
         .Project(
-            name = f.nameWithoutExtension,
+            name = displayName,
             width = w,
             height = h,
             filePath = f.absolutePath,
@@ -323,6 +361,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
             fileSize = f.length(),
             isFolder = false,
             hasRecording = hasRec,
+            isAutoSaved = isAutoSaveFile,
         ).also { p ->
             projectMetaCache[f.absolutePath] = ProjectMetaCacheEntry(f.lastModified(), f.length(), p)
         }
@@ -399,6 +438,28 @@ internal fun PaintViewModel.refreshProjects() {
             list.add(parseProjectFromFile(entry))
         }
     }
+
+    // 扫描未正常消费的自动保存异常恢复草稿 (清后台或崩溃后恢复)
+    val autoDir = autoSaveDir()
+    val autoFiles: Array<File> =
+        autoDir
+            .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra") }
+            ?: emptyArray()
+
+    for (autoFile in autoFiles) {
+        val parsedAuto = parseProjectFromFile(autoFile)
+        val autoProject = parsedAuto.copy(isAutoSaved = true)
+        val existingIdx = list.indexOfFirst { !it.isFolder && it.name == autoProject.name }
+        if (existingIdx != -1) {
+            val existing = list[existingIdx]
+            if (autoFile.lastModified() >= existing.lastModified) {
+                list[existingIdx] = autoProject
+            }
+        } else {
+            list.add(0, autoProject)
+        }
+    }
+
     projects = list
 }
 
