@@ -216,72 +216,16 @@ void ReverieCore::recompositeProjection()
             ++it;
         }
     }
-    // Update any active filter layers from underlying composite
-    for (int i = 0; i < m_layers.size(); ++i) {
-        KisNode *node = m_layers[i].node;
-        if (!node) continue;
-        if (m_nodeFilters.contains(node) && m_nodeFilters[node].hasFilter && m_filterBackupIndex != i) {
-            const auto &cfg = m_nodeFilters[node];
-            KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
-            if (dev) {
-                const int w = m_docWidth;
-                const int h = m_docHeight;
-                const QRect full(0, 0, w, h);
-                KisPaintDeviceSP srcDev(new KisPaintDevice(image->colorSpace()));
-                srcDev->fill(full, KoColor(Qt::transparent, image->colorSpace()));
-                compositeRange(srcDev, 0, i, full);
-
-                QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-                srcDev->readBytes(img.bits(), 0, 0, w, h);
-
-                if (cfg.filterType == 13 && cfg.lut.size() >= 768) {
-                    const quint8 *r = reinterpret_cast<const quint8 *>(cfg.lut.constData());
-                    const quint8 *g = r + 256;
-                    const quint8 *b = g + 256;
-                    filterParallelFor(0, h, [&](int startY, int endY) {
-                        for (int y = startY; y < endY; ++y) {
-                            quint8 *line = img.scanLine(y);
-                            for (int x = 0; x < w; ++x) {
-                                quint8 *px = line + x * 4;
-                                if (px[3] == 0) continue;
-                                px[2] = r[px[2]];
-                                px[1] = g[px[1]];
-                                px[0] = b[px[0]];
-                            }
-                        }
-                    });
-                } else if (cfg.filterType == 30 && cfg.lut.size() >= int(256 * sizeof(quint32))) {
-                    const quint32 *gLut = reinterpret_cast<const quint32 *>(cfg.lut.constData());
-                    filterParallelFor(0, h, [&](int startY, int endY) {
-                        for (int y = startY; y < endY; ++y) {
-                            quint8 *line = img.scanLine(y);
-                            for (int x = 0; x < w; ++x) {
-                                quint8 *px = line + x * 4;
-                                if (px[3] == 0) continue;
-                                int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
-                                quint32 gCol = gLut[qBound(0, lum, 255)];
-                                int gr = (gCol >> 16) & 0xFF;
-                                int gg = (gCol >> 8) & 0xFF;
-                                int gb = gCol & 0xFF;
-                                int ga = (gCol >> 24) & 0xFF;
-                                px[2] = quint8(gr);
-                                px[1] = quint8(gg);
-                                px[0] = quint8(gb);
-                                px[3] = quint8((px[3] * ga) / 255);
-                            }
-                        }
-                    });
-                } else if (cfg.filterType >= 0) {
-                    processFilterImage(cfg.filterType, cfg.p1, cfg.p2, cfg.p3, cfg.p4, img, w, h);
-                }
-
-                dev->writeBytes(img.constBits(), 0, 0, w, h);
-                dev->setDirty(full);
-            }
-        }
+    if (m_nodeFilters.isEmpty()) {
+        image->refreshGraphAsync();
+        image->waitForDone();
+    } else {
+        const int w = m_docWidth;
+        const int h = m_docHeight;
+        const QRect full(0, 0, w, h);
+        compositeRange(image->projection(), 0, m_layers.size(), full);
+        image->projection()->setDirty(full);
     }
-    image->refreshGraphAsync();
-    image->waitForDone();
 }
 
 void ReverieCore::syncLayersFromImage()

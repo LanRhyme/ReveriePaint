@@ -560,6 +560,15 @@ void ReverieCore::commitStrokeToLayer()
 
 void ReverieCore::endStrokeBatch()
 {
+    if (KisPaintDeviceSP target = currentPaintDevice()) {
+        if (target->interstrokeData()) {
+            KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+            if (cmd) {
+                cmd->redo();
+                delete cmd;
+            }
+        }
+    }
     delete m_strokePainter;
     m_strokePainter = nullptr;
     m_strokeDevice = nullptr;
