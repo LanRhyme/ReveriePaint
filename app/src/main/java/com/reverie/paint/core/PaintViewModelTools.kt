@@ -119,6 +119,11 @@ internal fun PaintViewModel.touchStart(
     if (strokeColor != brushColor) {
         runCore(render = false) { ReverieCoreBridge.setBrushColor(strokeColor) }
     }
+    if (currentToolId == "brush" || currentToolId == "fill" || currentToolId == "gradient") {
+        if (recentColors.firstOrNull() != brushColor.uppercase()) {
+            addRecentColor(brushColor)
+        }
+    }
     if (recorder.recording) {
         // Diff-based brush/tool/layer context capture: emitted only when the
         // context changed since the previous stroke, so slider tweaks between

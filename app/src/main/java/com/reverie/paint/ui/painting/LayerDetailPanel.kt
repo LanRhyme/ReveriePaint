@@ -490,6 +490,9 @@ internal fun LayerDetailPage(
             // Vertical operation list
             Column {
                 OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
+                OpItem(R.drawable.ic_fill, "填充当前前景色") {
+                    vm.floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
+                }
                 OpItem(R.drawable.ic_erase, "清除图层") { vm.clearLayer(index) }
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
                 OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) {

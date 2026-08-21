@@ -51,6 +51,7 @@ import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
+import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.core.*
@@ -224,7 +225,7 @@ fun ToolRail(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(32.dp)
-                        .clickable(onClick = onOpenColor),
+                        .noRippleClickable(onOpenColor),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(

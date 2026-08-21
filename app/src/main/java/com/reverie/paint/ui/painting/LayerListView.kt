@@ -126,6 +126,7 @@ private val rowHeight = 48.dp
 internal fun LayerListView(
     vm: PaintViewModel,
     onOpenDetail: (Int) -> Unit,
+    onOpenFilters: (Int) -> Unit,
 ) {
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
@@ -363,53 +364,23 @@ internal fun LayerListView(
                             )
                         },
                         onClick = {
-                            vm.addLayerWithType("", 2, vm.brushColor.toInt())
                             showNewLayerMenu = false
+                            vm.addFillLayer()
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("调整图层", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text("滤镜图层", color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
-                                painterResource(R.drawable.ic_sliders),
+                                painterResource(R.drawable.ic_image_adjust),
                                 null,
                                 tint = Morandi.icon,
                                 modifier = Modifier.size(16.dp),
                             )
                         },
                         onClick = {
-                            vm.addLayerWithType("", 3)
                             showNewLayerMenu = false
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("矢量图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_polyline),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            vm.addLayerWithType("", 4)
-                            showNewLayerMenu = false
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("克隆图层", color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_copy),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            vm.addLayerWithType("", 5)
-                            showNewLayerMenu = false
+                            vm.addFilterLayer(onOpenFilters)
                         },
                     )
                     DropdownMenuItem(

@@ -182,11 +182,24 @@ internal fun PaintViewModel.layerVisible(i: Int) = ReverieCoreBridge.layerVisibl
 
 // ---- Full layer system ----
 internal fun PaintViewModel.addGroupLayer() {
+    val selected = selectedLayerIndices.filter { it > 0 }.sortedDescending()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD_GROUP)
     }
-    runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.addGroupLayer("")
+    runCore(after = {
+        notifyLayerChanged()
+        clearLayerSelection()
+    }) {
+        val newGroupIndex = ReverieCoreBridge.addGroupLayer("")
+        if (selected.isNotEmpty() && newGroupIndex >= 0) {
+            val groupIdx = ReverieCoreBridge.currentLayerIndex()
+            for (idx in selected) {
+                val actualIdx = if (idx >= newGroupIndex) idx + 1 else idx
+                if (actualIdx != groupIdx && actualIdx > 0) {
+                    ReverieCoreBridge.moveLayerToGroup(actualIdx, groupIdx)
+                }
+            }
+        }
     }
 }
 
@@ -582,5 +595,39 @@ internal fun PaintViewModel.addLayerWithType(
     }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+    }
+}
+
+internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
+    val colorInt = try {
+        android.graphics.Color.parseColor(colorHex)
+    } catch (_: Exception) {
+        0xFFFFFFFF.toInt()
+    }
+    if (recorder.recording) {
+        recorder.layerOp(
+            com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
+            0,
+            "填充图层|0|$colorInt",
+        )
+    }
+    runCore(after = {
+        notifyLayerChanged()
+        floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
+    }) {
+        ReverieCoreBridge.addLayerWithType("填充图层", 0, colorInt)
+    }
+}
+
+internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
+    runCore(after = {
+        notifyLayerChanged()
+        val cur = currentLayerIndex
+        if (cur >= 0) {
+            renameLayer(cur, "滤镜图层")
+            onOpenFilters(cur)
+        }
+    }) {
+        ReverieCoreBridge.stampVisibleLayers()
     }
 }

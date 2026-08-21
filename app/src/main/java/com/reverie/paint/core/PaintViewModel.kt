@@ -775,12 +775,8 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.ui.theme.Theme.current =
                 com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent)
         } else {
-            val base = if (dark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
             com.reverie.paint.ui.theme.Theme.current =
-                base.copy(
-                    accent = parsedAccent,
-                    accentHi = parsedAccent,
-                )
+                com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent)
         }
     }
 
@@ -863,6 +859,10 @@ class PaintViewModel : ViewModel() {
             brushSizePresets = loadSliderPresets("brushSizePresets")
             brushOpacityPresets = loadSliderPresets("brushOpacityPresets")
             brushFlowPresets = loadSliderPresets("brushFlowPresets")
+            colorWheelInnerShape = prefs.getString("colorWheelInnerShape", "SQUARE") ?: "SQUARE"
+            colorModel = prefs.getString("colorModel", "hsv") ?: "hsv"
+            recentColors = loadRecentColors()
+            userPalettes = loadUserPalettes()
 
             applyCurrentTheme()
         }
@@ -964,6 +964,253 @@ class PaintViewModel : ViewModel() {
             "brushFlowPresets" -> listOf(0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.75, 0.90, 1.00)
             else -> listOf(null, null, null, null, null, null, null, null, null)
         }
+    }
+
+    var colorPanelTab by mutableIntStateOf(0)
+    var colorWheelInnerShape by mutableStateOf("SQUARE")
+    var colorModel by mutableStateOf("hsv") // "hsv", "v-hsv", "hsl", "hsy"
+    var recentColors by mutableStateOf<List<String>>(
+        listOf(
+            "#FFFFFF", "#D6D6D6", "#ADADAD", "#858585", "#5C5C5C", "#333333", "#141414", "#000000",
+            "#F44336", "#FF9800", "#FFEB3B", "#4CAF50", "#00BCD4", "#2196F3", "#9C27B0", "#E91E63"
+        )
+    )
+
+    data class ColorPaletteItem(
+        val id: String,
+        val name: String,
+        val colors: List<String>
+    )
+
+    var userPalettes by mutableStateOf<List<ColorPaletteItem>>(
+        listOf(
+            ColorPaletteItem(
+                "builtin_basic", "基本色",
+                listOf(
+                    "#000000", "#FFFFFF", "#FEEBD0", "#FFF000", "#FFA500", "#FF4500", "#E60000", "#990000",
+                    "#99CC00", "#339900", "#009944", "#00A0E9", "#0068B7", "#1D2088", "#601986", "#4A225D"
+                )
+            ),
+            ColorPaletteItem(
+                "builtin_morandi", "莫兰迪",
+                listOf(
+                    "#B8A18F", "#9C8578", "#827065", "#A0A59A", "#8B958D", "#737F79", "#A1A0B0", "#838294",
+                    "#978D7E", "#847A6B", "#6F6659", "#B49F82", "#A18A6C", "#8B7457", "#9C7C7C", "#806363"
+                )
+            )
+        )
+    )
+
+    val allPalettes: List<ColorPaletteItem>
+        get() = userPalettes
+
+    fun addColorToPalette(paletteId: String, hex: String) {
+        val upper = hex.uppercase()
+        userPalettes = userPalettes.map {
+            if (it.id == paletteId) {
+                val list = it.colors.toMutableList()
+                list.add(upper)
+                it.copy(colors = list)
+            } else it
+        }
+        persistUserPalettes()
+    }
+
+    fun removeColorFromPalette(paletteId: String, index: Int) {
+        userPalettes = userPalettes.map {
+            if (it.id == paletteId && index in it.colors.indices) {
+                val list = it.colors.toMutableList()
+                list.removeAt(index)
+                it.copy(colors = list)
+            } else it
+        }
+        persistUserPalettes()
+    }
+
+    fun createNewPalette(name: String, initialColors: List<String> = emptyList()) {
+        val newPal = ColorPaletteItem(
+            id = "palette_${System.currentTimeMillis()}",
+            name = name.ifBlank { "新建色卡" },
+            colors = initialColors
+        )
+        userPalettes = userPalettes + newPal
+        persistUserPalettes()
+    }
+
+    fun duplicatePalette(paletteId: String) {
+        val src = allPalettes.firstOrNull { it.id == paletteId } ?: return
+        val newPal = ColorPaletteItem(
+            id = "palette_${System.currentTimeMillis()}",
+            name = "${src.name} (副本)",
+            colors = src.colors.toList()
+        )
+        userPalettes = userPalettes + newPal
+        persistUserPalettes()
+    }
+
+    fun renamePalette(paletteId: String, newName: String) {
+        if (newName.isBlank()) return
+        userPalettes = userPalettes.map {
+            if (it.id == paletteId) it.copy(name = newName) else it
+        }
+        persistUserPalettes()
+    }
+
+    fun deletePalette(paletteId: String) {
+        userPalettes = userPalettes.filterNot { it.id == paletteId }
+        persistUserPalettes()
+    }
+
+    fun importPaletteFromBitmap(bmp: android.graphics.Bitmap, name: String) {
+        val scaled = if (bmp.width > 100 || bmp.height > 100) {
+            android.graphics.Bitmap.createScaledBitmap(bmp, 80, 80, true)
+        } else bmp
+        val w = scaled.width
+        val h = scaled.height
+        val pixels = IntArray(w * h)
+        scaled.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        val colorCounts = mutableMapOf<Int, Int>()
+        for (p in pixels) {
+            val a = (p shr 24) and 0xFF
+            if (a < 64) continue
+            val qr = ((p shr 16) and 0xFF) / 16 * 16
+            val qg = ((p shr 8) and 0xFF) / 16 * 16
+            val qb = (p and 0xFF) / 16 * 16
+            val key = (qr shl 16) or (qg shl 8) or qb
+            colorCounts[key] = (colorCounts[key] ?: 0) + 1
+        }
+        val sorted = colorCounts.entries.sortedByDescending { it.value }.map {
+            String.format("#%06X", it.key and 0xFFFFFF)
+        }.take(16)
+
+        createNewPalette(name.ifBlank { "图片导入色卡" }, sorted)
+    }
+
+    fun updateColorModel(model: String) {
+        colorModel = model
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("colorModel", model)
+                .apply()
+        }
+    }
+
+    fun addRecentColor(hex: String) {
+        val upper = hex.uppercase()
+        val list = recentColors.filterNot { it.equals(upper, ignoreCase = true) }.toMutableList()
+        list.add(0, upper)
+        recentColors = list.take(16)
+        persistRecentColors()
+    }
+
+    fun clearRecentColors() {
+        recentColors = emptyList()
+        persistRecentColors()
+    }
+
+    fun updateColorWheelInnerShape(shape: String) {
+        colorWheelInnerShape = shape
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("colorWheelInnerShape", shape)
+                .apply()
+        }
+    }
+
+    fun updateColorPanelTab(tab: Int) {
+        colorPanelTab = tab
+    }
+
+    private fun persistRecentColors() {
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("recentColors", recentColors.joinToString(","))
+                .apply()
+        }
+    }
+
+    private fun loadRecentColors(): List<String> {
+        if (::appContext.isInitialized) {
+            val saved = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("recentColors", null)
+            if (!saved.isNullOrBlank()) {
+                return saved.split(",").filter { it.isNotBlank() }.take(16)
+            }
+        }
+        return listOf(
+            "#FFFFFF", "#D6D6D6", "#ADADAD", "#858585", "#5C5C5C", "#333333", "#141414", "#000000",
+            "#F44336", "#FF9800", "#FFEB3B", "#4CAF50", "#00BCD4", "#2196F3", "#9C27B0", "#E91E63"
+        )
+    }
+
+    private fun persistUserPalettes() {
+        if (::appContext.isInitialized) {
+            try {
+                val arr = org.json.JSONArray()
+                for (p in userPalettes) {
+                    val o = org.json.JSONObject()
+                    o.put("id", p.id)
+                    o.put("name", p.name)
+                    val colorsArr = org.json.JSONArray()
+                    p.colors.forEach { colorsArr.put(it) }
+                    o.put("colors", colorsArr)
+                    arr.put(o)
+                }
+                appContext
+                    .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("userPalettes", arr.toString())
+                    .apply()
+            } catch (e: Exception) { }
+        }
+    }
+
+    private fun loadUserPalettes(): List<ColorPaletteItem> {
+        if (::appContext.isInitialized) {
+            val json = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .getString("userPalettes", null)
+            if (!json.isNullOrBlank()) {
+                return runCatching {
+                    val arr = org.json.JSONArray(json)
+                    val list = mutableListOf<ColorPaletteItem>()
+                    for (i in 0 until arr.length()) {
+                        val o = arr.getJSONObject(i)
+                        val id = o.getString("id")
+                        val name = o.getString("name")
+                        val colorsArr = o.getJSONArray("colors")
+                        val colors = mutableListOf<String>()
+                        for (j in 0 until colorsArr.length()) {
+                            colors.add(colorsArr.getString(j))
+                        }
+                        list.add(ColorPaletteItem(id, name, colors))
+                    }
+                    list
+                }.getOrDefault(emptyList())
+            }
+        }
+        return listOf(
+            ColorPaletteItem(
+                "builtin_basic", "基本色",
+                listOf(
+                    "#000000", "#FFFFFF", "#FEEBD0", "#FFF000", "#FFA500", "#FF4500", "#E60000", "#990000",
+                    "#99CC00", "#339900", "#009944", "#00A0E9", "#0068B7", "#1D2088", "#601986", "#4A225D"
+                )
+            ),
+            ColorPaletteItem(
+                "builtin_morandi", "莫兰迪",
+                listOf(
+                    "#B8A18F", "#9C8578", "#827065", "#A0A59A", "#8B958D", "#737F79", "#A1A0B0", "#838294",
+                    "#978D7E", "#847A6B", "#6F6659", "#B49F82", "#A18A6C", "#8B7457", "#9C7C7C", "#806363"
+                )
+            )
+        )
     }
 
     fun updateColorPickerMode(mode: String) {

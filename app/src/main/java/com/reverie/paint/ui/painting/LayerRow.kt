@@ -290,10 +290,6 @@ internal fun LayerRow(
                     .zIndex(2f),
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
-                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_check, "多选") {
-                    onSelect()
-                    onRevealClose()
-                }
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
                     vm.copyLayer(index)
                     onRevealClose()

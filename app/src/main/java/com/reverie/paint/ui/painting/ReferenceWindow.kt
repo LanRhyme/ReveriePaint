@@ -108,14 +108,14 @@ fun ReferenceWindow(
                     Modifier.hazeChild(
                         state = hazeState,
                         style = HazeStyle(
-                            backgroundColor = Morandi.panelHi.copy(alpha = opacity.coerceIn(0.1f, 0.98f)),
-                            tint = HazeTint(Morandi.panelHi.copy(alpha = opacity.coerceIn(0.1f, 0.98f))),
+                            backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f)),
+                            tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f))),
                             blurRadius = 24.dp,
                             noiseFactor = 0.05f
                         )
                     )
                 } else {
-                    Modifier.background(Morandi.panelHi.copy(alpha = opacity))
+                    Modifier.background(Morandi.panel.copy(alpha = opacity))
                 }
             )
             .border(1.dp, Morandi.border, windowShape)
@@ -420,7 +420,7 @@ private fun ReferenceTopBar(
         modifier = modifier
             .fillMaxWidth()
             .height(38.dp)
-            .background(Morandi.panelHi.copy(alpha = 0.92f))
+            .background(Morandi.panel.copy(alpha = 0.92f))
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
@@ -501,7 +501,7 @@ private fun ReferenceBottomBar(
         modifier = modifier
             .fillMaxWidth()
             .height(36.dp)
-            .background(Morandi.panelHi.copy(alpha = 0.92f))
+            .background(Morandi.panel.copy(alpha = 0.92f))
             .padding(start = 8.dp, end = 2.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically

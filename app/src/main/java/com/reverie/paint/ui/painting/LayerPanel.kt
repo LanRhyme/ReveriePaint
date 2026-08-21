@@ -244,6 +244,7 @@ fun LayerPanel(
                         LayerListView(
                             vm = vm,
                             onOpenDetail = { view = LayerView.Detail(it) },
+                            onOpenFilters = { view = LayerView.Filters(it) },
                         )
                     }
 

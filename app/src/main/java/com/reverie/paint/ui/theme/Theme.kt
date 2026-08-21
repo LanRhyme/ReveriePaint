@@ -47,7 +47,7 @@ val MorandiDarkColors =
         onAccent = Color(0xFFFFFFFF),
         text = Color(0xFFE8EAED), // Clean readable text
         subText = Color(0xFF9DA1A7), // Gentle subtext
-        canvasBg = Color(0xFF191A1D), // Neutral workspace background
+        canvasBg = Color(0xFF35383F), // Comfortably lifted neutral workspace background
         border = Color(0xFF32353C), // Muted crisp border
         icon = Color(0xFFBAC0C7),
         scrim = Color(0x99000000),
@@ -96,11 +96,32 @@ private fun Color.toMorandiAccent(isDark: Boolean): Color {
     return Color(android.graphics.Color.HSVToColor(hsv))
 }
 
-private fun blendColors(base: Color, tint: Color, tintWeight: Float): Color {
+fun blendColors(base: Color, tint: Color, tintWeight: Float): Color {
     val r = base.red * (1f - tintWeight) + tint.red * tintWeight
     val g = base.green * (1f - tintWeight) + tint.green * tintWeight
     val b = base.blue * (1f - tintWeight) + tint.blue * tintWeight
     return Color(red = r, green = g, blue = b, alpha = base.alpha)
+}
+
+/** Build theme colors with canvas background dynamically tinted by the theme color */
+fun buildThemeColors(isDark: Boolean, accent: Color): AppColors {
+    val fallbackBase = if (isDark) MorandiDarkColors else MorandiLightColors
+    val neutralCanvas = if (isDark) Color(0xFF2F2F31) else Color(0xFFD6D6DA)
+    val neutralBg = if (isDark) Color(0xFF131315) else Color(0xFFE6E6E8)
+    val neutralPanel = if (isDark) Color(0xFF1E1E20) else Color(0xFFFFFFFF)
+
+    val tintWeight = if (isDark) 0.12f else 0.08f
+    val bgTintWeight = if (isDark) 0.04f else 0.02f
+    val panelTintWeight = if (isDark) 0.05f else 0.02f
+
+    return fallbackBase.copy(
+        bg = blendColors(neutralBg, accent, bgTintWeight),
+        panel = blendColors(neutralPanel, accent, panelTintWeight),
+        accent = accent,
+        accentHi = accent,
+        canvasBg = blendColors(neutralCanvas, accent, tintWeight),
+        border = blendColors(fallbackBase.border, accent, 0.04f),
+    )
 }
 
 /** Build Monet dynamic color theme for Android 12+ (Material You) with Morandi tuning */
@@ -109,32 +130,19 @@ fun getMonetColors(
     isDark: Boolean = true,
     fallbackAccent: Color = Color(0xFF5E8BA8)
 ): AppColors {
-    val fallbackBase = if (isDark) MorandiDarkColors else MorandiLightColors
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {
             val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             val morandiAccent = scheme.primary.toMorandiAccent(isDark)
             val morandiAccentHi = scheme.primaryContainer.toMorandiAccent(isDark)
-
-            val tintColor = scheme.primary
-            val bgTintWeight = if (isDark) 0.025f else 0.015f
-            val panelTintWeight = if (isDark) 0.035f else 0.012f
-            val panelHiTintWeight = if (isDark) 0.045f else 0.02f
-
-            fallbackBase.copy(
-                bg = blendColors(fallbackBase.bg, tintColor, bgTintWeight),
-                panel = blendColors(fallbackBase.panel, tintColor, panelTintWeight),
-                panelHi = blendColors(fallbackBase.panelHi, tintColor, panelHiTintWeight),
-                canvasBg = blendColors(fallbackBase.canvasBg, tintColor, bgTintWeight),
-                accent = morandiAccent,
-                accentHi = morandiAccentHi,
-                border = blendColors(fallbackBase.border, tintColor, 0.035f),
+            buildThemeColors(isDark = isDark, accent = morandiAccent).copy(
+                accentHi = morandiAccentHi
             )
         } catch (_: Throwable) {
-            fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+            buildThemeColors(isDark = isDark, accent = fallbackAccent)
         }
     }
-    return fallbackBase.copy(accent = fallbackAccent, accentHi = fallbackAccent)
+    return buildThemeColors(isDark = isDark, accent = fallbackAccent)
 }
 
 /**
