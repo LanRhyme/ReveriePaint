@@ -51,6 +51,27 @@ import kotlinx.coroutines.launch
  */
 private enum class GestureMode { NONE, STROKE, PAN, MOVE, TRANSFORM }
 
+private object GestureBridge {
+    var lastActiveNs: Long = 0L
+    var isPinchActive: Boolean = false
+    var isPinchMotion: Boolean = false
+    var initialCentroid: Offset = Offset.Zero
+    var initialDistance: Float = 0f
+    var initialAngle: Float = 0f
+    var prevCentroid: Offset = Offset.Zero
+    var prevDistance: Float = 0f
+    var prevAngle: Float = 0f
+    var localZoom: Float = 1f
+    var localRotation: Float = 0f
+    var localPanX: Float = 0f
+    var localPanY: Float = 0f
+    var lastFingerPosA: Offset = Offset.Zero
+    var lastFingerPosB: Offset = Offset.Zero
+    var maxFingerCount: Int = 0
+    var sessionStartNs: Long = 0L
+    var pendingUndoJob: kotlinx.coroutines.Job? = null
+}
+
 internal fun tfTransform(
     tfState: TransformState,
     p: Offset,
@@ -136,6 +157,28 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
         var localRotation = latestRotation()
         var localPanX = latestPanX()
         var localPanY = latestPanY()
+
+        val nowNs = System.nanoTime()
+        val isBridgeResume = (nowNs - GestureBridge.lastActiveNs) < 140_000_000L && GestureBridge.isPinchActive
+
+        if (isBridgeResume) {
+            GestureBridge.pendingUndoJob?.cancel()
+            localZoom = GestureBridge.localZoom
+            localRotation = GestureBridge.localRotation
+            localPanX = GestureBridge.localPanX
+            localPanY = GestureBridge.localPanY
+        } else {
+            GestureBridge.pendingUndoJob?.cancel()
+            GestureBridge.isPinchActive = false
+            GestureBridge.isPinchMotion = false
+            GestureBridge.sessionStartNs = nowNs
+            GestureBridge.maxFingerCount = 1
+            GestureBridge.localZoom = localZoom
+            GestureBridge.localRotation = localRotation
+            GestureBridge.localPanX = localPanX
+            GestureBridge.localPanY = localPanY
+        }
+
         val shapeTool = tool == Tool.LINE || tool == Tool.RECT || tool == Tool.ELLIPSE
         val pointClickTool =
             tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.PATH || tool == Tool.SELECT_POLYGON
@@ -154,6 +197,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
         var mode =
             when {
+                isBridgeResume -> GestureMode.TRANSFORM
+
                 vm.isFilterAdjustActive -> GestureMode.PAN
 
                 vm.penOnlyMode && !stylus -> GestureMode.PAN
@@ -182,8 +227,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 else -> GestureMode.STROKE
             }
         var strokeStarted = false
-        var transformStarted = false
-        var isPinchMotion = false
+        var transformStarted = isBridgeResume
+        var isPinchMotion = if (isBridgeResume) GestureBridge.isPinchMotion else false
         var activeTransformIdA: androidx.compose.ui.input.pointer.PointerId? = null
         var activeTransformIdB: androidx.compose.ui.input.pointer.PointerId? = null
         var smoothedPressure = 0.8f
@@ -481,16 +526,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 }
 
                 pickerJob.cancel()
-                val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
-                val tapMaxDistPx = 14.dp.toPx()
-
-                // 双指轻点撤销：只有当未发生明显的捏合/旋转位移（!isPinchMotion），且耗时短、位移小才判定为撤销
-                val isTwoFingerTap =
-                    !isPinchMotion && (maxFingerCount == 2) && vm.gestureTwoFingerUndo && (gestureDurationMs < 320L) &&
-                        (maxFingerMovement < tapMaxDistPx)
-                val isThreeFingerTap =
-                    !isPinchMotion && (maxFingerCount >= 3) && vm.gestureThreeFingerRedo && (gestureDurationMs < 360L) &&
-                        (maxFingerMovement < tapMaxDistPx * 1.3f)
+                GestureBridge.lastActiveNs = System.nanoTime()
 
                 if (isLongPressPickerActive) {
                     val r = (pickerCurrentColor.value.red * 255).toInt().coerceIn(0, 255)
@@ -501,18 +537,37 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                     vm.showActionToast("已吸取颜色", R.drawable.ic_picker)
                     pickerActive.value = false
                     isLongPressPickerActive = false
-                } else if (isTwoFingerTap) {
-                    if (strokeStarted) {
-                        if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
-                        strokeStarted = false
+                } else if (GestureBridge.isPinchActive) {
+                    if (GestureBridge.isPinchMotion) {
+                        GestureBridge.isPinchActive = false
+                        GestureBridge.isPinchMotion = false
+                    } else {
+                        val durationMs = (System.nanoTime() - GestureBridge.sessionStartNs) / 1_000_000L
+                        val wasTwoFinger = GestureBridge.maxFingerCount == 2
+                        val wasThreeFinger = GestureBridge.maxFingerCount >= 3
+                        val maxDist = maxFingerMovement
+                        if (wasTwoFinger && vm.gestureTwoFingerUndo && durationMs < 320L && maxDist < 16.dp.toPx()) {
+                            GestureBridge.pendingUndoJob?.cancel()
+                            GestureBridge.pendingUndoJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                kotlinx.coroutines.delay(90)
+                                val idleMs = (System.nanoTime() - GestureBridge.lastActiveNs) / 1_000_000L
+                                if (idleMs >= 85L && !GestureBridge.isPinchMotion && GestureBridge.isPinchActive) {
+                                    vm.undo()
+                                    GestureBridge.isPinchActive = false
+                                }
+                            }
+                        } else if (wasThreeFinger && vm.gestureThreeFingerRedo && durationMs < 360L && maxDist < 20.dp.toPx()) {
+                            GestureBridge.pendingUndoJob?.cancel()
+                            GestureBridge.pendingUndoJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                kotlinx.coroutines.delay(90)
+                                val idleMs = (System.nanoTime() - GestureBridge.lastActiveNs) / 1_000_000L
+                                if (idleMs >= 85L && !GestureBridge.isPinchMotion && GestureBridge.isPinchActive) {
+                                    vm.redo()
+                                    GestureBridge.isPinchActive = false
+                                }
+                            }
+                        }
                     }
-                    vm.undo()
-                } else if (isThreeFingerTap) {
-                    if (strokeStarted) {
-                        if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
-                        strokeStarted = false
-                    }
-                    vm.redo()
                 } else if (!transformStarted) {
                     pendingTap?.let { tap ->
                         if (tool == Tool.TEXT) {
@@ -667,20 +722,20 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
             if (isMultiTouchTransform) {
                 longPressCancelled = true
                 pickerJob.cancel()
+                GestureBridge.pendingUndoJob?.cancel()
+
                 val pair = if (touchPointers.size >= 2) {
                     touchPointers.sortedBy { it.id.value }.take(2)
                 } else {
                     pressed.sortedBy { it.id.value }.take(2)
                 }
-                val curIdA = pair[0].id
-                val curIdB = pair[1].id
-                val a = pair[0].position
-                val b = pair[1].position
-                val centroid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
-                val distance = hypot(b.x - a.x, b.y - a.y).coerceAtLeast(1f)
-                val angle = angleDegrees(a, b)
+                val posA = pair[0].position
+                val posB = pair[1].position
+                val centroid = Offset((posA.x + posB.x) / 2f, (posA.y + posB.y) / 2f)
+                val distance = hypot(posB.x - posA.x, posB.y - posA.y).coerceAtLeast(1f)
+                val angle = angleDegrees(posA, posB)
 
-                if (!transformStarted) {
+                if (!transformStarted && !GestureBridge.isPinchActive) {
                     pendingTap = null
                     if (strokeStarted) {
                         if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
@@ -692,40 +747,47 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                     }
                     transformStarted = true
                     mode = GestureMode.TRANSFORM
-                    activeTransformIdA = curIdA
-                    activeTransformIdB = curIdB
-                    prevCentroid = centroid
-                    prevDistance = distance
-                    prevAngle = angle
-                    initialCentroid = centroid
-                    initialDistance = distance
-                    initialAngle = angle
+                    GestureBridge.isPinchActive = true
+                    GestureBridge.isPinchMotion = false
+                    GestureBridge.initialCentroid = centroid
+                    GestureBridge.initialDistance = distance
+                    GestureBridge.initialAngle = angle
+                    GestureBridge.prevCentroid = centroid
+                    GestureBridge.prevDistance = distance
+                    GestureBridge.prevAngle = angle
+                    GestureBridge.lastFingerPosA = posA
+                    GestureBridge.lastFingerPosB = posB
                 } else {
-                    // 若触控点 ID 发生变化（如手指交替或手掌误触脱离），平滑重新锚定基准，不施加跳变 delta
-                    if (curIdA != activeTransformIdA || curIdB != activeTransformIdB) {
-                        activeTransformIdA = curIdA
-                        activeTransformIdB = curIdB
-                        prevCentroid = centroid
-                        prevDistance = distance
-                        prevAngle = angle
-                    } else {
-                        val distMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
-                        val scaleRatio = distance / initialDistance
-                        val angleDiff = kotlin.math.abs(normalizeAngle(angle - initialAngle))
+                    val distAA = hypot(posA.x - GestureBridge.lastFingerPosA.x, posA.y - GestureBridge.lastFingerPosA.y)
+                    val distAB = hypot(posA.x - GestureBridge.lastFingerPosB.x, posA.y - GestureBridge.lastFingerPosB.y)
+                    val (matchedA, matchedB) = if (distAA < distAB) Pair(posA, posB) else Pair(posB, posA)
+                    val distA = hypot(matchedA.x - GestureBridge.lastFingerPosA.x, matchedA.y - GestureBridge.lastFingerPosA.y)
+                    val distB = hypot(matchedB.x - GestureBridge.lastFingerPosB.x, matchedB.y - GestureBridge.lastFingerPosB.y)
 
-                        if (!isPinchMotion) {
+                    if (distA > 120.dp.toPx() || distB > 120.dp.toPx()) {
+                        GestureBridge.prevCentroid = centroid
+                        GestureBridge.prevDistance = distance
+                        GestureBridge.prevAngle = angle
+                        GestureBridge.lastFingerPosA = matchedA
+                        GestureBridge.lastFingerPosB = matchedB
+                    } else {
+                        val distMoved = hypot(centroid.x - GestureBridge.initialCentroid.x, centroid.y - GestureBridge.initialCentroid.y)
+                        val scaleRatio = distance / GestureBridge.initialDistance
+                        val angleDiff = kotlin.math.abs(normalizeAngle(angle - GestureBridge.initialAngle))
+
+                        if (!GestureBridge.isPinchMotion) {
                             if (distMoved > 6f || kotlin.math.abs(scaleRatio - 1f) > 0.02f || angleDiff > 1.5f) {
-                                isPinchMotion = true
+                                GestureBridge.isPinchMotion = true
                             }
                         }
 
-                        val k = (distance / prevDistance).coerceIn(0.5f, 2f)
-                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-20f, 20f)
+                        val k = (distance / GestureBridge.prevDistance).coerceIn(0.6f, 1.6f)
+                        val dRot = normalizeAngle(angle - GestureBridge.prevAngle).coerceIn(-15f, 15f)
 
                         val centerX = viewW() / 2f + localPanX
                         val centerY = viewH() / 2f + localPanY
-                        val vx = prevCentroid.x - centerX
-                        val vy = prevCentroid.y - centerY
+                        val vx = GestureBridge.prevCentroid.x - centerX
+                        val vy = GestureBridge.prevCentroid.y - centerY
                         val radians = Math.toRadians(dRot.toDouble())
                         val cosR = cos(radians).toFloat()
                         val sinR = sin(radians).toFloat()
@@ -741,18 +803,26 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
                         onTransform(localZoom, localRotation, localPanX, localPanY)
 
-                        prevCentroid = centroid
-                        prevDistance = distance
-                        prevAngle = angle
+                        GestureBridge.localZoom = localZoom
+                        GestureBridge.localRotation = localRotation
+                        GestureBridge.localPanX = localPanX
+                        GestureBridge.localPanY = localPanY
+                        GestureBridge.prevCentroid = centroid
+                        GestureBridge.prevDistance = distance
+                        GestureBridge.prevAngle = angle
+                        GestureBridge.lastFingerPosA = matchedA
+                        GestureBridge.lastFingerPosB = matchedB
                     }
                 }
+                GestureBridge.lastActiveNs = System.nanoTime()
+                GestureBridge.maxFingerCount = maxOf(GestureBridge.maxFingerCount, pressed.size)
                 pair.forEach { it.consume() }
                 continue
             }
 
             // After a two-finger gesture, never turn the remaining
             // finger into a new stroke during the same gesture
-            if (transformStarted) {
+            if (transformStarted || (GestureBridge.isPinchActive && (System.nanoTime() - GestureBridge.lastActiveNs) < 140_000_000L)) {
                 event.changes.forEach { it.consume() }
                 continue
             }
