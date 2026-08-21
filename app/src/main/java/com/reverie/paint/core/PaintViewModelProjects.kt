@@ -98,6 +98,54 @@ internal fun PaintViewModel.saveProject(
     }
 }
 
+internal fun PaintViewModel.autoSaveProject() {
+    if (isAutoSaving || isBlockingLoading) return
+    isAutoSaving = true
+    tickPaintingTimer()
+    val name = docName.ifBlank { "未命名作品" }
+
+    runCore(
+        after = {
+            initialStrokeCount = totalStrokes
+            isModified = false
+            lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
+            isAutoSaving = false
+            refreshProjects()
+            if (autoSaveToastEnabled) {
+                showActionToast("作品已自动保存", R.drawable.ic_save)
+            }
+        },
+    ) {
+        val fileToSave =
+            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true }
+                ?: File(projectDir(), "$name.revp")
+
+        val finalFile =
+            if (fileToSave.nameWithoutExtension != name) {
+                File(fileToSave.parentFile, "$name.revp")
+            } else {
+                fileToSave
+            }
+        currentProjectFile = finalFile.absolutePath
+
+        val extraJson =
+            """
+            {
+                "strokeCount": $totalStrokes,
+                "elapsedSeconds": $elapsedSeconds,
+                "createdTime": $canvasCreatedTime,
+                "colorMode": "$colorMode",
+                "layerCount": ${layers.size}
+            }
+            """.trimIndent()
+        val recBlob = recorder.serialize()
+        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
+        if (!saved && !(finalFile.exists() && finalFile.length() > 0)) {
+            android.util.Log.w("ReveriePaint", "autoSaveRevp failed, no artifact")
+        }
+    }
+}
+
 /** Append the session recording as a "recording" entry inside the .revp
  *  ZIP container. The file is repackaged entry-by-entry (streamed, no
  *  full-file RAM buffering) and atomically swapped back in place. */

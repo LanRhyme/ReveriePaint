@@ -636,6 +636,15 @@ internal fun SettingsTabPage(
                 }
             }
 
+            // ---- 通用设置 (自动保存/撤销) ----
+            "GENERAL" -> {
+                com.reverie.paint.ui.home.GeneralSettingsSubPage(
+                    vm = vm,
+                    onBack = { currentSubPage = null },
+                    compact = true,
+                )
+            }
+
             // ---- 5. 关于应用 ----
             "ABOUT" -> {
                 com.reverie.paint.ui.home.AboutSettingsSubPage(
@@ -669,6 +678,9 @@ internal fun SettingsTabPage(
                     Spacer(Modifier.height(6.dp))
 
                     // List item links with chevron
+                    SettingNavRow("通用设置") {
+                        currentSubPage = "GENERAL"
+                    }
                     SettingNavRow("视图显示") {
                         currentSubPage = "VIEW"
                     }

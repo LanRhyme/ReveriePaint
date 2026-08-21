@@ -75,6 +75,7 @@ import com.reverie.paint.ui.theme.parseColor
 
 enum class SettingsSubPage {
     MAIN,
+    GENERAL,
     THEME,
     STYLUS,
     ABOUT,
@@ -87,12 +88,17 @@ fun SettingsPageContent(
 ) {
     var subPage by remember {
         mutableStateOf(
-            if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS else SettingsSubPage.MAIN,
+            if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS
+            else if (vm.settingsInitialSubPage == "GENERAL") SettingsSubPage.GENERAL
+            else SettingsSubPage.MAIN,
         )
     }
 
     androidx.compose.runtime.LaunchedEffect(vm.settingsInitialSubPage) {
-        if (vm.settingsInitialSubPage == "STYLUS") {
+        if (vm.settingsInitialSubPage == "GENERAL") {
+            subPage = SettingsSubPage.GENERAL
+            vm.settingsInitialSubPage = "MAIN"
+        } else if (vm.settingsInitialSubPage == "STYLUS") {
             subPage = SettingsSubPage.STYLUS
             vm.settingsInitialSubPage = "MAIN"
         } else if (vm.settingsInitialSubPage == "THEME") {
@@ -130,6 +136,13 @@ fun SettingsPageContent(
             SettingsSubPage.MAIN -> {
                 SettingsMainPage(
                     onNavigate = { subPage = it },
+                )
+            }
+
+            SettingsSubPage.GENERAL -> {
+                GeneralSettingsSubPage(
+                    vm = vm,
+                    onBack = { subPage = SettingsSubPage.MAIN },
                 )
             }
 
@@ -175,6 +188,18 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 20.dp),
         )
+
+        // Native Android settings row: 通用设置
+        SettingNavRow(
+            iconRes = R.drawable.ic_settings,
+            title = "通用设置",
+            summary = "自动保存时间间隔、提示与撤销历史上限",
+            onClick = { onNavigate(SettingsSubPage.GENERAL) },
+        )
+
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
+        Spacer(Modifier.height(8.dp))
 
         // Native Android settings row: 主题设置
         SettingNavRow(

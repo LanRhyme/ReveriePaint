@@ -96,6 +96,9 @@ class PaintViewModel : ViewModel() {
     }
 
     internal fun startPaintingTimer() {
+        if (lastAutoSaveTimeMs == 0L) {
+            lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
+        }
         timerJob?.cancel()
         timerJob =
             viewModelScope.launch {
@@ -103,6 +106,7 @@ class PaintViewModel : ViewModel() {
                     delay(1000L)
                     if (currentPage == Page.PAINTING) {
                         tickPaintingTimer()
+                        checkAutoSave()
                     }
                 }
             }
@@ -117,6 +121,26 @@ class PaintViewModel : ViewModel() {
         activeMillisAccumulator = 0L
     }
 
+    internal fun checkAutoSave() {
+        if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
+        if (currentPage != Page.PAINTING) return
+        if (!hasUnsavedChanges()) return
+
+        // 避免在用户正在落笔绘画或多指手势时保存，确保绘画热路径零干扰
+        val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
+
+        val now = android.os.SystemClock.elapsedRealtime()
+        val intervalMs = autoSaveIntervalMinutes * 60 * 1000L
+        if (lastAutoSaveTimeMs == 0L) {
+            lastAutoSaveTimeMs = now
+            return
+        }
+        if (now - lastAutoSaveTimeMs >= intervalMs) {
+            autoSaveProject()
+        }
+    }
+
     fun markModified() {
         isModified = true
     }
@@ -125,6 +149,15 @@ class PaintViewModel : ViewModel() {
         val strokesAdded = totalStrokes > initialStrokeCount
         return isModified || strokesAdded || ReverieCoreBridge.canUndo()
     }
+
+    // Auto-Save & General Settings state
+    var autoSaveEnabled by mutableStateOf(true)
+    var autoSaveIntervalMinutes by mutableIntStateOf(5)
+    var autoSaveToastEnabled by mutableStateOf(true)
+    var isAutoSaving by mutableStateOf(false)
+    var lastAutoSaveTimeMs by mutableLongStateOf(0L)
+    var maxUndoSteps by mutableIntStateOf(50)
+    var promptSaveOnExit by mutableStateOf(true)
 
     // Brush state
     var brushSize by mutableStateOf(20.0)
@@ -819,6 +852,64 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateAutoSaveEnabled(enabled: Boolean) {
+        autoSaveEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("autoSaveEnabled", enabled)
+                .apply()
+        }
+        if (enabled && lastAutoSaveTimeMs == 0L) {
+            lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
+        }
+    }
+
+    fun updateAutoSaveIntervalMinutes(minutes: Int) {
+        autoSaveIntervalMinutes = minutes.coerceIn(1, 60)
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("autoSaveIntervalMinutes", autoSaveIntervalMinutes)
+                .apply()
+        }
+    }
+
+    fun updateAutoSaveToastEnabled(enabled: Boolean) {
+        autoSaveToastEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("autoSaveToastEnabled", enabled)
+                .apply()
+        }
+    }
+
+    fun updateMaxUndoSteps(steps: Int) {
+        maxUndoSteps = steps.coerceIn(10, 200)
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("maxUndoSteps", maxUndoSteps)
+                .apply()
+        }
+    }
+
+    fun updatePromptSaveOnExit(prompt: Boolean) {
+        promptSaveOnExit = prompt
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("promptSaveOnExit", prompt)
+                .apply()
+        }
+    }
+
     fun clearActionToast() {
         actionToastMessage = null
         actionToastIcon = null
@@ -849,6 +940,12 @@ class PaintViewModel : ViewModel() {
             quickShapeEnabled = prefs.getBoolean("quickShapeEnabled", true)
             val savedPreset = prefs.getInt("pressureCurvePreset", 0)
             updatePressureCurvePreset(savedPreset)
+
+            autoSaveEnabled = prefs.getBoolean("autoSaveEnabled", true)
+            autoSaveIntervalMinutes = prefs.getInt("autoSaveIntervalMinutes", 5).coerceIn(1, 60)
+            autoSaveToastEnabled = prefs.getBoolean("autoSaveToastEnabled", true)
+            maxUndoSteps = prefs.getInt("maxUndoSteps", 50).coerceIn(10, 200)
+            promptSaveOnExit = prefs.getBoolean("promptSaveOnExit", true)
 
             brushColor = prefs.getString("brushColor", "#000000") ?: "#000000"
             brushSecondaryColor = prefs.getString("brushSecondaryColor", "#ffffff") ?: "#ffffff"
