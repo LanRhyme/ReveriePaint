@@ -342,12 +342,11 @@ class CanvasTouchView(context: Context) : View(context) {
         pendingUndoRunnable?.let { removeCallbacks(it) }
         removeCallbacks(resetTransformRunnable)
 
-        // 检查是否有真实手写笔接触屏幕 (真实落笔必有压感 > 0.01f；悬停时的伪触控 pressure == 0 属于手指手势)
+        // 检查是否有手写笔接触屏幕
         var stylusPointerIndex = -1
         for (i in 0 until pointerCount) {
             val type = event.getToolType(i)
-            val pr = event.getPressure(i)
-            if ((type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) && pr > 0.01f) {
+            if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
                 stylusPointerIndex = i
                 break
             }
