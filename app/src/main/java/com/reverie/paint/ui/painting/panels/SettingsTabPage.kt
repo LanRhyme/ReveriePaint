@@ -1,4 +1,4 @@
-package com.reverie.paint.ui.painting
+package com.reverie.paint.ui.painting.panels
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing

@@ -46,11 +46,12 @@ fun TopBar(
     onUndo: () -> Unit = { vm.undo() },
     onRedo: () -> Unit = { vm.redo() },
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp)
     Row(
         modifier =
             modifier
-                .pointerHoverIcon(androidx.compose.ui.input.pointer.PointerIcon.Default)
+                .pointerHoverIcon(com.reverie.paint.ui.theme.systemDefaultPointerIcon(context), overrideDescendants = true)
                 .clip(shape)
                 .then(
                     if (vm.blurBackground && hazeState != null) {

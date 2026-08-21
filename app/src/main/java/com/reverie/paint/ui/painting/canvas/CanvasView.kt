@@ -33,6 +33,7 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
+import com.reverie.paint.ui.theme.systemDefaultPointerIcon
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -199,42 +200,43 @@ fun CanvasView(
                 )
             android.graphics.Paint().apply { this.shader = shader }
         }
-    // 仅绘制类工具在画布上隐藏系统指针；其他工具及画布外的面板保持默认指针
-    val hideSystemCursorForTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+    // 仅绘制类工具在画布上隐藏系统指针（且用户未选择“系统指针”光标样式时）；其他工具及画布外的面板保持默认指针
+    val hideSystemCursorForTool =
+        (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+            vm.cursorStyleMode != 4
     val view = androidx.compose.ui.platform.LocalView.current
-    val transparentSystemPointer =
-        remember {
+    val systemNullPointer =
+        remember(context) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
-                android.view.PointerIcon.create(transparentBmp, 0f, 0f)
+                android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_NULL)
             } else {
                 null
             }
         }
-    // 系统指针隐藏：沿用 pre-3917dea 的做法——进入画布时把 View 的
-    // pointerIcon 永久设为透明（该机制在本机 ROM 上实测有效；Compose 的
-    // pointerHoverIcon 与按下时临时设置在部分 ROM 上会被系统强制还原成箭头）。
-    // 绘制工具（笔刷/橡皮/混合/液化）激活期间保持隐藏，切到其他工具或离开
-    // 画布时通过 DisposableEffect 还原系统默认。
-    androidx.compose.runtime.DisposableEffect(hideSystemCursorForTool) {        if (hideSystemCursorForTool && transparentSystemPointer != null) {
-            view.pointerIcon = transparentSystemPointer
-        } else {
-            view.pointerIcon = null
-        }
-        onDispose {
-            view.pointerIcon = null
-        }
-    }
-    val customPointerIcon =
-        remember(context, hideSystemCursorForTool) {
-            if (hideSystemCursorForTool && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-                val transparentBmp = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
-                val nullIcon = android.view.PointerIcon.create(transparentBmp, 0f, 0f)
-                PointerIcon(nullIcon)
+    val systemDefaultPointer =
+        remember(context) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_DEFAULT)
             } else {
-                PointerIcon.Default
+                null
             }
         }
+    val customPointerIcon =
+        remember(context, hideSystemCursorForTool) {
+            if (hideSystemCursorForTool && systemNullPointer != null) {
+                PointerIcon(systemNullPointer)
+            } else {
+                systemDefaultPointerIcon(context)
+            }
+        }
+
+    androidx.compose.runtime.DisposableEffect(hideSystemCursorForTool) {
+        onDispose {
+            if (systemDefaultPointer != null) {
+                view.pointerIcon = systemDefaultPointer
+            }
+        }
+    }
 
     Box(
         modifier =
@@ -244,12 +246,19 @@ fun CanvasView(
                     viewH = it.height
                     vm.setRenderViewport(it.width, it.height)
                 }.background(Morandi.canvasBg)
-                .pointerHoverIcon(customPointerIcon)
+                .pointerHoverIcon(customPointerIcon, overrideDescendants = false)
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                            val change = event.changes.firstOrNull()
+                            // 优先拾取触控笔/鼠标事件，防止手掌触控或悬停多点冲突
+                            val change =
+                                event.changes.firstOrNull {
+                                    it.type == PointerType.Stylus ||
+                                        it.type == PointerType.Eraser ||
+                                        it.type == PointerType.Mouse
+                                } ?: event.changes.firstOrNull()
+
                             if (change != null) {
                                 val isStylusOrMouse =
                                     change.type == PointerType.Stylus ||
@@ -257,7 +266,7 @@ fun CanvasView(
                                         change.type == PointerType.Mouse
 
                                 if (vm.penOnlyMode && !isStylusOrMouse) {
-                                    // Finger touches in pen-only mode must not move or trigger the cursor
+                                    // 笔模式下手掌或手指触摸不驱动画笔光标
                                     continue
                                 }
 
@@ -266,10 +275,13 @@ fun CanvasView(
                                     PointerEventType.Enter, PointerEventType.Move -> {
                                         isCursorHovering.value = !change.pressed
                                         isCursorTouching.value = change.pressed
-                                        if (change.pressed && change.pressure > 0f) {
-                                            livePressure.value = vm.evaluatePressure(change.pressure)
-                                        } else if (!change.pressed) {
+                                        if (!change.pressed) {
                                             livePressure.value = 1f
+                                        }
+                                        if (hideSystemCursorForTool && systemNullPointer != null) {
+                                            if (view.pointerIcon != systemNullPointer) {
+                                                view.pointerIcon = systemNullPointer
+                                            }
                                         }
                                     }
 
@@ -278,13 +290,18 @@ fun CanvasView(
                                         isCursorTouching.value = false
                                         cursorScreenPos.value = null
                                         livePressure.value = 1f
+                                        if (systemDefaultPointer != null && view.pointerIcon != systemDefaultPointer) {
+                                            view.pointerIcon = systemDefaultPointer
+                                        }
                                     }
 
                                     PointerEventType.Press -> {
                                         isCursorTouching.value = true
                                         isCursorHovering.value = false
-                                        if (change.pressure > 0f) {
-                                            livePressure.value = vm.evaluatePressure(change.pressure)
+                                        if (hideSystemCursorForTool && systemNullPointer != null) {
+                                            if (view.pointerIcon != systemNullPointer) {
+                                                view.pointerIcon = systemNullPointer
+                                            }
                                         }
                                     }
 

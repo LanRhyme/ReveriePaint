@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.roundToInt
 
 import dev.chrisbanes.haze.HazeState
@@ -58,6 +59,7 @@ fun ToolFloatPanel(
     hazeState: HazeState? = null,
     content: @Composable () -> Unit,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     val capsuleShape = RoundedCornerShape(18.dp)
 
@@ -77,7 +79,7 @@ fun ToolFloatPanel(
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.2f))
-                .pointerHoverIcon(PointerIcon.Default)
+                .systemHoverIcon(context)
                 .clip(capsuleShape)
                 .then(
                     if (vm?.blurBackground == true && hazeState != null) {

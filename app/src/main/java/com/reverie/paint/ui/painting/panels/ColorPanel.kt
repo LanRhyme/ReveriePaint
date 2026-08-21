@@ -67,6 +67,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -168,6 +169,7 @@ fun ColorPanel(
         vm.updateBrushColor(hex)
     }
 
+    val context = LocalContext.current
     val panelShape = RoundedCornerShape(16.dp)
 
     Box(
@@ -175,10 +177,11 @@ fun ColorPanel(
             .fillMaxSize()
             .background(Color.Transparent)
             .noRippleClickable(onClose)
+            .systemHoverIcon(context)
     ) {
         Column(
             modifier = Modifier
-                .pointerHoverIcon(PointerIcon.Default)
+                .systemHoverIcon(context)
                 .align(Alignment.BottomStart)
                 .padding(start = 44.dp, bottom = 16.dp)
                 .width(280.dp)

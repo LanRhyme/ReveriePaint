@@ -793,8 +793,8 @@ internal fun BrushCursorOverlay(
         // Liquify hides the system cursor too (hideSystemCursorForTool) and
         // has its own brush size - without the ring here the tool would have
         // NO visible cursor at all
-        val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.LIQUIFY
-        if (shouldShow && cursorScreenPos.value != null && isDrawTool) {
+        val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        if (shouldShow && cursorScreenPos.value != null && isDrawTool && vm.cursorStyleMode != 4) {
             val curPos = cursorScreenPos.value!!
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
             val pressureScale = if (isCursorTouching.value) livePressure.value.coerceIn(0.08f, 1f) else 1f
@@ -835,6 +835,33 @@ internal fun BrushCursorOverlay(
                     drawCircle(Color.White, radius = 2.dp.toPx(), center = curPos)
                 }
                 3 -> {} // 无 (No Cursor)
+                4 -> {} // 系统指针 (System Cursor Pointer - handled by native pointerIcon)
+                5 -> { // 圆 + 十字准星 (Circle + Crosshair combined)
+                    // 1. Draw Circle Ring
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        radius = brushRadiusScreen + 0.8f,
+                        center = curPos,
+                        style = Stroke(width = 1.6.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.95f),
+                        radius = brushRadiusScreen,
+                        center = curPos,
+                        style = Stroke(width = 1.0.dp.toPx())
+                    )
+                    // 2. Draw Center Crosshair
+                    val len = 10.dp.toPx()
+                    val gap = 3.dp.toPx()
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
+                }
             }
         }
     }

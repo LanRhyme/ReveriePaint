@@ -58,6 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
+import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
@@ -132,10 +133,12 @@ fun ToolbarCustomizeDialog(
             usePlatformDefaultWidth = false
         )
     ) {
+        val context = androidx.compose.ui.platform.LocalContext.current
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.5f))
+                .systemHoverIcon(context)
                 .clickable {
                     val newPinned = orderedTools.filter { it in enabledTools }
                     vm.savePinnedTools(newPinned)
@@ -145,7 +148,7 @@ fun ToolbarCustomizeDialog(
         ) {
             Box(
                 modifier = Modifier
-                    .pointerHoverIcon(PointerIcon.Default)
+                    .systemHoverIcon(context)
                     .widthIn(max = 420.dp)
                     .heightIn(max = 560.dp)
                     .fillMaxWidth(0.90f)

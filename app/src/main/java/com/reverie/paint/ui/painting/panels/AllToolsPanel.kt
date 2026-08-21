@@ -34,6 +34,7 @@ import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.painting.ToolbarCustomizeDialog
 
 @Composable
@@ -55,16 +56,18 @@ fun AllToolsPanel(
             .filter { it.second.isNotEmpty() }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
 
     Box(
         modifier = modifier
             .fillMaxSize()
+            .systemHoverIcon(context)
             .noRippleClickable(onClose),
     ) {
         Box(
             modifier = Modifier
-                .pointerHoverIcon(PointerIcon.Default)
+                .systemHoverIcon(context)
                 .padding(start = 52.dp, top = 48.dp, bottom = 48.dp)
                 .align(Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }

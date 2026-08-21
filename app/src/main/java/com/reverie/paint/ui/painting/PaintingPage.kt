@@ -74,6 +74,7 @@ import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -475,10 +476,11 @@ fun PaintingPage(
                     androidx.compose.ui.unit
                         .IntOffset(0, 180),
             ) {
+                val popupContext = androidx.compose.ui.platform.LocalContext.current
                 Box(
                     modifier =
                         Modifier
-                            .pointerHoverIcon(PointerIcon.Default)
+                            .systemHoverIcon(popupContext)
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panel)
                             .border(

@@ -8,6 +8,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import com.reverie.paint.model.BrushPreset
 import com.reverie.paint.model.CanvasPreset
 
@@ -193,3 +196,35 @@ val ColorSwatches =
 
 /** Parse a "#rrggbb" hex string into a Compose Color. */
 fun parseColor(hex: String): Color = Color(android.graphics.Color.parseColor(hex))
+
+/**
+ * 显式强制使用系统标准箭头指针（避免受 View 级透明指针影响）
+ */
+fun systemDefaultPointerIcon(context: Context): PointerIcon {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon(
+            android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_DEFAULT)
+        )
+    } else {
+        PointerIcon.Default
+    }
+}
+
+/**
+ * 显式使用 Android 官方系统 TYPE_NULL 隐藏光标（避免使用自定义 Bitmap 导致的硬件切换闪烁）
+ */
+fun systemNullPointerIcon(context: Context): PointerIcon {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon(
+            android.view.PointerIcon.getSystemIcon(context, android.view.PointerIcon.TYPE_NULL)
+        )
+    } else {
+        PointerIcon.Default
+    }
+}
+
+fun Modifier.systemHoverIcon(context: Context): Modifier =
+    this.pointerHoverIcon(systemDefaultPointerIcon(context), overrideDescendants = true)
+
+
+

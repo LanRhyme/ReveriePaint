@@ -156,7 +156,7 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
             when {
                 vm.isFilterAdjustActive -> GestureMode.PAN
 
-                vm.penOnlyMode && !stylus && (tool == Tool.BRUSH || tool == Tool.ERASER) -> GestureMode.PAN
+                vm.penOnlyMode && !stylus -> GestureMode.PAN
 
                 activeLayer?.isGroup == true && isDrawingTool -> {
                     vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
@@ -183,6 +183,9 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
             }
         var strokeStarted = false
         var transformStarted = false
+        var isPinchMotion = false
+        var activeTransformIdA: androidx.compose.ui.input.pointer.PointerId? = null
+        var activeTransformIdB: androidx.compose.ui.input.pointer.PointerId? = null
         var smoothedPressure = 0.8f
         var shapeEnd = Offset.Zero
         var replaceCleared = false
@@ -400,9 +403,9 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 5 -> 320L
                 else -> 450L
             }
-        // 允许移动范围固定 1dp：慢速书写时的自然抖动不应误触吸色
-        val eyedropperMaxMovePx = 1.dp.toPx()
+        val eyedropperMaxMovePx = 8.dp.toPx()
         var isLongPressPickerActive = false
+        var longPressCancelled = false
 
         fun sampleColorAtScreenPos(screenPos: Offset) {
             val samplePos =
@@ -450,38 +453,43 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
         val pickerJob =
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main.immediate).launch {
-                    kotlinx.coroutines.delay(eyedropperDelayMs)
-                    // 长按不动（无 move 事件）时也激活取色器：到点后若手指仍按住
-                    // 且未移动超限、未进入双指变换，则呼出取色浮窗
-                    if (canLongPressPick && !isLongPressPickerActive && !transformStarted && maxFingerCount <= 1) {
-                        if (maxFingerMovement <= eyedropperMaxMovePx) {
-                            isLongPressPickerActive = true
-                            if (strokeStarted) {
-                                if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
-                                strokeStarted = false
-                            }
-                            pendingTap = null
-                            mode = GestureMode.NONE
-                            pickerActive.value = true
-                            val refHex = vm.brushColor
-                            pickerInitialColor.value = parseColor(refHex)
-                            sampleColorAtScreenPos(previousSinglePoint)
+                kotlinx.coroutines.delay(eyedropperDelayMs)
+                // 长按不动（无 move 超限、未画线、未进入双指变换）时激活取色器
+                if (canLongPressPick && !longPressCancelled && !isLongPressPickerActive && !transformStarted && maxFingerCount <= 1) {
+                    if (maxFingerMovement <= eyedropperMaxMovePx && !strokeStarted) {
+                        isLongPressPickerActive = true
+                        if (strokeStarted) {
+                            if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
+                            strokeStarted = false
                         }
+                        pendingTap = null
+                        mode = GestureMode.NONE
+                        pickerActive.value = true
+                        val refHex = vm.brushColor
+                        pickerInitialColor.value = parseColor(refHex)
+                        sampleColorAtScreenPos(previousSinglePoint)
                     }
                 }
-            while (true) {
+            }
+        while (true) {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
             if (pressed.isEmpty()) {
-                    pickerJob.cancel()
-                val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
-                val tapMaxDistPx = 36.dp.toPx()
+                val hasRealRelease = event.changes.any { !it.pressed && it.previousPressed }
+                if (!hasRealRelease && (transformStarted || strokeStarted || maxFingerCount > 0)) {
+                    continue
+                }
 
+                pickerJob.cancel()
+                val gestureDurationMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
+                val tapMaxDistPx = 14.dp.toPx()
+
+                // 双指轻点撤销：只有当未发生明显的捏合/旋转位移（!isPinchMotion），且耗时短、位移小才判定为撤销
                 val isTwoFingerTap =
-                    (maxFingerCount == 2) && vm.gestureTwoFingerUndo && (gestureDurationMs < 360L) &&
+                    !isPinchMotion && (maxFingerCount == 2) && vm.gestureTwoFingerUndo && (gestureDurationMs < 320L) &&
                         (maxFingerMovement < tapMaxDistPx)
                 val isThreeFingerTap =
-                    (maxFingerCount >= 3) && vm.gestureThreeFingerRedo && (gestureDurationMs < 400L) &&
+                    !isPinchMotion && (maxFingerCount >= 3) && vm.gestureThreeFingerRedo && (gestureDurationMs < 360L) &&
                         (maxFingerMovement < tapMaxDistPx * 1.3f)
 
                 if (isLongPressPickerActive) {
@@ -494,18 +502,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                     pickerActive.value = false
                     isLongPressPickerActive = false
                 } else if (isTwoFingerTap) {
-                    if (transformStarted) {
-                        onTransform(startZoom, startRot, startPanX, startPanY)
-                    }
                     if (strokeStarted) {
                         if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                         strokeStarted = false
                     }
                     vm.undo()
                 } else if (isThreeFingerTap) {
-                    if (transformStarted) {
-                        onTransform(startZoom, startRot, startPanX, startPanY)
-                    }
                     if (strokeStarted) {
                         if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
                         strokeStarted = false
@@ -642,15 +644,36 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 break
             }
 
+            val touchPointers = pressed.filter {
+                it.type == androidx.compose.ui.input.pointer.PointerType.Touch
+            }
+            val stylusPointers = pressed.filter {
+                it.type == androidx.compose.ui.input.pointer.PointerType.Stylus ||
+                    it.type == androidx.compose.ui.input.pointer.PointerType.Eraser
+            }
+
             maxFingerCount = maxOf(maxFingerCount, pressed.size)
             for (p in pressed) {
                 val init = initialFingerPositions.getOrPut(p.id) { p.position }
                 val dist = hypot(p.position.x - init.x, p.position.y - init.y)
                 maxFingerMovement = maxOf(maxFingerMovement, dist)
+                if (dist > eyedropperMaxMovePx && !isLongPressPickerActive) {
+                    longPressCancelled = true
+                    pickerJob.cancel()
+                }
             }
 
-            if (pressed.size >= 2) {
-                val pair = pressed.sortedBy { it.id.value }.take(2)
+            val isMultiTouchTransform = touchPointers.size >= 2 || (pressed.size >= 2 && stylusPointers.isEmpty())
+            if (isMultiTouchTransform) {
+                longPressCancelled = true
+                pickerJob.cancel()
+                val pair = if (touchPointers.size >= 2) {
+                    touchPointers.sortedBy { it.id.value }.take(2)
+                } else {
+                    pressed.sortedBy { it.id.value }.take(2)
+                }
+                val curIdA = pair[0].id
+                val curIdB = pair[1].id
                 val a = pair[0].position
                 val b = pair[1].position
                 val centroid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
@@ -664,15 +687,13 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         strokeStarted = false
                     }
                     if (tapReverted) {
-                        // A second finger means zoom/pan, not a
-                        // wand tap: revert the just-applied
-                        // selection / fill (Krita's stroke-based
-                        // selection is cancelled the same way)
                         tapReverted = false
                         vm.undo()
                     }
                     transformStarted = true
                     mode = GestureMode.TRANSFORM
+                    activeTransformIdA = curIdA
+                    activeTransformIdB = curIdB
                     prevCentroid = centroid
                     prevDistance = distance
                     prevAngle = angle
@@ -680,32 +701,27 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                     initialDistance = distance
                     initialAngle = angle
                 } else {
-                    val distMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
-                    val scaleRatio = distance / initialDistance
-                    val angleDiff = kotlin.math.abs(normalizeAngle(angle - initialAngle))
+                    // 若触控点 ID 发生变化（如手指交替或手掌误触脱离），平滑重新锚定基准，不施加跳变 delta
+                    if (curIdA != activeTransformIdA || curIdB != activeTransformIdB) {
+                        activeTransformIdA = curIdA
+                        activeTransformIdB = curIdB
+                        prevCentroid = centroid
+                        prevDistance = distance
+                        prevAngle = angle
+                    } else {
+                        val distMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
+                        val scaleRatio = distance / initialDistance
+                        val angleDiff = kotlin.math.abs(normalizeAngle(angle - initialAngle))
 
-                    // Deadzone check: do not emit onTransform until intentional movement occurs
-                    if (!transformMoved) {
-                        if (distMoved > 14f || kotlin.math.abs(scaleRatio - 1f) > 0.04f || angleDiff > 2.5f) {
-                            transformMoved = true
+                        if (!isPinchMotion) {
+                            if (distMoved > 6f || kotlin.math.abs(scaleRatio - 1f) > 0.02f || angleDiff > 1.5f) {
+                                isPinchMotion = true
+                            }
                         }
-                    }
 
-                    if (transformMoved) {
-                        // Exact incremental transform: the document
-                        // point under the previous centroid lands
-                        // exactly under the current centroid. The
-                        // clamps only guard against degenerate
-                        // events (a freshly landed second finger
-                        // makes prevDistance tiny) - they are wide
-                        // enough not to bind during normal pinches.
-                        val k = (distance / prevDistance).coerceIn(0.2f, 5f)
-                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-25f, 25f)
+                        val k = (distance / prevDistance).coerceIn(0.5f, 2f)
+                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-20f, 20f)
 
-                        // Rotate the vector from the old center to
-                        // the PREVIOUS centroid by dRot, scale by k,
-                        // then place the new center so that point
-                        // lands under the current centroid.
                         val centerX = viewW() / 2f + localPanX
                         val centerY = viewH() / 2f + localPanY
                         val vx = prevCentroid.x - centerX
@@ -724,10 +740,11 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         localPanY = centroid.y - k * ry - viewH() / 2f
 
                         onTransform(localZoom, localRotation, localPanX, localPanY)
+
+                        prevCentroid = centroid
+                        prevDistance = distance
+                        prevAngle = angle
                     }
-                    prevCentroid = centroid
-                    prevDistance = distance
-                    prevAngle = angle
                 }
                 pair.forEach { it.consume() }
                 continue
@@ -740,7 +757,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 continue
             }
 
-            val point = pressed.first()
+            val point =
+                stylusPointers.firstOrNull() ?: pressed.first()
 
             if (isLongPressPickerActive) {
                 sampleColorAtScreenPos(point.position)
@@ -748,32 +766,12 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                 continue
             }
 
-            if (canLongPressPick && !transformStarted && pressed.size == 1) {
-                val moveDist = hypot(point.position.x - down.position.x, point.position.y - down.position.y)
-                if (moveDist <= eyedropperMaxMovePx) {
-                    val elapsedMs = (System.nanoTime() - gestureStartNs) / 1_000_000L
-                    if (elapsedMs >= eyedropperDelayMs) {
-                        isLongPressPickerActive = true
-                        if (strokeStarted) {
-                            if (tool == Tool.LIQUIFY) vm.liquifyCancel() else vm.touchCancel()
-                            strokeStarted = false
-                        }
-                        pendingTap = null
-                        mode = GestureMode.NONE
-                        pickerActive.value = true
-                        val refHex = vm.brushColor
-                        pickerInitialColor.value = parseColor(refHex)
-                        sampleColorAtScreenPos(point.position)
-                        point.consume()
-                        continue
-                    }
-                }
-                val delta = point.position - previousSinglePoint
-                previousSinglePoint = point.position
-                // A real drag (not a tap) must not fire the tap tool
-                if (pendingTap != null && hypot(delta.x, delta.y) > 8f) {
-                    pendingTap = null
-                }
+            val delta = point.position - previousSinglePoint
+            previousSinglePoint = point.position
+            // A real drag (not a tap) must not fire the tap tool
+            if (pendingTap != null && hypot(delta.x, delta.y) > 8f) {
+                pendingTap = null
+            }
                 val imagePos =
                     widgetToImage(
                         point.position,
@@ -1162,6 +1160,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
                             tool == Tool.LIQUIFY -> {
                                 if (!strokeStarted) {
+                                    longPressCancelled = true
+                                    pickerJob.cancel()
                                     // One undo transaction for the whole
                                     // drag; NOT a brush stroke - calling
                                     // touchStart here painted a stray dab at
@@ -1182,6 +1182,8 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
                             else -> {
                                 if (!strokeStarted) {
+                                    longPressCancelled = true
+                                    pickerJob.cancel()
                                     val downRaw = down.pressure.coerceIn(0f, 1f)
                                     val downP = if (stylus && downRaw > 0f) vm.evaluatePressure(downRaw) else 0.8f
                                     smoothedPressure = downP
@@ -1256,7 +1258,6 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
 
             liveShapeStart.value = null
             liveShapeEnd.value = null
-        }
             pickerJob.cancel()
+        }
     }
-}

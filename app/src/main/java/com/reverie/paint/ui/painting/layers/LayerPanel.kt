@@ -119,6 +119,7 @@ import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -178,25 +179,26 @@ fun LayerPanel(
         vm.refreshLayerThumbs(force = true)
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
 
     val isFilterAdjust = view is LayerView.FilterAdjust
 
     Box(
         modifier =
-            if (isFilterAdjust) {
+            (if (isFilterAdjust) {
                 modifier.fillMaxSize().background(Color.Transparent)
             } else {
                 modifier
                     .fillMaxSize()
                     .background(Color.Transparent)
                     .noRippleClickable(onClose)
-            },
+            }).systemHoverIcon(context),
     ) {
         Column(
             modifier =
                 Modifier
-                    .pointerHoverIcon(PointerIcon.Default)
+                    .systemHoverIcon(context)
                     .align(Alignment.TopEnd)
                     .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)

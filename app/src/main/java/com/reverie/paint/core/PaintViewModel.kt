@@ -353,10 +353,10 @@ class PaintViewModel : ViewModel() {
     var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
-    var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，仅缩放旋转)
+    var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，单指平移，双指缩放旋转)
     var brushCursorMode by mutableStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
     var eraserCursorMode by mutableStateOf(3)
-    var cursorStyleMode by mutableStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无
+    var cursorStyleMode by mutableStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
     var quickShapeEnabled by mutableStateOf(true) // 驻停线条成形
     var pressureCurvePreset by mutableStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(

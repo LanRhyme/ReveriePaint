@@ -81,7 +81,7 @@ internal fun StylusSettingsSubPage(
     var showHelpDialog by remember { mutableStateOf(false) }
 
     val cursorModeOptions = listOf("不显示", "绘画时显示", "悬空显示", "绘画和悬空显示")
-    val cursorStyleOptions = listOf("圆形", "十字准星", "点", "无")
+    val cursorStyleOptions = listOf("圆形", "十字准星", "点", "无", "系统指针", "圆+十字准星")
 
     Column(
         modifier = Modifier
@@ -123,7 +123,7 @@ internal fun StylusSettingsSubPage(
         // 1. 笔模式
         SettingSwitchRow(
             title = "笔模式",
-            summary = "开启后禁止手指绘制，手指仅可进行缩放与旋转画布",
+            summary = "开启后禁止手指绘制，单指可平移画布，双指可缩放与旋转画布",
             checked = vm.penOnlyMode,
             onCheckedChange = { vm.updatePenOnlyMode(it) }
         )

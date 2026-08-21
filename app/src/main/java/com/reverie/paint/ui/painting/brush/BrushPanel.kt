@@ -60,6 +60,7 @@ import dev.chrisbanes.haze.HazeTint
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.ReSlider
 
@@ -153,11 +154,12 @@ fun BrushPanel(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .systemHoverIcon(context)
             .noRippleClickable(onClose),
     ) {
         Box(
             modifier = Modifier
-                .pointerHoverIcon(PointerIcon.Default)
+                .systemHoverIcon(context)
                 .padding(start = 48.dp)
                 .align(Alignment.CenterStart)
                 .width(320.dp)

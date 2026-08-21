@@ -53,6 +53,7 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
@@ -94,10 +95,11 @@ fun ToolRail(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val upperShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
     val lowerShape = RoundedCornerShape(topEnd = 16.dp)
 
-    Box(modifier = modifier.pointerHoverIcon(PointerIcon.Default).fillMaxHeight().width(36.dp)) {
+    Box(modifier = modifier.systemHoverIcon(context).fillMaxHeight().width(36.dp)) {
         Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.Bottom

@@ -49,6 +49,7 @@ import com.reverie.paint.ui.components.ReMenuItem
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,6 +74,7 @@ fun SettingsPanel(
     opacity: Float = 1.0f,
     hazeState: HazeState? = null,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var currentTab by remember { mutableStateOf(SettingsTab.CANVAS) }
     val panelShape = RoundedCornerShape(14.dp)
 
@@ -80,11 +82,12 @@ fun SettingsPanel(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Transparent)
+            .systemHoverIcon(context)
             .noRippleClickable(onClose),
     ) {
         Column(
             modifier = Modifier
-                .pointerHoverIcon(PointerIcon.Default)
+                .systemHoverIcon(context)
                 .align(Alignment.TopEnd)
                 .padding(top = 44.dp, end = 8.dp)
                 .width(280.dp)

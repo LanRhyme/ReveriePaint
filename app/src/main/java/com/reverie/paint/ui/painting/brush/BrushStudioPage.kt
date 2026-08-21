@@ -55,6 +55,7 @@ import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import java.io.File
 import java.nio.ByteBuffer
@@ -259,7 +260,7 @@ fun BrushStudioPage(
         modifier = Modifier
             .fillMaxSize()
             .background(pageBg)
-            .pointerHoverIcon(PointerIcon.Default),
+            .systemHoverIcon(context),
     ) {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
             // ---- Top Header Bar ----
