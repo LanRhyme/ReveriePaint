@@ -114,6 +114,8 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         return false;
     }
 
+    syncLayersFromImage();
+
     QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
     if (!store || store->bad()) {
         return false;
@@ -201,11 +203,8 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) continue;
 
-        const QRect bounds = dev->exactBounds();
-        QImage layerImg;
-        if (!bounds.isEmpty()) {
-            layerImg = dev->convertToQImage(nullptr, 0, 0, image->width(), image->height());
-        } else {
+        QImage layerImg = dev->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+        if (layerImg.isNull()) {
             layerImg = QImage(image->width(), image->height(), QImage::Format_ARGB32_Premultiplied);
             layerImg.fill(Qt::transparent);
         }
@@ -230,15 +229,11 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         }
     }
 
-    // KoStore::close() can report failure on Android even when the archive
-    // was fully written (QSaveFile/device flush quirks); the .revp on disk
-    // is valid - trust the artifact instead of the store's return value
-    bool ok = store->close();
-    if (!ok) {
-        QFile f(path);
-        ok = f.exists() && f.size() > 0;
-    }
-    return ok;
+    // Finalize the archive by destroying the KoStore instance, which flushes central directory
+    store.reset();
+
+    QFile f(path);
+    return f.exists() && f.size() > 0;
 }
 
 static QByteArray readAllStoreBytes(KoStore *store)
@@ -590,7 +585,9 @@ bool ReverieCore::saveKra(const QString &path)
         store->close();
     }
 
-    return store->close();
+    store.reset();
+    QFile f(path);
+    return f.exists() && f.size() > 0;
 }
 
 bool ReverieCore::loadPng(const QString &path)
