@@ -283,6 +283,101 @@ internal fun LayerDetailPage(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
+        val isFillLayer = name.contains("填充")
+        val isFilterLayer = name.contains("滤镜")
+
+        if (isFillLayer) {
+            var showFillColorPicker by remember { mutableStateOf(false) }
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi)
+                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                        .noRippleClickable { showFillColorPicker = true }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(24.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Morandi.accent)
+                                .border(1.dp, Morandi.border, RoundedCornerShape(6.dp)),
+                    )
+                    Column {
+                        Text("填充图层颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("点击更换填充色", color = Morandi.subText, fontSize = 11.sp)
+                    }
+                }
+                Icon(
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+
+            if (showFillColorPicker) {
+                CompactColorPickerDialog(
+                    title = "选择填充图层颜色",
+                    initialColor = Morandi.accent,
+                    onColorSelected = { col ->
+                        val hex = String.format("#%02X%02X%02X", (col.red * 255).toInt(), (col.green * 255).toInt(), (col.blue * 255).toInt())
+                        vm.brushColor = hex
+                        vm.floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
+                    },
+                    onDismiss = { showFillColorPicker = false },
+                )
+            }
+        }
+
+        if (isFilterLayer) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.accent.copy(alpha = 0.15f))
+                        .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .noRippleClickable(onOpenFilters)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_image_adjust),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Column {
+                        Text("调整滤镜参数", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("配置或切换此图层应用的滤镜效果", color = Morandi.subText, fontSize = 11.sp)
+                    }
+                }
+                Icon(
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
+
         // Blend mode row button
         Row(
             modifier =

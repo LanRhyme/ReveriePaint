@@ -446,21 +446,47 @@ internal fun LayerRowContent(
             }
         }
         Column(Modifier.weight(1f)) {
-            Text(
-                text = layer.name,
-                color = if (selected) Morandi.onAccent else Morandi.text,
-                fontSize = 12.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (layer.name.contains("填充")) {
+                    Icon(
+                        painterResource(R.drawable.ic_fill),
+                        contentDescription = "填充图层",
+                        tint = if (selected) Morandi.onAccent else Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                } else if (layer.name.contains("滤镜")) {
+                    Icon(
+                        painterResource(R.drawable.ic_image_adjust),
+                        contentDescription = "滤镜图层",
+                        tint = if (selected) Morandi.onAccent else Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+                Text(
+                    text = layer.name,
+                    color = if (selected) Morandi.onAccent else Morandi.text,
+                    fontSize = 12.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             val blendName =
                 vm.blendModes.firstOrNull { it.first == layer.blendMode }?.second
                     ?: layer.blendMode
-            val modified = layer.opacity < 0.999f || layer.blendMode != "normal"
+            val isSpecial = layer.name.contains("填充") || layer.name.contains("滤镜")
+            val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
             if (modified) {
+                val tag = when {
+                    layer.name.contains("填充") -> "填充 · "
+                    layer.name.contains("滤镜") -> "滤镜 · "
+                    else -> ""
+                }
                 Text(
-                    text = "${(layer.opacity * 100).roundToInt()}% · $blendName",
+                    text = "$tag${(layer.opacity * 100).roundToInt()}% · $blendName",
                     color = if (selected) Morandi.onAccent.copy(alpha = 0.7f) else Morandi.subText,
                     fontSize = 10.sp,
                     maxLines = 1,
