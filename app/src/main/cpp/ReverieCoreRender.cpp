@@ -31,11 +31,6 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     KisPaintDeviceSP proj;
     if (m_soloedNode) {
         proj = compositeSoloProjection();
-    } else if (!m_nodeFilters.isEmpty()) {
-        proj = new KisPaintDevice(image->colorSpace());
-        const QRect full(0, 0, iw, ih);
-        proj->fill(full, KoColor(Qt::transparent, image->colorSpace()));
-        compositeRange(proj, 0, m_layers.size(), full);
     } else {
         proj = image->projection();
     }
@@ -58,15 +53,15 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
     if (w == iw && h == ih) {
-        // Solo mode or dynamic filter mode always re-composites the full frame:
-        if (!m_nodeFilters.isEmpty() || m_soloedNode || !m_bitmapInited || m_dirtyRect == QRect(0, 0, iw, ih)) {
+        // Solo mode always re-composites the full frame: the filtered
+        // composite is rebuilt every call, so a dirty sub-region read would
+        // only refresh part of the raw-mode switch and leave the rest stale
+        if (m_soloedNode || !m_bitmapInited || m_dirtyRect == QRect(0, 0, iw, ih)) {
             // Full frame update: direct in-place read and SIMD conversion
             proj->readBytes(buffer, 0, 0, iw, ih);
             blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
             m_lastWrittenRect = QRect(0, 0, w, h);
-            m_dirtyRect = QRect();
-            return true;
         } else if (m_dirtyRect.isNull()) {
             // Nothing painted since the last render and the buffer already
             // holds a complete frame: skip the write and report a no-op so

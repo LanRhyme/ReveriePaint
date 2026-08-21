@@ -317,11 +317,7 @@ void ReverieCore::flushStrokeBatch()
         const int tw = int(m_brushSize) + 2;
         const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
         target->setDirty(tr);
-        if (!m_nodeFilters.isEmpty()) {
-            markDirty();
-        } else {
-            markRegionDirty(tr);
-        }
+        markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeSamples.clear();
         m_strokeCarryCount = 0;
@@ -505,11 +501,7 @@ void ReverieCore::flushStrokeBatch()
     // region so Krita's projection recomposites it immediately.
     if (!strokeDirty.isNull()) {
         target->setDirty(strokeDirty);
-        if (!m_nodeFilters.isEmpty()) {
-            markDirty();
-        } else {
-            markRegionDirty(strokeDirty);
-        }
+        markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
 }
