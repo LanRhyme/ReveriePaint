@@ -318,7 +318,6 @@ void ReverieCore::flushStrokeBatch()
         const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
         target->setDirty(tr);
         if (!m_nodeFilters.isEmpty()) {
-            recompositeProjection();
             markDirty();
         } else {
             markRegionDirty(tr);
@@ -507,7 +506,6 @@ void ReverieCore::flushStrokeBatch()
     if (!strokeDirty.isNull()) {
         target->setDirty(strokeDirty);
         if (!m_nodeFilters.isEmpty()) {
-            recompositeProjection();
             markDirty();
         } else {
             markRegionDirty(strokeDirty);
