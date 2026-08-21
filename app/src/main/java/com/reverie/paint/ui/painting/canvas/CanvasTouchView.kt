@@ -162,10 +162,60 @@ class CanvasTouchView(context: Context) : View(context) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_DEFAULT)
     } else null
 
+    companion object {
+        @Volatile
+        var activeTouchView: CanvasTouchView? = null
+    }
+
     init {
+        activeTouchView = this
         setWillNotDraw(false)
         isFocusable = true
         isFocusableInTouchMode = true
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        activeTouchView = this
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        if (activeTouchView == this) activeTouchView = null
+    }
+
+    fun onDirectHover(event: MotionEvent) {
+        val v = vm ?: return
+        val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+            v.cursorStyleMode != 4
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                localCursorPos = Offset(event.x, event.y)
+                localIsHovering = true
+                localIsTouching = false
+                localPressure = 1f
+                invalidate()
+
+                if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        pointerIcon = systemNullPointer
+                    }
+                }
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                localIsHovering = false
+                localIsTouching = false
+                localCursorPos = null
+                invalidate()
+
+                if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        pointerIcon = systemDefaultPointer
+                    }
+                }
+            }
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -275,8 +325,23 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun dispatchHoverEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("TouchDiag", "dispatchHoverEvent: action=${MotionEvent.actionToString(event.actionMasked)}")
+        if (isInteracting || isTransformActive) {
+            localCursorPos = Offset(event.x, event.y)
+            invalidate()
+            return true
+        }
         return super.dispatchHoverEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (isInteracting || isTransformActive) {
+            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                localCursorPos = Offset(event.x, event.y)
+                invalidate()
+                return true
+            }
+        }
+        return super.dispatchGenericMotionEvent(event)
     }
 
     // -------------------------------------------------------------

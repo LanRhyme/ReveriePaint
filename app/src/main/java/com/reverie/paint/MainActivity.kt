@@ -102,6 +102,24 @@ class MainActivity : ComponentActivity() {
             ReverieApp(vm)
         }
     }
+
+    override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
+        val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (touchView != null) {
+            val action = ev.actionMasked
+            if (action == android.view.MotionEvent.ACTION_HOVER_MOVE ||
+                action == android.view.MotionEvent.ACTION_HOVER_ENTER ||
+                action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
+
+                touchView.onDirectHover(ev)
+
+                if (touchView.isInteracting || touchView.isTransformActive) {
+                    return true
+                }
+            }
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
 }
 
 @Composable
