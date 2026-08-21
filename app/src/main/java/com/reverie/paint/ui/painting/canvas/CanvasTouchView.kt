@@ -25,14 +25,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * 原生 Android View 触控层 (连续多点解算 + 单/双指碎片平滑融合)
- *
- * 彻底解决小米 HyperOS / 手写笔悬停下触控流被碎片化导致的顿挫感：
- * 1. onHoverEvent 绝不独占事件；
- * 2. 维持 150ms 连续多指手势会话；
- * 3. 在驱动碎片交替期（短暂降为单指），将单指物理位移实时补偿为画布平移，确保 120Hz 零丢帧；
- * 4. 两指坐标近邻配对，彻底消除 180° 旋转突变与坐标跳变；
- * 5. ACTION_CANCEL 绝对不触发撤销，仅在真实物理抬手 (ACTION_UP) + 90ms 延迟确认后触发。
+ * 原生 Android View 触控层 (连续多点解算 + 交互状态隔离)
  */
 class CanvasTouchView(context: Context) : View(context) {
 
@@ -76,6 +69,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private val density = context.resources.displayMetrics.density
 
+    // 交互状态 (只要手指在屏幕上，就阻止外部 Compose update 回冲覆盖)
+    var isInteracting = false
+    var isTransformActive = false
+    var isPinchMotion = false
+
     // 绘制状态
     private var strokeStarted = false
     private var firstDocPos = Offset.Zero
@@ -86,9 +84,7 @@ class CanvasTouchView(context: Context) : View(context) {
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
 
-    // 多点变换持久状态 (跨 CANCEL 保持)
-    var isTransformActive = false
-    var isPinchMotion = false
+    // 多点变换持久状态
     private var prevCentroid = Offset.Zero
     private var prevDistance = 1f
     private var prevAngle = 0f
@@ -104,6 +100,7 @@ class CanvasTouchView(context: Context) : View(context) {
     private val resetTransformRunnable = Runnable {
         isTransformActive = false
         isPinchMotion = false
+        isInteracting = false
         maxTouchPointers = 0
         lastPos0 = Offset.Zero
         lastPos1 = Offset.Zero
@@ -179,7 +176,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // -------------------------------------------------------------
-    // 1. 悬停处理 (空中手写笔 / 鼠标) - 非阻塞模式，绝不独占事件
+    // 1. 悬停处理 (空中手写笔 / 鼠标)
     // -------------------------------------------------------------
     override fun onHoverEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onHoverEvent(event)
@@ -250,6 +247,7 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(longPressRunnable)
             isTransformActive = false
             isPinchMotion = false
+            isInteracting = true
             lastPos0 = Offset.Zero
             lastPos1 = Offset.Zero
 
@@ -277,6 +275,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     isCursorTouching?.value = false
                     isCursorHovering?.value = true
+                    isInteracting = false
                 }
             }
             return true
@@ -285,6 +284,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // 2. 手指触控逻辑 (支持双指缩放/旋转、单指平移、单指绘制、轻点撤销)
         val nowMs = SystemClock.uptimeMillis()
         maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
+        isInteracting = true
 
         // 多指手势处理 (直接几何解算 + 碎片期单指补偿)
         if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
@@ -405,6 +405,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 MotionEvent.ACTION_UP -> {
                     // 真实物理抬手：判定撤销
                     val durationMs = nowMs - touchDownTimeMs
+                    isInteracting = false
                     if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L) {
                         val undoRunnable = Runnable {
                             v.undo()
@@ -509,6 +510,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 isCursorTouching?.value = false
                 isCursorHovering?.value = false
                 cursorScreenPos?.value = null
+                isInteracting = false
 
                 // 笔模式下单指平移结束
                 if (v.penOnlyMode) {

@@ -302,7 +302,7 @@ fun CanvasView(
                 touchView.docBitmap = bmp
                 touchView.viewW = viewW
                 touchView.viewH = viewH
-                if (!touchView.isTransformActive) {
+                if (!touchView.isInteracting && !touchView.isTransformActive) {
                     touchView.canvasZoom = zoom
                     touchView.canvasRotation = rotation
                     touchView.canvasPanX = panX
