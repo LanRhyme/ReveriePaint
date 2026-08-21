@@ -119,9 +119,9 @@ void ReverieCore::beginFilterPreview(int index)
     m_filterBackupExt = dev->exactBounds();
     const bool isFilterLayer = m_layers[index].name.contains(QStringLiteral("滤镜")) || m_filterBackupExt.isEmpty();
     if (isFilterLayer) {
-        // Composite all layers strictly below this adjustment layer (0 up to index)
+        // Composite all visible layers strictly below this adjustment layer (0 up to index)
         m_filterBackupDevice->fill(full, KoColor(Qt::transparent, image->colorSpace()));
-        compositeSoloRange(m_filterBackupDevice, 0, index, full);
+        compositeRange(m_filterBackupDevice, 0, index, full);
         m_filterBackupExt = full;
     } else {
         KisPainter::copyAreaOptimized(QPoint(0, 0), dev, m_filterBackupDevice, full);

@@ -191,11 +191,8 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             const QRect full(0, 0, image->width(), image->height());
             proj->fill(full, KoColor(Qt::transparent, cs));
             int insertIdx = m_currentLayer;
-            if (insertIdx >= 0 && insertIdx < m_layers.size()) {
-                compositeSoloRange(proj, 0, insertIdx + 1, full);
-            } else {
-                compositeSoloRange(proj, 0, m_layers.size(), full);
-            }
+            int endIdx = (insertIdx >= 0 && insertIdx < m_layers.size()) ? insertIdx + 1 : m_layers.size();
+            compositeRange(proj, 0, endIdx, full);
             KisPainter::copyAreaOptimized(QPoint(0, 0), proj, paintLayer->original(), full);
             paintLayer->original()->setDirty(full);
         }

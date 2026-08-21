@@ -422,10 +422,55 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type, int rep
 // modified, so closing solo restores the document exactly and solo can never
 // corrupt the canvas render or the undo stack.
 // Recursive solo composite of [startIdx, endIdx). Leaf layers are drawn
-// only when they are in the solo keep set; groups composite their keep-set
-// children into a temp device and then apply the group's own opacity/blend,
-// so group nesting (and group opacity) stays correct and a soloed child is
-// never drawn twice (once via its ancestor's projection, once directly).
+void ReverieCore::compositeRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full)
+{
+    int i = startIdx;
+    while (i < endIdx) {
+        if (i < 0 || i >= m_layers.size()) {
+            ++i;
+            continue;
+        }
+        const LayerEntry &e = m_layers[i];
+        if (!e.visible || !e.node) {
+            if (e.isGroup) {
+                int j = i + 1;
+                while (j < endIdx && j < m_layers.size() && m_layers[j].depth > e.depth) {
+                    ++j;
+                }
+                i = j;
+            } else {
+                ++i;
+            }
+            continue;
+        }
+        if (e.isGroup) {
+            int j = i + 1;
+            while (j < endIdx && j < m_layers.size() && m_layers[j].depth > e.depth) {
+                ++j;
+            }
+            KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
+            tmp->fill(full, KoColor(Qt::transparent, m_document->colorSpace()));
+            compositeRange(tmp, i + 1, j, full);
+            KisPainter painter(out);
+            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+            painter.setCompositeOpId(e.node->compositeOpId());
+            painter.bitBlt(0, 0, tmp, 0, 0, full.width(), full.height());
+            painter.end();
+            i = j;
+        } else {
+            KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+            if (dev) {
+                KisPainter painter(out);
+                painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                painter.setCompositeOpId(e.node->compositeOpId());
+                painter.bitBlt(0, 0, dev, 0, 0, full.width(), full.height());
+                painter.end();
+            }
+            ++i;
+        }
+    }
+}
+
 void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full)
 {
     int i = startIdx;
