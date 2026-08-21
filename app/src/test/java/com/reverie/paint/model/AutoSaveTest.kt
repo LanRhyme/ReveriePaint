@@ -122,4 +122,23 @@ class AutoSaveTest {
         val untitled = projectList.find { it.name == "未命名作品 2" }
         assertTrue(untitled?.isAutoSaved == true)
     }
+
+    @Test
+    fun `background auto save trigger predicate logic`() {
+        fun shouldBackgroundAutoSave(
+            enabled: Boolean,
+            isSaving: Boolean,
+            hasChanges: Boolean,
+            isPaintingPage: Boolean,
+        ): Boolean {
+            if (!enabled || isSaving || !hasChanges || !isPaintingPage) return false
+            return true
+        }
+
+        assertTrue(shouldBackgroundAutoSave(enabled = true, isSaving = false, hasChanges = true, isPaintingPage = true))
+        assertFalse(shouldBackgroundAutoSave(enabled = false, isSaving = false, hasChanges = true, isPaintingPage = true))
+        assertFalse(shouldBackgroundAutoSave(enabled = true, isSaving = true, hasChanges = true, isPaintingPage = true))
+        assertFalse(shouldBackgroundAutoSave(enabled = true, isSaving = false, hasChanges = false, isPaintingPage = true))
+        assertFalse(shouldBackgroundAutoSave(enabled = true, isSaving = false, hasChanges = true, isPaintingPage = false))
+    }
 }

@@ -141,6 +141,15 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun onAppBackgrounded() {
+        if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
+        if (currentPage != Page.PAINTING) return
+        if (!hasUnsavedChanges()) return
+
+        // 软件切入后台时，立即触发后台静默自动保存
+        autoSaveProject()
+    }
+
     fun markModified() {
         isModified = true
     }

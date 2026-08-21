@@ -20,6 +20,9 @@ class MainActivity : ComponentActivity() {
         @Volatile
         var activityInstance: MainActivity? = null
 
+        @Volatile
+        var currentViewModel: PaintViewModel? = null
+
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
          *  system bars (status bar + navigation bar); a swipe shows them
@@ -85,6 +88,7 @@ class MainActivity : ComponentActivity() {
             .ensureLoaded()
         setContent {
             val vm: PaintViewModel = viewModel()
+            currentViewModel = vm
             vm.appContext = applicationContext
             vm.updateColorPickerMode(
                 applicationContext
@@ -100,6 +104,20 @@ class MainActivity : ComponentActivity() {
             vm.refreshProjects()
             vm.loadBrushPresets()
             ReverieApp(vm)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // 当软件切入后台时，自动触发后台保存
+        currentViewModel?.onAppBackgrounded()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (activityInstance == this) {
+            activityInstance = null
+            currentViewModel = null
         }
     }
 
@@ -124,6 +142,18 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ReverieApp(vm: PaintViewModel = viewModel()) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                vm.onAppBackgrounded()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     androidx.compose.animation.AnimatedContent(
         targetState = vm.currentPage,
         transitionSpec = {
