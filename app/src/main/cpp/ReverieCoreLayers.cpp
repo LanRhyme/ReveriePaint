@@ -189,9 +189,16 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             paintLayer->original()->setDirty();
             newNode = paintLayer;
         } else if (type == LayerTypeAdjustment) {
-            KisFilterSP filter = KisFilterRegistry::instance()->value(QStringLiteral("blur"));
-            KisFilterConfigurationSP config = filter ? filter->defaultConfiguration(KisGlobalResourcesInterface::instance()) : nullptr;
-            newNode = new KisAdjustmentLayer(image, finalName, config, nullptr);
+            paintLayer->setCompositeOpId(QStringLiteral("normal"));
+            KisPaintDeviceSP proj(new KisPaintDevice(cs));
+            const QRect full(0, 0, image->width(), image->height());
+            proj->fill(full, KoColor(Qt::transparent, cs));
+            int insertIdx = m_currentLayer;
+            int endIdx = (insertIdx >= 0 && insertIdx < m_layers.size()) ? insertIdx + 1 : m_layers.size();
+            compositeRange(proj, 0, endIdx, full);
+            KisPainter::copyAreaOptimized(QPoint(0, 0), proj, paintLayer->original(), full);
+            paintLayer->original()->setDirty(full);
+            newNode = paintLayer;
         } else {
             newNode = paintLayer;
         }
