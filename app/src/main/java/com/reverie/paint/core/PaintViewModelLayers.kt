@@ -624,10 +624,13 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         notifyLayerChanged()
         val cur = currentLayerIndex
         if (cur >= 0) {
-            renameLayer(cur, "滤镜图层")
             onOpenFilters(cur)
         }
     }) {
-        ReverieCoreBridge.stampVisibleLayers()
+        val newIdx = ReverieCoreBridge.stampVisibleLayers()
+        if (newIdx >= 0) {
+            ReverieCoreBridge.setLayerName(newIdx, "滤镜图层")
+            ReverieCoreBridge.setCurrentLayer(newIdx)
+        }
     }
 }
