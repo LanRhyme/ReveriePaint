@@ -494,13 +494,18 @@ fun PaintingPage(
             opacity = vm.uiOpacity.toDouble(),
             tool = tool,
             onTool = {
-                tool = it
-                vm.applyTool(it.id)
-                // Auto-open the floating selection panel for selection tools
-                if (it in selectionTools) {
-                    selectionPanelOpen = true
+                if (it == Tool.REFERENCE) {
+                    vm.referenceWindowOpen = !vm.referenceWindowOpen
+                    moreToolsOpen = false
+                } else {
+                    tool = it
+                    vm.applyTool(it.id)
+                    // Auto-open the floating selection panel for selection tools
+                    if (it in selectionTools) {
+                        selectionPanelOpen = true
+                    }
+                    moreToolsOpen = false
                 }
-                moreToolsOpen = false
             },
             moreToolsOpen = moreToolsOpen,
             onToggleMoreTools = {
@@ -1053,12 +1058,17 @@ fun PaintingPage(
                 vm = vm,
                 tool = tool,
                 onTool = {
-                    tool = it
-                    vm.applyTool(it.id)
-                    if (it in selectionTools) {
-                        selectionPanelOpen = true
+                    if (it == Tool.REFERENCE) {
+                        vm.referenceWindowOpen = !vm.referenceWindowOpen
+                        moreToolsOpen = false
+                    } else {
+                        tool = it
+                        vm.applyTool(it.id)
+                        if (it in selectionTools) {
+                            selectionPanelOpen = true
+                        }
+                        moreToolsOpen = false
                     }
-                    moreToolsOpen = false
                 },
                 onOpenBrush = {
                     brushPanelOpen = true
@@ -1067,6 +1077,21 @@ fun PaintingPage(
                 onClose = { moreToolsOpen = false },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
+            )
+        }
+
+        // ---- Persistent Floating Reference Window (常态固定显示参考窗口) ----
+        AnimatedVisibility(
+            visible = vm.referenceWindowOpen,
+            enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(tween(200), initialScale = 0.92f),
+            exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(tween(150), targetScale = 0.92f),
+            modifier = Modifier.zIndex(8f),
+        ) {
+            ReferenceWindow(
+                vm = vm,
+                onClose = { vm.referenceWindowOpen = false },
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
             )
         }
 

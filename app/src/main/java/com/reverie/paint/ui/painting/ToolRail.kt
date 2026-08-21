@@ -133,7 +133,10 @@ fun ToolRail(
                             t.label,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
-                                if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                if (t == Tool.REFERENCE) {
+                                    tooltipTool = null
+                                    onTool(t)
+                                } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
                                     tooltipTool = null
                                     onOpenBrush()
                                 } else if (tool == t) {
@@ -143,7 +146,7 @@ fun ToolRail(
                                     onTool(t)
                                 }
                             },
-                            selected = tool == t,
+                            selected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t,
                         )
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
@@ -285,11 +288,12 @@ fun toolIcon(tool: Tool): Int =
         Tool.SELECT_POLYGON -> R.drawable.ic_polyline
         Tool.MOVE -> R.drawable.ic_hand
         Tool.CROP -> R.drawable.ic_crop
-        Tool.MEASURE -> R.drawable.ic_reference
+        Tool.MEASURE -> R.drawable.ic_canvas_resize
         Tool.TRANSFORM -> R.drawable.ic_move
         Tool.SELECT_MAGNETIC -> R.drawable.ic_lock
         Tool.SELECT_SIMILAR -> R.drawable.ic_eye
         Tool.PATH -> R.drawable.ic_copy
+        Tool.REFERENCE -> R.drawable.ic_reference
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's

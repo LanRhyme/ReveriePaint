@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -235,11 +236,93 @@ class PaintViewModel : ViewModel() {
     var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())
         internal set
 
-    var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(emptyList())
+    var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(
+        listOf(
+            com.reverie.paint.model.Tool.BRUSH,
+            com.reverie.paint.model.Tool.ERASER,
+            com.reverie.paint.model.Tool.SMUDGE,
+            com.reverie.paint.model.Tool.FILL,
+            com.reverie.paint.model.Tool.GRADIENT,
+            com.reverie.paint.model.Tool.LASSO,
+            com.reverie.paint.model.Tool.TRANSFORM,
+            com.reverie.paint.model.Tool.PICKER,
+            com.reverie.paint.model.Tool.REFERENCE,
+        )
+    )
         internal set
 
     var currentToolId by mutableStateOf("brush")
         internal set
+
+    // Reference Tool Window State (常态固定显示参考窗口)
+    var referenceWindowOpen by mutableStateOf(false)
+    var referenceImages by mutableStateOf<List<Bitmap>>(emptyList())
+    var referenceIsGrayscale by mutableStateOf(false)
+    var referenceAllowRotation by mutableStateOf(true)
+    var referenceIsFlipped by mutableStateOf(false)
+    var referenceActiveTab by mutableIntStateOf(0) // 0: 图片, 1: 画布
+    var referenceBarsCollapsed by mutableStateOf(false)
+
+    // Reference Window View Transforms (Pan / Zoom / Rotation)
+    var referenceZoom by mutableFloatStateOf(1f)
+    var referenceRotation by mutableFloatStateOf(0f)
+    var referencePanX by mutableFloatStateOf(0f)
+    var referencePanY by mutableFloatStateOf(0f)
+
+    // Reference Window Position & Size (pixels/dp)
+    var referenceWindowX by mutableFloatStateOf(80f)
+    var referenceWindowY by mutableFloatStateOf(140f)
+    var referenceWindowWidth by mutableFloatStateOf(260f)
+    var referenceWindowHeight by mutableFloatStateOf(300f)
+
+    fun updateReferenceAllowRotation(allow: Boolean) {
+        referenceAllowRotation = allow
+        if (!allow) {
+            referenceRotation = 0f
+        }
+    }
+
+    fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
+        if (!::appContext.isInitialized || uris.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val newBitmaps = mutableListOf<Bitmap>()
+            for (uri in uris) {
+                try {
+                    appContext.contentResolver.openInputStream(uri)?.use { stream ->
+                        val bmp = android.graphics.BitmapFactory.decodeStream(stream)
+                        if (bmp != null) {
+                            newBitmaps.add(bmp)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ReveriePaint", "Failed to load reference image $uri", e)
+                }
+            }
+            if (newBitmaps.isNotEmpty()) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    referenceImages = referenceImages + newBitmaps
+                    referenceActiveTab = 0
+                    resetReferenceTransform()
+                }
+            }
+        }
+    }
+
+    fun importReferenceImageFromUri(uri: android.net.Uri) {
+        importReferenceImagesFromUris(listOf(uri))
+    }
+
+    fun clearReferenceImage() {
+        referenceImages = emptyList()
+        resetReferenceTransform()
+    }
+
+    fun resetReferenceTransform() {
+        referenceZoom = 1f
+        referenceRotation = 0f
+        referencePanX = 0f
+        referencePanY = 0f
+    }
 
     // UI & View Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels

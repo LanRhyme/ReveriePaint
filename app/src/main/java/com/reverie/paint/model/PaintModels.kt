@@ -59,6 +59,7 @@ enum class Tool(
     LIQUIFY("liquify", "液化", ToolGroup.OTHER),
     MEASURE("measure", "测量", ToolGroup.OTHER),
     PATH("path", "路径", ToolGroup.SHAPES),
+    REFERENCE("reference", "参考", ToolGroup.VIEW),
     ;
 
     companion object {
