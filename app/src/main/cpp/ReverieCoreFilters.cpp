@@ -107,16 +107,25 @@ void ReverieCore::applyFilter(int index, int filterId)
 
 void ReverieCore::beginFilterPreview(int index)
 {
-    if (!isLayerEditable(index)) return;
+    if (index < 0 || index >= m_layers.size()) return;
+    KisImageSP image = m_document;
+    if (!image) return;
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) return;
     m_filterBackupIndex = index;
+    m_filterBackupDevice = new KisPaintDevice(image->colorSpace());
+
+    const QRect full(0, 0, m_docWidth, m_docHeight);
     m_filterBackupExt = dev->exactBounds();
-    if (m_filterBackupExt.isEmpty()) {
-        m_filterBackupExt = QRect(0, 0, m_docWidth, m_docHeight);
+    const bool isFilterLayer = m_layers[index].name.contains(QStringLiteral("滤镜")) || m_filterBackupExt.isEmpty();
+    if (isFilterLayer) {
+        // Composite all layers strictly below this adjustment layer (0 up to index)
+        m_filterBackupDevice->fill(full, KoColor(Qt::transparent, image->colorSpace()));
+        compositeSoloRange(m_filterBackupDevice, 0, index, full);
+        m_filterBackupExt = full;
+    } else {
+        KisPainter::copyAreaOptimized(QPoint(0, 0), dev, m_filterBackupDevice, full);
     }
-    m_filterBackupDevice = new KisPaintDevice(dev->colorSpace());
-    KisPainter::copyAreaOptimized(QPoint(0, 0), dev, m_filterBackupDevice, QRect(0, 0, m_docWidth, m_docHeight));
 }
 
 

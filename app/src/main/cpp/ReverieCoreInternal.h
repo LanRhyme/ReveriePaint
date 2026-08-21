@@ -512,28 +512,102 @@ static inline void flipDevice(KisPaintDeviceSP dev, bool horizontal)
     dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
     dev->setDirty(ext);
 }
-template <typename F>
-static inline void filterParallelFor(int start, int end, F &&func) {
-    const int numThreads = std::max(1, std::min(int(QThread::idealThreadCount()), 8));
-    if (numThreads <= 1 || (end - start) < 64) {
-        func(start, end);
-        return;
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+#include <functional>
+#include <vector>
+
+class FilterThreadPool {
+public:
+    static FilterThreadPool &instance() {
+        static FilterThreadPool pool;
+        return pool;
     }
-    std::vector<std::future<void>> futures;
-    futures.reserve(numThreads);
-    const int chunkSize = (end - start + numThreads - 1) / numThreads;
-    for (int t = 0; t < numThreads; ++t) {
-        int s = start + t * chunkSize;
-        int e = qMin(end, s + chunkSize);
-        if (s < e) {
-            futures.push_back(std::async(std::launch::async, [s, e, &func]() {
+    template <typename F>
+    void parallelFor(int start, int end, F &&func) {
+        const int count = end - start;
+        if (count <= 0) return;
+        const int numThreads = std::max(1, std::min(int(m_workers.size() + 1), 8));
+        if (numThreads <= 1 || count < 32) {
+            func(start, end);
+            return;
+        }
+        const int chunkSize = (count + numThreads - 1) / numThreads;
+        m_activeCount.store(numThreads - 1, std::memory_order_relaxed);
+        m_task = [&func, start, end, chunkSize](int t) {
+            int s = start + t * chunkSize;
+            int e = std::min(end, s + chunkSize);
+            if (s < e) {
                 func(s, e);
-            }));
+            }
+        };
+        m_generation.fetch_add(1, std::memory_order_release);
+        m_cvStart.notify_all();
+
+        // Main thread executes chunk 0
+        m_task(0);
+
+        // Wait for workers
+        std::unique_lock<std::mutex> lock(m_mutexDone);
+        m_cvDone.wait(lock, [this]() {
+            return m_activeCount.load(std::memory_order_acquire) == 0;
+        });
+    }
+
+private:
+    FilterThreadPool() {
+        const int count = std::max(1, std::min(int(std::thread::hardware_concurrency()), 8)) - 1;
+        m_stop = false;
+        m_generation = 0;
+        m_activeCount = 0;
+        for (int i = 0; i < count; ++i) {
+            m_workers.emplace_back([this, threadId = i + 1]() {
+                uint64_t lastGen = 0;
+                while (true) {
+                    std::unique_lock<std::mutex> lock(m_mutexStart);
+                    m_cvStart.wait(lock, [this, &lastGen]() {
+                        return m_stop || m_generation.load(std::memory_order_acquire) > lastGen;
+                    });
+                    if (m_stop) break;
+                    lastGen = m_generation.load(std::memory_order_acquire);
+                    lock.unlock();
+
+                    if (m_task) {
+                        m_task(threadId);
+                    }
+
+                    if (m_activeCount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+                        std::lock_guard<std::mutex> doneLock(m_mutexDone);
+                        m_cvDone.notify_one();
+                    }
+                }
+            });
         }
     }
-    for (auto &f : futures) {
-        f.get();
+    ~FilterThreadPool() {
+        m_stop = true;
+        m_cvStart.notify_all();
+        for (auto &t : m_workers) {
+            if (t.joinable()) t.join();
+        }
     }
+
+    std::vector<std::thread> m_workers;
+    std::function<void(int)> m_task;
+    std::atomic<bool> m_stop{false};
+    std::atomic<uint64_t> m_generation{0};
+    std::atomic<int> m_activeCount{0};
+    std::mutex m_mutexStart;
+    std::condition_variable m_cvStart;
+    std::mutex m_mutexDone;
+    std::condition_variable m_cvDone;
+};
+
+template <typename F>
+static inline void filterParallelFor(int start, int end, F &&func) {
+    FilterThreadPool::instance().parallelFor(start, end, std::forward<F>(func));
 }
 
 static inline void boxBlurH(const quint32 *src, quint32 *dst, int w, int h, int r) {
