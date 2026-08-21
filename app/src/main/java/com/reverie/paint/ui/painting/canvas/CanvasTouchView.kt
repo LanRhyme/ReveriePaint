@@ -172,6 +172,9 @@ class CanvasTouchView(context: Context) : View(context) {
         setWillNotDraw(false)
         isFocusable = true
         isFocusableInTouchMode = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemNullPointer != null) {
+            pointerIcon = systemNullPointer
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -182,6 +185,17 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         if (activeTouchView == this) activeTouchView = null
+    }
+
+    override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
+        val v = vm ?: return super.onResolvePointerIcon(event, pointerIndex)
+        val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+            v.cursorStyleMode != 4
+        return if (hideCursor && systemNullPointer != null) {
+            systemNullPointer
+        } else {
+            super.onResolvePointerIcon(event, pointerIndex)
+        }
     }
 
     fun onDirectHover(event: MotionEvent) {
@@ -208,12 +222,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 localIsTouching = false
                 localCursorPos = null
                 invalidate()
-
-                if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        pointerIcon = systemDefaultPointer
-                    }
-                }
             }
         }
     }
@@ -618,18 +626,31 @@ class CanvasTouchView(context: Context) : View(context) {
             return true
         }
 
-        // 2. 单指手势 (画世界模式：单指平移 / 长按吸色)
+        // 2. 单指手势 (根据 vm.penOnlyMode 切换手指平移 vs 手指作画)
         val screenPos = Offset(event.x, event.y)
+        val docPos = screenToDoc(screenPos)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 touchDownTimeMs = nowMs
                 maxTouchPointers = 1
                 previousSinglePos = screenPos
+                firstDocPos = docPos
+                shapeEndDocPos = docPos
                 isLongPressPickerActive = false
 
                 if (v.longPressEyedropperEnabled) {
                     postDelayed(longPressRunnable, 450)
+                }
+
+                if (!v.penOnlyMode) {
+                    // 笔模式关闭：手指作画
+                    localCursorPos = screenPos
+                    localIsTouching = true
+                    localIsHovering = false
+                    localPressure = 1f
+                    invalidate()
+                    handleToolDown(docPos, 1f, isStylus = false)
                 }
                 return true
             }
@@ -649,11 +670,20 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
-                // 单指丝滑平移画布
-                canvasPanX += deltaX
-                canvasPanY += deltaY
-                onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
-                return true
+                if (v.penOnlyMode) {
+                    // 笔模式开启：单指丝滑平移画布
+                    canvasPanX += deltaX
+                    canvasPanY += deltaY
+                    onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                    return true
+                } else {
+                    // 笔模式关闭：手指正常绘制
+                    localCursorPos = screenPos
+                    localIsTouching = true
+                    invalidate()
+                    handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                    return true
+                }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -673,6 +703,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     pickerActive?.value = false
                     isLongPressPickerActive = false
                     return true
+                }
+
+                if (!v.penOnlyMode) {
+                    // 笔模式关闭：手指结束绘制
+                    localIsTouching = false
+                    localCursorPos = null
+                    invalidate()
+                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                 }
                 return true
             }
