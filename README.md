@@ -5,99 +5,80 @@
 # ReveriePaint
 
 <p>
-  <a href="https://afdian.com/a/LanRhyme" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/afdian-@LanRhyme-946ce6?style=for-the-badge&logo=afdian&logoColor=white" alt="afdian"></a>
+  <a href="https://github.com/LanRhyme/ReveriePaint/releases"><img src="https://img.shields.io/github/v/release/LanRhyme/ReveriePaint?color=5E8BA8&style=flat-square" alt="Release"></a>
+  <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2023%2B)-5E8BA8?style=flat-square" alt="Android Version">
+  <img src="https://img.shields.io/badge/Arch-arm64--v8a-7C8F9E?style=flat-square" alt="Architecture">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-8D9E8F?style=flat-square" alt="License"></a>
+  <a href="https://afdian.com/a/LanRhyme"><img src="https://img.shields.io/badge/Afdian-@LanRhyme-946ce6?style=flat-square" alt="Afdian"></a>
 </p>
 
-基于 Krita 核心引擎的 Android 原生绘画应用, 纯 Compose UI + Krita C++ 引擎, 画世界 Pro 风格交互
+基于 Krita 核心引擎打造的 Android 原生现代数字绘画应用
+
+融合 Jetpack Compose 现代化界面与 Krita C++ 原生图像处理内核, 专为平板与触控设备优化的专业创作工作流
 
 </div>
 
-## 功能特性
+---
 
-- **完整 Krita 笔刷引擎**: 内置 248 个 Krita 官方预设（圆头/铅笔/墨线/水彩/喷枪/纹理等）, 真实压力/间距/纹理渲染
-- **完整工具集**: 笔刷/橡皮/混合/吸管/填充/渐变/套索/魔棒/矩形/椭圆/多边形/文字/液化/移动/裁剪/透视扭曲 等 20+ 工具
-- **完整图层系统**: 稀疏瓦片动态分配/图层组/锁定/透明度/25 种混合模式/剪贴蒙版/独显/翻转/合并/重命名/颜色标记
-- **选区系统**: 套索/矩形/椭圆/多边形/连续/相似色, 替换/加/减/交模式, 羽化/扩展/收缩/平滑
-- **图层树拖拽**: 长按拖拽排序与归组, 滑动展开复制/独显/删除
-- **项目保存加载**: PNG 导出, 主页最近项目缩略图
-- **录制回放**: 绘画过程事件流录制（笔迹/笔刷/图层/滤镜/变换全链路）, 随 .revp 工程文件存储, 主页长按缩略图菜单一键回放, 支持播放/暂停/进度拖动/0.5x-4x 变速
-- **画布手势与高刷插值**: 硬件加速 120 FPS 视口变换, 单指压感绘画, 双指缩放/旋转/平移, 高刷屏子帧触控插值
-- **HSV 取色器**: 色环 + 亮度滑杆 + 预设色板
-- **莫兰迪主题**: 低饱和配色, 全局语义色
+## 核心特性
 
-## 技术架构
+### 绘画引擎与笔刷系统
+- **Krita 官方内核集成**: 直接复用 Krita 核心笔刷引擎, 真实物理笔触与颜料混合模拟
+- **内置丰富笔刷库**: 内置 240+ 官方笔刷预设, 涵盖铅笔、钢笔、墨水、水彩、油画、喷枪、纹理与马克笔
+- **笔刷工坊**: 支持实时调整尺寸、不透明度、流量、间距、软硬度、混色比与压感动态曲线
+- **硬件压感适配**: 深度适配 Android 压感手写笔, 具备抖动修正、子帧平滑插值与悬浮光标预览
 
-```
-Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/KisPainter/KisBrushOp)
-```
+### 专业图层与合成管理
+- **无限图层与分组树**: 动态稀疏瓦片内存管理, 支持无限图层创建、图层组嵌套与层级折叠
+- **丰富混合模式**: 支持正常、正片叠底、滤色、叠加、柔光、强光、颜色减淡等 25 种混合模式
+- **图层操作全功能**: 剪贴蒙版、Alpha 锁定、图层锁定、独立隐藏/显示、快速合并、向下合并与色彩标签
+- **直观交互**: 图层面板支持长按拖拽排序、向左滑动快捷呼出操作菜单与批量图层管理
 
-- `app/src/main/java/com/reverie/paint/`
-  - `MainActivity.kt` 应用入口与页面路由
-  - `core/` JNI 桥接与 ViewModel
-    - `ReverieCoreBridge.kt` C++ 引擎的 JNI 声明
-    - `PaintViewModel.kt` UI 状态 + 引擎调用
-    - `PaintRecorder.kt` 录制器 (紧凑二进制事件流 + 初始快照)
-    - `PlaybackEngine.kt` 回放会话与渲染线程回放引擎
-    - `RecordingEvents.kt` 事件编解码 (零分配热路径)
-  - `model/` 数据模型 (工具/笔刷/画布预设)
-  - `ui/` Compose 界面
-    - `theme/` 莫兰迪主题
-    - `home/` 主页 (最近项目/新建/打开)
-    - `create/` 创建画布页 (尺寸预设/背景色)
-    - `painting/` 绘画页
-      - `PaintingPage.kt` 页面编排
-      - `canvas/` 画布视图 (触摸绘画+手势+覆盖层)
-      - `layers/` 图层面板/图层详情/滤镜页
-      - `brush/` 笔刷面板 + 笔刷工坊
-      - `panels/` 工具栏/工具属性面板/取色器/设置面板
-    - `replay/` 回放页
-- `app/src/main/cpp/`
-  - `ReverieCore.h/.cpp` 绘画引擎 (无 QWidget 依赖)
-  - `reverie_jni.cpp` JNI 桥
-  - `CMakeLists.txt` 链接 Krita/Qt 库
+### 创作工具箱
+- **多样化绘制工具**: 包含画笔、橡皮擦、涂抹、模糊、液化变形、渐变填充与文字排版工具
+- **矢量几何辅助**: 直线、矩形、椭圆与多边形工具, 支持快速吸附与辅助对齐
+- **智能选区体系**: 套索选区、矩形选区、椭圆选区、魔棒快速取选与颜色选区, 支持加选、减选、反选与羽化
+- **图形变换**: 支持自由变换、等比缩放、旋转、透视扭曲与画布裁剪
 
-## 构建
+### 录制与延时回放
+- **全流程事件流录制**: 零性能开销记录笔迹、笔刷参数、图层变动、滤镜与色彩变迁全过程
+- **独立工程归档**: 录制数据随 `.revp` 工程文件自动存储压缩, 方便跨设备共享
+- **多功能回放器**: 支持随时在画廊中唤起过程回放, 具备播放、暂停、进度条无缝拖动与 0.5x - 4x 倍速调节
 
-### 方式一: 预编译模式 (推荐, 无需任何 C++ 环境)
+### 自动保存与工程安全
+- **后台保活自动存储**: 支持 1/3/5/10/15/30 分钟多档静默自动保存
+- **状态恢复机制**: 应用切至后台或意外中断时自动保留最后创作状态, 画廊自动标记未保存草稿并支持快速恢复
 
-克隆仓库后仅需 Android Studio / Android SDK + NDK 25 + JDK 17, 动态库全部内置:
+### 现代触控与个性化主题
+- **多点手势交互**: 双指捏合自由缩放、旋转、平移画布, 120 FPS 视口变换
+- **快捷手势操作**: 双指点击撤销、三指点击重做、长按快速吸色
+- **莫兰迪全局主题**: 优雅柔和的低饱和度配色体系, 完美支持 Material You 动态莫奈取色
+- **工作区底色自由定制**: 支持随主题自适应、经典深灰、暗夜纯黑、明亮纯白及任意自定义 Hex 底色
 
-```bash
-# 1 复制仓库内置的 112 个预编译动态库到 jniLibs
-#   (Krita 核心库 + 笔刷引擎 + Qt for Android + KF6 + NDK 依赖 + 预编译 libreverie_jni.so)
-./scripts/copy_jni_libs.sh
-# 2 构建 APK
-./gradlew assembleDebug
-# APK: app/build/outputs/apk/debug/app-debug.apk
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+---
 
-预编译动态库在 third_party/android-native-libs (arm64-v8a, 已 strip), 包含 libreverie_jni.so 与全部 111 个运行时依赖, 闭包已验证完整
+## 快速上手
 
-### 方式二: 重新编译 C++ (开发者模式)
+### 系统要求
+- **操作系统**: Android 7.0 及以上 (API Level 23+)
+- **芯片架构**: 仅支持 64 位 ARM 处理器 (`arm64-v8a`)
+- **推荐设备**: 支持主动式压感手写笔的 Android 平板或大屏移动设备
 
-修改 C++ 代码 (app/src/main/cpp) 时需要本地编译环境:
+### 安装说明
+1. 前往 [Releases 发布页面](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新版本的 APK 安装包
+2. 在设备上点击 APK 文件并允许安装来自此来源的应用
+3. 授予存储与手写笔相关权限后即可开启创作
 
-- Qt for Android 6.6.3 (android_arm64_v8a) + 桌面版 gcc_64 (作 QT_HOST_PATH)
-- Krita 源码树 (~/Projects/krita-source) 与交叉编译产物 (build-android)
-- KF6 6.6.0 arm64 交叉编译库 + 各依赖 (见 scripts 与构建记录)
+---
 
-```bash
-./scripts/build_native.sh
-```
+## 开发者与源码构建
 
-构建脚本会先编译 C++ 再用预编译库补齐 AGP 未收集的间接依赖, 产物与预编译模式一致
+有关项目技术架构、本地开发环境配置、编译构建步骤与代码规范, 请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 以及开发指引文档 [AGENTS.md](AGENTS.md)
 
-本机目录与默认约定不同时, 用 CMake 缓存变量覆盖 (CMakeLists.txt):
+---
 
-```bash
-./gradlew assembleDebug -PbuildNative -PcmakeArgs="-DQT_ANDROID_DIR=/opt/Qt6/6.6.3/android_arm64_v8a -DKRITA_SRC_DIR=/path/to/krita-source"
-```
+## 开源协议与鸣谢
 
-预编译模式与 buildNative 模式通过 gradle 属性切换 (app/build.gradle.kts)
-
-## 许可
-
-- 应用本体 GPL-3.0
-- 绘画核心复用 Krita (GPL-3.0), 见 [kde/krita](https://invent.kde.org/graphics/krita)
-- 图标来自 [Tabler Icons](https://tabler.io/icons) (MIT)
+- **应用本体**: 基于 [GPL-3.0 License](LICENSE) 开源
+- **图像引擎**: 绘画与图像处理内核复用 [Krita](https://invent.kde.org/graphics/krita) (GPL-3.0)
+- **图标素材**: UI 图标采用 [Tabler Icons](https://tabler.io/icons) (MIT)
