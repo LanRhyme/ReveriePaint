@@ -65,10 +65,17 @@ internal fun PaintViewModel.saveProject(
             initialStrokeCount = totalStrokes
             isModified = false
             docName = name
-            // 显式保存成功后，清理对应的自动保存草稿
-            val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
-            if (autoSaveFile.exists()) {
-                autoSaveFile.delete()
+            val targetFile = currentProjectFile?.let { File(it) }
+            val saveSucceeded = targetFile != null && targetFile.exists() && targetFile.length() > 0
+
+            // 显式保存成功后，才清理对应的自动保存草稿
+            if (saveSucceeded) {
+                val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+                if (autoSaveFile.exists()) {
+                    autoSaveFile.delete()
+                }
+            } else {
+                android.util.Log.w("RP_IO", "saveProject target file not found or empty, retaining autosave draft")
             }
             refreshProjects()
             isBlockingLoading = false
@@ -101,10 +108,11 @@ internal fun PaintViewModel.saveProject(
         // Recording blob goes straight into the .revp via the C++ store
         // (single write, no post-save ZIP repackage)
         val recBlob = recorder.serialize()
-        android.util.Log.d("ReverieRec", "saveRevp blob=${recBlob?.size ?: 0} bytes")
+        android.util.Log.d("RP_IO", "saveRevp blob=${recBlob?.size ?: 0} bytes to ${finalFile.absolutePath}")
         val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
+        android.util.Log.d("RP_IO", "saveRevp result=$saved, file exists=${finalFile.exists()}, length=${finalFile.length()}")
         if (!saved && !(finalFile.exists() && finalFile.length() > 0)) {
-            android.util.Log.w("ReverieRec", "saveRevp failed, no artifact")
+            android.util.Log.w("RP_IO", "saveRevp failed, no artifact")
         }
     }
 }
@@ -141,9 +149,11 @@ internal fun PaintViewModel.autoSaveProject() {
             }
             """.trimIndent()
         val recBlob = recorder.serialize()
+        android.util.Log.d("RP_IO", "autoSaveRevp blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
         val saved = ReverieCoreBridge.saveRevp(autoSaveFile.absolutePath, extraJson, recBlob)
+        android.util.Log.d("RP_IO", "autoSaveRevp result=$saved, file exists=${autoSaveFile.exists()}, length=${autoSaveFile.length()}")
         if (!saved && !(autoSaveFile.exists() && autoSaveFile.length() > 0)) {
-            android.util.Log.w("ReveriePaint", "autoSaveRevp failed, no artifact")
+            android.util.Log.w("RP_IO", "autoSaveRevp failed, no artifact")
         }
     }
 }
@@ -172,6 +182,7 @@ internal fun PaintViewModel.discardAndExit() {
 private fun PaintViewModel.recSessionDir(): File = File(appContext.filesDir, "rec_session")
 
 internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
+    android.util.Log.d("RP_IO", "loadProject START: name=${p.name}, path=${p.filePath}, isAutoSaved=${p.isAutoSaved}")
     stopPaintingTimer()
     // Navigate to painting page first, then show loading overlay while reading native file
     currentPage = Page.PAINTING
@@ -184,8 +195,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
             isModified = isRecovered // 异常恢复的工程标记为未保存
-            docWidth = coreW
-            docHeight = coreH
+            docWidth = if (coreW > 0) coreW else p.width
+            docHeight = if (coreH > 0) coreH else p.height
             docName = p.name
 
             val masterFile = File(projectDir(), "${p.name}.revp")
@@ -205,13 +216,17 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             if (isRecovered) {
                 showActionToast("已恢复到最后一次自动保存的状态", R.drawable.ic_save)
             }
+            android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified")
         },
     ) {
         val file = java.io.File(p.filePath)
+        android.util.Log.d("RP_IO", "loadProject OP: file exists=${file.exists()}, length=${file.length()}")
         if (file.exists()) {
             val ok =
                 if (file.extension.equals("revp", ignoreCase = true) || file.extension.equals("kra", ignoreCase = true)) {
-                    ReverieCoreBridge.loadRevp(file.absolutePath)
+                    val res = ReverieCoreBridge.loadRevp(file.absolutePath)
+                    android.util.Log.d("RP_IO", "loadRevp returned $res, nativeDocW=${ReverieCoreBridge.docWidth()}, nativeDocH=${ReverieCoreBridge.docHeight()}, nativeLayers=${ReverieCoreBridge.layerCount()}")
+                    res
                 } else {
                     ReverieCoreBridge.loadPng(file.absolutePath)
                 }
@@ -224,6 +239,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 syncLayersFromNative()
                 ReverieCoreBridge.setBrushColor(brushColor)
                 recorder.beginSession(coreW, coreH, file, recSessionDir())
+                android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, layers=${layers.size}")
+            } else {
+                android.util.Log.e("RP_IO", "loadProject OP FAILED for ${file.absolutePath}")
             }
         }
     }

@@ -241,6 +241,27 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     return ok;
 }
 
+static QByteArray readAllStoreBytes(KoStore *store)
+{
+    QByteArray data;
+    const qint64 total = store->size();
+    if (total > 0) {
+        data = store->read(total);
+        if (data.size() == total) {
+            return data;
+        }
+    }
+    // Fallback: read in chunks up to 64MB if size is -1, 0, or incomplete
+    char buf[65536];
+    while (true) {
+        qint64 n = store->read(buf, sizeof(buf));
+        if (n <= 0) break;
+        data.append(buf, int(n));
+        if (data.size() > 64 * 1024 * 1024) break;
+    }
+    return data;
+}
+
 bool ReverieCore::loadRevp(const QString &path)
 {
     QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Read, "", KoStore::Zip));
@@ -248,13 +269,9 @@ bool ReverieCore::loadRevp(const QString &path)
         return false;
     }
 
-    if (!store->hasFile("meta.json")) {
-        return false;
-    }
-
     QByteArray metaData;
     if (store->open("meta.json")) {
-        metaData = store->read(store->size());
+        metaData = readAllStoreBytes(store.data());
         store->close();
     }
     if (metaData.isEmpty()) {
@@ -342,20 +359,23 @@ bool ReverieCore::loadRevp(const QString &path)
             layer->disableAlphaChannel(layerObj["clipped"].toBool(false));
 
             const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
-            if (store->hasFile(layerFileName) && store->open(layerFileName)) {
-                QByteArray lData = store->read(store->size());
+            bool loadedPixelData = false;
+            if (store->open(layerFileName)) {
+                QByteArray lData = readAllStoreBytes(store.data());
                 store->close();
                 QImage lImg;
-                if (lImg.loadFromData(lData, "PNG")) {
+                if (!lData.isEmpty() && lImg.loadFromData(lData, "PNG")) {
                     KisPaintDeviceSP dev = layer->paintDevice();
                     if (dev) {
                         const QImage conv = lImg.convertToFormat(QImage::Format_ARGB32_Premultiplied);
                         dev->clear();
                         dev->writeBytes(reinterpret_cast<const quint8 *>(conv.constBits()), 0, 0, conv.width(), conv.height());
                         dev->setDirty();
+                        loadedPixelData = true;
                     }
                 }
-            } else if (isBg) {
+            }
+            if (!loadedPixelData && isBg) {
                 KoColor white(QColor(Qt::white), cs);
                 layer->original()->fill(QRect(0, 0, w, h), white);
                 layer->original()->setDirty();

@@ -82,6 +82,8 @@ internal fun CanvasOverlay(
             val image = imageBitmap ?: bmp.asImageBitmap()
             val imgW = bmp.width.toFloat()
             val imgH = bmp.height.toFloat()
+            if (imgW <= 0f || imgH <= 0f) return@Canvas
+
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
             val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
             withTransform({

@@ -166,9 +166,11 @@ fun CanvasView(
         }
     }
 
-    LaunchedEffect(bmp?.width, bmp?.height, viewW, viewH) {
-        if (bmp != null && viewW > 0 && viewH > 0) {
-            onFitScale(min(viewW.toFloat() / bmp.width, viewH.toFloat() / bmp.height) * 0.88f)
+    LaunchedEffect(bmp?.width, bmp?.height, vm.docWidth, vm.docHeight, viewW, viewH) {
+        val dw = if (bmp != null && bmp.width > 0) bmp.width else vm.docWidth
+        val dh = if (bmp != null && bmp.height > 0) bmp.height else vm.docHeight
+        if (dw > 0 && dh > 0 && viewW > 0 && viewH > 0) {
+            onFitScale(min(viewW.toFloat() / dw, viewH.toFloat() / dh) * 0.88f)
         }
     }
 
