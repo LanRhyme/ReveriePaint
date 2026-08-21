@@ -189,7 +189,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             paintLayer->original()->setDirty();
             newNode = paintLayer;
         } else if (type == LayerTypeAdjustment) {
-            paintLayer->setCompositeOpId(QStringLiteral("normal"));
+            paintLayer->setCompositeOpId(QStringLiteral("copy"));
             KisPaintDeviceSP proj(new KisPaintDevice(cs));
             const QRect full(0, 0, image->width(), image->height());
             proj->fill(full, KoColor(Qt::transparent, cs));
@@ -294,9 +294,10 @@ void ReverieCore::removeLayer(int index)
         return;
     }
     // Krita-native undo: a layer-remove command (undo re-inserts the node)
+    m_nodeFilters.remove(m_layers[index].node);
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
-    recompositeProjection();
     syncLayersFromImage();
+    recompositeProjection();
     markDirty();
 }
 

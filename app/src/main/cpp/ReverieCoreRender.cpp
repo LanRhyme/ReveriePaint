@@ -443,57 +443,6 @@ void ReverieCore::compositeRange(KisPaintDeviceSP out, int startIdx, int endIdx,
             }
             continue;
         }
-        if (m_nodeFilters.contains(e.node) && m_nodeFilters[e.node].hasFilter) {
-            const auto &cfg = m_nodeFilters[e.node];
-            const int w = full.width();
-            const int h = full.height();
-            QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-            out->readBytes(img.bits(), 0, 0, w, h);
-
-            if (cfg.filterType == 13 && cfg.lut.size() >= 768) {
-                const quint8 *r = reinterpret_cast<const quint8 *>(cfg.lut.constData());
-                const quint8 *g = r + 256;
-                const quint8 *b = g + 256;
-                filterParallelFor(0, h, [&](int startY, int endY) {
-                    for (int y = startY; y < endY; ++y) {
-                        quint8 *line = img.scanLine(y);
-                        for (int x = 0; x < w; ++x) {
-                            quint8 *px = line + x * 4;
-                            if (px[3] == 0) continue;
-                            px[2] = r[px[2]];
-                            px[1] = g[px[1]];
-                            px[0] = b[px[0]];
-                        }
-                    }
-                });
-            } else if (cfg.filterType == 30 && cfg.lut.size() >= int(256 * sizeof(quint32))) {
-                const quint32 *gLut = reinterpret_cast<const quint32 *>(cfg.lut.constData());
-                filterParallelFor(0, h, [&](int startY, int endY) {
-                    for (int y = startY; y < endY; ++y) {
-                        quint8 *line = img.scanLine(y);
-                        for (int x = 0; x < w; ++x) {
-                            quint8 *px = line + x * 4;
-                            if (px[3] == 0) continue;
-                            int lum = (px[2] * 299 + px[1] * 587 + px[0] * 114) / 1000;
-                            quint32 gCol = gLut[qBound(0, lum, 255)];
-                            int gr = (gCol >> 16) & 0xFF;
-                            int gg = (gCol >> 8) & 0xFF;
-                            int gb = gCol & 0xFF;
-                            int ga = (gCol >> 24) & 0xFF;
-                            px[2] = quint8(gr);
-                            px[1] = quint8(gg);
-                            px[0] = quint8(gb);
-                            px[3] = quint8((px[3] * ga) / 255);
-                        }
-                    }
-                });
-            } else if (cfg.filterType >= 0) {
-                processFilterImage(cfg.filterType, cfg.p1, cfg.p2, cfg.p3, cfg.p4, img, w, h);
-            }
-            out->writeBytes(img.constBits(), 0, 0, w, h);
-            ++i;
-            continue;
-        }
         if (e.isGroup) {
             int j = i + 1;
             while (j < endIdx && j < m_layers.size() && m_layers[j].depth > e.depth) {

@@ -204,6 +204,18 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
+    // Purge any stale nodes that no longer exist in the document
+    QSet<KisNode *> currentNodes;
+    for (const auto &e : m_layers) {
+        if (e.node) currentNodes.insert(e.node);
+    }
+    for (auto it = m_nodeFilters.begin(); it != m_nodeFilters.end(); ) {
+        if (!currentNodes.contains(it.key())) {
+            it = m_nodeFilters.erase(it);
+        } else {
+            ++it;
+        }
+    }
     // Update any active filter layers from underlying composite
     for (int i = 0; i < m_layers.size(); ++i) {
         KisNode *node = m_layers[i].node;
