@@ -53,6 +53,11 @@
 #include <algorithm>
 #include <queue>
 #include <kis_clone_layer.h>
+#include <kis_adjustment_layer.h>
+#include <filter/kis_filter_registry.h>
+#include <filter/kis_filter.h>
+#include <filter/kis_filter_configuration.h>
+#include <KisGlobalResourcesInterface.h>
 #include <kis_transparency_mask.h>
 #include <kis_filter_mask.h>
 #include <kis_transform_mask.h>
