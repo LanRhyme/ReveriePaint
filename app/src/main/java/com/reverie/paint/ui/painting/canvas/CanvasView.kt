@@ -276,18 +276,6 @@ fun CanvasView(
             checkerboardPaint = checkerboardPaint,
         )
 
-        // Brush cursor ring in its own layer
-        BrushCursorOverlay(
-            vm = vm,
-            tool = tool,
-            zoom = zoom,
-            fitScale = fitScale,
-            liquifyBrushSize = liquifyBrushSize,
-            cursorScreenPos = cursorScreenPos,
-            isCursorHovering = isCursorHovering,
-            isCursorTouching = isCursorTouching,
-            livePressure = livePressure,
-        )
 
         // 原生硬件级触控层 (完全隔离 onHover 与 onTouch，驱动 ScaleGestureDetector)
         androidx.compose.ui.viewinterop.AndroidView(
