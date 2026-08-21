@@ -269,10 +269,21 @@ class CanvasTouchView(context: Context) : View(context) {
         )
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        android.util.Log.e("TouchDiag", "dispatchTouchEvent: action=${MotionEvent.actionToString(event.actionMasked)} count=${event.pointerCount} tool0=${event.getToolType(0)}")
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean {
+        android.util.Log.e("TouchDiag", "dispatchHoverEvent: action=${MotionEvent.actionToString(event.actionMasked)}")
+        return super.dispatchHoverEvent(event)
+    }
+
     // -------------------------------------------------------------
     // 1. 悬停处理 (空中手写笔 / 鼠标) - 原生重绘，0 Compose 开销
     // -------------------------------------------------------------
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        android.util.Log.e("TouchDiag", "onHoverEvent: action=${MotionEvent.actionToString(event.actionMasked)} pos=(${event.x.toInt()}, ${event.y.toInt()})")
         val v = vm ?: return super.onHoverEvent(event)
         val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
             v.cursorStyleMode != 4
@@ -323,6 +334,7 @@ class CanvasTouchView(context: Context) : View(context) {
     // 2. 接触触控处理 (手写笔落笔绘画 vs 手指画布导航)
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        android.util.Log.e("TouchDiag", "onTouchEvent: action=${MotionEvent.actionToString(event.actionMasked)} count=${event.pointerCount} isTransformActive=$isTransformActive")
         val v = vm ?: return super.onTouchEvent(event)
         val pointerCount = event.pointerCount
 
@@ -330,11 +342,12 @@ class CanvasTouchView(context: Context) : View(context) {
         pendingUndoRunnable?.let { removeCallbacks(it) }
         removeCallbacks(resetTransformRunnable)
 
-        // 检查是否有手写笔参与触摸
+        // 检查是否有真实手写笔接触屏幕 (真实落笔必有压感 > 0.01f；悬停时的伪触控 pressure == 0 属于手指手势)
         var stylusPointerIndex = -1
         for (i in 0 until pointerCount) {
             val type = event.getToolType(i)
-            if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
+            val pr = event.getPressure(i)
+            if ((type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) && pr > 0.01f) {
                 stylusPointerIndex = i
                 break
             }
