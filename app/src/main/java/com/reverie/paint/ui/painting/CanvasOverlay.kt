@@ -77,7 +77,11 @@ internal fun CanvasOverlay(
     checkerboardPaint: android.graphics.Paint,
 ) {
         Canvas(Modifier.fillMaxSize()) {
-            val image = imageBitmap ?: return@Canvas
+            val rev = vm.displayRevision
+            val bmp = vm.displayBitmap ?: return@Canvas
+            val image = imageBitmap ?: bmp.asImageBitmap()
+            val imgW = bmp.width.toFloat()
+            val imgH = bmp.height.toFloat()
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
             val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
             withTransform({
@@ -87,8 +91,8 @@ internal fun CanvasOverlay(
             }) {
                 drawRect(
                     Morandi.canvasShadow,
-                    topLeft = Offset(-image.width / 2f, -image.height / 2f),
-                    size = androidx.compose.ui.geometry.Size(image.width.toFloat(), image.height.toFloat()),
+                    topLeft = Offset(-imgW / 2f, -imgH / 2f),
+                    size = androidx.compose.ui.geometry.Size(imgW, imgH),
                 )
             }
             withTransform({
@@ -99,10 +103,10 @@ internal fun CanvasOverlay(
                 // Draw transparency checkerboard under the canvas image
                 val nativeCanvas = drawContext.canvas.nativeCanvas
                 nativeCanvas.drawRect(
-                    -image.width / 2f,
-                    -image.height / 2f,
-                    image.width / 2f,
-                    image.height / 2f,
+                    -imgW / 2f,
+                    -imgH / 2f,
+                    imgW / 2f,
+                    imgH / 2f,
                     checkerboardPaint
                 )
                 
@@ -112,12 +116,12 @@ internal fun CanvasOverlay(
                     isAntiAlias = vm.magnificationInterpolation
                     isDither = true
                 }
-                nativeCanvas.drawBitmap(image.asAndroidBitmap(), -image.width / 2f, -image.height / 2f, imagePaint)
+                nativeCanvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, imagePaint)
 
                 // Pixel grid on high zoom (scale >= 4.0)
                 if (vm.pixelGridEnabled && scale >= 4f) {
-                    val halfW = image.width / 2f
-                    val halfH = image.height / 2f
+                    val halfW = imgW / 2f
+                    val halfH = imgH / 2f
                     val gridAlpha = ((scale - 4f) / 4f).coerceIn(0f, 1f) * 0.15f
                     if (gridAlpha > 0.01f) {
                         val gridPaint = android.graphics.Paint().apply {
