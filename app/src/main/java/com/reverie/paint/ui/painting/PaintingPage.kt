@@ -81,6 +81,27 @@ import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
 import kotlin.math.min
 import kotlin.math.roundToInt
+import com.reverie.paint.ui.painting.brush.BrushPanel
+import com.reverie.paint.ui.painting.brush.BrushStudioPage
+import com.reverie.paint.ui.painting.canvas.CanvasView
+import com.reverie.paint.ui.painting.canvas.TransformMode
+import com.reverie.paint.ui.painting.canvas.TransformState
+import com.reverie.paint.ui.painting.layers.LayerPanel
+import com.reverie.paint.ui.painting.panels.AllToolsPanel
+import com.reverie.paint.ui.painting.panels.ColorPanel
+import com.reverie.paint.ui.painting.panels.CropPanel
+import com.reverie.paint.ui.painting.panels.FillPanel
+import com.reverie.paint.ui.painting.panels.GradientPanel
+import com.reverie.paint.ui.painting.panels.LiquifyPanel
+import com.reverie.paint.ui.painting.panels.PickerLayerSourceBar
+import com.reverie.paint.ui.painting.panels.SelectionFloatPanel
+import com.reverie.paint.ui.painting.panels.SelectionMenuItem
+import com.reverie.paint.ui.painting.panels.SettingsPanel
+import com.reverie.paint.ui.painting.panels.ShapeToolPanel
+import com.reverie.paint.ui.painting.panels.ToolFloatChip
+import com.reverie.paint.ui.painting.panels.ToolFloatPanel
+import com.reverie.paint.ui.painting.panels.ToolRail
+import com.reverie.paint.ui.painting.panels.TransformPanel
 
 /**
  * Painting page: full-bleed canvas with touch painting + gestures,

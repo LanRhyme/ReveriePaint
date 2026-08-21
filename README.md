@@ -46,13 +46,11 @@ Kotlin/Compose UI ── JNI ── C++ ReverieCore ── Krita libs (KisImage/
     - `create/` 创建画布页 (尺寸预设/背景色)
     - `painting/` 绘画页
       - `PaintingPage.kt` 页面编排
-      - `CanvasView.kt` 画布 (触摸绘画+手势)
-      - `TopBar.kt` 顶部操作栏
-      - `ToolRail.kt` 左侧工具栏
-      - `LayerPanel.kt` 图层面板
-      - `BrushPanel.kt` 笔刷面板
-      - `ColorPanel.kt` 取色面板
-      - `SettingsPanel.kt` 设置面板
+      - `canvas/` 画布视图 (触摸绘画+手势+覆盖层)
+      - `layers/` 图层面板/图层详情/滤镜页
+      - `brush/` 笔刷面板 + 笔刷工坊
+      - `panels/` 工具栏/工具属性面板/取色器/设置面板
+    - `replay/` 回放页
 - `app/src/main/cpp/`
   - `ReverieCore.h/.cpp` 绘画引擎 (无 QWidget 依赖)
   - `reverie_jni.cpp` JNI 桥

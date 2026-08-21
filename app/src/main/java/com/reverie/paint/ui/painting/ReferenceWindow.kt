@@ -60,6 +60,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import com.reverie.paint.ui.painting.canvas.angleDegrees
+import com.reverie.paint.ui.painting.canvas.normalizeAngle
 
 private data class PlacedReferenceImage(
     val bitmap: Bitmap,

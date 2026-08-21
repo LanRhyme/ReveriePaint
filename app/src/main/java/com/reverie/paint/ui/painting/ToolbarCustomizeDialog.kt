@@ -61,6 +61,7 @@ import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
+import com.reverie.paint.ui.painting.panels.toolIcon
 
 private val rowHeight = 48.dp
 
