@@ -245,128 +245,7 @@ fun CanvasView(
                     viewW = it.width
                     viewH = it.height
                     vm.setRenderViewport(it.width, it.height)
-                }.background(Morandi.canvasBg)
-                .pointerHoverIcon(customPointerIcon, overrideDescendants = false)
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                            // 优先拾取触控笔/鼠标事件，防止手掌触控或悬停多点冲突
-                            val change =
-                                event.changes.firstOrNull {
-                                    it.type == PointerType.Stylus ||
-                                        it.type == PointerType.Eraser ||
-                                        it.type == PointerType.Mouse
-                                } ?: event.changes.firstOrNull()
-
-                            if (change != null) {
-                                val isStylusOrMouse =
-                                    change.type == PointerType.Stylus ||
-                                        change.type == PointerType.Eraser ||
-                                        change.type == PointerType.Mouse
-
-                                if (vm.penOnlyMode && !isStylusOrMouse) {
-                                    // 笔模式下手掌或手指触摸不驱动画笔光标
-                                    continue
-                                }
-
-                                cursorScreenPos.value = change.position
-                                when (event.type) {
-                                    PointerEventType.Enter, PointerEventType.Move -> {
-                                        isCursorHovering.value = !change.pressed
-                                        isCursorTouching.value = change.pressed
-                                        if (!change.pressed) {
-                                            livePressure.value = 1f
-                                        }
-                                        if (hideSystemCursorForTool && systemNullPointer != null) {
-                                            if (view.pointerIcon != systemNullPointer) {
-                                                view.pointerIcon = systemNullPointer
-                                            }
-                                        }
-                                    }
-
-                                    PointerEventType.Exit -> {
-                                        isCursorHovering.value = false
-                                        isCursorTouching.value = false
-                                        cursorScreenPos.value = null
-                                        livePressure.value = 1f
-                                        if (systemDefaultPointer != null && view.pointerIcon != systemDefaultPointer) {
-                                            view.pointerIcon = systemDefaultPointer
-                                        }
-                                    }
-
-                                    PointerEventType.Press -> {
-                                        isCursorTouching.value = true
-                                        isCursorHovering.value = false
-                                        if (hideSystemCursorForTool && systemNullPointer != null) {
-                                            if (view.pointerIcon != systemNullPointer) {
-                                                view.pointerIcon = systemNullPointer
-                                            }
-                                        }
-                                    }
-
-                                    PointerEventType.Release -> {
-                                        isCursorTouching.value = false
-                                        if (isStylusOrMouse) {
-                                            // 触控笔/鼠标：抬起后进入悬停态，指针继续跟随
-                                            isCursorHovering.value = true
-                                        } else {
-                                            // 手指：无 hover 概念，离开屏幕即隐藏指针
-                                            isCursorHovering.value = false
-                                            cursorScreenPos.value = null
-                                        }
-                                        livePressure.value = 1f
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Only stable document/tool identity belongs in the key
-                .pointerInput(tool, bmp?.width, bmp?.height) {
-                    val image = bmp ?: return@pointerInput
-                    if (latestFitScale <= 0f) return@pointerInput
-                    awaitCanvasGesture(
-                        image = image,
-                        bmp = bmp,
-                        tool = tool,
-                        vm = vm,
-                        tfState = tfState,
-                        viewW = { viewW },
-                        viewH = { viewH },
-                        latestZoom = { latestZoom },
-                        latestRotation = { latestRotation },
-                        latestPanX = { latestPanX },
-                        latestPanY = { latestPanY },
-                        latestFitScale = { latestFitScale },
-                        zoom = zoom,
-                        fitScale = fitScale,
-                        liveShapeStart = liveShapeStart,
-                        liveShapeEnd = liveShapeEnd,
-                        livePressure = livePressure,
-                        measureStart = measureStart,
-                        measureEnd = measureEnd,
-                        wandFlash = wandFlash,
-                        pickerActive = pickerActive,
-                        pickerScreenPos = pickerScreenPos,
-                        pickerInitialColor = pickerInitialColor,
-                        pickerCurrentColor = pickerCurrentColor,
-                        liveSelectionPath = liveSelectionPath,
-                        cursorScreenPos = cursorScreenPos,
-                        isCursorHovering = isCursorHovering,
-                        isCursorTouching = isCursorTouching,
-                        polyPoints = polyPoints,
-                        onPolyPoint = onPolyPoint,
-                        cropRect = cropRect,
-                        onCropRect = onCropRect,
-                        fillTolerance = fillTolerance,
-                        gradientType = gradientType,
-                        liquifyStrength = liquifyStrength,
-                        liquifyMode = liquifyMode,
-                        onTransform = onTransform,
-                        onTextRequested = onTextRequested,
-                    )
-                },
+                }.background(Morandi.canvasBg),
     ) {
         CanvasOverlay(
             imageBitmap = imageBitmap,
@@ -396,9 +275,8 @@ fun CanvasView(
             liveSelectionPath = liveSelectionPath,
             checkerboardPaint = checkerboardPaint,
         )
-        // Brush cursor ring in its own layer: cursor position/pressure change
-        // at input rate, so sharing the image Canvas re-drew the full-screen
-        // bitmap on every pointer move (major jank while scribbling)
+
+        // Brush cursor ring in its own layer
         BrushCursorOverlay(
             vm = vm,
             tool = tool,
@@ -409,6 +287,49 @@ fun CanvasView(
             isCursorHovering = isCursorHovering,
             isCursorTouching = isCursorTouching,
             livePressure = livePressure,
+        )
+
+        // 原生硬件级触控层 (完全隔离 onHover 与 onTouch，驱动 ScaleGestureDetector)
+        androidx.compose.ui.viewinterop.AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                CanvasTouchView(ctx)
+            },
+            update = { touchView ->
+                touchView.vm = vm
+                touchView.tool = tool
+                touchView.tfState = tfState
+                touchView.docBitmap = bmp
+                touchView.viewW = viewW
+                touchView.viewH = viewH
+                touchView.canvasZoom = zoom
+                touchView.canvasRotation = rotation
+                touchView.canvasPanX = panX
+                touchView.canvasPanY = panY
+                touchView.canvasFitScale = fitScale
+                touchView.onTransform = onTransform
+                touchView.onTextRequested = onTextRequested
+                touchView.onPolyPoint = onPolyPoint
+                touchView.onCropRect = onCropRect
+                touchView.liveShapeStart = liveShapeStart
+                touchView.liveShapeEnd = liveShapeEnd
+                touchView.livePressure = livePressure
+                touchView.measureStart = measureStart
+                touchView.measureEnd = measureEnd
+                touchView.wandFlash = wandFlash
+                touchView.pickerActive = pickerActive
+                touchView.pickerScreenPos = pickerScreenPos
+                touchView.pickerInitialColor = pickerInitialColor
+                touchView.pickerCurrentColor = pickerCurrentColor
+                touchView.liveSelectionPath = liveSelectionPath
+                touchView.cursorScreenPos = cursorScreenPos
+                touchView.isCursorHovering = isCursorHovering
+                touchView.isCursorTouching = isCursorTouching
+                touchView.fillTolerance = fillTolerance
+                touchView.gradientType = gradientType
+                touchView.liquifyStrength = liquifyStrength
+                touchView.liquifyMode = liquifyMode
+            },
         )
     }
 }
