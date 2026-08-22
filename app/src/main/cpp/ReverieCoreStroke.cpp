@@ -107,6 +107,20 @@ void ReverieCore::touchStrokeEnd()
         tempTarget->clear();
     }
 
+    // Canvas Boundary & Memory Optimization:
+    // When not in infinite canvas mode, automatically crop out-of-bounds tiles
+    // from the layer's paint device INSIDE the transaction so it's fully tracked by undo.
+    if (!m_infiniteCanvas && m_document) {
+        const QRect canvasBounds(0, 0, m_document->width(), m_document->height());
+        KisPaintDeviceSP dev = pl ? pl->paintDevice() : currentPaintDevice();
+        if (dev) {
+            const QRect ext = dev->exactBounds();
+            if (!ext.isEmpty() && !canvasBounds.contains(ext)) {
+                dev->crop(canvasBounds);
+            }
+        }
+    }
+
     // Commit the Krita transaction: the tile snapshots taken at creation
     // are diffed and the undo command is pushed to the store. In replay
     // mode the transaction is dropped instead (stroke content stays).
@@ -119,20 +133,6 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxn = nullptr;
         m_strokeTxnActive = false;
         m_redoCount = 0;
-    }
-
-    // Canvas Boundary & Memory Optimization:
-    // When not in infinite canvas mode, automatically crop out-of-bounds tiles
-    // from the layer's paint device to ensure zero memory waste outside the visible canvas.
-    if (!m_infiniteCanvas && m_document) {
-        const QRect canvasBounds(0, 0, m_document->width(), m_document->height());
-        KisPaintDeviceSP dev = pl ? pl->paintDevice() : currentPaintDevice();
-        if (dev) {
-            const QRect ext = dev->exactBounds();
-            if (!ext.isEmpty() && !canvasBounds.contains(ext)) {
-                dev->crop(canvasBounds);
-            }
-        }
     }
 
     m_drawing = false;
@@ -741,6 +741,14 @@ void ReverieCore::undo()
     m_undoStore->undo();
     ++m_redoCount;
     syncLayersFromImage();
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (KisLayer *l = dynamic_cast<KisLayer *>(m_layers[i].node)) {
+            if (KisPaintDeviceSP dev = l->paintDevice()) {
+                dev->setDirty();
+            }
+        }
+        bumpLayerThumbGen(m_layers[i].node);
+    }
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;
@@ -754,6 +762,14 @@ void ReverieCore::redo()
     m_undoStore->redo();
     --m_redoCount;
     syncLayersFromImage();
+    for (int i = 0; i < m_layers.size(); ++i) {
+        if (KisLayer *l = dynamic_cast<KisLayer *>(m_layers[i].node)) {
+            if (KisPaintDeviceSP dev = l->paintDevice()) {
+                dev->setDirty();
+            }
+        }
+        bumpLayerThumbGen(m_layers[i].node);
+    }
     recompositeProjection();
     markDirty();
     m_snapshotPending = false;

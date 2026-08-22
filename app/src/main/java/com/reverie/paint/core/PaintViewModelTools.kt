@@ -653,11 +653,7 @@ internal fun PaintViewModel.undo() {
     if (ReverieCoreBridge.canUndo()) {
         showActionToast("撤销", R.drawable.ic_undo)
         runCore(after = {
-            // Rapid consecutive undo merges into one frame render (16ms
-            // scheduleRender throttle) and one thumbnail refresh (400ms
-            // debounce); rendering every intermediate state starves the
-            // render thread and makes the undo chain laggy/stuck
-            notifyLayerChanged(forceThumbs = false, immediateRender = false)
+            notifyLayerChanged(forceThumbs = false, immediateRender = true)
             refreshSelection()
         }) {
             ReverieCoreBridge.undo()
@@ -669,7 +665,7 @@ internal fun PaintViewModel.redo() {
     if (ReverieCoreBridge.canRedo()) {
         showActionToast("恢复", R.drawable.ic_redo)
         runCore(after = {
-            notifyLayerChanged(forceThumbs = false, immediateRender = false)
+            notifyLayerChanged(forceThumbs = false, immediateRender = true)
             refreshSelection()
         }) {
             ReverieCoreBridge.redo()
