@@ -89,6 +89,16 @@ object ReverieCoreBridge {
         h: Int,
     ): Boolean
 
+    external fun newDocumentEx(
+        w: Int,
+        h: Int,
+        infiniteCanvas: Boolean,
+    ): Boolean
+
+    external fun setInfiniteCanvas(infinite: Boolean)
+
+    external fun isInfiniteCanvas(): Boolean
+
     external fun fillBackground(color: String)
 
     external fun clearCanvas()

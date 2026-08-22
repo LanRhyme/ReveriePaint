@@ -40,7 +40,9 @@ public:
     ~ReverieCore();
 
     // Document
-    bool newDocument(int width, int height);
+    bool newDocument(int width, int height, bool infiniteCanvas = false);
+    bool isInfiniteCanvas() const { return m_infiniteCanvas; }
+    void setInfiniteCanvas(bool infinite) { m_infiniteCanvas = infinite; }
     void fillBackground(const QString &colorName);
     void clearCanvas();
 
@@ -546,6 +548,7 @@ private:
     // Kotlin rotation copies this region into the other non-displayed
     // buffers so every buffer stays incremental without full re-renders.
     QRect m_lastWrittenRect;
+    bool m_infiniteCanvas = false;
 
 public:
     /** Region written by the last successful renderToBuffer (buffer coords). */

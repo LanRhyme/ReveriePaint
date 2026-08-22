@@ -45,6 +45,7 @@ class PaintViewModel : ViewModel() {
 
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
+    var isInfiniteCanvas by mutableStateOf(false)
     var docName by mutableStateOf("Untitled")
     var totalStrokes by mutableStateOf(0)
     var initialStrokeCount by mutableStateOf(0)

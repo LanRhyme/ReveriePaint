@@ -577,6 +577,7 @@ internal fun PaintViewModel.startPainting(
     w: Int,
     h: Int,
     name: String? = null,
+    isInfiniteCanvas: Boolean = false,
 ) {
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     currentProjectFile = null // Reset so new artwork won't overwrite previous project file
@@ -594,12 +595,13 @@ internal fun PaintViewModel.startPainting(
             isModified = false
             docWidth = w
             docHeight = h
+            this.isInfiniteCanvas = isInfiniteCanvas
             docName = actualName
             isBlockingLoading = false
             startPaintingTimer()
         },
     ) {
-        if (ReverieCoreBridge.newDocument(w, h)) {
+        if (ReverieCoreBridge.newDocumentEx(w, h, isInfiniteCanvas)) {
             coreW = w
             coreH = h
             renderW = w

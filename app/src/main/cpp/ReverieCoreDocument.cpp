@@ -23,11 +23,13 @@ ReverieCore::~ReverieCore()
     m_document.clear(); // KisImageSP releases the image
 }
 
-bool ReverieCore::newDocument(int width, int height)
+bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
 {
     if (width <= 0 || height <= 0) {
         return false;
     }
+
+    m_infiniteCanvas = infiniteCanvas;
 
     // Release any previous document. KisImage destructor frees its owned undo store,
     // so m_undoStore must be reset to nullptr to prevent dangling pointer access.

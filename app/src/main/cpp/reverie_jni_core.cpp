@@ -128,7 +128,25 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *)
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_newDocument(JNIEnv *env, jobject, jint w, jint h)
 {
-    return core()->newDocument(w, h) ? JNI_TRUE : JNI_FALSE;
+    return core()->newDocument(w, h, false) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_newDocumentEx(JNIEnv *env, jobject, jint w, jint h, jboolean infiniteCanvas)
+{
+    return core()->newDocument(w, h, infiniteCanvas == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setInfiniteCanvas(JNIEnv *, jobject, jboolean infinite)
+{
+    core()->setInfiniteCanvas(infinite == JNI_TRUE);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_isInfiniteCanvas(JNIEnv *, jobject)
+{
+    return core()->isInfiniteCanvas() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL

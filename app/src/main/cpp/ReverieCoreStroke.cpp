@@ -120,6 +120,21 @@ void ReverieCore::touchStrokeEnd()
         m_strokeTxnActive = false;
         m_redoCount = 0;
     }
+
+    // Canvas Boundary & Memory Optimization:
+    // When not in infinite canvas mode, automatically crop out-of-bounds tiles
+    // from the layer's paint device to ensure zero memory waste outside the visible canvas.
+    if (!m_infiniteCanvas && m_document) {
+        const QRect canvasBounds(0, 0, m_document->width(), m_document->height());
+        KisPaintDeviceSP dev = pl ? pl->paintDevice() : currentPaintDevice();
+        if (dev) {
+            const QRect ext = dev->exactBounds();
+            if (!ext.isEmpty() && !canvasBounds.contains(ext)) {
+                dev->crop(canvasBounds);
+            }
+        }
+    }
+
     m_drawing = false;
 }
 
