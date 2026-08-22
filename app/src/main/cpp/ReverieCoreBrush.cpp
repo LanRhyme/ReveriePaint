@@ -257,8 +257,10 @@ void ReverieCore::setBrushFlow(qreal v)
 }
 
 // Smudge engine parameters. Key names verified against bundled presets:
-// k)_Blender_Basic.kpp exposes SmudgeRateValue (length), ColorRateValue and
-// legacy MixValue (color mixing rate), paintop="colorsmudge".
+// k)_Blender_Basic.kpp exposes SmudgeRateValue (length) and ColorRateValue
+// (color mixing rate), paintop="colorsmudge". The rate is written to both
+// ColorRateValue and legacy MixValue so new-generation presets (reading
+// ColorRateValue) and old-generation ones (reading MixValue) both pick it up.
 void ReverieCore::setBrushSmudgeRate(qreal v)
 {
     m_smudgeRate = v;

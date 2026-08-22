@@ -774,6 +774,8 @@ import kotlinx.coroutines.launch
             ReverieCoreBridge.setBrushSharpness(brushSharpness)
             ReverieCoreBridge.setBrushRotation(brushRotation)
             ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
+            ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
+            ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
         }
     }
 
