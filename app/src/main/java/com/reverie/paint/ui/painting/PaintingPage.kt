@@ -186,8 +186,9 @@ fun PaintingPage(
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
 
-    // Currently selected tool
-    var tool by remember { mutableStateOf(Tool.BRUSH) }
+    // 当前工具: 直接从 ViewModel 派生, 保证重启恢复与引擎内自动切换
+    // (如选橡皮擦分组预设反向触发 applyTool) 时 UI 高亮始终一致
+    val tool = Tool.fromId(vm.currentToolId)
     var moreToolsOpen by remember { mutableStateOf(false) }
     var selectionMenuOpen by remember { mutableStateOf(false) }
     var selectionPanelOpen by remember { mutableStateOf(false) }
@@ -561,7 +562,7 @@ fun PaintingPage(
                 selectionMenuOpen -> selectionMenuOpen = false
                 selectionPanelOpen -> selectionPanelOpen = false
                 selectionPropsOpen -> selectionPropsOpen = false
-                tool != Tool.BRUSH -> tool = Tool.BRUSH
+                vm.currentToolId != "brush" -> vm.applyTool("brush")
                 else -> requestExit()
             }
         }
@@ -669,7 +670,6 @@ fun PaintingPage(
                     vm.referenceWindowOpen = !vm.referenceWindowOpen
                     moreToolsOpen = false
                 } else {
-                    tool = it
                     vm.applyTool(it.id)
                     // Auto-open the floating selection panel for selection tools
                     if (it in selectionTools) {
@@ -1261,7 +1261,6 @@ fun PaintingPage(
                         vm.referenceWindowOpen = !vm.referenceWindowOpen
                         moreToolsOpen = false
                     } else {
-                        tool = it
                         vm.applyTool(it.id)
                         if (it in selectionTools) {
                             selectionPanelOpen = true
