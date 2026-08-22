@@ -244,16 +244,22 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    const bool isEraserPreset = m_brushPreset && m_brushPreset->settings() &&
-        (m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase"));
+    const bool isEraserPreset = m_brushPreset && (
+        m_brushPreset->name().startsWith(QLatin1String("a)_")) ||
+        m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive) ||
+        (m_brushPreset->settings() && m_brushPreset->settings()->getString("CompositeOp") == QLatin1String("erase"))
+    );
     const bool erasing = (m_toolMode == ToolEraser) || isEraserPreset;
+
+    const QString effectiveOp = erasing ? QStringLiteral("erase") :
+        (m_brushPreset && m_brushPreset->settings() && m_brushPreset->settings()->getString("CompositeOp") != QLatin1String("erase")
+            ? m_brushPreset->settings()->getString("CompositeOp")
+            : QStringLiteral("normal"));
 
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
+        m_brushPreset->settings()->setProperty("CompositeOp", effectiveOp);
     }
-
-    const QString effectiveOp = erasing ? QStringLiteral("erase") :
-        (m_brushPreset && m_brushPreset->settings() ? m_brushPreset->settings()->paintOpCompositeOp() : QStringLiteral("normal"));
 
     // Krita indirect painting check:
     // Non-incremental brushes (like experimentbrush / Shape_fill, sketch, curve)
@@ -293,6 +299,19 @@ void ReverieCore::flushStrokeBatch()
         return;
     }
 
+    const KoColorSpace *cs = image->colorSpace();
+    QColor qColor(m_strokeColor);
+    if (!qColor.isValid()) {
+        qColor = Qt::black;
+    }
+    KoColor koColor(qColor, cs);
+
+    QColor qBgColor(m_brushSecondaryColor);
+    if (!qBgColor.isValid()) {
+        qBgColor = Qt::white;
+    }
+    KoColor koBgColor(qBgColor, cs);
+
     // Krita-style: reuse one KisPainter for the whole stroke.
     if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
@@ -316,8 +335,11 @@ void ReverieCore::flushStrokeBatch()
         m_strokePainter = new KisPainter(target);
         m_strokePainter->setFillStyle(KisPainter::FillStyleForegroundColor);
         m_strokePainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
-        // Apply effective composite op to painter
         m_strokePainter->setCompositeOpId(painterCompOp);
+        m_strokePainter->setOpacityF(needsIndirect ? 1.0 : qBound<qreal>(0.0, m_strokeOpacity, 1.0));
+        m_strokePainter->setPaintColor(koColor);
+        m_strokePainter->setBackgroundColor(koBgColor);
+
         // Constrain the whole stroke to the active selection (if any)
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
@@ -357,31 +379,15 @@ void ReverieCore::flushStrokeBatch()
     // Re-sync the composite op on every flush so mid-stroke parameter
     // changes (blend-mode dropdown, eraser preset switch) take effect.
     m_strokePainter->setCompositeOpId(painterCompOp);
+    m_strokePainter->setOpacityF(needsIndirect ? 1.0 : qBound<qreal>(0.0, m_strokeOpacity, 1.0));
+    m_strokePainter->setPaintColor(koColor);
+    m_strokePainter->setBackgroundColor(koBgColor);
     if (m_selection) {
         m_strokePainter->setSelection(m_selection);
     } else {
         m_strokePainter->setSelection(KisSelectionSP());
     }
     KisPainter &painter = *m_strokePainter;
-    const KoColorSpace *cs = image->colorSpace();
-    QColor qColor(m_strokeColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
-    }
-    KoColor koColor(qColor, cs);
-    painter.setPaintColor(koColor);
-
-    QColor qBgColor(m_brushSecondaryColor);
-    if (!qBgColor.isValid()) {
-        qBgColor = Qt::white;
-    }
-    KoColor koBgColor(qBgColor, cs);
-    painter.setBackgroundColor(koBgColor);
-    // Per-dab opacity (Krita behaviour): the brush op reads the preset's
-    // opacity/flow internally; the painter-level opacity covers the fallback
-    // dab loop and the eraser.
-    painter.setOpacityF(needsIndirect ? 1.0 : qBound<qreal>(0.0, m_strokeOpacity, 1.0));
-    painter.setCompositeOpId(painterCompOp);
 
     // Genuine tap only (no movement): paint a round dot. KisPainter::drawLine
     // with identical start/end returns immediately, so use paintEllipse

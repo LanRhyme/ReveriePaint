@@ -583,7 +583,10 @@ import kotlinx.coroutines.launch
             val json = org.json.JSONArray(raw)
             for (i in 0 until json.length()) {
                 val o = json.getJSONObject(i)
-                brushParams[o.getString("n")] = BrushParams(
+                val name = o.getString("n")
+                val isEraser = name.startsWith("a)_") || name.contains("Eraser", ignoreCase = true)
+                val rawCop = o.optString("cop", "normal")
+                brushParams[name] = BrushParams(
                     size = o.optDouble("s", 20.0),
                     opacity = o.optDouble("o", 1.0),
                     flow = o.optDouble("f", 1.0),
@@ -595,7 +598,7 @@ import kotlinx.coroutines.launch
                     ratio = o.optDouble("ra", 1.0),
                     sharpness = o.optDouble("sh", 0.0),
                     rotation = o.optDouble("ro", 0.0),
-                    compositeOp = o.optString("cop", "normal"),
+                    compositeOp = if (!isEraser && rawCop == "erase") "normal" else rawCop,
                     antiAliasing = o.optInt("aa", 1),
                     tipShape = o.optInt("ts", 0),
                     randomFlipX = o.optBoolean("rfx", false),

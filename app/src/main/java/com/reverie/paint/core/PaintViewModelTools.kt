@@ -160,10 +160,20 @@ internal fun PaintViewModel.touchStart(
         showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
         return
     }
+    val mode =
+        when (currentToolId) {
+            "brush" -> 0
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> 0
+        }
     smoothedStrokeX = x
     smoothedStrokeY = y
     smoothedStrokePressure = effPressure
-    runCore { ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure) }
+    runCore {
+        ReverieCoreBridge.setToolMode(mode)
+        ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
+    }
 }
 
 internal fun PaintViewModel.touchMove(
