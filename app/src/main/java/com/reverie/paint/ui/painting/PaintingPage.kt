@@ -17,6 +17,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,22 +55,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -202,7 +208,6 @@ fun PaintingPage(
     val tfState = remember { TransformState() }
     var cropRect by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     var gradientType by remember { mutableStateOf(0) }
-    var fillTolerance by remember { mutableStateOf(24) }
     var liquifyStrength by remember { mutableStateOf(0.9f) }
     var liquifyMode by remember { mutableStateOf(0) }
     var liquifyBrushSize by remember { mutableStateOf(60f) }
@@ -214,8 +219,8 @@ fun PaintingPage(
     var colorDropPos by remember { mutableStateOf(Offset.Zero) }
     var colorDropHex by remember { mutableStateOf(vm.brushColor) }
 
-    val diffusionWaves = remember { androidx.compose.runtime.mutableStateListOf<FillDiffusionWave>() }
-    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    val diffusionWaves = remember { mutableStateListOf<FillDiffusionWave>() }
+    val coroutineScope = rememberCoroutineScope()
 
     val triggerFillDiffusion: (Offset, Color) -> Unit = { screenOrigin, waveColor ->
         val waveId = System.currentTimeMillis()
@@ -236,30 +241,39 @@ fun PaintingPage(
 
     val handleColorDrop: (Offset) -> Unit = { dropScreenPos ->
         val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
-        if (activeLayer?.isGroup == true) {
-            vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
-        } else if (activeLayer?.locked == true) {
-            vm.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
-        } else {
-            val bmpW = vm.displayBitmap?.width ?: vm.docWidth
-            val bmpH = vm.displayBitmap?.height ?: vm.docHeight
-            val docPos = widgetToImage(
-                dropScreenPos,
-                canvasW,
-                canvasH,
-                panX,
-                panY,
-                zoom,
-                fitScale,
-                rotation,
-                bmpW,
-                bmpH,
-                vm.docWidth,
-                vm.docHeight,
-            )
-            if (docPos.x in 0f..vm.docWidth.toFloat() && docPos.y in 0f..vm.docHeight.toFloat()) {
-                vm.floodFill(docPos.x, docPos.y, fillTolerance)
-                triggerFillDiffusion(dropScreenPos, parseColor(colorDropHex))
+        when {
+            activeLayer?.isGroup == true ->
+                vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+
+            activeLayer?.name?.contains("滤镜") == true ->
+                vm.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
+
+            activeLayer?.locked == true ->
+                vm.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+
+            else -> {
+                val bmpW = vm.displayBitmap?.width ?: vm.docWidth
+                val bmpH = vm.displayBitmap?.height ?: vm.docHeight
+                val docPos = widgetToImage(
+                    dropScreenPos,
+                    canvasW,
+                    canvasH,
+                    panX,
+                    panY,
+                    zoom,
+                    fitScale,
+                    rotation,
+                    bmpW,
+                    bmpH,
+                    vm.docWidth,
+                    vm.docHeight,
+                )
+                if (docPos.x in 0f..vm.docWidth.toFloat() && docPos.y in 0f..vm.docHeight.toFloat()) {
+                    vm.floodFill(docPos.x, docPos.y)
+                    triggerFillDiffusion(dropScreenPos, parseColor(colorDropHex))
+                } else {
+                    vm.showActionToast("请在画布范围内填色", R.drawable.ic_fill)
+                }
             }
         }
         isColorDropping = false
@@ -420,7 +434,7 @@ fun PaintingPage(
                 onPolyPoint = { polyPoints = polyPoints + it },
                 cropRect = cropRect,
                 onCropRect = { cropRect = it },
-                fillTolerance = fillTolerance,
+                fillTolerance = vm.fillTolerance,
                 gradientType = gradientType,
                 liquifyStrength = liquifyStrength,
                 liquifyMode = liquifyMode,
@@ -429,7 +443,7 @@ fun PaintingPage(
 
             // Diffusion Animation Canvas Overlay
             if (diffusionWaves.isNotEmpty()) {
-                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
                     for (wave in diffusionWaves) {
                         val t = wave.anim.value
                         val maxR = maxOf(size.width, size.height) * 0.45f
@@ -438,7 +452,7 @@ fun PaintingPage(
 
                         // 1. Soft radial glowing fill expanding and dissolving
                         drawCircle(
-                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                            brush = Brush.radialGradient(
                                 colors = listOf(
                                     wave.color.copy(alpha = alpha * 0.45f),
                                     wave.color.copy(alpha = alpha * 0.15f),
@@ -456,7 +470,7 @@ fun PaintingPage(
                             color = wave.color.copy(alpha = alpha * 0.85f),
                             radius = curR,
                             center = wave.origin,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            style = Stroke(
                                 width = (5.dp.toPx() * (1f - t * 0.6f)).coerceAtLeast(1.5f),
                             ),
                         )
@@ -470,7 +484,7 @@ fun PaintingPage(
                                 color = wave.color.copy(alpha = alpha2 * 0.55f),
                                 radius = r2,
                                 center = wave.origin,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                style = Stroke(
                                     width = 2.5.dp.toPx(),
                                 ),
                             )
@@ -1444,7 +1458,7 @@ fun PaintingPage(
                     .zIndex(1000f)
             ) {
                 val dropColor = parseColor(colorDropHex)
-                val density = androidx.compose.ui.platform.LocalDensity.current
+                val density = LocalDensity.current
                 val xDp = with(density) { colorDropPos.x.toDp() }
                 val yDp = with(density) { colorDropPos.y.toDp() }
 

@@ -42,9 +42,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -331,48 +328,16 @@ private fun ColorPanelHeader(
             )
 
             // Foreground / Background Colors Swap Box & Drag Source
-            var colorBoxRootPos by remember { mutableStateOf(Offset.Zero) }
-
             Box(
                 modifier = Modifier
                     .size(34.dp, 24.dp)
-                    .onGloballyPositioned { coords ->
-                        colorBoxRootPos = coords.positionInRoot()
-                    }
-                    .pointerInput(onSwapColors, onColorDropStart, onColorDropMove, onColorDropEnd, onColorDropCancel) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            var isDragging = false
-                            val touchSlop = viewConfiguration.touchSlop
-                            val startPos = down.position
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (change.pressed) {
-                                    val currentPos = change.position
-                                    if (!isDragging) {
-                                        if ((currentPos - startPos).getDistance() > touchSlop) {
-                                            isDragging = true
-                                            onColorDropStart?.invoke(colorBoxRootPos + currentPos)
-                                            change.consume()
-                                        }
-                                    } else {
-                                        onColorDropMove?.invoke(colorBoxRootPos + currentPos)
-                                        change.consume()
-                                    }
-                                } else {
-                                    if (isDragging) {
-                                        onColorDropEnd?.invoke(colorBoxRootPos + change.position)
-                                        change.consume()
-                                    } else {
-                                        onSwapColors()
-                                    }
-                                    break
-                                }
-                            }
-                        }
-                    },
+                    .tapOrDragGesture(
+                        onTap = onSwapColors,
+                        onDragStart = onColorDropStart,
+                        onDragMove = onColorDropMove,
+                        onDragEnd = onColorDropEnd,
+                        onDragCancel = onColorDropCancel,
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 // Background Color Box (bottom right)
