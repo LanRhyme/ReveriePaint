@@ -439,8 +439,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
 
                     if (isPendingLongPress) {
+                        val moveSlopPx = (1.5f - (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
                         val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
-                        if (moveDist > 5f * density) {
+                        if (moveDist > moveSlopPx) {
                             removeCallbacks(longPressRunnable)
                             isPendingLongPress = false
                             handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
@@ -706,8 +707,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 } else {
                     if (isPendingLongPress) {
+                        val moveSlopPx = (1.5f - (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
                         val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
-                        if (moveDist > 5f * density) {
+                        if (moveDist > moveSlopPx) {
                             removeCallbacks(longPressRunnable)
                             isPendingLongPress = false
                             localCursorPos = screenPos

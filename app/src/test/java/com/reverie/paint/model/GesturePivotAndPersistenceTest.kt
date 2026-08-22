@@ -56,16 +56,27 @@ class GesturePivotAndPersistenceTest {
     }
 
     @Test
-    fun `eyedropper sensitivity correctly maps to responsive delays`() {
+    fun `eyedropper sensitivity correctly maps to responsive delays and move slop`() {
         fun computeEyedropperDelay(sensitivity: Int): Long {
-            return (560L - (sensitivity.coerceIn(1, 5) - 1) * 70L).coerceIn(220L, 650L)
+            return (520L - (sensitivity.coerceIn(1, 5) - 1) * 70L).coerceIn(200L, 600L)
         }
 
-        assertEquals(560L, computeEyedropperDelay(1)) // Low sensitivity -> longer delay
-        assertEquals(490L, computeEyedropperDelay(2))
-        assertEquals(420L, computeEyedropperDelay(3)) // Default -> 420ms
-        assertEquals(350L, computeEyedropperDelay(4))
-        assertEquals(280L, computeEyedropperDelay(5)) // High sensitivity -> snappy 280ms
+        fun computeMoveSlopDp(sensitivity: Int): Float {
+            return (1.5f - (sensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f)
+        }
+
+        assertEquals(520L, computeEyedropperDelay(1))
+        assertEquals(450L, computeEyedropperDelay(2))
+        assertEquals(380L, computeEyedropperDelay(3)) // Default -> 380ms
+        assertEquals(310L, computeEyedropperDelay(4))
+        assertEquals(240L, computeEyedropperDelay(5))
+
+        // Level 3 must be exactly 1.5dp as specified by user
+        assertEquals(2.1f, computeMoveSlopDp(1), 0.001f)
+        assertEquals(1.8f, computeMoveSlopDp(2), 0.001f)
+        assertEquals(1.5f, computeMoveSlopDp(3), 0.001f)
+        assertEquals(1.2f, computeMoveSlopDp(4), 0.001f)
+        assertEquals(0.9f, computeMoveSlopDp(5), 0.001f)
     }
 
     @Test
