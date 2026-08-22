@@ -254,6 +254,8 @@ object ReverieCoreBridge {
 
     external fun setBrushSmudgeLength(length: Double)
 
+    external fun setPresetIsEraser(isEraser: Boolean)
+
     external fun setBrushSpacing(v: Double)
 
     external fun setBrushAngle(v: Double)

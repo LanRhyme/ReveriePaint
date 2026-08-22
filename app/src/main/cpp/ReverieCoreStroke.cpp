@@ -246,10 +246,15 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    const bool isEraserPreset = m_brushPreset && (
-        m_brushPreset->name().startsWith(QLatin1String("a)_")) ||
-        m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive)
-    );
+    bool isEraserPreset;
+    if (m_presetIsEraserOverride >= 0) {
+        isEraserPreset = m_presetIsEraserOverride == 1;
+    } else {
+        isEraserPreset = m_brushPreset && (
+            m_brushPreset->name().startsWith(QLatin1String("a)_")) ||
+            m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive)
+        );
+    }
     const bool erasing = (m_toolMode == ToolEraser) || isEraserPreset;
 
     const QString effectiveOp = erasing ? QStringLiteral("erase") :
@@ -414,11 +419,11 @@ void ReverieCore::flushStrokeBatch()
                 delete j;
             }
         } else {
-            // 15% brush-size floor: a light pressure must never shrink the
-            // dab below a visible dot (the old floor of 1px made light
-            // strokes disappear into dotted artifacts)
+            // Pressure floor is only a safety net against the dab fully
+            // disappearing (Krita lets the Size curve decide the minimum
+            // dab); the old 15% floor badly flattened light-pressure strokes.
             qreal w = m_brushSize * pressure;
-            w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.15));
+            w = qMax(w, qMax<qreal>(1.0, m_brushSize * 0.02));
             painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         }
         // Propagate the tap dot to the projection immediately
@@ -566,7 +571,7 @@ void ReverieCore::flushStrokeBatch()
         QPointF prev = m_strokeSamples.first().imgPos;
         qreal prevP = m_strokeSamples.first().pressure;
         qreal prevW = m_brushSize * qBound<qreal>(0.0, prevP, 1.0);
-        prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.15));
+        prevW = qMax(prevW, qMax<qreal>(1.0, m_brushSize * 0.02));
         if (m_strokeCarryCount == 0) {
             addDab(prev, prevW);
         }
@@ -580,7 +585,7 @@ void ReverieCore::flushStrokeBatch()
                                                                 : cur + (cur - prev);
             const qreal segLen = QLineF(prev, cur).length();
             qreal segW = m_brushSize * qBound<qreal>(0.0, (prevP + curP) / 2.0, 1.0);
-            segW = qMax(segW, qMax<qreal>(1.0, m_brushSize * 0.15));
+            segW = qMax(segW, qMax<qreal>(1.0, m_brushSize * 0.02));
             const qreal dabSpacing = qMax<qreal>(1.5, segW * 0.2);
             const int n = qMax(1, int(qCeil(segLen / dabSpacing)));
             for (int j = 1; j <= n; ++j) {
@@ -588,7 +593,7 @@ void ReverieCore::flushStrokeBatch()
                 const QPointF p = centripetalCatmullRom(p0, p1, p2, p3, t);
                 const qreal pMid = prevP + (curP - prevP) * t;
                 qreal width = m_brushSize * qBound<qreal>(0.0, pMid, 1.0);
-                width = qMax(width, qMax<qreal>(1.0, m_brushSize * 0.15));
+                width = qMax(width, qMax<qreal>(1.0, m_brushSize * 0.02));
                 addDab(p, width);
             }
             prev = cur;

@@ -373,6 +373,7 @@ public:
     void setBrushSharpness(qreal v);
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
+    void setPresetIsEraser(bool eraser);
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
@@ -507,6 +508,7 @@ private:
     KisResourcesInterfaceSP m_brushResources;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
+    int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
     // In-progress stroke op + distance accumulator (lives across flushes)
     KisPaintOpSP m_strokeOp;
     KisDistanceInformation *m_strokeDistance = nullptr;

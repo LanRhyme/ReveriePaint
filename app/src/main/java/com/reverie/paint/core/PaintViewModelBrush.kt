@@ -869,6 +869,9 @@ import kotlinx.coroutines.launch
             applyToolParamMemoryOverlay()
         }) {
             if (ReverieCoreBridge.loadBrushPreset(index)) {
+                // 分组元数据覆盖 C++ 名字启发式; 必须在 loadBrushPreset 之后下发,
+                // 否则会被加载成功路径里的 override 重置抹掉
+                ReverieCoreBridge.setPresetIsEraser(isEraserPreset)
                 brushPresetIndex = index
                 updateCurrentToolBrushState { it.copy(presetIndex = index) }
                 try {

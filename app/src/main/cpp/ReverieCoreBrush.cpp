@@ -133,6 +133,7 @@ bool ReverieCore::loadBrushPreset(int index)
     if (!ok) {
         return false;
     }
+    m_presetIsEraserOverride = -1; // new preset: heuristic governs until UI asserts
     m_brushPreset = preset;
     m_brushPresetIndex = index;
     if (m_brushPreset && m_brushPreset->settings()) {
@@ -344,6 +345,11 @@ void ReverieCore::setToolMode(int mode)
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
+}
+
+void ReverieCore::setPresetIsEraser(bool eraser)
+{
+    m_presetIsEraserOverride = eraser ? 1 : 0;
 }
 
 void ReverieCore::setBrushCompositeOp(const QString &op)

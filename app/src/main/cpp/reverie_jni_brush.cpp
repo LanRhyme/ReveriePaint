@@ -169,6 +169,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSmudgeLength(JNIEnv *, job
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setPresetIsEraser(JNIEnv *, jobject, jboolean eraser)
+{
+    core()->setPresetIsEraser(eraser == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushCompositeOp(JNIEnv *env, jobject, jstring op)
 {
     const char *o = env->GetStringUTFChars(op, nullptr);
