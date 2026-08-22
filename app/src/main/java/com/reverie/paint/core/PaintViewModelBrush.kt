@@ -860,6 +860,9 @@ import kotlinx.coroutines.launch
                 brushAuthor = if (isBuiltIn) "Krita" else "原创创作者"
                 brushIsAuthorLocked = isBuiltIn
             }
+            // 主线程先写预设值, 再由 overlay 用当前工具记忆覆盖;
+            // overlay 内部的引擎 setter 经 runCore 追加在预设 setter 之后, 写序确定。
+            applyToolParamMemoryOverlay()
         }) {
             if (ReverieCoreBridge.loadBrushPreset(index)) {
                 brushPresetIndex = index
@@ -885,7 +888,6 @@ import kotlinx.coroutines.launch
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
             }
-            applyToolParamMemoryOverlay()
         }
     }
 
