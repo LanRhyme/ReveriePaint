@@ -298,6 +298,10 @@ class PaintViewModel : ViewModel() {
         val categoryScrollOffset: Int = 0,
         val presetScrollIndex: Int = 0,
         val presetScrollOffset: Int = 0,
+        // Krita saved{Brush,Eraser}{Size,Opacity} 对应物:
+        // 预设名 -> [size, opacity, flow], 按 (工具 × 预设) 粒度隔离记忆,
+        // 使"笔刷调大的尺寸"不会在切到橡皮擦后仍然生效。
+        val paramMemory: Map<String, List<Double>> = emptyMap(),
     )
 
     var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())

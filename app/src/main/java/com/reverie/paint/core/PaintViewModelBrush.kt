@@ -561,6 +561,17 @@ import kotlinx.coroutines.launch
                 o.put("cso", s.categoryScrollOffset)
                 o.put("psi", s.presetScrollIndex)
                 o.put("pso", s.presetScrollOffset)
+                if (s.paramMemory.isNotEmpty()) {
+                    val pm = org.json.JSONArray()
+                    for ((n, v) in s.paramMemory) {
+                        if (v.size >= 3) {
+                            pm.put(org.json.JSONArray().apply {
+                                put(n); put(v[0]); put(v[1]); put(v[2])
+                            })
+                        }
+                    }
+                    o.put("pm", pm)
+                }
                 json.put(o)
             }
             prefs().edit().putString("tool_brush_states", json.toString()).apply()
@@ -647,13 +658,26 @@ import kotlinx.coroutines.launch
             val map = mutableMapOf<String, PaintViewModel.ToolBrushState>()
             for (i in 0 until json.length()) {
                 val o = json.getJSONObject(i)
+                val pmJson = o.optJSONArray("pm")
+                var paramMemory: Map<String, List<Double>> = emptyMap()
+                if (pmJson != null) {
+                    val m = mutableMapOf<String, List<Double>>()
+                    for (j in 0 until pmJson.length()) {
+                        val e = pmJson.optJSONArray(j) ?: continue
+                        if (e.length() >= 4) {
+                            m[e.optString(0)] = listOf(e.optDouble(1), e.optDouble(2), e.optDouble(3))
+                        }
+                    }
+                    paramMemory = m
+                }
                 map[o.getString("id")] = PaintViewModel.ToolBrushState(
                     presetIndex = o.optInt("pi", -1),
                     category = o.optString("c", "全部"),
                     categoryScrollIndex = o.optInt("csi", 0),
                     categoryScrollOffset = o.optInt("cso", 0),
                     presetScrollIndex = o.optInt("psi", 0),
-                    presetScrollOffset = o.optInt("pso", 0)
+                    presetScrollOffset = o.optInt("pso", 0),
+                    paramMemory = paramMemory
                 )
             }
             toolBrushStates = map
