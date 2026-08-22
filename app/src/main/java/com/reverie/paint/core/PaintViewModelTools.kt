@@ -184,23 +184,27 @@ internal fun PaintViewModel.touchMove(
     onPaintingActivity()
     val effPressure = computeEffectivePressure(pressure)
     val stabFactor = maxOf(strokeStabilizer.toDouble(), brushStreamline).coerceIn(0.0, 0.98)
-    val (effX, effY, effP) = if (stabFactor > 0.0) {
+    var effX = x
+    var effY = y
+    var effP = effPressure
+    if (stabFactor > 0.0) {
         // Krita weighted stabilizer: adaptive distance & exponential smoothing
         val alpha = (1.0 - stabFactor * 0.88).coerceIn(0.04, 1.0).toFloat()
         smoothedStrokeX += (x - smoothedStrokeX) * alpha
         smoothedStrokeY += (y - smoothedStrokeY) * alpha
         smoothedStrokePressure += (effPressure - smoothedStrokePressure) * alpha.toDouble()
-        Triple(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure)
+        effX = smoothedStrokeX
+        effY = smoothedStrokeY
+        effP = smoothedStrokePressure
     } else {
         smoothedStrokeX = x
         smoothedStrokeY = y
         smoothedStrokePressure = effPressure
-        Triple(x, y, effPressure)
     }
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    runCore { ReverieCoreBridge.touchStrokeMove(effX.toDouble(), effY.toDouble(), effP) }
+    queueStrokeMove(effX, effY, effP)
 }
 
 internal fun PaintViewModel.touchEnd() {
@@ -213,7 +217,7 @@ internal fun PaintViewModel.touchEnd() {
         if (recorder.recording) {
             recorder.strokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure.toFloat())
         }
-        runCore { ReverieCoreBridge.touchStrokeMove(smoothedStrokeX.toDouble(), smoothedStrokeY.toDouble(), smoothedStrokePressure) }
+        queueStrokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure)
     }
     if (brushHueJitter > 0.0 || brushSatJitter > 0.0 || brushValJitter > 0.0 || brushSecondaryMix > 0.0) {
         runCore(render = false) { ReverieCoreBridge.setBrushColor(brushColor) }

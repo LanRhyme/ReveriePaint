@@ -268,8 +268,12 @@ class PaintViewModel : ViewModel() {
     var brushPropertyScrollValue by mutableStateOf(0)
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
-    var smoothedStrokeX by mutableStateOf(0f)
-    var smoothedStrokeY by mutableStateOf(0f)
+
+    // Stroke stabilizer working set: written every touch sample, read by no
+    // composable — plain fields by design (zero allocation, zero recomposition).
+    internal var smoothedStrokeX = 0f
+    internal var smoothedStrokeY = 0f
+    internal var smoothedStrokePressure = 0.0
 
     fun getCategoryPresetScroll(cat: String): Pair<Int, Int> {
         return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)
@@ -527,7 +531,6 @@ class PaintViewModel : ViewModel() {
 
     // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0)
     var strokeStabilizer by mutableStateOf(0.15f)
-    var smoothedStrokePressure by mutableStateOf(1.0)
 
     // Keyboard Shortcuts (参考图 2)
     var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
@@ -1686,6 +1689,31 @@ class PaintViewModel : ViewModel() {
     }
 
     @Volatile internal var pendingCoreOps = 0
+
+    // Coalesced stroke-sample transport: at most one runnable queued at a
+    // time, latest x/y/pressure win. Removes the per-sample lambda+Message
+    // allocations and collapses input bursts between handler executions.
+    private var pendingSampleX = 0.0
+    private var pendingSampleY = 0.0
+    private var pendingSampleP = 1.0
+    @Volatile private var sampleQueued = false
+    private val sampleRunnable = Runnable {
+        sampleQueued = false
+        if (pendingCoreOps > 0) pendingCoreOps--
+        ReverieCoreBridge.touchStrokeMove(pendingSampleX, pendingSampleY, pendingSampleP)
+    }
+
+    internal fun queueStrokeMove(x: Float, y: Float, p: Double) {
+        val h = renderHandler ?: return
+        pendingSampleX = x.toDouble()
+        pendingSampleY = y.toDouble()
+        pendingSampleP = p
+        if (!sampleQueued) {
+            sampleQueued = true
+            pendingCoreOps++
+            h.post(sampleRunnable) // 预建 Runnable 直接投递, 每样本零分配
+        }
+    }
 
     internal var renderDeferCount = 0
 
