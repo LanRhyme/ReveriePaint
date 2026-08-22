@@ -244,18 +244,16 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    const bool erasing = (m_toolMode == ToolEraser) ||
-        (m_brushPreset && m_brushPreset->settings() &&
-         (m_brushPreset->settings()->eraserMode() ||
-          m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase") ||
-          m_brushPreset->settings()->effectivePaintOpCompositeOp() == QLatin1String("erase")));
+    const bool isEraserPreset = m_brushPreset && m_brushPreset->settings() &&
+        (m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase"));
+    const bool erasing = (m_toolMode == ToolEraser) || isEraserPreset;
 
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setEraserMode(erasing);
+        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
 
     const QString effectiveOp = erasing ? QStringLiteral("erase") :
-        (m_brushPreset && m_brushPreset->settings() ? m_brushPreset->settings()->effectivePaintOpCompositeOp() : QStringLiteral("normal"));
+        (m_brushPreset && m_brushPreset->settings() ? m_brushPreset->settings()->paintOpCompositeOp() : QStringLiteral("normal"));
 
     // Krita indirect painting check:
     // Non-incremental brushes (like experimentbrush / Shape_fill, sketch, curve)

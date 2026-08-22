@@ -136,11 +136,7 @@ bool ReverieCore::loadBrushPreset(int index)
     m_brushPreset = preset;
     m_brushPresetIndex = index;
     if (m_brushPreset && m_brushPreset->settings()) {
-        const bool isEraserPreset = m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase") ||
-                                    m_brushPreset->settings()->effectivePaintOpCompositeOp() == QLatin1String("erase");
-        if (m_toolMode == ToolEraser || isEraserPreset) {
-            m_brushPreset->settings()->setEraserMode(true);
-        }
+        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
     // Re-apply the user's current size / opacity / flow over the preset's
     // own values (they are stored per preset and would otherwise override)
@@ -322,8 +318,7 @@ void ReverieCore::setToolMode(int mode)
 {
     m_toolMode = ToolMode(mode);
     if (m_brushPreset && m_brushPreset->settings()) {
-        const bool isEraserPreset = m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase");
-        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser || isEraserPreset);
+        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
 }
 
@@ -331,11 +326,6 @@ void ReverieCore::setBrushCompositeOp(const QString &op)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpCompositeOp(op);
-        if (m_toolMode == ToolEraser || op == QLatin1String("erase")) {
-            m_brushPreset->settings()->setEraserMode(true);
-        } else {
-            m_brushPreset->settings()->setEraserMode(false);
-        }
     }
 }
 
