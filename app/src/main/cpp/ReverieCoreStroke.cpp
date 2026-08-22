@@ -356,7 +356,13 @@ void ReverieCore::flushStrokeBatch()
     }
     KoColor koColor(qColor, cs);
     painter.setPaintColor(koColor);
-    painter.setBackgroundColor(koColor);
+
+    QColor qBgColor(m_brushSecondaryColor);
+    if (!qBgColor.isValid()) {
+        qBgColor = Qt::white;
+    }
+    KoColor koBgColor(qBgColor, cs);
+    painter.setBackgroundColor(koBgColor);
     // Per-dab opacity (Krita behaviour): the brush op reads the preset's
     // opacity/flow internally; the painter-level opacity covers the fallback
     // dab loop and the eraser.

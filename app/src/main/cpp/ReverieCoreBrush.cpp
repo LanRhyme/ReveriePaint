@@ -180,8 +180,8 @@ QVector<double> ReverieCore::brushPresetDefaults(int index)
         return {20.0, 1.0, 1.0};
     }
     double size = 20.0;
-    if (auto *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(preset->settings().data())) {
-        size = bs->paintOpSize();
+    if (preset->settings()) {
+        size = preset->settings()->paintOpSize();
         if (!(size > 0.0) || size != size) {  // NaN / non-positive guard
             size = 20.0;
         }
@@ -230,11 +230,7 @@ void ReverieCore::setBrushSize(qreal v)
 {
     m_brushSize = v;
     if (m_brushPreset && m_brushPreset->settings()) {
-        KisBrushBasedPaintOpSettings *bs =
-            dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
-        if (bs) {
-            bs->setPaintOpSize(v);
-        }
+        m_brushPreset->settings()->setPaintOpSize(v);
     }
 }
 
