@@ -193,6 +193,7 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushFlow(v: Double) {
         brushFlow = v
         saveBrushParam()
+        rememberToolParamSnapshot()
         runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
     }
 
@@ -884,6 +885,7 @@ import kotlinx.coroutines.launch
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
             }
+            applyToolParamMemoryOverlay()
         }
     }
 
@@ -893,6 +895,50 @@ import kotlinx.coroutines.launch
             val state = toolBrushStates[t.id] ?: PaintViewModel.ToolBrushState()
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(t.id, updater(state)) }
             persistToolBrushStates()
+        }
+    }
+
+    /** Krita saved{Mode}Size 语义: 把当前 size/opacity/flow 快照进
+     *  (当前工具 × 当前预设) 的记忆, 让每个工具各自记住自己的数值。 */
+    internal fun PaintViewModel.rememberToolParamSnapshot() {
+        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
+        if (t != com.reverie.paint.model.Tool.BRUSH && t != com.reverie.paint.model.Tool.ERASER &&
+            t != com.reverie.paint.model.Tool.SMUDGE
+        ) return
+        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        updateCurrentToolBrushState { st ->
+            st.copy(
+                paramMemory = st.paramMemory.toMutableMap().apply {
+                    put(name, listOf(brushSize, brushOpacity, brushFlow))
+                }
+            )
+        }
+    }
+
+    /** 预设参数加载完成后, 用当前工具对该预设的记忆覆盖 size/opacity/flow。
+     *  无记忆时保持预设参数不变 (首次使用语义)。 */
+    internal fun PaintViewModel.applyToolParamMemoryOverlay() {
+        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
+        if (t != com.reverie.paint.model.Tool.BRUSH && t != com.reverie.paint.model.Tool.ERASER &&
+            t != com.reverie.paint.model.Tool.SMUDGE
+        ) return
+        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        val mem = toolBrushStates[t.id]?.paramMemory?.get(name) ?: return
+        if (mem.size < 3) return
+        // 损坏数据防护: 每个值做 isFinite() 检查, 非有限值跳过该值, 防 NaN 流入引擎
+        if (mem[0].isFinite()) {
+            brushSize = mem[0]
+        }
+        if (mem[1].isFinite()) {
+            brushOpacity = mem[1]
+        }
+        if (mem[2].isFinite()) {
+            brushFlow = mem[2]
+        }
+        runCore(render = false) {
+            if (mem[0].isFinite()) ReverieCoreBridge.setBrushSize(mem[0])
+            if (mem[1].isFinite()) ReverieCoreBridge.setBrushOpacity(mem[1])
+            if (mem[2].isFinite()) ReverieCoreBridge.setBrushFlow(mem[2])
         }
     }
 
@@ -919,6 +965,7 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushSize(v: Double) {
         brushSize = v
         saveBrushParam()
+        rememberToolParamSnapshot()
         runCore(render = false) { ReverieCoreBridge.setBrushSize(v) }
     }
 
@@ -948,6 +995,7 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushOpacity(v: Double) {
         brushOpacity = v
         saveBrushParam()
+        rememberToolParamSnapshot()
         runCore(render = false) { ReverieCoreBridge.setBrushOpacity(v) }
     }
 

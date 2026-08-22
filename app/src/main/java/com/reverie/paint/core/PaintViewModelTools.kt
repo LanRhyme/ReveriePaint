@@ -307,6 +307,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                         ReverieCoreBridge.setBrushFlow(saved.flow)
                     }
                 }
+                applyToolParamMemoryOverlay()
             }
         }
     }
