@@ -822,19 +822,14 @@ internal fun BrushCursorOverlay(
                         style = Stroke(width = 1.0.dp.toPx())
                     )
                 }
-                1 -> { // 十字准星 (Crosshair)
-                    val len = 12.dp.toPx()
-                    val gap = 3.5.dp.toPx()
-                    // Black outline
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
-                    // White foreground
-                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
+                1 -> { // 十字准星 (Crosshair - thin intersecting lines)
+                    val len = 9.dp.toPx()
+                    // Black outline shadow
+                    drawLine(Color.Black.copy(alpha = 0.55f), Offset(curPos.x - len, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.8.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.55f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y + len), strokeWidth = 1.8.dp.toPx())
+                    // Crisp white foreground
+                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.0.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y + len), strokeWidth = 1.0.dp.toPx())
                 }
                 2 -> { // 点 (Precise Dot)
                     drawCircle(Color.Black.copy(alpha = 0.6f), radius = 3.5.dp.toPx(), center = curPos)
@@ -848,7 +843,7 @@ internal fun BrushCursorOverlay(
                         color = Color.Black.copy(alpha = 0.55f),
                         radius = brushRadiusScreen + 0.8f,
                         center = curPos,
-                        style = Stroke(width = 1.6.dp.toPx())
+                        style = Stroke(width = 1.8.dp.toPx())
                     )
                     drawCircle(
                         color = Color.White.copy(alpha = 0.95f),
@@ -857,16 +852,11 @@ internal fun BrushCursorOverlay(
                         style = Stroke(width = 1.0.dp.toPx())
                     )
                     // 2. Draw Center Crosshair
-                    val len = 10.dp.toPx()
-                    val gap = 3.dp.toPx()
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.Black.copy(alpha = 0.6f), Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 3.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x - gap, curPos.y), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x + gap, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y - gap), strokeWidth = 1.5.dp.toPx())
-                    drawLine(Color.White, Offset(curPos.x, curPos.y + gap), Offset(curPos.x, curPos.y + len), strokeWidth = 1.5.dp.toPx())
+                    val len = 6.dp.toPx()
+                    drawLine(Color.Black.copy(alpha = 0.55f), Offset(curPos.x - len, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.8.dp.toPx())
+                    drawLine(Color.Black.copy(alpha = 0.55f), Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y + len), strokeWidth = 1.8.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x - len, curPos.y), Offset(curPos.x + len, curPos.y), strokeWidth = 1.0.dp.toPx())
+                    drawLine(Color.White, Offset(curPos.x, curPos.y - len), Offset(curPos.x, curPos.y + len), strokeWidth = 1.0.dp.toPx())
                 }
             }
         }

@@ -321,11 +321,102 @@ class PaintViewModel : ViewModel() {
     var referenceWindowWidth by mutableFloatStateOf(260f)
     var referenceWindowHeight by mutableFloatStateOf(300f)
 
+    fun persistReferenceState() {
+        if (!::appContext.isInitialized) return
+        try {
+            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+            p.putBoolean("ref_window_open", referenceWindowOpen)
+            p.putFloat("ref_window_x", referenceWindowX)
+            p.putFloat("ref_window_y", referenceWindowY)
+            p.putFloat("ref_window_w", referenceWindowWidth)
+            p.putFloat("ref_window_h", referenceWindowHeight)
+            p.putBoolean("ref_is_grayscale", referenceIsGrayscale)
+            p.putBoolean("ref_allow_rotation", referenceAllowRotation)
+            p.putBoolean("ref_is_flipped", referenceIsFlipped)
+            p.putInt("ref_active_tab", referenceActiveTab)
+            p.putBoolean("ref_bars_collapsed", referenceBarsCollapsed)
+            p.putFloat("ref_zoom", referenceZoom)
+            p.putFloat("ref_rotation", referenceRotation)
+            p.putFloat("ref_pan_x", referencePanX)
+            p.putFloat("ref_pan_y", referencePanY)
+            p.apply()
+        } catch (_: Exception) {}
+    }
+
+    fun persistReferenceImages() {
+        if (!::appContext.isInitialized) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dir = java.io.File(appContext.filesDir, "ref_images")
+                if (dir.exists()) dir.deleteRecursively()
+                dir.mkdirs()
+                val currentImgs = referenceImages
+                for ((idx, bmp) in currentImgs.withIndex()) {
+                    val file = java.io.File(dir, "ref_$idx.png")
+                    java.io.FileOutputStream(file).use { out ->
+                        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                }
+                appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit().putInt("ref_images_count", currentImgs.size).apply()
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "Failed to persist reference images", e)
+            }
+        }
+    }
+
+    fun loadPersistedReferenceImages() {
+        if (!::appContext.isInitialized) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val dir = java.io.File(appContext.filesDir, "ref_images")
+                val count = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .getInt("ref_images_count", 0)
+                if (dir.exists() && count > 0) {
+                    val list = mutableListOf<Bitmap>()
+                    for (i in 0 until count) {
+                        val file = java.io.File(dir, "ref_$i.png")
+                        if (file.exists()) {
+                            val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                            if (bmp != null) list.add(bmp)
+                        }
+                    }
+                    if (list.isNotEmpty()) {
+                        viewModelScope.launch(Dispatchers.Main) {
+                            referenceImages = list
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "Failed to load reference images", e)
+            }
+        }
+    }
+
+    fun persistBrushPanelState() {
+        if (!::appContext.isInitialized) return
+        try {
+            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+            p.putString("brush_panel_category", brushPanelSelectedCategory)
+            p.putInt("brush_cat_scroll_idx", brushCategoryScrollIndex)
+            p.putInt("brush_cat_scroll_offset", brushCategoryScrollOffset)
+            p.putInt("brush_preset_scroll_idx", brushPresetScrollIndex)
+            p.putInt("brush_preset_scroll_offset", brushPresetScrollOffset)
+            if (brushPanelDetailIndex != null) {
+                p.putInt("brush_panel_detail_idx", brushPanelDetailIndex!!)
+            } else {
+                p.remove("brush_panel_detail_idx")
+            }
+            p.apply()
+        } catch (_: Exception) {}
+    }
+
     fun updateReferenceAllowRotation(allow: Boolean) {
         referenceAllowRotation = allow
         if (!allow) {
             referenceRotation = 0f
         }
+        persistReferenceState()
     }
 
     fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
@@ -349,6 +440,8 @@ class PaintViewModel : ViewModel() {
                     referenceImages = referenceImages + newBitmaps
                     referenceActiveTab = 0
                     resetReferenceTransform()
+                    persistReferenceImages()
+                    persistReferenceState()
                 }
             }
         }
@@ -361,6 +454,8 @@ class PaintViewModel : ViewModel() {
     fun clearReferenceImage() {
         referenceImages = emptyList()
         resetReferenceTransform()
+        persistReferenceImages()
+        persistReferenceState()
     }
 
     fun resetReferenceTransform() {
@@ -368,6 +463,7 @@ class PaintViewModel : ViewModel() {
         referenceRotation = 0f
         referencePanX = 0f
         referencePanY = 0f
+        persistReferenceState()
     }
 
     // UI & View Settings (persisted)
@@ -996,6 +1092,33 @@ class PaintViewModel : ViewModel() {
             colorModel = prefs.getString("colorModel", "hsv") ?: "hsv"
             recentColors = loadRecentColors()
             userPalettes = loadUserPalettes()
+
+            // 笔刷面板持久化恢复
+            brushPanelSelectedCategory = prefs.getString("brush_panel_category", "全部") ?: "全部"
+            brushCategoryScrollIndex = prefs.getInt("brush_cat_scroll_idx", 0)
+            brushCategoryScrollOffset = prefs.getInt("brush_cat_scroll_offset", 0)
+            brushPresetScrollIndex = prefs.getInt("brush_preset_scroll_idx", 0)
+            brushPresetScrollOffset = prefs.getInt("brush_preset_scroll_offset", 0)
+            if (prefs.contains("brush_panel_detail_idx")) {
+                brushPanelDetailIndex = prefs.getInt("brush_panel_detail_idx", -1).takeIf { it >= 0 }
+            }
+
+            // 参考窗口持久化恢复
+            referenceWindowOpen = prefs.getBoolean("ref_window_open", false)
+            referenceWindowX = prefs.getFloat("ref_window_x", 80f)
+            referenceWindowY = prefs.getFloat("ref_window_y", 140f)
+            referenceWindowWidth = prefs.getFloat("ref_window_w", 260f)
+            referenceWindowHeight = prefs.getFloat("ref_window_h", 300f)
+            referenceIsGrayscale = prefs.getBoolean("ref_is_grayscale", false)
+            referenceAllowRotation = prefs.getBoolean("ref_allow_rotation", true)
+            referenceIsFlipped = prefs.getBoolean("ref_is_flipped", false)
+            referenceActiveTab = prefs.getInt("ref_active_tab", 0)
+            referenceBarsCollapsed = prefs.getBoolean("ref_bars_collapsed", false)
+            referenceZoom = prefs.getFloat("ref_zoom", 1f)
+            referenceRotation = prefs.getFloat("ref_rotation", 0f)
+            referencePanX = prefs.getFloat("ref_pan_x", 0f)
+            referencePanY = prefs.getFloat("ref_pan_y", 0f)
+            loadPersistedReferenceImages()
 
             applyCurrentTheme()
         }

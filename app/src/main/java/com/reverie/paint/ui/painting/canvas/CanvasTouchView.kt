@@ -75,6 +75,7 @@ class CanvasTouchView(context: Context) : View(context) {
     var fillTolerance: Int = 24
     var gradientType: Int = 0
     var liquifyStrength: Float = 0.9f
+    var liquifyBrushSize: Float = 60f
     var liquifyMode: Int = 0
 
     private val density = context.resources.displayMetrics.density
@@ -93,20 +94,22 @@ class CanvasTouchView(context: Context) : View(context) {
     // 光标绘制 Paint
     private val cursorPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 2f * density
+        strokeWidth = 1.8f * density
         color = android.graphics.Color.argb(140, 0, 0, 0)
     }
     private val cursorPaintWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.2f * density
+        strokeWidth = 1.0f * density
         color = android.graphics.Color.argb(240, 255, 255, 255)
     }
     private val crosshairPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        strokeWidth = 3f * density
-        color = android.graphics.Color.argb(150, 0, 0, 0)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f * density
+        color = android.graphics.Color.argb(140, 0, 0, 0)
     }
     private val crosshairPaintWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        strokeWidth = 1.5f * density
+        style = Paint.Style.STROKE
+        strokeWidth = 1.0f * density
         color = android.graphics.Color.argb(255, 255, 255, 255)
     }
 
@@ -126,6 +129,7 @@ class CanvasTouchView(context: Context) : View(context) {
     private var prevAngle = 0f
     private var initialCentroid = Offset.Zero
     private var initialDistance = 1f
+    private var initialAngle = 0f
     private var lastTransformTimestamp = 0L
     private var maxTouchPointers = 0
     private var touchDownTimeMs = 0L
@@ -149,7 +153,11 @@ class CanvasTouchView(context: Context) : View(context) {
     private var isLongPressPickerActive = false
     private val longPressRunnable = Runnable {
         val v = vm ?: return@Runnable
-        if (v.longPressEyedropperEnabled && !strokeStarted && !isTransformActive && maxTouchPointers <= 1) {
+        if (v.longPressEyedropperEnabled && !isTransformActive && maxTouchPointers <= 1) {
+            if (strokeStarted) {
+                if (tool == Tool.LIQUIFY) v.liquifyCancel() else v.touchCancel()
+                strokeStarted = false
+            }
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
@@ -247,45 +255,33 @@ class CanvasTouchView(context: Context) : View(context) {
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
             val pressureScale = if (localIsTouching) localPressure.coerceIn(0.08f, 1f) else 1f
-            val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyStrength * 60f else v.brushSize.toFloat()
+            val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
             val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureScale).coerceAtLeast(2f)
 
             when (v.cursorStyleMode) {
                 0 -> { // 双对比圆环
-                    canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 1f, cursorPaintBlack)
+                    canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen, cursorPaintWhite)
                 }
-                1 -> { // 十字准星
-                    val len = 12f * density
-                    val gap = 3.5f * density
-                    canvas.drawLine(pos.x - len, pos.y, pos.x - gap, pos.y, crosshairPaintBlack)
-                    canvas.drawLine(pos.x + gap, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
-                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y - gap, crosshairPaintBlack)
-                    canvas.drawLine(pos.x, pos.y + gap, pos.x, pos.y + len, crosshairPaintBlack)
-
-                    canvas.drawLine(pos.x - len, pos.y, pos.x - gap, pos.y, crosshairPaintWhite)
-                    canvas.drawLine(pos.x + gap, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
-                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y - gap, crosshairPaintWhite)
-                    canvas.drawLine(pos.x, pos.y + gap, pos.x, pos.y + len, crosshairPaintWhite)
+                1 -> { // 十字准星 (细致干净的两条相交线)
+                    val len = 9f * density
+                    canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
+                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintBlack)
+                    canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
+                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintWhite)
                 }
                 2 -> { // 精确点
-                    canvas.drawCircle(pos.x, pos.y, 4f * density, cursorPaintBlack)
-                    canvas.drawCircle(pos.x, pos.y, 2.5f * density, cursorPaintWhite)
+                    canvas.drawCircle(pos.x, pos.y, 3.5f * density, cursorPaintBlack)
+                    canvas.drawCircle(pos.x, pos.y, 2f * density, cursorPaintWhite)
                 }
                 5 -> { // 圆 + 十字
-                    canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 1f, cursorPaintBlack)
+                    canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen, cursorPaintWhite)
-                    val len = 10f * density
-                    val gap = 3f * density
-                    canvas.drawLine(pos.x - len, pos.y, pos.x - gap, pos.y, crosshairPaintBlack)
-                    canvas.drawLine(pos.x + gap, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
-                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y - gap, crosshairPaintBlack)
-                    canvas.drawLine(pos.x, pos.y + gap, pos.x, pos.y + len, crosshairPaintBlack)
-
-                    canvas.drawLine(pos.x - len, pos.y, pos.x - gap, pos.y, crosshairPaintWhite)
-                    canvas.drawLine(pos.x + gap, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
-                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y - gap, crosshairPaintWhite)
-                    canvas.drawLine(pos.x, pos.y + gap, pos.x, pos.y + len, crosshairPaintWhite)
+                    val len = 6f * density
+                    canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
+                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintBlack)
+                    canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
+                    canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintWhite)
                 }
             }
         }
@@ -434,13 +430,6 @@ class CanvasTouchView(context: Context) : View(context) {
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
         // =========================================================
         if (isStylusTouch) {
-            removeCallbacks(longPressRunnable)
-            isTransformActive = false
-            isPinchMotion = false
-            isInteracting = true
-            lastPos0 = Offset.Zero
-            lastPos1 = Offset.Zero
-
             val x = event.getX(stylusPointerIndex)
             val y = event.getY(stylusPointerIndex)
             val screenPos = Offset(x, y)
@@ -453,16 +442,69 @@ class CanvasTouchView(context: Context) : View(context) {
             localPressure = pressure
             invalidate()
 
+            val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+                v.cursorStyleMode != 4
+            if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    pointerIcon = systemNullPointer
+                }
+            }
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    removeCallbacks(longPressRunnable)
+                    isTransformActive = false
+                    isPinchMotion = false
+                    isInteracting = true
+                    lastPos0 = Offset.Zero
+                    lastPos1 = Offset.Zero
+                    previousSinglePos = screenPos
                     firstDocPos = docPos
                     shapeEndDocPos = docPos
+                    isLongPressPickerActive = false
+
+                    if (v.longPressEyedropperEnabled) {
+                        val delayMs = (560L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(220L, 650L)
+                        postDelayed(longPressRunnable, delayMs)
+                    }
+
                     handleToolDown(docPos, pressure, isStylus = true)
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    val moveDist = hypot(screenPos.x - previousSinglePos.x, screenPos.y - previousSinglePos.y)
+                    if (moveDist > 5f * density) {
+                        removeCallbacks(longPressRunnable)
+                    }
+                    previousSinglePos = screenPos
+
+                    if (isLongPressPickerActive) {
+                        sampleColorAtScreenPos(screenPos)
+                        return true
+                    }
+
                     handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    removeCallbacks(longPressRunnable)
+                    if (isLongPressPickerActive) {
+                        val curCol = pickerCurrentColor?.value
+                        if (curCol != null) {
+                            val r = (curCol.red * 255).toInt().coerceIn(0, 255)
+                            val g = (curCol.green * 255).toInt().coerceIn(0, 255)
+                            val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
+                            val hex = String.format("#%02X%02X%02X", r, g, b)
+                            v.updateBrushColor(hex)
+                            v.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                        }
+                        pickerActive?.value = false
+                        isLongPressPickerActive = false
+                        localIsTouching = false
+                        localIsHovering = true
+                        isInteracting = false
+                        invalidate()
+                        return true
+                    }
+
                     handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     localIsTouching = false
                     localIsHovering = true
@@ -510,6 +552,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     prevAngle = angle
                     initialCentroid = centroid
                     initialDistance = distance
+                    initialAngle = angle
                     touchDownTimeMs = nowMs
                 } else {
                     val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
@@ -519,33 +562,34 @@ class CanvasTouchView(context: Context) : View(context) {
                         prevAngle = angle
                     } else {
                         val k = (distance / prevDistance).coerceIn(0.7f, 1.4f)
-                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
-                        val dPanX = centroid.x - prevCentroid.x
-                        val dPanY = centroid.y - prevCentroid.y
+                        val dRot = if (v.canvasRotationEnabled) normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f) else 0f
+                        val rad = Math.toRadians(dRot.toDouble())
+                        val cosR = kotlin.math.cos(rad).toFloat()
+                        val sinR = kotlin.math.sin(rad).toFloat()
 
                         val totalMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
                         val scaleRatio = distance / initialDistance
-                        if (totalMoved > 6f * density || abs(scaleRatio - 1f) > 0.02f) {
+                        val angleDiff = abs(normalizeAngle(angle - initialAngle))
+                        if (totalMoved > 6f * density || abs(scaleRatio - 1f) > 0.02f || angleDiff > 2f) {
                             isPinchMotion = true
                         }
 
-                        val localZoom = (canvasZoom * k).coerceIn(0.05f, 32f)
-                        var localPanX = canvasPanX + dPanX
-                        var localPanY = canvasPanY + dPanY
+                        // 围绕双指中心 (prevCentroid) 几何旋转与缩放补偿，保证手指标定点完全不动
+                        val vx = prevCentroid.x - (viewW / 2f + canvasPanX)
+                        val vy = prevCentroid.y - (viewH / 2f + canvasPanY)
 
-                        // 围绕缩放中心几何补偿
-                        val centerX = viewW / 2f + canvasPanX
-                        val centerY = viewH / 2f + canvasPanY
-                        val fx = prevCentroid.x - centerX
-                        val fy = prevCentroid.y - centerY
-                        localPanX += fx * (1f - k)
-                        localPanY += fy * (1f - k)
+                        val vRotX = k * (vx * cosR - vy * sinR)
+                        val vRotY = k * (vx * sinR + vy * cosR)
+
+                        val localZoom = (canvasZoom * k).coerceIn(0.05f, 32f)
+                        val localPanX = centroid.x - vRotX - viewW / 2f
+                        val localPanY = centroid.y - vRotY - viewH / 2f
 
                         canvasZoom = localZoom
                         canvasPanX = localPanX
                         canvasPanY = localPanY
 
-                        if (v.canvasRotationEnabled && abs(dRot) > 0.02f) {
+                        if (v.canvasRotationEnabled && abs(dRot) > 0.01f) {
                             canvasRotation += dRot
                         }
 
@@ -644,7 +688,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 isLongPressPickerActive = false
 
                 if (v.longPressEyedropperEnabled) {
-                    postDelayed(longPressRunnable, 450)
+                    val delayMs = (560L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(220L, 650L)
+                    postDelayed(longPressRunnable, delayMs)
                 }
 
                 if (!v.penOnlyMode) {
@@ -662,12 +707,12 @@ class CanvasTouchView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val deltaX = screenPos.x - previousSinglePos.x
                 val deltaY = screenPos.y - previousSinglePos.y
-                previousSinglePos = screenPos
                 val moveDist = hypot(deltaX, deltaY)
 
-                if (moveDist > 4f * density) {
+                if (moveDist > 5f * density) {
                     removeCallbacks(longPressRunnable)
                 }
+                previousSinglePos = screenPos
 
                 if (isLongPressPickerActive) {
                     sampleColorAtScreenPos(screenPos)
@@ -706,6 +751,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     pickerActive?.value = false
                     isLongPressPickerActive = false
+                    localIsTouching = false
+                    localCursorPos = null
+                    invalidate()
                     return true
                 }
 

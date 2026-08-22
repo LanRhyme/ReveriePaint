@@ -654,6 +654,15 @@ import kotlinx.coroutines.launch
                 )
             }
             toolBrushStates = map
+            val curId = prefs().getString("current_tool_id", "brush") ?: "brush"
+            val activeState = map[curId] ?: map["brush"]
+            if (activeState != null) {
+                brushPanelSelectedCategory = activeState.category
+                brushCategoryScrollIndex = activeState.categoryScrollIndex
+                brushCategoryScrollOffset = activeState.categoryScrollOffset
+                brushPresetScrollIndex = activeState.presetScrollIndex
+                brushPresetScrollOffset = activeState.presetScrollOffset
+            }
         } catch (_: Exception) {
         }
         
@@ -842,18 +851,21 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushPanelCategory(cat: String) {
         brushPanelSelectedCategory = cat
         updateCurrentToolBrushState { it.copy(category = cat) }
+        persistBrushPanelState()
     }
 
     internal fun PaintViewModel.updateBrushCategoryScroll(index: Int, offset: Int) {
         brushCategoryScrollIndex = index
         brushCategoryScrollOffset = offset
         updateCurrentToolBrushState { it.copy(categoryScrollIndex = index, categoryScrollOffset = offset) }
+        persistBrushPanelState()
     }
 
     internal fun PaintViewModel.updateBrushPresetScroll(index: Int, offset: Int) {
         brushPresetScrollIndex = index
         brushPresetScrollOffset = offset
         updateCurrentToolBrushState { it.copy(presetScrollIndex = index, presetScrollOffset = offset) }
+        persistBrushPanelState()
     }
 
     internal fun PaintViewModel.updateBrushSize(v: Double) {

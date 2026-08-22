@@ -324,6 +324,7 @@ fun CanvasView(
                 touchView.fillTolerance = fillTolerance
                 touchView.gradientType = gradientType
                 touchView.liquifyStrength = liquifyStrength
+                touchView.liquifyBrushSize = liquifyBrushSize
                 touchView.liquifyMode = liquifyMode
             },
         )

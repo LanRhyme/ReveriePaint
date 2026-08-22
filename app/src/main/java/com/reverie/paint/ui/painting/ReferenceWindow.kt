@@ -161,7 +161,10 @@ fun ReferenceWindow(
                                     } else {
                                         lastTapTimeMs = now
                                         vm.referenceBarsCollapsed = !vm.referenceBarsCollapsed
+                                        vm.persistReferenceState()
                                     }
+                                } else if (transformStarted || maxMovement > 2f) {
+                                    vm.persistReferenceState()
                                 }
                                 break
                             }
@@ -180,26 +183,27 @@ fun ReferenceWindow(
                                     prevAngle = angle
                                 } else {
                                     val k = (distance / prevDistance).coerceIn(0.2f, 5f)
-                                    val dRot = normalizeAngle(angle - prevAngle).coerceIn(-25f, 25f)
+                                    val dRot = if (vm.referenceAllowRotation) normalizeAngle(angle - prevAngle).coerceIn(-25f, 25f) else 0f
 
                                     val viewW = viewportSize.width.toFloat().coerceAtLeast(1f)
                                     val viewH = viewportSize.height.toFloat().coerceAtLeast(1f)
-                                    val centerX = viewW / 2f + localPanX
-                                    val centerY = viewH / 2f + localPanY
-                                    val vx = prevCentroid.x - centerX
-                                    val vy = prevCentroid.y - centerY
-                                    val radians = Math.toRadians((if (vm.referenceAllowRotation) dRot else 0f).toDouble())
+
+                                    val radians = Math.toRadians(dRot.toDouble())
                                     val cosR = kotlin.math.cos(radians).toFloat()
                                     val sinR = kotlin.math.sin(radians).toFloat()
-                                    val rx = vx * cosR - vy * sinR
-                                    val ry = vx * sinR + vy * cosR
+
+                                    val vx = prevCentroid.x - (viewW / 2f + localPanX)
+                                    val vy = prevCentroid.y - (viewH / 2f + localPanY)
+
+                                    val vRotX = k * (vx * cosR - vy * sinR)
+                                    val vRotY = k * (vx * sinR + vy * cosR)
 
                                     localZoom = (localZoom * k).coerceIn(0.05f, 40f)
-                                    if (vm.referenceAllowRotation) {
+                                    if (vm.referenceAllowRotation && abs(dRot) > 0.01f) {
                                         localRotation = (localRotation + dRot) % 360f
                                     }
-                                    localPanX = centroid.x - k * rx - viewW / 2f
-                                    localPanY = centroid.y - k * ry - viewH / 2f
+                                    localPanX = centroid.x - vRotX - viewW / 2f
+                                    localPanY = centroid.y - vRotY - viewH / 2f
 
                                     vm.referenceZoom = localZoom
                                     vm.referenceRotation = localRotation
@@ -300,7 +304,9 @@ fun ReferenceWindow(
                     .fillMaxWidth()
                     .height(28.dp)
                     .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
+                        detectDragGestures(
+                            onDragEnd = { vm.persistReferenceState() }
+                        ) { change, dragAmount ->
                             change.consume()
                             vm.referenceWindowX += dragAmount.x
                             vm.referenceWindowY += dragAmount.y
@@ -329,9 +335,14 @@ fun ReferenceWindow(
                 onDrag = { dx, dy ->
                     vm.referenceWindowX += dx
                     vm.referenceWindowY += dy
+                    vm.persistReferenceState()
                 },
                 onToggleSettings = { showSettingsPopup = !showSettingsPopup },
-                onClose = onClose
+                onClose = {
+                    vm.referenceWindowOpen = false
+                    vm.persistReferenceState()
+                    onClose()
+                }
             )
         }
 
@@ -346,6 +357,7 @@ fun ReferenceWindow(
                 activeTab = vm.referenceActiveTab,
                 onTabSelect = { tab ->
                     vm.referenceActiveTab = tab
+                    vm.persistReferenceState()
                     if (tab == 0 && vm.referenceImages.isEmpty()) {
                         importImagesLauncher.launch("image/*")
                     }
@@ -355,6 +367,7 @@ fun ReferenceWindow(
                     val newH = (vm.referenceWindowHeight + dy / density.density).coerceIn(160f, 700f)
                     vm.referenceWindowWidth = newW
                     vm.referenceWindowHeight = newH
+                    vm.persistReferenceState()
                 }
             )
         }
@@ -366,7 +379,9 @@ fun ReferenceWindow(
                     .align(Alignment.BottomEnd)
                     .size(28.dp)
                     .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
+                        detectDragGestures(
+                            onDragEnd = { vm.persistReferenceState() }
+                        ) { change, dragAmount ->
                             change.consume()
                             val newW = (vm.referenceWindowWidth + dragAmount.x / density.density).coerceIn(160f, 600f)
                             val newH = (vm.referenceWindowHeight + dragAmount.y / density.density).coerceIn(160f, 700f)
@@ -865,7 +880,10 @@ private fun ReferenceSettingsPopup(
                     )
                     Switch(
                         checked = vm.referenceIsGrayscale,
-                        onCheckedChange = { vm.referenceIsGrayscale = it },
+                        onCheckedChange = {
+                            vm.referenceIsGrayscale = it
+                            vm.persistReferenceState()
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White,
                             checkedTrackColor = Morandi.accent,
@@ -909,7 +927,10 @@ private fun ReferenceSettingsPopup(
                         .fillMaxWidth()
                         .height(36.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .clickable { vm.referenceIsFlipped = !vm.referenceIsFlipped }
+                        .clickable {
+                            vm.referenceIsFlipped = !vm.referenceIsFlipped
+                            vm.persistReferenceState()
+                        }
                         .padding(horizontal = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically

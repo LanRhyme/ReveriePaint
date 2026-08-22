@@ -150,6 +150,7 @@ fun BrushPanel(
             vm.brushPresetScrollIndex = presetScrollState.firstVisibleItemIndex
             vm.brushPresetScrollOffset = presetScrollState.firstVisibleItemScrollOffset
             vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
+            vm.persistBrushPanelState()
         }
     }
 
@@ -222,7 +223,10 @@ fun BrushPanel(
                                                 .height(42.dp)
                                                 .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
                                                 .combinedClickable(
-                                                    onClick = { selectedCategory = cat },
+                                                    onClick = {
+                                                        selectedCategory = cat
+                                                        vm.updateBrushPanelCategory(cat)
+                                                    },
                                                     onLongClick = { categoryMenuTarget = cat },
                                                 ),
                                             contentAlignment = Alignment.CenterStart
