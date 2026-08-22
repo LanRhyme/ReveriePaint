@@ -193,9 +193,6 @@ void ReverieCore::touchStrokeCancel()
 
 void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
 {
-    // Krita-style spacing sampling: for standard dab brushes, emit a dab when stylus moved ~20%.
-    // For path/shape/fill special brushes (experimentbrush, sketchbrush, curvebrush, gridbrush),
-    // keep fine 1.5px sampling so the shape contours and polygons stay smooth and unbroken.
     QString opId;
     if (m_brushPreset) {
         opId = m_brushPreset->paintOp().id();
@@ -204,7 +201,12 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
                                opId == QLatin1String("curvebrush") ||
                                opId == QLatin1String("sketchbrush") ||
                                opId == QLatin1String("gridbrush"));
-    const qreal spacing = isPathEngine ? 1.5 : qMax<qreal>(1.5, m_brushSize * 0.20);
+    // Krita emits dabs via KisDistanceInformation at the preset's own spacing;
+    // this outer filter only gates SAMPLE emission into the batch, so keep it
+    // small and fixed. The old max(1.5px, 20% diameter) left a blind zone of
+    // up to 20% of the brush diameter during slow strokes (ink only appeared
+    // on pen-up). Path engines keep fine 1.5px sampling for smooth contours.
+    const qreal spacing = isPathEngine ? 1.5 : 0.75;
     if (!m_strokeSamples.isEmpty()) {
         const QPointF last = m_strokeSamples.last().imgPos;
         const qreal dist = QLineF(last, imgPos).length();
