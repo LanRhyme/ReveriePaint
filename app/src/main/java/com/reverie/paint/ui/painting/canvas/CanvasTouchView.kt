@@ -25,8 +25,10 @@ import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
@@ -779,8 +781,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val singleFingerIdx = if (fingerPointers.isNotEmpty()) fingerPointers[0] else 0
         val screenPos = Offset(event.getX(singleFingerIdx), event.getY(singleFingerIdx))
         val docPos = screenToDoc(screenPos)
-        val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode &&
-            (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY)
+        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode && isDrawingTool
+        val isPenOnlyPan = v.penOnlyMode && isDrawingTool
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -806,8 +809,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsHovering = false
                     localPressure = 1f
                     invalidate()
-                } else if (!v.penOnlyMode) {
-                    // 笔模式关闭：手指直接作画
+                } else if (!isPenOnlyPan) {
                     isPendingLongPress = false
                     localCursorPos = screenPos
                     localIsTouching = true
@@ -829,8 +831,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
-                if (v.penOnlyMode) {
-                    // 笔模式开启：单指丝滑平移画布
+                if (isPenOnlyPan) {
+                    // 笔模式开启且处于绘图工具：单指丝滑平移画布
                     canvasPanX += deltaX
                     canvasPanY += deltaY
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
@@ -882,7 +884,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
-                if (!v.penOnlyMode) {
+                if (!isPenOnlyPan) {
                     if (isPendingLongPress) {
                         isPendingLongPress = false
                         handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = false)
@@ -961,6 +963,78 @@ class CanvasTouchView(context: Context) : View(context) {
                 measureStart?.value = docPos
                 measureEnd?.value = docPos
             }
+            Tool.TRANSFORM, Tool.MOVE -> {
+                val state = tfState
+                if (state != null) {
+                    if (!state.active) {
+                        val b = v.contentBounds()
+                        if (b != null && b[2] > 0 && b[3] > 0) {
+                            state.reset(
+                                Rect(
+                                    b[0].toFloat(),
+                                    b[1].toFloat(),
+                                    (b[0] + b[2]).toFloat(),
+                                    (b[1] + b[3]).toFloat(),
+                                )
+                            )
+                        } else {
+                            state.reset(
+                                Rect(
+                                    0f,
+                                    0f,
+                                    v.docWidth.toFloat(),
+                                    v.docHeight.toFloat(),
+                                )
+                            )
+                        }
+                        v.startTransformPreview()
+                    }
+                    if (tool == Tool.MOVE) {
+                        state.handle = 8 // Translate only
+                    } else {
+                        val handles = tfHandles(state)
+                        val currentScale = canvasZoom * canvasFitScale
+                        val hitThresholdDoc = (32f * density) / maxOf(0.01f, currentScale)
+                        var best = -1
+                        var bestD = hitThresholdDoc
+                        for (i in handles.indices) {
+                            val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                            if (d < bestD) {
+                                bestD = d
+                                best = i
+                            }
+                        }
+                        if (state.mode == TransformMode.PERSPECTIVE) {
+                            state.handle = if (best in 0..3) best else 8
+                        } else if (state.mode == TransformMode.DISTORT) {
+                            state.handle = if (best in 0..15) best else 99
+                        } else {
+                            val c = state.bounds.center
+                            val dx = docPos.x - c.x - state.tx
+                            val dy = docPos.y - c.y - state.ty
+                            val rad = Math.toRadians(-state.rotation.toDouble())
+                            val cosR = cos(rad).toFloat()
+                            val sinR = sin(rad).toFloat()
+                            val ux = (dx * cosR - dy * sinR) / state.scaleX
+                            val uy = (dx * sinR + dy * cosR) / state.scaleY
+                            val inBox =
+                                ux >= -state.bounds.width / 2f &&
+                                ux <= state.bounds.width / 2f &&
+                                uy >= -state.bounds.height / 2f &&
+                                uy <= state.bounds.height / 2f
+                            state.handle = if (best >= 0) best else if (inBox) 8 else 9
+                        }
+                    }
+                    state.dragStart = docPos
+                    state.startScaleX = state.scaleX
+                    state.startScaleY = state.scaleY
+                    state.startRotation = state.rotation
+                    state.startTx = state.tx
+                    state.startTy = state.ty
+                    state.startQuadCorners = state.quadCorners.toList()
+                    state.startMeshPoints = state.meshPoints.toList()
+                }
+            }
             else -> Unit
         }
     }
@@ -1019,8 +1093,102 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.MEASURE -> {
                 measureEnd?.value = docPos
             }
-            Tool.MOVE -> {
+            Tool.TRANSFORM, Tool.MOVE -> {
                 shapeEndDocPos = docPos
+                val state = tfState
+                if (state != null && state.active && state.handle >= 0) {
+                    val c = state.bounds.center
+                    val imagePos = docPos
+                    when {
+                        state.mode == TransformMode.DISTORT -> {
+                            val delta = imagePos - state.dragStart
+                            if (state.handle in 0..15) {
+                                val newMesh = state.startMeshPoints.toMutableList()
+                                newMesh[state.handle] = state.startMeshPoints[state.handle] + delta
+                                state.meshPoints = newMesh
+                            } else {
+                                state.meshPoints = state.startMeshPoints.map { it + delta }
+                            }
+                        }
+                        state.mode == TransformMode.PERSPECTIVE -> {
+                            val delta = imagePos - state.dragStart
+                            if (state.handle in 0..3) {
+                                val idx = state.handle
+                                val newCorners = state.startQuadCorners.toMutableList()
+                                newCorners[idx] = state.startQuadCorners[idx] + delta
+                                state.quadCorners = newCorners
+                            } else {
+                                state.quadCorners = state.startQuadCorners.map { it + delta }
+                            }
+                        }
+                        state.handle == 1 || state.handle == 3 || state.handle == 9 -> {
+                            val a1 = atan2(state.dragStart.y - c.y - state.startTy, state.dragStart.x - c.x - state.startTx)
+                            val a2 = atan2(imagePos.y - c.y - state.startTy, imagePos.x - c.x - state.startTx)
+                            val d = Math.toDegrees((a2 - a1).toDouble()).toFloat()
+                            state.rotation = state.startRotation + d
+                        }
+                        state.handle == 0 || state.handle == 2 -> {
+                            val rad = Math.toRadians(-state.startRotation.toDouble())
+                            val cosR = cos(rad).toFloat()
+                            val sinR = sin(rad).toFloat()
+                            val dx = imagePos.x - c.x - state.startTx
+                            val dy = imagePos.y - c.y - state.startTy
+                            val ux = dx * cosR - dy * sinR
+                            val uy = dx * sinR + dy * cosR
+
+                            val sdx = state.dragStart.x - c.x - state.startTx
+                            val sdy = state.dragStart.y - c.y - state.startTy
+                            val sux = sdx * cosR - sdy * sinR
+                            val suy = sdx * sinR + sdy * cosR
+
+                            val kx = if (abs(sux) > 1f) ux / sux else 1f
+                            val ky = if (abs(suy) > 1f) uy / suy else 1f
+
+                            if (state.mode == TransformMode.STANDARD) {
+                                val k = if (abs(kx - 1f) > abs(ky - 1f)) kx else ky
+                                state.scaleX = state.startScaleX * k
+                                state.scaleY = state.startScaleY * k
+                            } else {
+                                state.scaleX = state.startScaleX * kx
+                                state.scaleY = state.startScaleY * ky
+                            }
+                        }
+                        state.handle == 4 || state.handle == 6 -> {
+                            val rad = Math.toRadians(-state.startRotation.toDouble())
+                            val cosR = cos(rad).toFloat()
+                            val sinR = sin(rad).toFloat()
+                            val dy = imagePos.y - c.y - state.startTy
+                            val dx = imagePos.x - c.x - state.startTx
+                            val uy = dx * sinR + dy * cosR
+
+                            val sdy = state.dragStart.y - c.y - state.startTy
+                            val sdx = state.dragStart.x - c.x - state.startTx
+                            val suy = sdx * sinR + sdy * cosR
+
+                            val ky = if (abs(suy) > 1f) uy / suy else 1f
+                            state.scaleY = state.startScaleY * ky
+                        }
+                        state.handle == 5 || state.handle == 7 -> {
+                            val rad = Math.toRadians(-state.startRotation.toDouble())
+                            val cosR = cos(rad).toFloat()
+                            val sinR = sin(rad).toFloat()
+                            val dx = imagePos.x - c.x - state.startTx
+                            val dy = imagePos.y - c.y - state.startTy
+                            val ux = dx * cosR - dy * sinR
+
+                            val sdx = state.dragStart.x - c.x - state.startTx
+                            val sdy = state.dragStart.y - c.y - state.startTy
+                            val sux = sdx * cosR - sdy * sinR
+
+                            val kx = if (abs(sux) > 1f) ux / sux else 1f
+                            state.scaleX = state.startScaleX * kx
+                        }
+                        state.handle == 8 -> {
+                            state.tx = state.startTx + (imagePos.x - state.dragStart.x)
+                            state.ty = state.startTy + (imagePos.y - state.dragStart.y)
+                        }
+                    }
+                }
             }
             else -> Unit
         }
@@ -1094,11 +1262,31 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 lassoPoints.clear()
             }
+            Tool.TRANSFORM -> {
+                tfState?.handle = -1
+            }
             Tool.MOVE -> {
-                val dx = (shapeEndDocPos.x - firstDocPos.x).roundToInt()
-                val dy = (shapeEndDocPos.y - firstDocPos.y).roundToInt()
-                if (dx != 0 || dy != 0) {
-                    v.moveLayerContent(dx, dy)
+                val state = tfState
+                if (state != null) {
+                    val dx = state.tx.toInt()
+                    val dy = state.ty.toInt()
+                    state.tx = 0f
+                    state.ty = 0f
+                    v.transformPreviewBitmap = null
+                    if (dx != 0 || dy != 0) {
+                        val b = v.contentBounds()
+                        if (b != null && b[2] > 0 && b[3] > 0) {
+                            state.bounds = Rect(
+                                b[0].toFloat(),
+                                b[1].toFloat(),
+                                (b[0] + b[2]).toFloat(),
+                                (b[1] + b[3]).toFloat(),
+                            )
+                        }
+                        v.moveLayerContent(dx, dy)
+                    } else {
+                        v.startTransformPreview()
+                    }
                 }
             }
             Tool.PICKER -> {
