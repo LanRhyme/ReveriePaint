@@ -621,7 +621,7 @@ internal fun CanvasOverlay(
                 }
 
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
-                if (selBmp != null || liveSelectionPath.value != null) {
+                if (selBmp != null) {
                     val paint = androidx.compose.ui.graphics.Paint().apply {
                         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
                             Morandi.accent.copy(alpha = 0.35f)
@@ -632,35 +632,48 @@ internal fun CanvasOverlay(
                         image.width / 2f, image.height / 2f
                     )
                     drawContext.canvas.saveLayer(bounds, paint)
-
-                    if (selBmp != null) {
-                        // The selection overlay is full-document resolution;
-                        // scale it into the (viewport-sized) canvas image
-                        drawImage(
-                            image = selBmp,
-                            topLeft = Offset(-image.width / 2f, -image.height / 2f),
-                        )
-                    }
-
-                    liveSelectionPath.value?.let { livePath ->
-                        // The preview path is a pure visual outline: the live
-                        // fill overlay already reflects the merged result (the
-                        // C++ preview merge runs the same combine as the
-                        // committed path), so drawing the outline with a
-                        // subtract/intersect blend mode would carve a hole in
-                        // that merged fill and visibly differ from the final
-                        // selection - keep it SrcOver on top of the fill
-                        drawPath(
-                            path = livePath,
-                            color = Color.White,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 2.dp.toPx(),
-                            ),
-                            blendMode = androidx.compose.ui.graphics.BlendMode.SrcOver
-                        )
-                    }
-
+                    drawImage(
+                        image = selBmp,
+                        topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                    )
                     drawContext.canvas.restore()
+                }
+
+                liveSelectionPath.value?.let { livePath ->
+                    val currentScale = (zoom * fitScale).coerceAtLeast(0.001f)
+                    val strokeW = 1.5.dp.toPx() / currentScale
+                    val dashInterval = 5.dp.toPx() / currentScale
+
+                    // 1. 半透明填充指示选区覆盖区域
+                    drawPath(
+                        path = livePath,
+                        color = Morandi.accent.copy(alpha = 0.25f),
+                        style = androidx.compose.ui.graphics.drawscope.Fill
+                    )
+
+                    // 2. 经典双色虚线蚂蚁线轮廓 (黑色底 + 白色错位虚线)
+                    drawPath(
+                        path = livePath,
+                        color = Color.Black.copy(alpha = 0.8f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeW + 0.8f / currentScale,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(dashInterval, dashInterval),
+                                phase = 0f
+                            )
+                        )
+                    )
+                    drawPath(
+                        path = livePath,
+                        color = Color.White,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeW,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(dashInterval, dashInterval),
+                                phase = dashInterval
+                            )
+                        )
+                    )
                 }
             }
 

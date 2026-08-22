@@ -338,6 +338,66 @@ class CanvasTouchView(context: Context) : View(context) {
         return super.dispatchTouchEvent(event)
     }
 
+    fun onDirectHover(localX: Float, localY: Float, actionMasked: Int) {
+        val v = vm ?: return
+        val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+            v.cursorStyleMode != 4
+
+        when (actionMasked) {
+            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                localCursorPos = Offset(localX, localY)
+                val overUi = isHoverOverUi(localX, localY)
+                localIsHovering = !overUi
+                localIsTouching = false
+                localPressure = 1f
+                invalidate()
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
+                        systemNullPointer
+                    } else {
+                        systemDefaultPointer
+                    }
+                    if (targetIcon != null && pointerIcon != targetIcon) {
+                        pointerIcon = targetIcon
+                    }
+                }
+            }
+            MotionEvent.ACTION_HOVER_EXIT -> {
+                localIsHovering = false
+                localIsTouching = false
+                localCursorPos = null
+                invalidate()
+
+                if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        pointerIcon = systemDefaultPointer
+                    }
+                }
+            }
+        }
+    }
+
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean {
+        if (isInteracting || isTransformActive) {
+            localCursorPos = Offset(event.x, event.y)
+            invalidate()
+            return true
+        }
+        return super.dispatchHoverEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (isInteracting || isTransformActive) {
+            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                localCursorPos = Offset(event.x, event.y)
+                invalidate()
+                return true
+            }
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
     // -------------------------------------------------------------
     // 1. 悬停处理 (空中手写笔 / 鼠标) - 原生硬件级重绘，极速低延迟
     // -------------------------------------------------------------
@@ -945,11 +1005,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     val halfW = docW / 2f
                     val halfH = docH / 2f
                     val p = Path().apply {
-                        if (lassoPoints.isNotEmpty()) {
+                        if (lassoPoints.size >= 2) {
                             moveTo(lassoPoints[0].x - halfW, lassoPoints[0].y - halfH)
                             for (j in 1 until lassoPoints.size) {
                                 lineTo(lassoPoints[j].x - halfW, lassoPoints[j].y - halfH)
                             }
+                            close()
                         }
                     }
                     liveSelectionPath?.value = p
