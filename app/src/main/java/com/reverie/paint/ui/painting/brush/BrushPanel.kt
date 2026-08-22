@@ -131,15 +131,48 @@ fun BrushPanel(
         )
     }
 
+    val initialPresetScroll = remember(vm.brushPanelSelectedCategory) {
+        vm.getCategoryPresetScroll(vm.brushPanelSelectedCategory)
+    }
+
     val categoryScrollState = rememberLazyListState(
         initialFirstVisibleItemIndex = vm.brushCategoryScrollIndex,
         initialFirstVisibleItemScrollOffset = vm.brushCategoryScrollOffset
     )
 
     val presetScrollState = rememberLazyListState(
-        initialFirstVisibleItemIndex = vm.brushPresetScrollIndex,
-        initialFirstVisibleItemScrollOffset = vm.brushPresetScrollOffset
+        initialFirstVisibleItemIndex = initialPresetScroll.first,
+        initialFirstVisibleItemScrollOffset = initialPresetScroll.second
     )
+
+    // Continuously sync scroll positions in real time so state is never lost on sudden dismiss
+    LaunchedEffect(categoryScrollState) {
+        androidx.compose.runtime.snapshotFlow {
+            categoryScrollState.firstVisibleItemIndex to categoryScrollState.firstVisibleItemScrollOffset
+        }.collect { (idx, offset) ->
+            vm.brushCategoryScrollIndex = idx
+            vm.brushCategoryScrollOffset = offset
+        }
+    }
+
+    LaunchedEffect(presetScrollState, selectedCategory) {
+        androidx.compose.runtime.snapshotFlow {
+            presetScrollState.firstVisibleItemIndex to presetScrollState.firstVisibleItemScrollOffset
+        }.collect { (idx, offset) ->
+            vm.saveCategoryPresetScroll(selectedCategory, idx, offset)
+        }
+    }
+
+    // Restore category-specific scroll offset when switching category
+    var isInitialCategoryLaunch by remember { mutableStateOf(true) }
+    LaunchedEffect(selectedCategory) {
+        if (isInitialCategoryLaunch) {
+            isInitialCategoryLaunch = false
+        } else {
+            val (savedIdx, savedOffset) = vm.getCategoryPresetScroll(selectedCategory)
+            presetScrollState.scrollToItem(savedIdx, savedOffset)
+        }
+    }
 
     // Save state on dispose / change
     DisposableEffect(selectedCategory, view) {
@@ -147,8 +180,11 @@ fun BrushPanel(
             vm.brushPanelSelectedCategory = selectedCategory
             vm.brushCategoryScrollIndex = categoryScrollState.firstVisibleItemIndex
             vm.brushCategoryScrollOffset = categoryScrollState.firstVisibleItemScrollOffset
-            vm.brushPresetScrollIndex = presetScrollState.firstVisibleItemIndex
-            vm.brushPresetScrollOffset = presetScrollState.firstVisibleItemScrollOffset
+            vm.saveCategoryPresetScroll(
+                selectedCategory,
+                presetScrollState.firstVisibleItemIndex,
+                presetScrollState.firstVisibleItemScrollOffset
+            )
             vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
             vm.persistBrushPanelState()
         }
@@ -921,8 +957,17 @@ fun BrushPropertyPage(
     )
 
     val scrollState = rememberScrollState(initial = vm.brushPropertyScrollValue)
+    LaunchedEffect(scrollState) {
+        androidx.compose.runtime.snapshotFlow { scrollState.value }
+            .collect {
+                vm.brushPropertyScrollValue = it
+            }
+    }
     DisposableEffect(Unit) {
-        onDispose { vm.brushPropertyScrollValue = scrollState.value }
+        onDispose {
+            vm.brushPropertyScrollValue = scrollState.value
+            vm.persistBrushPanelState()
+        }
     }
 
     Column(

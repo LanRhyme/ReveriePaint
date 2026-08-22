@@ -264,11 +264,32 @@ class PaintViewModel : ViewModel() {
     var brushCategoryScrollOffset by mutableStateOf(0)
     var brushPresetScrollIndex by mutableStateOf(0)
     var brushPresetScrollOffset by mutableStateOf(0)
+    var categoryPresetScrollMap by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
     var brushPropertyScrollValue by mutableStateOf(0)
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
     var smoothedStrokeX by mutableStateOf(0f)
     var smoothedStrokeY by mutableStateOf(0f)
+
+    fun getCategoryPresetScroll(cat: String): Pair<Int, Int> {
+        return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)
+    }
+
+    fun saveCategoryPresetScroll(cat: String, index: Int, offset: Int) {
+        brushPresetScrollIndex = index
+        brushPresetScrollOffset = offset
+        categoryPresetScrollMap = categoryPresetScrollMap.toMutableMap().apply {
+            put(cat, Pair(index, offset))
+        }
+        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
+        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
+            val state = toolBrushStates[t.id] ?: ToolBrushState()
+            toolBrushStates = toolBrushStates.toMutableMap().apply {
+                put(t.id, state.copy(presetScrollIndex = index, presetScrollOffset = offset))
+            }
+        }
+        persistBrushPanelState()
+    }
 
     data class ToolBrushState(
         val presetIndex: Int = -1,
@@ -402,6 +423,19 @@ class PaintViewModel : ViewModel() {
             p.putInt("brush_cat_scroll_offset", brushCategoryScrollOffset)
             p.putInt("brush_preset_scroll_idx", brushPresetScrollIndex)
             p.putInt("brush_preset_scroll_offset", brushPresetScrollOffset)
+            p.putInt("brush_prop_scroll_val", brushPropertyScrollValue)
+
+            // Persist per-category scroll positions as JSON
+            val json = org.json.JSONObject()
+            categoryPresetScrollMap.forEach { (cat, pair) ->
+                val arr = org.json.JSONArray().apply {
+                    put(pair.first)
+                    put(pair.second)
+                }
+                json.put(cat, arr)
+            }
+            p.putString("brush_category_preset_scroll_map", json.toString())
+
             if (brushPanelDetailIndex != null) {
                 p.putInt("brush_panel_detail_idx", brushPanelDetailIndex!!)
             } else {
@@ -1099,6 +1133,23 @@ class PaintViewModel : ViewModel() {
             brushCategoryScrollOffset = prefs.getInt("brush_cat_scroll_offset", 0)
             brushPresetScrollIndex = prefs.getInt("brush_preset_scroll_idx", 0)
             brushPresetScrollOffset = prefs.getInt("brush_preset_scroll_offset", 0)
+            brushPropertyScrollValue = prefs.getInt("brush_prop_scroll_val", 0)
+
+            val catScrollJsonStr = prefs.getString("brush_category_preset_scroll_map", null)
+            if (!catScrollJsonStr.isNullOrEmpty()) {
+                try {
+                    val catScrollJson = org.json.JSONObject(catScrollJsonStr)
+                    val map = mutableMapOf<String, Pair<Int, Int>>()
+                    val keys = catScrollJson.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val arr = catScrollJson.getJSONArray(key)
+                        map[key] = Pair(arr.getInt(0), arr.getInt(1))
+                    }
+                    categoryPresetScrollMap = map
+                } catch (_: Exception) {}
+            }
+
             if (prefs.contains("brush_panel_detail_idx")) {
                 brushPanelDetailIndex = prefs.getInt("brush_panel_detail_idx", -1).takeIf { it >= 0 }
             }
