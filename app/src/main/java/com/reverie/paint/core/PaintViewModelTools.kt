@@ -280,7 +280,9 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                     else -> "全部"
                 }
             var defaultIdx = brushPresets.indexOfFirst { it.group == cat }
-            if (defaultIdx < 0) defaultIdx = 0
+            // 分类为空时保持 -1 ("未选预设"), 不回退到预设 0 —— 否则橡皮擦/混合
+            // 会继承 b)_Basic-1 画笔的全部数值。引擎侧沿用已加载预设, 由
+            // m_toolMode 决定擦除语义。
             state = PaintViewModel.ToolBrushState(category = cat, presetIndex = defaultIdx)
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
         }
