@@ -56,6 +56,7 @@ import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -92,6 +93,7 @@ fun ReferenceWindow(
         }
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val windowShape = RoundedCornerShape(16.dp)
 
     var viewportSize by remember { mutableStateOf(IntSize(1, 1)) }
@@ -108,6 +110,7 @@ fun ReferenceWindow(
             }
             .size(vm.referenceWindowWidth.dp, vm.referenceWindowHeight.dp)
             .shadow(14.dp, windowShape)
+            .systemHoverIcon(context)
             .clip(windowShape)
             .then(
                 if (vm.blurBackground && hazeState != null) {
@@ -192,13 +195,16 @@ fun ReferenceWindow(
                                     val cosR = kotlin.math.cos(radians).toFloat()
                                     val sinR = kotlin.math.sin(radians).toFloat()
 
+                                    val targetZoom = (localZoom * k).coerceIn(0.02f, 128f)
+                                    val actualK = if (localZoom > 0.0001f) targetZoom / localZoom else 1f
+
                                     val vx = prevCentroid.x - (viewW / 2f + localPanX)
                                     val vy = prevCentroid.y - (viewH / 2f + localPanY)
 
-                                    val vRotX = k * (vx * cosR - vy * sinR)
-                                    val vRotY = k * (vx * sinR + vy * cosR)
+                                    val vRotX = actualK * (vx * cosR - vy * sinR)
+                                    val vRotY = actualK * (vx * sinR + vy * cosR)
 
-                                    localZoom = (localZoom * k).coerceIn(0.05f, 40f)
+                                    localZoom = targetZoom
                                     if (vm.referenceAllowRotation && abs(dRot) > 0.01f) {
                                         localRotation = (localRotation + dRot) % 360f
                                     }

@@ -38,10 +38,13 @@ class GesturePivotAndPersistenceTest {
         val vx = prevCentroid.x - (viewW / 2f + canvasPanX)
         val vy = prevCentroid.y - (viewH / 2f + canvasPanY)
 
-        val vRotX = k * (vx * cosR - vy * sinR)
-        val vRotY = k * (vx * sinR + vy * cosR)
+        val targetZoom = (canvasZoom * k).coerceIn(0.02f, 128f)
+        val actualK = if (canvasZoom > 0.0001f) targetZoom / canvasZoom else 1f
 
-        val newZoom = canvasZoom * k
+        val vRotX = actualK * (vx * cosR - vy * sinR)
+        val vRotY = actualK * (vx * sinR + vy * cosR)
+
+        val newZoom = targetZoom
         val newRotation = canvasRotation + dRot
         val newPanX = newCentroid.x - vRotX - viewW / 2f
         val newPanY = newCentroid.y - vRotY - viewH / 2f
@@ -53,6 +56,37 @@ class GesturePivotAndPersistenceTest {
 
         assertEquals(vRotX, actualV.x, 1e-4f)
         assertEquals(vRotY, actualV.y, 1e-4f)
+    }
+
+    @Test
+    fun `when zoom hits maximum limit, further expansion does not cause canvas drift`() {
+        val viewW = 1080f
+        val viewH = 2400f
+        val canvasPanX = 100f
+        val canvasPanY = 200f
+        val canvasZoom = 128f // Already at max zoom limit
+
+        val prevCentroid = Offset(500f, 1000f)
+        val k = 1.5f // User tries to zoom in 50% more with fingers at same centroid position
+        val dRot = 0f
+        val newCentroid = prevCentroid // No finger movement, just spreading
+
+        val targetZoom = (canvasZoom * k).coerceIn(0.02f, 128f)
+        val actualK = if (canvasZoom > 0.0001f) targetZoom / canvasZoom else 1f
+
+        val vx = prevCentroid.x - (viewW / 2f + canvasPanX)
+        val vy = prevCentroid.y - (viewH / 2f + canvasPanY)
+
+        val vRotX = actualK * vx
+        val vRotY = actualK * vy
+
+        val newPanX = newCentroid.x - vRotX - viewW / 2f
+        val newPanY = newCentroid.y - vRotY - viewH / 2f
+
+        // Pan must remain exactly unchanged because centroid did not translate and zoom did not scale
+        assertEquals(canvasPanX, newPanX, 1e-4f)
+        assertEquals(canvasPanY, newPanY, 1e-4f)
+        assertEquals(128f, targetZoom, 1e-4f)
     }
 
     @Test

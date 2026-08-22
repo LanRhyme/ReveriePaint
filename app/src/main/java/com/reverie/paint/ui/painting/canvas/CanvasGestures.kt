@@ -798,12 +798,15 @@ internal suspend fun androidx.compose.ui.input.pointer.PointerInputScope.awaitCa
                         val rx = vx * cosR - vy * sinR
                         val ry = vx * sinR + vy * cosR
 
-                        localZoom = (localZoom * k).coerceIn(0.05f, 32f)
-                        if (vm.canvasRotationEnabled) {
+                        val targetZoom = (localZoom * k).coerceIn(0.02f, 128f)
+                        val actualK = if (localZoom > 0.0001f) targetZoom / localZoom else 1f
+
+                        localZoom = targetZoom
+                        if (vm.canvasRotationEnabled && kotlin.math.abs(dRot) > 0.01f) {
                             localRotation += dRot
                         }
-                        localPanX = centroid.x - k * rx - viewW() / 2f
-                        localPanY = centroid.y - k * ry - viewH() / 2f
+                        localPanX = centroid.x - actualK * rx - viewW() / 2f
+                        localPanY = centroid.y - actualK * ry - viewH() / 2f
 
                         onTransform(localZoom, localRotation, localPanX, localPanY)
 

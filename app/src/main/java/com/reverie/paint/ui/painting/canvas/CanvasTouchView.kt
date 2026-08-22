@@ -193,6 +193,31 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    private fun isHoverOverUi(x: Float, y: Float): Boolean {
+        val v = vm ?: return false
+        if (v.brushStudioOpen || v.moreSettingsOpen) return true
+
+        val d = density
+        // 顶部操作栏区域 (右上角，宽约 380dp，高约 56dp)
+        if (y <= 56f * d && x >= width - 380f * d) return true
+
+        // 左侧快捷工具栏 (宽 56dp)
+        if (x <= 56f * d) return true
+
+        // 参考浮窗区域 (若打开)
+        if (v.referenceWindowOpen) {
+            val rx = v.referenceWindowX
+            val ry = v.referenceWindowY
+            val rw = v.referenceWindowWidth * d
+            val rh = v.referenceWindowHeight * d
+            if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         activeTouchView = this
@@ -211,10 +236,11 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return super.onResolvePointerIcon(event, pointerIndex)
         val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
             v.cursorStyleMode != 4
-        return if (hideCursor && systemNullPointer != null) {
+        val overUi = isHoverOverUi(event.x, event.y)
+        return if (!overUi && hideCursor && systemNullPointer != null) {
             systemNullPointer
         } else {
-            super.onResolvePointerIcon(event, pointerIndex)
+            systemDefaultPointer ?: super.onResolvePointerIcon(event, pointerIndex)
         }
     }
 
@@ -222,6 +248,7 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onDraw(canvas)
         val v = vm ?: return
         val pos = localCursorPos ?: return
+        if (v.brushStudioOpen || v.moreSettingsOpen) return
         val isEraser = tool == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
         // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
@@ -322,14 +349,20 @@ class CanvasTouchView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 localCursorPos = Offset(event.x, event.y)
-                localIsHovering = true
+                val overUi = isHoverOverUi(event.x, event.y)
+                localIsHovering = !overUi
                 localIsTouching = false
                 localPressure = 1f
                 invalidate()
 
-                if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        pointerIcon = systemNullPointer
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
+                        systemNullPointer
+                    } else {
+                        systemDefaultPointer
+                    }
+                    if (targetIcon != null && pointerIcon != targetIcon) {
+                        pointerIcon = targetIcon
                     }
                 }
                 return true
@@ -355,9 +388,23 @@ class CanvasTouchView(context: Context) : View(context) {
         if (event.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER)) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
                 localCursorPos = Offset(event.x, event.y)
-                localIsHovering = true
+                val overUi = isHoverOverUi(event.x, event.y)
+                localIsHovering = !overUi
                 localIsTouching = false
                 invalidate()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val v = vm
+                    val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+                        (v?.cursorStyleMode != 4)
+                    val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
+                        systemNullPointer
+                    } else {
+                        systemDefaultPointer
+                    }
+                    if (targetIcon != null && pointerIcon != targetIcon) {
+                        pointerIcon = targetIcon
+                    }
+                }
                 return true
             }
         }
@@ -375,16 +422,24 @@ class CanvasTouchView(context: Context) : View(context) {
         pendingUndoRunnable?.let { removeCallbacks(it) }
         removeCallbacks(resetTransformRunnable)
 
-        // 检查是否有手写笔接触屏幕
+        // 检查是否有真实手写笔接触屏幕
+        // 物理手写笔真实落笔必有压感 (pressure > 0.005f)；
+        // 当手写笔在空中悬停 (pressure == 0) 时，手指触屏产生的 MotionEvent 可能会附带 TOOL_TYPE_STYLUS，
+        // 此时必须判定为手指多点手势 (isStylusTouch = false)，绝不能阻断双指缩放、旋转或单指画布平移！
         var stylusPointerIndex = -1
+        var stylusHasPressure = false
         for (i in 0 until pointerCount) {
             val type = event.getToolType(i)
+            val pr = event.getPressure(i)
             if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
-                stylusPointerIndex = i
-                break
+                if (pr > 0.005f) {
+                    stylusPointerIndex = i
+                    stylusHasPressure = true
+                    break
+                }
             }
         }
-        val isStylusTouch = stylusPointerIndex >= 0
+        val isStylusTouch = stylusHasPressure && stylusPointerIndex >= 0 && (pointerCount == 1 || isInteracting)
 
         // =========================================================
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
@@ -502,7 +557,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================
         // B. 手指交互流程：画世界 / Procreate 模式 (100% 画布手势导航)
         // =========================================================
-        val nowMs = SystemClock.uptimeMillis()
+        val nowMs = System.currentTimeMillis()
         maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
         isInteracting = true
 
@@ -564,16 +619,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         val vx = prevCentroid.x - (viewW / 2f + canvasPanX)
                         val vy = prevCentroid.y - (viewH / 2f + canvasPanY)
 
-                        val vRotX = k * (vx * cosR - vy * sinR)
-                        val vRotY = k * (vx * sinR + vy * cosR)
+                        val targetZoom = (canvasZoom * k).coerceIn(0.02f, 128f)
+                        val actualK = if (canvasZoom > 0.0001f) targetZoom / canvasZoom else 1f
 
-                        val localZoom = (canvasZoom * k).coerceIn(0.05f, 32f)
-                        val localPanX = centroid.x - vRotX - viewW / 2f
-                        val localPanY = centroid.y - vRotY - viewH / 2f
+                        val vRotX = actualK * (vx * cosR - vy * sinR)
+                        val vRotY = actualK * (vx * sinR + vy * cosR)
 
-                        canvasZoom = localZoom
-                        canvasPanX = localPanX
-                        canvasPanY = localPanY
+                        canvasZoom = targetZoom
+                        canvasPanX = centroid.x - vRotX - viewW / 2f
+                        canvasPanY = centroid.y - vRotY - viewH / 2f
 
                         if (v.canvasRotationEnabled && abs(dRot) > 0.01f) {
                             canvasRotation += dRot
