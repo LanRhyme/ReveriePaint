@@ -26,6 +26,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     // The stroke paints straight onto the layer device with per-dab opacity
     // (Krita-native); no temporary buffer is used.
     m_strokeStartImg = QPointF(x, y);
+    m_accumulatedStrokeBounds = QRectF(x, y, 1.0, 1.0);
     m_strokeSamples.clear();
     m_strokeCarryCount = 0;
     m_strokeHadMove = false;
@@ -45,6 +46,7 @@ void ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
         return;
     }
     const QPointF imgPos(x, y);
+    m_accumulatedStrokeBounds = m_accumulatedStrokeBounds.united(QRectF(x, y, 1.0, 1.0));
     const QPointF lastPos = m_strokeSamples.isEmpty()
             ? m_strokeStartImg
             : m_strokeSamples.last().imgPos;
@@ -121,9 +123,18 @@ void ReverieCore::touchStrokeCancel()
 
 void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
 {
-    // Krita-style spacing sampling: only emit a dab when the stylus moved
-    // ~20% of the brush diameter.
-    const qreal spacing = qMax<qreal>(1.5, m_brushSize * 0.20);
+    // Krita-style spacing sampling: for standard dab brushes, emit a dab when stylus moved ~20%.
+    // For path/shape/fill special brushes (experimentbrush, sketchbrush, curvebrush, gridbrush),
+    // keep fine 1.5px sampling so the shape contours and polygons stay smooth and unbroken.
+    QString opId;
+    if (m_brushPreset) {
+        opId = m_brushPreset->paintOp().id();
+    }
+    const bool isPathEngine = (opId == QLatin1String("experimentbrush") ||
+                               opId == QLatin1String("curvebrush") ||
+                               opId == QLatin1String("sketchbrush") ||
+                               opId == QLatin1String("gridbrush"));
+    const qreal spacing = isPathEngine ? 1.5 : qMax<qreal>(1.5, m_brushSize * 0.20);
     if (!m_strokeSamples.isEmpty()) {
         const QPointF last = m_strokeSamples.last().imgPos;
         const qreal dist = QLineF(last, imgPos).length();
@@ -342,16 +353,26 @@ void ReverieCore::flushStrokeBatch()
         // box before painting and restore the pixels outside the selection
         // afterwards - the same net effect as a selection-clipped blit.
         const QString opId = m_brushPreset->paintOp().id();
+        const bool isPathEngine = (opId == QLatin1String("experimentbrush") ||
+                                   opId == QLatin1String("curvebrush") ||
+                                   opId == QLatin1String("sketchbrush") ||
+                                   opId == QLatin1String("gridbrush") ||
+                                   opId == QLatin1String("particlebrush"));
         const bool engineBypassesSelection =
             opId != QLatin1String("paintbrush") && opId != QLatin1String("duplicate");
         QByteArray selClipBefore;
         QRect selClipBox;
         if (m_selection && engineBypassesSelection) {
-            for (const StrokeSample &sm : m_strokeSamples) {
-                const int w = int(m_brushSize) + 2;
-                const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
-                              2 * w, 2 * w);
-                selClipBox = selClipBox.isNull() ? r : selClipBox.united(r);
+            if (isPathEngine) {
+                const int margin = int(m_brushSize) + 8;
+                selClipBox = m_accumulatedStrokeBounds.toAlignedRect().adjusted(-margin, -margin, margin, margin);
+            } else {
+                for (const StrokeSample &sm : m_strokeSamples) {
+                    const int w = int(m_brushSize) + 2;
+                    const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,
+                                  2 * w, 2 * w);
+                    selClipBox = selClipBox.isNull() ? r : selClipBox.united(r);
+                }
             }
             selClipBox &= QRect(0, 0, image->width(), image->height());
             if (!selClipBox.isEmpty()) {
@@ -362,17 +383,17 @@ void ReverieCore::flushStrokeBatch()
                                   selClipBox.width(), selClipBox.height());
             }
         }
-    // Segments up to the carry index were painted by the previous flush:
-    // start at the first NEW segment so the retained joint is not dabbed a
-    // second time (which doubled opacity/erase there every flush boundary).
-    const int firstNewSegment = qBound(1, m_strokeCarryCount, qMax(1, m_strokeSamples.size()));
-    for (int i = firstNewSegment; i < m_strokeSamples.size(); ++i) {
-        const StrokeSample &a = m_strokeSamples[i - 1];
-        const StrokeSample &b = m_strokeSamples[i];
-        m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
-                              KisPaintInformation(b.imgPos, b.pressure),
-                              m_strokeDistance);
-    }
+        // Segments up to the carry index were painted by the previous flush:
+        // start at the first NEW segment so the retained joint is not dabbed a
+        // second time (which doubled opacity/erase there every flush boundary).
+        const int firstNewSegment = qBound(1, m_strokeCarryCount, qMax(1, m_strokeSamples.size()));
+        for (int i = firstNewSegment; i < m_strokeSamples.size(); ++i) {
+            const StrokeSample &a = m_strokeSamples[i - 1];
+            const StrokeSample &b = m_strokeSamples[i];
+            m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
+                                  KisPaintInformation(b.imgPos, b.pressure),
+                                  m_strokeDistance);
+        }
         QVector<KisRunnableStrokeJobData *> jobs;
         m_strokeOp->doAsynchronousUpdate(jobs);
         RPC_LOG("RPC update jobs=%d first=(%.0f,%.0f) last=(%.0f,%.0f)",
@@ -413,24 +434,21 @@ void ReverieCore::flushStrokeBatch()
             target->writeBytes(reinterpret_cast<const quint8 *>(after.constData()),
                                selClipBox.x(), selClipBox.y(), w, h);
         }
-        // Exact dirty propagation: the op's own rendering accumulates dirty
-        // rects inside the painter - dab bitBlt for KisBrushOp, and the
-        // fillPainterPath bitBlt (whole-path rects) for the special engines
-        // like experimentbrush. Using these instead of the brushSize
-        // neighbourhood fixes special brushes whose shape covers the whole
-        // stroke path (they previously only showed after undo/new-layer,
-        // which triggered a full recomposite).
+        // Exact dirty propagation: path engines like experimentbrush (Shape_fill)
+        // continually fill a polygon spanning across the entire stroke history.
+        // We MUST include the whole accumulated stroke bounding box so the live
+        // projection updates every pixel of the filled shape on screen.
+        if (isPathEngine) {
+            const int margin = int(m_brushSize) + 8;
+            const QRect pathDirty = m_accumulatedStrokeBounds.toAlignedRect().adjusted(-margin, -margin, margin, margin);
+            strokeDirty = strokeDirty.isNull() ? pathDirty : strokeDirty.united(pathDirty);
+        }
         const QVector<QRect> exactDirty = painter.takeDirtyRegion();
         for (const QRect &r : exactDirty) {
             strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
         }
-        // Conservative fallback: the samples' neighbourhood, only for
-        // engines that write the device directly (roundmarker's
-        // KisMarkerPainter etc.) and never accumulate dirty rects in the
-        // painter - for paintbrush/duplicate the exactDirty above is the
-        // true changed area, and adding a 2*brushSize margin around every
-        // sample inflates the projection recomposite region for big brushes.
-        if (engineBypassesSelection || exactDirty.isEmpty()) {
+        // Conservative fallback: the samples' neighbourhood for direct-write engines
+        if (!isPathEngine && (engineBypassesSelection || exactDirty.isEmpty())) {
             for (const StrokeSample &sm : m_strokeSamples) {
                 const int w = int(m_brushSize) + 2;
                 const QRect r(int(sm.imgPos.x()) - w, int(sm.imgPos.y()) - w,

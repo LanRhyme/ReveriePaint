@@ -534,6 +534,7 @@ private:
     KisPaintDeviceSP m_strokeBuffer;
     bool m_strokeBatchOpen = false;
     QPointF m_strokeStartImg;
+    QRectF m_accumulatedStrokeBounds;
     qreal m_lastPressure = 1.0;
     // Rendering: the last composited dirty region, used to copy only the
     // changed rows into the Android bitmap (m_bitmapInited gates the first

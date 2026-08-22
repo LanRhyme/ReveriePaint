@@ -632,7 +632,7 @@ static inline void boxBlurV(const quint32 *src, quint32 *dst, int w, int h, int 
     });
 }
 // Scanline polygon fill: paint mask into a w*h mask buffer.
-static inline inline void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool> &mask)
+static inline void scanlineFillPolygon(const QVector<QPoint> &pts, int w, int h, QVector<bool> &mask)
 {
     mask.fill(false, size_t(w) * h);
     if (pts.size() < 3) {
