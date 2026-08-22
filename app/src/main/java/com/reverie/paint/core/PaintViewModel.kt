@@ -1650,12 +1650,20 @@ class PaintViewModel : ViewModel() {
     }
 
     override fun onCleared() {
+        mainHandler.removeCallbacks(persistParamsRunnable)
+        persistBrushParams()
         recorder.endSession()
         replaySession?.stop()
         renderThread?.quitSafely()
         renderThread = null
         renderHandler = null
         super.onCleared()
+    }
+
+    private val persistParamsRunnable = Runnable { persistBrushParams() }
+    internal fun schedulePersistBrushParams(delayMs: Long = 250L) {
+        mainHandler.removeCallbacks(persistParamsRunnable)
+        mainHandler.postDelayed(persistParamsRunnable, delayMs)
     }
 
     internal fun startRenderThread() {

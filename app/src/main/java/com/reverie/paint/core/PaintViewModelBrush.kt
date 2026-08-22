@@ -485,7 +485,7 @@ import kotlinx.coroutines.launch
             description = brushDescription,
             version = brushVersion,
         )
-        persistBrushParams()
+        schedulePersistBrushParams()
     }
 
     internal fun PaintViewModel.persistBrushParams() {
