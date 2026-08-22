@@ -62,7 +62,7 @@ class GesturePivotAndPersistenceTest {
         }
 
         fun computeMoveSlopDp(sensitivity: Int): Float {
-            return (1.5f - (sensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f)
+            return (1.5f + (sensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f)
         }
 
         assertEquals(520L, computeEyedropperDelay(1))
@@ -71,12 +71,12 @@ class GesturePivotAndPersistenceTest {
         assertEquals(310L, computeEyedropperDelay(4))
         assertEquals(240L, computeEyedropperDelay(5))
 
-        // Level 3 must be exactly 1.5dp as specified by user
-        assertEquals(2.1f, computeMoveSlopDp(1), 0.001f)
-        assertEquals(1.8f, computeMoveSlopDp(2), 0.001f)
+        // Level 3 is 1.5dp; lower levels have smaller thresholds (0.9dp, 1.2dp)
+        assertEquals(0.9f, computeMoveSlopDp(1), 0.001f)
+        assertEquals(1.2f, computeMoveSlopDp(2), 0.001f)
         assertEquals(1.5f, computeMoveSlopDp(3), 0.001f)
-        assertEquals(1.2f, computeMoveSlopDp(4), 0.001f)
-        assertEquals(0.9f, computeMoveSlopDp(5), 0.001f)
+        assertEquals(1.8f, computeMoveSlopDp(4), 0.001f)
+        assertEquals(2.1f, computeMoveSlopDp(5), 0.001f)
     }
 
     @Test

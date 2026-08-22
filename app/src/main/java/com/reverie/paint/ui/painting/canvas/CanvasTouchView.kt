@@ -155,10 +155,12 @@ class CanvasTouchView(context: Context) : View(context) {
     private var pendingDownScreenPos = Offset.Zero
     private var pendingDownPressure = 1f
     private var isLongPressPickerActive = false
+    private var longPressToken = 0L
+    private var activeLongPressToken = 0L
 
     private val longPressRunnable = Runnable {
         val v = vm ?: return@Runnable
-        if (isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
+        if (activeLongPressToken == longPressToken && isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
             isPendingLongPress = false
             isLongPressPickerActive = true
             pickerActive?.value = true
@@ -198,6 +200,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        removeCallbacks(longPressRunnable)
+        isPendingLongPress = false
+        isLongPressPickerActive = false
+        longPressToken++
         if (activeTouchView == this) activeTouchView = null
     }
 
@@ -410,6 +416,7 @@ class CanvasTouchView(context: Context) : View(context) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     removeCallbacks(longPressRunnable)
+                    longPressToken++
                     isTransformActive = false
                     isPinchMotion = false
                     isInteracting = true
@@ -422,6 +429,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     if (canEyedrop) {
                         isPendingLongPress = true
+                        activeLongPressToken = longPressToken
                         pendingDownDocPos = docPos
                         pendingDownScreenPos = screenPos
                         pendingDownPressure = pressure
@@ -439,10 +447,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
 
                     if (isPendingLongPress) {
-                        val moveSlopPx = (1.5f - (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
+                        val moveSlopPx = (1.5f + (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
                         val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
                         if (moveDist > moveSlopPx) {
                             removeCallbacks(longPressRunnable)
+                            longPressToken++
                             isPendingLongPress = false
                             handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
                             handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
@@ -454,6 +463,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     removeCallbacks(longPressRunnable)
+                    longPressToken++
                     if (isLongPressPickerActive) {
                         val curCol = pickerCurrentColor?.value
                         if (curCol != null) {
@@ -499,6 +509,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // 1. 多指手势 (双指捏合缩放/旋转/平移 + 碎片期融合)
         if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
             removeCallbacks(longPressRunnable)
+            longPressToken++
             isPendingLongPress = false
 
             if (pointerCount >= 2) {
@@ -663,9 +674,12 @@ class CanvasTouchView(context: Context) : View(context) {
                 firstDocPos = docPos
                 shapeEndDocPos = docPos
                 isLongPressPickerActive = false
+                removeCallbacks(longPressRunnable)
+                longPressToken++
 
                 if (canEyedrop) {
                     isPendingLongPress = true
+                    activeLongPressToken = longPressToken
                     pendingDownDocPos = docPos
                     pendingDownScreenPos = screenPos
                     pendingDownPressure = 1f
@@ -707,10 +721,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 } else {
                     if (isPendingLongPress) {
-                        val moveSlopPx = (1.5f - (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
+                        val moveSlopPx = (1.5f + (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
                         val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
                         if (moveDist > moveSlopPx) {
                             removeCallbacks(longPressRunnable)
+                            longPressToken++
                             isPendingLongPress = false
                             localCursorPos = screenPos
                             localIsTouching = true
@@ -730,6 +745,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
+                longPressToken++
                 isInteracting = false
 
                 if (isLongPressPickerActive) {
