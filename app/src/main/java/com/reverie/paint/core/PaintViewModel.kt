@@ -1687,27 +1687,27 @@ class PaintViewModel : ViewModel() {
         val h = renderHandler ?: return
         // Advisory input-ops counter: doRender defers behind queued ops so
         // stroke samples extend before the (heavier) render runs
-        pendingCoreOps++
+        pendingCoreOps.incrementAndGet()
         h.post {
-            if (pendingCoreOps > 0) pendingCoreOps--
+            pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
             op()
             if (render) scheduleRender()
             if (after != null) mainHandler.post { after() }
         }
     }
 
-    @Volatile internal var pendingCoreOps = 0
+    internal val pendingCoreOps = java.util.concurrent.atomic.AtomicInteger(0)
 
     // Coalesced stroke-sample transport: at most one runnable queued at a
     // time, latest x/y/pressure win. Removes the per-sample lambda+Message
     // allocations and collapses input bursts between handler executions.
-    private var pendingSampleX = 0.0
-    private var pendingSampleY = 0.0
-    private var pendingSampleP = 1.0
+    @Volatile private var pendingSampleX = 0.0
+    @Volatile private var pendingSampleY = 0.0
+    @Volatile private var pendingSampleP = 1.0
     @Volatile private var sampleQueued = false
     private val sampleRunnable = Runnable {
         sampleQueued = false
-        if (pendingCoreOps > 0) pendingCoreOps--
+        pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
         ReverieCoreBridge.touchStrokeMove(pendingSampleX, pendingSampleY, pendingSampleP)
     }
 
@@ -1718,7 +1718,7 @@ class PaintViewModel : ViewModel() {
         pendingSampleP = p
         if (!sampleQueued) {
             sampleQueued = true
-            pendingCoreOps++
+            pendingCoreOps.incrementAndGet()
             h.post(sampleRunnable) // 预建 Runnable 直接投递, 每样本零分配
         }
     }
@@ -1761,7 +1761,7 @@ class PaintViewModel : ViewModel() {
         // projection recomposite - blocking it while input waits behind was
         // felt as lag/stutter during fast scribbling). Bounded to two 4ms
         // defers so rendering can never starve.
-        if (rh != null && pendingCoreOps > 0 && renderDeferCount < 2) {
+        if (rh != null && pendingCoreOps.get() > 0 && renderDeferCount < 2) {
             renderDeferCount++
             rh.postDelayed({ doRender() }, 4L)
             return
