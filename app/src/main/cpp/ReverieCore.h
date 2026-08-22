@@ -319,7 +319,6 @@ public:
     qreal brushOpacity() const { return m_brushOpacity; }
     QColor brushColor() const { return m_brushColor; }
 
-    void commitStrokeToLayer();
     void recompositeProjection();
 
     // Strokes (touch input; coordinates in document space)
@@ -363,6 +362,8 @@ public:
     QString brushPresetPath(int index) const;
     QByteArray brushPresetThumbData(int index) const;
     void setBrushFlow(qreal v);
+    void setBrushSmudgeRate(qreal v);
+    void setBrushSmudgeLength(qreal v);
     void setBrushSpacing(qreal v);
     void setBrushAngle(qreal v);
     void setBrushScatter(qreal v);
@@ -528,12 +529,6 @@ private:
     qint64 m_lastFlushMs = 0;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;
-    // Temporary device holding the in-progress stroke at full strength.
-    // The stroke opacity is applied ONCE when the stroke is committed to
-    // the layer (Krita applies opacity per dab, so overlapping dabs would
-    // accumulate towards opaque; a single commit pass gives the exact
-    // opacity the user set, like Procreate / 画世界).
-    KisPaintDeviceSP m_strokeBuffer;
     bool m_strokeBatchOpen = false;
     QPointF m_strokeStartImg;
     QRectF m_accumulatedStrokeBounds;
@@ -561,6 +556,9 @@ private:
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;
+    // Smudge engine state (colorsmudge paintop)
+    qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
+    qreal m_smudgeLength = 0.5; // smudge length -> SmudgeRateValue
 
     // Document size
     int m_docWidth = 0;

@@ -624,54 +624,6 @@ void ReverieCore::flushStrokeBatch()
     }
 }
 
-// Place the finished stroke from the temporary buffer onto the current
-// layer, applying the stroke opacity exactly once. Eraser uses the erase
-// composite op so the stroke genuinely clears layer pixels.
-void ReverieCore::commitStrokeToLayer()
-{
-    if (!m_strokeBuffer || !m_document) {
-        return;
-    }
-    KisPaintDeviceSP device = currentPaintDevice();
-    if (!device) {
-        m_strokeBuffer->clear();
-        return;
-    }
-    const QRect ext = m_strokeBuffer->exactBounds();
-    if (ext.isEmpty()) {
-        m_strokeBuffer->clear();
-        return;
-    }
-    qreal opacity = qBound<qreal>(0.0, m_strokeOpacity, 1.0);
-    // Smudge: a translucent smearing pass (MVP approximation of the real
-    // smudge brush which pushes color along the stroke path).
-    if (m_toolMode == ToolSmudge) {
-        opacity = qMin<qreal>(opacity, 0.12);
-    }
-    KisPainter painter(device);
-    painter.setOpacityF(opacity);
-    painter.setCompositeOpId(QStringLiteral("normal"));
-    // Transparency lock: preserve the existing alpha by masking the alpha
-    // channel out of the write (Krita's KisPaintLayer::setAlphaLocked uses
-    // the same channelFlags mechanism)
-    const LayerEntry &cur = m_layers[qBound(0, m_currentLayer, m_layers.size() - 1)];
-    if (cur.alphaLocked) {
-        painter.setChannelFlags(device->colorSpace()->channelFlags(true, false));
-    }
-    // Active selection: constrain the stroke to the selection mask
-    if (m_selection) {
-        painter.setSelection(m_selection);
-    }
-    painter.bitBlt(ext.x(), ext.y(), m_strokeBuffer,
-                   ext.x(), ext.y(), ext.width(), ext.height());
-    // Mark the region dirty on the layer device and recomposite
-    device->setDirty(ext);
-    recompositeProjection();
-    markRegionDirty(ext);
-    bumpLayerThumbGen(m_layers[m_currentLayer].node);
-    m_strokeBuffer->clear();
-}
-
 void ReverieCore::endStrokeBatch()
 {
     if (KisPaintDeviceSP target = currentPaintDevice()) {

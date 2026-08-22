@@ -311,7 +311,6 @@ bool ReverieCore::loadRevp(const QString &path)
     m_lastDirty = QRect();
     endStrokeBatch();
     m_strokeDevice = nullptr;
-    m_strokeBuffer = nullptr;
     m_strokeSamples.clear();
     m_strokeHadMove = false;
     m_strokeBatchOpen = false;

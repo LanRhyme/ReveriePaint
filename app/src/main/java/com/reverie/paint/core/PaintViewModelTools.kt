@@ -311,6 +311,8 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                         ReverieCoreBridge.setBrushSize(saved.size)
                         ReverieCoreBridge.setBrushOpacity(saved.opacity)
                         ReverieCoreBridge.setBrushFlow(saved.flow)
+                        ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
+                        ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
                     }
                 }
                 applyToolParamMemoryOverlay()

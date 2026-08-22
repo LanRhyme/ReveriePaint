@@ -143,6 +143,8 @@ bool ReverieCore::loadBrushPreset(int index)
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
+    setBrushSmudgeRate(m_smudgeRate);
+    setBrushSmudgeLength(m_smudgeLength);
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =
@@ -251,6 +253,26 @@ void ReverieCore::setBrushFlow(qreal v)
     m_brushFlow = v;
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpFlow(v);
+    }
+}
+
+// Smudge engine parameters. Key names verified against bundled presets:
+// k)_Blender_Basic.kpp exposes SmudgeRateValue (length), ColorRateValue and
+// legacy MixValue (color mixing rate), paintop="colorsmudge".
+void ReverieCore::setBrushSmudgeRate(qreal v)
+{
+    m_smudgeRate = v;
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    s->setProperty("ColorRateValue", v);
+    s->setProperty("MixValue", v); // legacy key for older-generation presets
+}
+
+void ReverieCore::setBrushSmudgeLength(qreal v)
+{
+    m_smudgeLength = v;
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setProperty("SmudgeRateValue", v);
     }
 }
 

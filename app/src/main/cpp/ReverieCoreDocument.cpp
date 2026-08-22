@@ -51,7 +51,6 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // devices bound and made painting fail on the second open.
     endStrokeBatch();               // delete m_strokePainter
     m_strokeDevice = nullptr;
-    m_strokeBuffer = nullptr;       // rebuilt lazily on next stroke
     m_strokeSamples.clear();
     m_strokeHadMove = false;
     m_strokeBatchOpen = false;

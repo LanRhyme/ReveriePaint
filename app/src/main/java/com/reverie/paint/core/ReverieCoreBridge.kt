@@ -250,6 +250,10 @@ object ReverieCoreBridge {
 
     external fun setBrushFlow(flow: Double)
 
+    external fun setBrushSmudgeRate(rate: Double)
+
+    external fun setBrushSmudgeLength(length: Double)
+
     external fun setBrushSpacing(v: Double)
 
     external fun setBrushAngle(v: Double)

@@ -384,11 +384,13 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushSmudgeRate(v: Double) {
         brushSmudgeRate = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeRate(v) }
     }
 
     internal fun PaintViewModel.updateBrushSmudgeLength(v: Double) {
         brushSmudgeLength = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeLength(v) }
     }
 
     internal fun PaintViewModel.updateBrushSpikes(v: Int) {
@@ -885,8 +887,12 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushSharpness(saved.sharpness)
                 ReverieCoreBridge.setBrushRotation(saved.rotation)
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
+                ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
+                ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
+                ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
+                ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
             }
         }
     }
