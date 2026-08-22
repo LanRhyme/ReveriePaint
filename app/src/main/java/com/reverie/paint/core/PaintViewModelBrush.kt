@@ -754,6 +754,17 @@ import kotlinx.coroutines.launch
         val preset = brushPresets.getOrNull(index)
         val isBuiltIn = preset?.isBuiltIn == true
         val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
+        
+        if (isEraserPreset) {
+            if (currentToolId != "eraser") {
+                applyTool("eraser")
+            }
+        } else {
+            if (currentToolId == "eraser") {
+                applyTool("brush")
+            }
+        }
+
         val saved = if (preset != null) brushParams[preset.name] else null
         val effectiveCompOp = if (isEraserPreset) {
             "erase"

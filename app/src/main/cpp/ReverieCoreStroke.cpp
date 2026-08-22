@@ -246,8 +246,7 @@ void ReverieCore::flushStrokeBatch()
     }
     const bool isEraserPreset = m_brushPreset && (
         m_brushPreset->name().startsWith(QLatin1String("a)_")) ||
-        m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive) ||
-        (m_brushPreset->settings() && m_brushPreset->settings()->getString("CompositeOp") == QLatin1String("erase"))
+        m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive)
     );
     const bool erasing = (m_toolMode == ToolEraser) || isEraserPreset;
 
@@ -257,8 +256,7 @@ void ReverieCore::flushStrokeBatch()
             : QStringLiteral("normal"));
 
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
-        m_brushPreset->settings()->setProperty("CompositeOp", effectiveOp);
+        m_brushPreset->settings()->setEraserMode(erasing);
     }
 
     // Krita indirect painting check:
@@ -311,6 +309,13 @@ void ReverieCore::flushStrokeBatch()
         qBgColor = Qt::white;
     }
     KoColor koBgColor(qBgColor, cs);
+
+    RPC_LOG("RPC stroke mode=%d isEraser=%d erasing=%d compOp=%s color=(%d,%d,%d,%d) opacity=%.2f preset=%s",
+            int(m_toolMode), isEraserPreset, erasing,
+            painterCompOp.toUtf8().constData(),
+            qColor.red(), qColor.green(), qColor.blue(), qColor.alpha(),
+            m_strokeOpacity,
+            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "null");
 
     // Krita-style: reuse one KisPainter for the whole stroke.
     if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
