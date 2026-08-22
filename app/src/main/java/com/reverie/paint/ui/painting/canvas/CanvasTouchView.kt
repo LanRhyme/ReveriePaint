@@ -422,24 +422,21 @@ class CanvasTouchView(context: Context) : View(context) {
         pendingUndoRunnable?.let { removeCallbacks(it) }
         removeCallbacks(resetTransformRunnable)
 
-        // 检查是否有真实手写笔接触屏幕
-        // 物理手写笔真实落笔必有压感 (pressure > 0.005f)；
-        // 当手写笔在空中悬停 (pressure == 0) 时，手指触屏产生的 MotionEvent 可能会附带 TOOL_TYPE_STYLUS，
-        // 此时必须判定为手指多点手势 (isStylusTouch = false)，绝不能阻断双指缩放、旋转或单指画布平移！
+        // 分离手写笔 Pointer 与手指 Pointer
+        val fingerPointers = mutableListOf<Int>()
         var stylusPointerIndex = -1
-        var stylusHasPressure = false
+
         for (i in 0 until pointerCount) {
-            val type = event.getToolType(i)
-            val pr = event.getPressure(i)
-            if (type == MotionEvent.TOOL_TYPE_STYLUS || type == MotionEvent.TOOL_TYPE_ERASER) {
-                if (pr > 0.005f) {
-                    stylusPointerIndex = i
-                    stylusHasPressure = true
-                    break
-                }
+            val toolType = event.getToolType(i)
+            if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
+                stylusPointerIndex = i
+            } else {
+                fingerPointers.add(i)
             }
         }
-        val isStylusTouch = stylusHasPressure && stylusPointerIndex >= 0 && (pointerCount == 1 || isInteracting)
+
+        // 手写笔触控判定：存在手写笔 Pointer 且没有 2 根及以上手指在做手势导航
+        val isStylusTouch = stylusPointerIndex >= 0 && fingerPointers.size < 2
 
         // =========================================================
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
@@ -558,18 +555,21 @@ class CanvasTouchView(context: Context) : View(context) {
         // B. 手指交互流程：画世界 / Procreate 模式 (100% 画布手势导航)
         // =========================================================
         val nowMs = System.currentTimeMillis()
-        maxTouchPointers = maxOf(maxTouchPointers, pointerCount)
+        val numFingers = fingerPointers.size
+        maxTouchPointers = maxOf(maxTouchPointers, numFingers)
         isInteracting = true
 
         // 1. 多指手势 (双指捏合缩放/旋转/平移 + 碎片期融合)
-        if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
+        if (numFingers >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
             removeCallbacks(longPressRunnable)
             longPressToken++
             isPendingLongPress = false
 
-            if (pointerCount >= 2) {
-                val raw0 = Offset(event.getX(0), event.getY(0))
-                val raw1 = Offset(event.getX(1), event.getY(1))
+            if (numFingers >= 2) {
+                val idx0 = fingerPointers[0]
+                val idx1 = fingerPointers[1]
+                val raw0 = Offset(event.getX(idx0), event.getY(idx0))
+                val raw1 = Offset(event.getX(idx1), event.getY(idx1))
 
                 val (p0, p1) = if (lastPos0 != Offset.Zero && lastPos1 != Offset.Zero) {
                     val d00_11 = hypot(raw0.x - lastPos0.x, raw0.y - lastPos0.y) + hypot(raw1.x - lastPos1.x, raw1.y - lastPos1.y)
@@ -641,9 +641,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 lastTransformTimestamp = nowMs
-            } else if (pointerCount == 1 && isTransformActive) {
+            } else if (numFingers == 1 && isTransformActive) {
                 // 驱动碎片期（单指短暂存活）：持续补偿平移，零丢帧
-                val cur = Offset(event.x, event.y)
+                val idx0 = fingerPointers[0]
+                val cur = Offset(event.getX(idx0), event.getY(idx0))
                 val dist0 = hypot(cur.x - lastPos0.x, cur.y - lastPos0.y)
                 val dist1 = hypot(cur.x - lastPos1.x, cur.y - lastPos1.y)
 
@@ -715,7 +716,8 @@ class CanvasTouchView(context: Context) : View(context) {
         }
 
         // 2. 单指手势 (根据 vm.penOnlyMode 切换手指平移 vs 手指作画)
-        val screenPos = Offset(event.x, event.y)
+        val singleFingerIdx = if (fingerPointers.isNotEmpty()) fingerPointers[0] else 0
+        val screenPos = Offset(event.getX(singleFingerIdx), event.getY(singleFingerIdx))
         val docPos = screenToDoc(screenPos)
         val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode &&
             (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY)
@@ -936,13 +938,17 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.LASSO -> {
                 lassoPoints.add(docPos)
                 val now = System.nanoTime()
-                if (now - lastLassoPreviewNs > 33_000_000L) {
+                if (now - lastLassoPreviewNs > 16_000_000L) {
                     lastLassoPreviewNs = now
+                    val docW = docBitmap?.width ?: vm?.docWidth ?: 1
+                    val docH = docBitmap?.height ?: vm?.docHeight ?: 1
+                    val halfW = docW / 2f
+                    val halfH = docH / 2f
                     val p = Path().apply {
                         if (lassoPoints.isNotEmpty()) {
-                            moveTo(lassoPoints[0].x, lassoPoints[0].y)
+                            moveTo(lassoPoints[0].x - halfW, lassoPoints[0].y - halfH)
                             for (j in 1 until lassoPoints.size) {
-                                lineTo(lassoPoints[j].x, lassoPoints[j].y)
+                                lineTo(lassoPoints[j].x - halfW, lassoPoints[j].y - halfH)
                             }
                         }
                     }
