@@ -31,6 +31,7 @@ void ReverieCore::registerPaintOps()
         krita_register_tangentnormal_paintop();
         krita_register_hairy_paintop();
         krita_register_hatching_paintop();
+        registerCoreFilters();
 
         const KoColorSpace *cs16 = KoColorSpaceRegistry::instance()->colorSpace(
             RGBAColorModelID.id(), Integer16BitsColorDepthID.id());

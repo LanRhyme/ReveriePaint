@@ -1876,31 +1876,23 @@ class PaintViewModel : ViewModel() {
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }
 
-/** Krita-style brush grouping: the preset name prefix maps to a group. */
+/** Krita-style brush grouping: optimized balanced categories. */
 fun inferBrushGroup(name: String): String =
     when {
-        name.startsWith("a)") -> "橡皮擦"
-        name.startsWith("b)") || name.startsWith("Airbrush") || name.startsWith("Basic") -> "基础"
-        name.startsWith("c)") || name.startsWith("Pencil") -> "铅笔"
-        name.startsWith("d)") || name.startsWith("Ink") -> "勾线"
-        name.startsWith("e)") || name.startsWith("Marker") -> "马克笔"
-        name.startsWith("f)") || name.contains("Bristle") || name.contains("Charcoal") -> "鬃毛"
-        name.startsWith("g)") || name.startsWith("Dry") -> "干笔"
-        name.startsWith("h)") || name.startsWith("Chalk") -> "粉笔"
-        name.startsWith("i)") || name.startsWith("Wet") -> "湿笔"
-        name.startsWith("j)") || name.startsWith("Water") -> "水彩"
+        name.startsWith("a)") || name.contains("Eraser", ignoreCase = true) -> "橡皮擦"
+        name.startsWith("c)") || name.contains("Pencil") || name.contains("Charcoal") || name.contains("Pastel") || name.startsWith("h)") -> "铅笔"
+        name.startsWith("d)") || name.startsWith("e)") || name.contains("Ink", ignoreCase = true) || name.contains("Marker") -> "勾线"
+        name.startsWith("b)") || name.startsWith("Basic") || name.startsWith("Airbrush") || name.startsWith("Layout") || name.startsWith("Quick") -> "基础"
+        name.startsWith("f)") || name.startsWith("g)") || name.contains("Bristle") || name.contains("Oils") || name.contains("Block") || name.contains("Dry") -> "绘画"
+        name.startsWith("i)") || name.startsWith("j)") || name.contains("Wet") || name.contains("Water") || name.contains("Sparkle_wet") || name.contains("Splat_wet") -> "水彩"
         name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
-        name.startsWith("l)") || name.startsWith("Adjust") -> "调整"
-        name.startsWith("t)") || name.startsWith("Shape") -> "形状"
-        name.startsWith("u)") || name.contains("Pixel") -> "像素画"
-        name.startsWith("v)") -> "特效"
-        name.startsWith("w)") -> "纹理"
-        name.startsWith("x)") || name.startsWith("Filter") -> "滤镜"
-        name.startsWith("y)") -> "纹理"
-        name.startsWith("z)") || name.startsWith("Stamp") -> "印章"
-        name.contains("Spray") -> "喷枪"
-        name.contains("Clone") || name.contains("Distort") -> "特效"
-        else -> "其他"
+        name.contains("Sketch") || name.contains("Curve") -> "速写"
+        name.startsWith("l)") || name.startsWith("x)") || name.contains("Adjust") || name.contains("FX") || name.contains("Distort") || name.contains("Clone") || name.contains("Filter") || name == "Move_tool" -> "特效与调整"
+        name.startsWith("t)") || name.contains("Shape") || name.contains("Fill") -> "形状与填充"
+        name.startsWith("u)") || name.contains("Pixel", ignoreCase = true) || name.contains("pixel") -> "像素画"
+        name.startsWith("w)") || name.startsWith("y)") || name.contains("Texture") || name.contains("Textured") || name.contains("Screentone") || name.contains("Hatch") || name.contains("Tangent") || name.contains("Grid") || name.contains("Sponge") || name.contains("Rake") || name.contains("Brush_") -> "纹理与排线"
+        name.startsWith("z)") || name.contains("Stamp") || name.contains("Spray") || name.contains("Splat") || name.contains("particles") || name.contains("Fuzzy") || name.contains("dyna_dots") || name.contains("Experimental") -> "印章与喷溅"
+        else -> "基础"
     }
 
 /** Per-preset independent brush parameters. */
@@ -1966,9 +1958,8 @@ data class BrushPresetInfo(
 )
 
 val BUILT_IN_BRUSH_GROUPS = setOf(
-    "全部", "橡皮擦", "基础", "铅笔", "勾线", "马克笔", "鬃毛",
-    "干笔", "粉笔", "湿笔", "水彩", "混合", "调整", "形状",
-    "像素画", "特效", "纹理", "滤镜", "印章", "喷枪", "其他", "导入"
+    "全部", "常用", "基础", "铅笔", "勾线", "绘画", "水彩", "混合",
+    "速写", "形状与填充", "特效与调整", "纹理与排线", "印章与喷溅", "像素画", "橡皮擦", "导入"
 )
 
 fun isBuiltInBrushGroup(group: String, presets: List<BrushPresetInfo> = emptyList()): Boolean {

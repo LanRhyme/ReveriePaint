@@ -893,4 +893,6 @@ void krita_register_hairy_paintop();
 void krita_register_hatching_paintop();
 }
 
+void registerCoreFilters();
+
 #endif // REVERIECORE_INTERNAL_H

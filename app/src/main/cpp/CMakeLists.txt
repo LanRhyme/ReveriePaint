@@ -188,6 +188,7 @@ add_library(reverie_jni SHARED
     ReverieCoreLayers.cpp
     ReverieCoreLayerOps.cpp
     ReverieCoreFilters.cpp
+    ReverieCoreFilterPlugins.cpp
     ReverieCoreFilterPreview.cpp
     ReverieCoreFilterPreviewFx.cpp
     ReverieCoreSelection.cpp
