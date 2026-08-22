@@ -90,18 +90,16 @@ internal fun CanvasOverlay(
 
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
             val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
-            if (!vm.isInfiniteCanvas) {
-                withTransform({
-                    translate(center.x + 8f, center.y + 8f)
-                    rotate(rotation, pivot = Offset.Zero)
-                    scale(scale, scale, pivot = Offset.Zero)
-                }) {
-                    drawRect(
-                        Morandi.canvasShadow,
-                        topLeft = Offset(-imgW / 2f, -imgH / 2f),
-                        size = androidx.compose.ui.geometry.Size(imgW, imgH),
-                    )
-                }
+            withTransform({
+                translate(center.x + 8f, center.y + 8f)
+                rotate(rotation, pivot = Offset.Zero)
+                scale(scale, scale, pivot = Offset.Zero)
+            }) {
+                drawRect(
+                    Morandi.canvasShadow,
+                    topLeft = Offset(-imgW / 2f, -imgH / 2f),
+                    size = androidx.compose.ui.geometry.Size(imgW, imgH),
+                )
             }
             withTransform({
                 translate(center.x, center.y)

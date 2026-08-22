@@ -45,7 +45,6 @@ class PaintViewModel : ViewModel() {
 
     var docWidth by mutableStateOf(1080)
     var docHeight by mutableStateOf(1920)
-    var isInfiniteCanvas by mutableStateOf(false)
     var docName by mutableStateOf("Untitled")
     var totalStrokes by mutableStateOf(0)
     var initialStrokeCount by mutableStateOf(0)
@@ -1877,22 +1876,23 @@ class PaintViewModel : ViewModel() {
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }
 
-/** Krita-style brush grouping: optimized balanced categories. */
+/** Krita-style brush grouping: strictly aligned with Krita default presets. */
 fun inferBrushGroup(name: String): String =
     when {
         name.startsWith("a)") || name.contains("Eraser", ignoreCase = true) -> "橡皮擦"
-        name.startsWith("c)") || name.contains("Pencil") || name.contains("Charcoal") || name.contains("Pastel") || name.startsWith("h)") -> "铅笔"
-        name.startsWith("d)") || name.startsWith("e)") || name.contains("Ink", ignoreCase = true) || name.contains("Marker") -> "勾线"
-        name.startsWith("b)") || name.startsWith("Basic") || name.startsWith("Airbrush") || name.startsWith("Layout") || name.startsWith("Quick") -> "基础"
-        name.startsWith("f)") || name.startsWith("g)") || name.contains("Bristle") || name.contains("Oils") || name.contains("Block") || name.contains("Dry") -> "绘画"
-        name.startsWith("i)") || name.startsWith("j)") || name.contains("Wet") || name.contains("Water") || name.contains("Sparkle_wet") || name.contains("Splat_wet") -> "水彩"
-        name.startsWith("k)") || name.contains("Blender") || name.contains("Smudge") -> "混合"
-        name.contains("Sketch") || name.contains("Curve") -> "速写"
-        name.startsWith("l)") || name.startsWith("x)") || name.contains("Adjust") || name.contains("FX") || name.contains("Distort") || name.contains("Clone") || name.contains("Filter") || name == "Move_tool" -> "特效与调整"
-        name.startsWith("t)") || name.contains("Shape") || name.contains("Fill") -> "形状与填充"
+        name.startsWith("e)") || name.contains("Marker", ignoreCase = true) -> "马克笔"
+        name.startsWith("t)") || name.contains("Shape", ignoreCase = true) || (name.contains("Fill", ignoreCase = true) && !name.contains("starfield", ignoreCase = true)) -> "形状"
         name.startsWith("u)") || name.contains("Pixel", ignoreCase = true) || name.contains("pixel") -> "像素画"
-        name.startsWith("w)") || name.startsWith("y)") || name.contains("Texture") || name.contains("Textured") || name.contains("Screentone") || name.contains("Hatch") || name.contains("Tangent") || name.contains("Grid") || name.contains("Sponge") || name.contains("Rake") || name.contains("Brush_") -> "纹理与排线"
-        name.startsWith("z)") || name.contains("Stamp") || name.contains("Spray") || name.contains("Splat") || name.contains("particles") || name.contains("Fuzzy") || name.contains("dyna_dots") || name.contains("Experimental") -> "印章与喷溅"
+        name.startsWith("l)") || name.startsWith("x)") || name.contains("Adjust", ignoreCase = true) || name.contains("FX", ignoreCase = true) || name.contains("Distort", ignoreCase = true) || name.contains("Clone", ignoreCase = true) || name.contains("Filter", ignoreCase = true) || name.contains("Move_tool") -> "特效与滤镜"
+        name.startsWith("d)") || name.startsWith("Ink", ignoreCase = true) || name.contains("_Ink", ignoreCase = true) || name.contains("Gpen", ignoreCase = true) || name.contains("ballpen", ignoreCase = true) || name.contains("sumi-e", ignoreCase = true) -> "勾线"
+        name.startsWith("c)") || name.startsWith("h)") || name.contains("Pencil", ignoreCase = true) || name.contains("Charcoal", ignoreCase = true) || name.contains("Chalk", ignoreCase = true) || name.contains("Pastel", ignoreCase = true) -> "铅笔"
+        name.startsWith("b)") || name.contains("Airbrush", ignoreCase = true) || name.contains("Basic", ignoreCase = true) || name.startsWith("Layout") || name.startsWith("Quick") -> "基础"
+        name.startsWith("i)") || name.startsWith("j)") || name.contains("Wet", ignoreCase = true) || name.contains("Water", ignoreCase = true) || name.contains("Sparkle_wet") || name.contains("Splat_wet") -> "水彩"
+        name.startsWith("k)") || name.contains("Blender", ignoreCase = true) || name.contains("Smudge", ignoreCase = true) -> "混合"
+        name.startsWith("v)_Sketching") || name.contains("Sketch", ignoreCase = true) || name.contains("Curve", ignoreCase = true) -> "速写"
+        name.startsWith("f)") || name.startsWith("g)") || name.contains("Bristle", ignoreCase = true) || name.contains("Oils", ignoreCase = true) || name.contains("Block") || name.contains("Dry") -> "绘画"
+        name.startsWith("w)") || name.startsWith("y)") || name.contains("Texture", ignoreCase = true) || name.contains("Textured", ignoreCase = true) || name.contains("Screentone", ignoreCase = true) || name.contains("Hatch", ignoreCase = true) || name.contains("Tangent", ignoreCase = true) || name.contains("Grid", ignoreCase = true) || name.contains("Sponge", ignoreCase = true) || name.contains("Rake", ignoreCase = true) || name.contains("Brush_", ignoreCase = true) -> "纹理与排线"
+        name.startsWith("z)") || name.contains("Stamp", ignoreCase = true) || name.contains("Spray", ignoreCase = true) || name.contains("Splat", ignoreCase = true) || name.contains("particles", ignoreCase = true) || name.contains("Fuzzy", ignoreCase = true) || name.contains("dyna_dots", ignoreCase = true) || name.contains("Experimental", ignoreCase = true) -> "印章与喷溅"
         else -> "基础"
     }
 
@@ -1959,8 +1959,8 @@ data class BrushPresetInfo(
 )
 
 val BUILT_IN_BRUSH_GROUPS = setOf(
-    "全部", "常用", "基础", "铅笔", "勾线", "绘画", "水彩", "混合",
-    "速写", "形状与填充", "特效与调整", "纹理与排线", "印章与喷溅", "像素画", "橡皮擦", "导入"
+    "全部", "常用", "基础", "铅笔", "勾线", "马克笔", "绘画", "水彩", "混合",
+    "速写", "形状", "特效与滤镜", "纹理与排线", "印章与喷溅", "像素画", "橡皮擦", "导入"
 )
 
 fun isBuiltInBrushGroup(group: String, presets: List<BrushPresetInfo> = emptyList()): Boolean {

@@ -462,7 +462,7 @@ internal fun CanvasTabPage(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             SettingInfoRow("创建时间", createdStr)
-            SettingInfoRow("画布尺寸", if (vm.isInfiniteCanvas) "无限画布 (${vm.docWidth}×${vm.docHeight})" else "${vm.docWidth}×${vm.docHeight} - 300ppi")
+            SettingInfoRow("画布尺寸", "${vm.docWidth}×${vm.docHeight} - 300ppi")
             SettingInfoRow("一共画了", "${vm.totalStrokes} 笔 / ${vm.layerCount} 图层")
             SettingInfoRow("作画耗时", durationStr)
             SettingInfoRow("颜色模式", vm.colorMode)

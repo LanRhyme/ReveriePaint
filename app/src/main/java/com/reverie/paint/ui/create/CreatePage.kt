@@ -87,7 +87,6 @@ fun CreatePage(vm: PaintViewModel) {
     var customW by remember { mutableStateOf("2048") }
     var customH by remember { mutableStateOf("2048") }
     var customPpi by remember { mutableStateOf("300") }
-    var isInfiniteMode by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("常用") }
 
     BackHandler {
@@ -106,7 +105,6 @@ fun CreatePage(vm: PaintViewModel) {
 
     val defaultPresets = remember {
         listOf(
-            CanvasPresetItem("无限画布", 4096, 4096, 300, "常用", "无边界自由创作，可随心向四周扩展绘制"),
             CanvasPresetItem("正方形 1:1", 2048, 2048, 300, "常用", "适合头像、插画与社交贴图"),
             CanvasPresetItem("标准 4:3", 2048, 1536, 300, "常用", "标准平板与经典绘画比例"),
             CanvasPresetItem("高清宽屏 16:9", 1920, 1080, 72, "常用", "影视与桌面壁纸通用标准"),
@@ -330,37 +328,6 @@ fun CreatePage(vm: PaintViewModel) {
                         }
                     }
 
-                    Spacer(Modifier.height(14.dp))
-
-                    // Infinite Canvas Mode Switch Card
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(colors.panelHi.copy(alpha = 0.5f))
-                            .border(1.dp, colors.border.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .clickable { isInfiniteMode = !isInfiniteMode }
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("无限画布模式", color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(2.dp))
-                            Text("无边界自由创作，随心向四周扩展绘制", color = colors.subText, fontSize = 11.sp)
-                        }
-                        Switch(
-                            checked = isInfiniteMode,
-                            onCheckedChange = { isInfiniteMode = it },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = colors.onAccent,
-                                checkedTrackColor = colors.accent,
-                                uncheckedThumbColor = colors.subText,
-                                uncheckedTrackColor = colors.panel
-                            )
-                        )
-                    }
-
                     Spacer(Modifier.weight(1f))
 
                     // Actions: Save to Preset & Create Canvas
@@ -457,7 +424,7 @@ fun CreatePage(vm: PaintViewModel) {
                                 .clickable(interactionSource = createSource, indication = null) {
                                     val finalW = customW.toIntOrNull()?.coerceIn(64, 8192) ?: 2048
                                     val finalH = customH.toIntOrNull()?.coerceIn(64, 8192) ?: 2048
-                                    vm.startPainting(finalW, finalH, isInfiniteCanvas = isInfiniteMode)
+                                    vm.startPainting(finalW, finalH)
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -536,8 +503,7 @@ fun CreatePage(vm: PaintViewModel) {
                                     .background(colors.panel)
                                     .border(1.dp, colors.border, RoundedCornerShape(14.dp))
                                     .clickable(interactionSource = itemSource, indication = null) {
-                                        val isInfinite = item.name.contains("无限")
-                                        vm.startPainting(item.width, item.height, isInfiniteCanvas = isInfinite)
+                                        vm.startPainting(item.width, item.height)
                                     }
                                     .padding(horizontal = 18.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically
