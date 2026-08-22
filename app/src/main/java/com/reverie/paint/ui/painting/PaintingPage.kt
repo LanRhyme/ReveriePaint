@@ -5,6 +5,8 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -23,6 +25,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.luminance
+import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onKeyEvent
@@ -91,6 +96,8 @@ import com.reverie.paint.ui.painting.brush.BrushStudioPage
 import com.reverie.paint.ui.painting.canvas.CanvasView
 import com.reverie.paint.ui.painting.canvas.TransformMode
 import com.reverie.paint.ui.painting.canvas.TransformState
+import com.reverie.paint.ui.painting.canvas.widgetToImage
+import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.ui.painting.layers.LayerPanel
 import com.reverie.paint.ui.painting.panels.AllToolsPanel
 import com.reverie.paint.ui.painting.panels.ColorPanel
@@ -107,6 +114,13 @@ import com.reverie.paint.ui.painting.panels.ToolFloatChip
 import com.reverie.paint.ui.painting.panels.ToolFloatPanel
 import com.reverie.paint.ui.painting.panels.ToolRail
 import com.reverie.paint.ui.painting.panels.TransformPanel
+
+private class FillDiffusionWave(
+    val id: Long,
+    val origin: Offset,
+    val color: Color,
+    val anim: Animatable<Float, AnimationVector1D>,
+)
 
 /**
  * Painting page: full-bleed canvas with touch painting + gestures,
@@ -194,6 +208,62 @@ fun PaintingPage(
     var liquifyBrushSize by remember { mutableStateOf(60f) }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    // ---- Quick Color Fill (ColorDrop) State & Diffusion Animation ----
+    var isColorDropping by remember { mutableStateOf(false) }
+    var colorDropPos by remember { mutableStateOf(Offset.Zero) }
+    var colorDropHex by remember { mutableStateOf(vm.brushColor) }
+
+    val diffusionWaves = remember { androidx.compose.runtime.mutableStateListOf<FillDiffusionWave>() }
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    val triggerFillDiffusion: (Offset, Color) -> Unit = { screenOrigin, waveColor ->
+        val waveId = System.currentTimeMillis()
+        val anim = Animatable(0f)
+        val wave = FillDiffusionWave(waveId, screenOrigin, waveColor, anim)
+        diffusionWaves.add(wave)
+        coroutineScope.launch {
+            anim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 480,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+            diffusionWaves.remove(wave)
+        }
+    }
+
+    val handleColorDrop: (Offset) -> Unit = { dropScreenPos ->
+        val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
+        if (activeLayer?.isGroup == true) {
+            vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+        } else if (activeLayer?.locked == true) {
+            vm.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+        } else {
+            val bmpW = vm.displayBitmap?.width ?: vm.docWidth
+            val bmpH = vm.displayBitmap?.height ?: vm.docHeight
+            val docPos = widgetToImage(
+                dropScreenPos,
+                canvasW,
+                canvasH,
+                panX,
+                panY,
+                zoom,
+                fitScale,
+                rotation,
+                bmpW,
+                bmpH,
+                vm.docWidth,
+                vm.docHeight,
+            )
+            if (docPos.x in 0f..vm.docWidth.toFloat() && docPos.y in 0f..vm.docHeight.toFloat()) {
+                vm.floodFill(docPos.x, docPos.y, fillTolerance)
+                triggerFillDiffusion(dropScreenPos, parseColor(colorDropHex))
+            }
+        }
+        isColorDropping = false
+    }
     // Clear transient tool state when switching tools, and activate tool states
     androidx.compose.runtime.LaunchedEffect(tool) {
         if (tool == Tool.TRANSFORM || tool == Tool.MOVE) {
@@ -356,6 +426,69 @@ fun PaintingPage(
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
             )
+
+            // Diffusion Animation Canvas Overlay
+            if (diffusionWaves.isNotEmpty()) {
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    for (wave in diffusionWaves) {
+                        val t = wave.anim.value
+                        val maxR = maxOf(size.width, size.height) * 0.45f
+                        val curR = maxR * t
+                        val alpha = (1f - t).coerceIn(0f, 1f)
+
+                        // 1. Soft radial glowing fill expanding and dissolving
+                        drawCircle(
+                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                colors = listOf(
+                                    wave.color.copy(alpha = alpha * 0.45f),
+                                    wave.color.copy(alpha = alpha * 0.15f),
+                                    wave.color.copy(alpha = 0f),
+                                ),
+                                center = wave.origin,
+                                radius = maxOf(1f, curR),
+                            ),
+                            radius = curR,
+                            center = wave.origin,
+                        )
+
+                        // 2. Main expanding outer wave ring
+                        drawCircle(
+                            color = wave.color.copy(alpha = alpha * 0.85f),
+                            radius = curR,
+                            center = wave.origin,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = (5.dp.toPx() * (1f - t * 0.6f)).coerceAtLeast(1.5f),
+                            ),
+                        )
+
+                        // 3. Secondary concentric ripple
+                        if (t > 0.12f) {
+                            val t2 = ((t - 0.12f) / 0.88f).coerceIn(0f, 1f)
+                            val r2 = curR * 0.68f
+                            val alpha2 = (1f - t2).coerceIn(0f, 1f)
+                            drawCircle(
+                                color = wave.color.copy(alpha = alpha2 * 0.55f),
+                                radius = r2,
+                                center = wave.origin,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 2.5.dp.toPx(),
+                                ),
+                            )
+                        }
+
+                        // 4. Center splash flash
+                        if (t < 0.35f) {
+                            val splashAlpha = ((0.35f - t) / 0.35f).coerceIn(0f, 1f)
+                            val splashR = 18.dp.toPx() * (1f + t * 2f)
+                            drawCircle(
+                                color = Color.White.copy(alpha = splashAlpha * 0.7f),
+                                radius = splashR,
+                                center = wave.origin,
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         var showExitSaveDialog by remember { mutableStateOf(false) }
@@ -558,6 +691,20 @@ fun PaintingPage(
                 layerPanelOpen = false
                 settingsPanelOpen = false
                 moreToolsOpen = false
+            },
+            onColorDropStart = { pos ->
+                colorDropHex = vm.brushColor
+                colorDropPos = pos
+                isColorDropping = true
+            },
+            onColorDropMove = { pos ->
+                colorDropPos = pos
+            },
+            onColorDropEnd = { pos ->
+                handleColorDrop(pos)
+            },
+            onColorDropCancel = {
+                isColorDropping = false
             },
         )
 
@@ -1067,6 +1214,20 @@ fun PaintingPage(
                 onClose = { colorPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
+                onColorDropStart = { pos ->
+                    colorDropHex = vm.brushColor
+                    colorDropPos = pos
+                    isColorDropping = true
+                },
+                onColorDropMove = { pos ->
+                    colorDropPos = pos
+                },
+                onColorDropEnd = { pos ->
+                    handleColorDrop(pos)
+                },
+                onColorDropCancel = {
+                    isColorDropping = false
+                },
             )
         }
         AnimatedVisibility(
@@ -1274,8 +1435,48 @@ fun PaintingPage(
                 }
             }
         }
+
+        // ---- Floating Color Droplet Overlay (ColorDrop) ----
+        if (isColorDropping) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(1000f)
+            ) {
+                val dropColor = parseColor(colorDropHex)
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                val xDp = with(density) { colorDropPos.x.toDp() }
+                val yDp = with(density) { colorDropPos.y.toDp() }
+
+                Box(
+                    modifier = Modifier
+                        .offset(x = xDp - 20.dp, y = yDp - 20.dp)
+                        .size(40.dp)
+                        .shadow(elevation = 12.dp, shape = CircleShape)
+                        .clip(CircleShape)
+                        .background(dropColor)
+                        .border(2.5.dp, Color.White, CircleShape)
+                ) {
+                    // Inner contrast ring for light / white colors
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .align(Alignment.Center)
+                            .border(1.dp, Color.Black.copy(alpha = 0.25f), CircleShape)
+                    )
+                    // Center crosshair / precision dot
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .align(Alignment.Center)
+                            .clip(CircleShape)
+                            .background(if (dropColor.luminance() > 0.5f) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.8f))
+                    )
+                }
+            }
         }
     }
+}
 }
 
 /** Text input dialog for the text tool (MVP). */

@@ -38,7 +38,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.window.Popup
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
@@ -83,6 +87,10 @@ fun ToolRail(
     brushColor: String,
     onOpenBrush: () -> Unit,
     onOpenColor: () -> Unit,
+    onColorDropStart: ((Offset) -> Unit)? = null,
+    onColorDropMove: ((Offset) -> Unit)? = null,
+    onColorDropEnd: ((Offset) -> Unit)? = null,
+    onColorDropCancel: (() -> Unit)? = null,
 ) {
     val mainTools = vm.pinnedTools
     val moreTools = Tool.entries.filter { it !in mainTools }
@@ -227,11 +235,49 @@ fun ToolRail(
                     .padding(top = 4.dp, bottom = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                var colorBoxRootPos by remember { mutableStateOf(Offset.Zero) }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(32.dp)
-                        .noRippleClickable(onOpenColor),
+                        .onGloballyPositioned { coords ->
+                            colorBoxRootPos = coords.positionInRoot()
+                        }
+                        .pointerInput(onOpenColor, onColorDropStart, onColorDropMove, onColorDropEnd, onColorDropCancel) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var isDragging = false
+                                val touchSlop = viewConfiguration.touchSlop
+                                val startPos = down.position
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (change.pressed) {
+                                        val currentPos = change.position
+                                        if (!isDragging) {
+                                            if ((currentPos - startPos).getDistance() > touchSlop) {
+                                                isDragging = true
+                                                onColorDropStart?.invoke(colorBoxRootPos + currentPos)
+                                                change.consume()
+                                            }
+                                        } else {
+                                            onColorDropMove?.invoke(colorBoxRootPos + currentPos)
+                                            change.consume()
+                                        }
+                                    } else {
+                                        if (isDragging) {
+                                            onColorDropEnd?.invoke(colorBoxRootPos + change.position)
+                                            change.consume()
+                                        } else {
+                                            onOpenColor()
+                                        }
+                                        break
+                                    }
+                                }
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Box(

@@ -42,6 +42,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -139,32 +142,28 @@ fun ColorPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 0.96f,
     hazeState: HazeState? = null,
+    onColorDropStart: ((Offset) -> Unit)? = null,
+    onColorDropMove: ((Offset) -> Unit)? = null,
+    onColorDropEnd: ((Offset) -> Unit)? = null,
+    onColorDropCancel: (() -> Unit)? = null,
 ) {
     var hue by remember { mutableFloatStateOf(0f) }
     var sat by remember { mutableFloatStateOf(1f) }
     var valB by remember { mutableFloatStateOf(1f) }
     var isInteracting by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     // Sync from vm.brushColor
     LaunchedEffect(vm.brushColor) {
-        if (isInteracting) return@LaunchedEffect
-        try {
+        if (!isInteracting) {
             val c = android.graphics.Color.parseColor(vm.brushColor)
             val hsv = FloatArray(3)
             android.graphics.Color.colorToHSV(c, hsv)
-            val isAchromatic = hsv[1] < 0.01f || hsv[2] < 0.01f
-            val dh = if (isAchromatic) 0f else abs(hsv[0] - hue)
-            val ds = abs(hsv[1] - sat)
-            val dv = abs(hsv[2] - valB)
-
-            if (dh > 2f || ds > 0.02f || dv > 0.02f) {
-                if (!isAchromatic) {
-                    hue = hsv[0]
-                }
-                sat = hsv[1]
-                valB = hsv[2]
-            }
-        } catch (e: Exception) { }
+            hue = hsv[0]
+            sat = hsv[1]
+            valB = hsv[2]
+        }
     }
 
     val updateColorHsv = { h: Float, s: Float, v: Float ->
@@ -173,7 +172,6 @@ fun ColorPanel(
         vm.updateBrushColor(hex)
     }
 
-    val context = LocalContext.current
     val panelShape = RoundedCornerShape(16.dp)
 
     Box(
@@ -219,7 +217,11 @@ fun ColorPanel(
                 activeTab = vm.colorPanelTab,
                 brushColor = vm.brushColor,
                 secondaryColor = vm.brushSecondaryColor,
-                onSwapColors = { vm.swapColors() }
+                onSwapColors = { vm.swapColors() },
+                onColorDropStart = onColorDropStart,
+                onColorDropMove = onColorDropMove,
+                onColorDropEnd = onColorDropEnd,
+                onColorDropCancel = onColorDropCancel,
             )
 
             Spacer(Modifier.height(8.dp))
@@ -295,7 +297,11 @@ private fun ColorPanelHeader(
     activeTab: Int,
     brushColor: String,
     secondaryColor: String,
-    onSwapColors: () -> Unit
+    onSwapColors: () -> Unit,
+    onColorDropStart: ((Offset) -> Unit)? = null,
+    onColorDropMove: ((Offset) -> Unit)? = null,
+    onColorDropEnd: ((Offset) -> Unit)? = null,
+    onColorDropCancel: (() -> Unit)? = null,
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -324,11 +330,49 @@ private fun ColorPanelHeader(
                 fontWeight = FontWeight.Bold
             )
 
-            // Foreground / Background Colors Swap Box
+            // Foreground / Background Colors Swap Box & Drag Source
+            var colorBoxRootPos by remember { mutableStateOf(Offset.Zero) }
+
             Box(
                 modifier = Modifier
                     .size(34.dp, 24.dp)
-                    .noRippleClickable(onSwapColors),
+                    .onGloballyPositioned { coords ->
+                        colorBoxRootPos = coords.positionInRoot()
+                    }
+                    .pointerInput(onSwapColors, onColorDropStart, onColorDropMove, onColorDropEnd, onColorDropCancel) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            var isDragging = false
+                            val touchSlop = viewConfiguration.touchSlop
+                            val startPos = down.position
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (change.pressed) {
+                                    val currentPos = change.position
+                                    if (!isDragging) {
+                                        if ((currentPos - startPos).getDistance() > touchSlop) {
+                                            isDragging = true
+                                            onColorDropStart?.invoke(colorBoxRootPos + currentPos)
+                                            change.consume()
+                                        }
+                                    } else {
+                                        onColorDropMove?.invoke(colorBoxRootPos + currentPos)
+                                        change.consume()
+                                    }
+                                } else {
+                                    if (isDragging) {
+                                        onColorDropEnd?.invoke(colorBoxRootPos + change.position)
+                                        change.consume()
+                                    } else {
+                                        onSwapColors()
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 // Background Color Box (bottom right)
