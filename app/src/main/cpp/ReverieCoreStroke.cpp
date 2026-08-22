@@ -244,7 +244,18 @@ void ReverieCore::flushStrokeBatch()
         m_strokeSamples.clear();
         return;
     }
-    const bool erasing = (m_toolMode == ToolEraser);
+    const bool erasing = (m_toolMode == ToolEraser) ||
+        (m_brushPreset && m_brushPreset->settings() &&
+         (m_brushPreset->settings()->eraserMode() ||
+          m_brushPreset->settings()->paintOpCompositeOp() == QLatin1String("erase") ||
+          m_brushPreset->settings()->effectivePaintOpCompositeOp() == QLatin1String("erase")));
+
+    if (m_brushPreset && m_brushPreset->settings()) {
+        m_brushPreset->settings()->setEraserMode(erasing);
+    }
+
+    const QString effectiveOp = erasing ? QStringLiteral("erase") :
+        (m_brushPreset && m_brushPreset->settings() ? m_brushPreset->settings()->effectivePaintOpCompositeOp() : QStringLiteral("normal"));
 
     // Krita indirect painting check:
     // Non-incremental brushes (like experimentbrush / Shape_fill, sketch, curve)
@@ -257,13 +268,7 @@ void ReverieCore::flushStrokeBatch()
         ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
         : nullptr;
 
-    QString initialCompOp = QStringLiteral("normal");
-    if (m_brushPreset && m_brushPreset->settings()) {
-        initialCompOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
-    }
-    if (erasing) {
-        initialCompOp = QStringLiteral("erase");
-    }
+    QString initialCompOp = effectiveOp;
 
     KisPaintDeviceSP target;
     if (needsIndirect && pl) {
@@ -312,10 +317,7 @@ void ReverieCore::flushStrokeBatch()
         // are paintbrush presets with CompositeOp=erase). Apply the preset's
         // effective composite op to the painter so the dab bitBlt actually
         // erases instead of painting over.
-        if (m_brushPreset && m_brushPreset->settings()) {
-            m_strokePainter->setCompositeOpId(
-                m_brushPreset->settings()->effectivePaintOpCompositeOp());
-        }
+        m_strokePainter->setCompositeOpId(effectiveOp);
         // Constrain the whole stroke to the active selection (if any)
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
@@ -354,10 +356,7 @@ void ReverieCore::flushStrokeBatch()
     }
     // Re-sync the composite op on every flush so mid-stroke parameter
     // changes (blend-mode dropdown, eraser preset switch) take effect.
-    if (m_brushPreset && m_brushPreset->settings()) {
-        m_strokePainter->setCompositeOpId(
-            m_brushPreset->settings()->effectivePaintOpCompositeOp());
-    }
+    m_strokePainter->setCompositeOpId(effectiveOp);
     if (m_selection) {
         m_strokePainter->setSelection(m_selection);
     } else {
@@ -387,17 +386,7 @@ void ReverieCore::flushStrokeBatch()
     // always erases, everything else uses normal. Previously this line
     // unconditionally overwrote the preset's composite op back to 'normal',
     // which is why eraser presets did not erase.
-    QString compositeOp;
-    if (m_brushPreset && m_brushPreset->settings()) {
-        compositeOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
-    }
-    if (erasing) {
-        compositeOp = QStringLiteral("erase");
-    }
-    if (compositeOp.isEmpty()) {
-        compositeOp = QStringLiteral("normal");
-    }
-    painter.setCompositeOpId(compositeOp);
+    painter.setCompositeOpId(effectiveOp);
 
     // Genuine tap only (no movement): paint a round dot. KisPainter::drawLine
     // with identical start/end returns immediately, so use paintEllipse

@@ -750,7 +750,9 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.selectBrushPreset(index: Int) {
         val preset = brushPresets.getOrNull(index)
         val isBuiltIn = preset?.isBuiltIn == true
+        val isEraser = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true || currentToolId == "eraser"
         val saved = if (preset != null) brushParams[preset.name] else null
+        val effectiveCompOp = if (isEraser) "erase" else (saved?.compositeOp ?: "normal")
         runCore(after = {
             if (saved != null) {
                 brushSize = saved.size
@@ -764,7 +766,7 @@ import kotlinx.coroutines.launch
                 brushRatio = saved.ratio
                 brushSharpness = saved.sharpness
                 brushRotation = saved.rotation
-                brushCompositeOp = saved.compositeOp
+                brushCompositeOp = effectiveCompOp
                 brushAntiAliasing = saved.antiAliasing
                 brushTipShape = saved.tipShape
                 brushRandomFlipX = saved.randomFlipX
@@ -810,6 +812,7 @@ import kotlinx.coroutines.launch
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                 }
+                brushCompositeOp = effectiveCompOp
                 brushAuthor = if (isBuiltIn) "Krita" else "原创创作者"
                 brushIsAuthorLocked = isBuiltIn
             }
@@ -834,7 +837,9 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushRatio(saved.ratio)
                 ReverieCoreBridge.setBrushSharpness(saved.sharpness)
                 ReverieCoreBridge.setBrushRotation(saved.rotation)
-                ReverieCoreBridge.setBrushCompositeOp(saved.compositeOp)
+                ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
+            } else if (isEraser) {
+                ReverieCoreBridge.setBrushCompositeOp("erase")
             }
         }
     }

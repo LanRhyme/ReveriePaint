@@ -200,7 +200,7 @@ public:
         ToolCrop,              // 12
         ToolTransform,         // 13
     };
-    void setToolMode(int mode) { m_toolMode = ToolMode(mode); }
+    void setToolMode(int mode);
     int toolMode() const { return int(m_toolMode); }
 
     // Public data structure: one entry per layer/group in tree traversal
