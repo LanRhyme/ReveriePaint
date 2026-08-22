@@ -68,6 +68,45 @@ void ReverieCore::touchStrokeEnd()
         endStrokeBatch();
         m_strokeBatchOpen = false;
     }
+
+    // Finalize Indirect Painting (for Wash mode / Shape_fill / experimentbrush):
+    // Blend the completed temporary scratch target onto the actual layer device
+    // inside a single undo transaction.
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->hasTemporaryTarget()) {
+        KisPaintDeviceSP tempTarget = pl->temporaryTarget();
+        const QRect ext = tempTarget->exactBounds();
+        pl->setTemporaryTarget(nullptr);
+        if (!ext.isEmpty()) {
+            if (m_document && m_undoCaptureEnabled) {
+                delete m_strokeTxn;
+                m_strokeTxn = new KisTransaction(kundo2_i18n("Stroke"), pl->paintDevice());
+                m_strokeTxnActive = true;
+            }
+            KisPainter gc(pl->paintDevice());
+            gc.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
+            QString compOp = QStringLiteral("normal");
+            if (m_brushPreset && m_brushPreset->settings()) {
+                compOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
+            }
+            if (m_toolMode == ToolEraser) {
+                compOp = QStringLiteral("erase");
+            }
+            gc.setCompositeOpId(compOp);
+            if (m_selection) {
+                gc.setSelection(m_selection);
+            }
+            gc.bitBlt(ext.topLeft(), tempTarget, ext);
+            gc.end();
+            pl->paintDevice()->setDirty(ext);
+            markRegionDirty(ext);
+            bumpLayerThumbGen(pl);
+        }
+        tempTarget->clear();
+    }
+
     // Commit the Krita transaction: the tile snapshots taken at creation
     // are diffed and the undo command is pushed to the store. In replay
     // mode the transaction is dropped instead (stroke content stays).
@@ -91,6 +130,22 @@ void ReverieCore::touchStrokeCancel()
         m_strokeSamples.clear();
         m_strokeBatchOpen = false;
         return;
+    }
+
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->hasTemporaryTarget()) {
+        KisPaintDeviceSP tempTarget = pl->temporaryTarget();
+        const QRect ext = tempTarget->exactBounds();
+        pl->setTemporaryTarget(nullptr);
+        tempTarget->clear();
+        if (!ext.isEmpty()) {
+            pl->setDirty(ext);
+            markRegionDirty(ext);
+            recompositeProjection();
+            markDirty();
+        }
     }
 
     // A second finger must cancel, not commit, the partial stroke. The
@@ -176,11 +231,40 @@ void ReverieCore::flushStrokeBatch()
     }
     const bool erasing = (m_toolMode == ToolEraser);
 
-    // Krita-native: every stroke paints DIRECTLY onto the current layer
-    // device. The projection then recomposites in real time, so brush
-    // opacity/flow, layer opacity and blend mode are all applied live
-    // (matching Krita) instead of only at pen-up via a temporary buffer.
-    KisPaintDeviceSP target = currentPaintDevice();
+    // Krita indirect painting check:
+    // Non-incremental brushes (like experimentbrush / Shape_fill, sketch, curve)
+    // must paint onto an indirect temporary target to avoid COMPOSITE_COPY
+    // erasing/mosaic-clipping the existing layer pixels behind the stroke!
+    const bool needsIndirect = m_brushPreset && m_brushPreset->settings() &&
+        !m_brushPreset->settings()->paintIncremental();
+
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+
+    QString initialCompOp = QStringLiteral("normal");
+    if (m_brushPreset && m_brushPreset->settings()) {
+        initialCompOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
+    }
+    if (erasing) {
+        initialCompOp = QStringLiteral("erase");
+    }
+
+    KisPaintDeviceSP target;
+    if (needsIndirect && pl) {
+        if (!pl->hasTemporaryTarget()) {
+            KisPaintDeviceSP tempTarget = pl->paintDevice()->createCompositionSourceDevice();
+            tempTarget->setParentNode(pl);
+            pl->setTemporaryTarget(tempTarget);
+            pl->setTemporaryCompositeOp(initialCompOp);
+            pl->setTemporaryOpacity(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
+            pl->setTemporarySelection(m_selection);
+        }
+        target = pl->temporaryTarget();
+    } else {
+        target = currentPaintDevice();
+    }
+
     if (!target) {
         m_strokeSamples.clear();
         return;
@@ -190,10 +274,8 @@ void ReverieCore::flushStrokeBatch()
     if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
         m_strokeDevice = (void *)target.data();
-        // Deferred Krita undo: start the stroke transaction here (after the
-        // device exists) on the first real flush. Taps and no-paint strokes
-        // never reach this point, so they never create an undo command.
-        if (m_snapshotPending && !m_strokeTxnActive && m_undoCaptureEnabled) {
+        // Deferred Krita undo: for direct painting, start transaction on the layer.
+        if (!needsIndirect && m_snapshotPending && !m_strokeTxnActive && m_undoCaptureEnabled) {
             delete m_strokeTxn;
             KisInterstrokeDataFactory *interstrokeDataFactory = nullptr;
             if (m_brushPreset) {
@@ -241,7 +323,6 @@ void ReverieCore::flushStrokeBatch()
             // Create the op through the registry so the preset's own paintop
             // engine is used (paintbrush -> KisBrushOp, experimentbrush ->
             // KisExperimentPaintOp, roundmarker -> KisRoundMarkerOp, ...).
-            // Hardcoding KisBrushOp made every preset render as a plain dab.
             m_strokeOp = KisPaintOpRegistry::instance()->paintOp(
                 m_brushPreset, m_strokePainter,
                 KisNodeSP(m_layers[layerIndex].node), image);
@@ -517,6 +598,9 @@ void ReverieCore::flushStrokeBatch()
     // region so Krita's projection recomposites it immediately.
     if (!strokeDirty.isNull()) {
         target->setDirty(strokeDirty);
+        if (pl && pl->hasTemporaryTarget()) {
+            pl->setDirty(strokeDirty);
+        }
         markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
