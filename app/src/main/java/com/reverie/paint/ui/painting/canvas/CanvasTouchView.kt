@@ -91,25 +91,25 @@ class CanvasTouchView(context: Context) : View(context) {
     private var localIsTouching = false
     private var localPressure = 1f
 
-    // 光标绘制 Paint
+    // 光标绘制 Paint (超细精细发丝线条)
     private val cursorPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.8f * density
-        color = android.graphics.Color.argb(140, 0, 0, 0)
+        strokeWidth = 1.6f * density
+        color = android.graphics.Color.argb(130, 0, 0, 0)
     }
     private val cursorPaintWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.0f * density
+        strokeWidth = 0.9f * density
         color = android.graphics.Color.argb(240, 255, 255, 255)
     }
     private val crosshairPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.8f * density
-        color = android.graphics.Color.argb(140, 0, 0, 0)
+        strokeWidth = 1.2f * density
+        color = android.graphics.Color.argb(120, 0, 0, 0)
     }
     private val crosshairPaintWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1.0f * density
+        strokeWidth = 0.7f * density
         color = android.graphics.Color.argb(255, 255, 255, 255)
     }
 
@@ -149,20 +149,22 @@ class CanvasTouchView(context: Context) : View(context) {
     // 防抖撤销任务
     private var pendingUndoRunnable: Runnable? = null
 
-    // 长按吸色
+    // 长按吸色状态机 (按住不动延迟取色；移动立即画线；调出吸色后可随意移动取色)
+    private var isPendingLongPress = false
+    private var pendingDownDocPos = Offset.Zero
+    private var pendingDownScreenPos = Offset.Zero
+    private var pendingDownPressure = 1f
     private var isLongPressPickerActive = false
+
     private val longPressRunnable = Runnable {
         val v = vm ?: return@Runnable
-        if (v.longPressEyedropperEnabled && !isTransformActive && maxTouchPointers <= 1) {
-            if (strokeStarted) {
-                if (tool == Tool.LIQUIFY) v.liquifyCancel() else v.touchCancel()
-                strokeStarted = false
-            }
+        if (isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
+            isPendingLongPress = false
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
             pickerInitialColor?.value = parseColor(refHex)
-            sampleColorAtScreenPos(previousSinglePos)
+            sampleColorAtScreenPos(pendingDownScreenPos)
         }
     }
 
@@ -210,34 +212,6 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    fun onDirectHover(event: MotionEvent) {
-        val v = vm ?: return
-        val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
-            v.cursorStyleMode != 4
-
-        when (event.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
-                localCursorPos = Offset(event.x, event.y)
-                localIsHovering = true
-                localIsTouching = false
-                localPressure = 1f
-                invalidate()
-
-                if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        pointerIcon = systemNullPointer
-                    }
-                }
-            }
-            MotionEvent.ACTION_HOVER_EXIT -> {
-                localIsHovering = false
-                localIsTouching = false
-                localCursorPos = null
-                invalidate()
-            }
-        }
-    }
-
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
@@ -263,21 +237,21 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen, cursorPaintWhite)
                 }
-                1 -> { // 十字准星 (细致干净的两条相交线)
-                    val len = 9f * density
+                1 -> { // 十字准星 (极细发丝相交线)
+                    val len = 7f * density
                     canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
                     canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintBlack)
                     canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
                     canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintWhite)
                 }
                 2 -> { // 精确点
-                    canvas.drawCircle(pos.x, pos.y, 3.5f * density, cursorPaintBlack)
-                    canvas.drawCircle(pos.x, pos.y, 2f * density, cursorPaintWhite)
+                    canvas.drawCircle(pos.x, pos.y, 3f * density, cursorPaintBlack)
+                    canvas.drawCircle(pos.x, pos.y, 1.8f * density, cursorPaintWhite)
                 }
                 5 -> { // 圆 + 十字
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
                     canvas.drawCircle(pos.x, pos.y, brushRadiusScreen, cursorPaintWhite)
-                    val len = 6f * density
+                    val len = 4.5f * density
                     canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintBlack)
                     canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintBlack)
                     canvas.drawLine(pos.x - len, pos.y, pos.x + len, pos.y, crosshairPaintWhite)
@@ -328,35 +302,13 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("TouchDiag", "dispatchTouchEvent: action=${MotionEvent.actionToString(event.actionMasked)} count=${event.pointerCount} tool0=${event.getToolType(0)}")
         return super.dispatchTouchEvent(event)
     }
 
-    override fun dispatchHoverEvent(event: MotionEvent): Boolean {
-        if (isInteracting || isTransformActive) {
-            localCursorPos = Offset(event.x, event.y)
-            invalidate()
-            return true
-        }
-        return super.dispatchHoverEvent(event)
-    }
-
-    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-        if (isInteracting || isTransformActive) {
-            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
-                localCursorPos = Offset(event.x, event.y)
-                invalidate()
-                return true
-            }
-        }
-        return super.dispatchGenericMotionEvent(event)
-    }
-
     // -------------------------------------------------------------
-    // 1. 悬停处理 (空中手写笔 / 鼠标) - 原生重绘，0 Compose 开销
+    // 1. 悬停处理 (空中手写笔 / 鼠标) - 原生硬件级重绘，极速低延迟
     // -------------------------------------------------------------
     override fun onHoverEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("TouchDiag", "onHoverEvent: action=${MotionEvent.actionToString(event.actionMasked)} pos=(${event.x.toInt()}, ${event.y.toInt()})")
         val v = vm ?: return super.onHoverEvent(event)
         val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
             v.cursorStyleMode != 4
@@ -374,6 +326,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         pointerIcon = systemNullPointer
                     }
                 }
+                return true
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
                 localIsHovering = false
@@ -386,9 +339,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         pointerIcon = systemDefaultPointer
                     }
                 }
+                return true
             }
         }
-        return false
+        return super.onHoverEvent(event)
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
@@ -398,6 +352,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 localIsHovering = true
                 localIsTouching = false
                 invalidate()
+                return true
             }
         }
         return super.onGenericMotionEvent(event)
@@ -407,7 +362,6 @@ class CanvasTouchView(context: Context) : View(context) {
     // 2. 接触触控处理 (手写笔落笔绘画 vs 手指画布导航)
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        android.util.Log.e("TouchDiag", "onTouchEvent: action=${MotionEvent.actionToString(event.actionMasked)} count=${event.pointerCount} isTransformActive=$isTransformActive")
         val v = vm ?: return super.onTouchEvent(event)
         val pointerCount = event.pointerCount
 
@@ -450,6 +404,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
 
+            val canEyedrop = v.longPressEyedropperEnabled &&
+                (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY)
+
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     removeCallbacks(longPressRunnable)
@@ -463,26 +420,36 @@ class CanvasTouchView(context: Context) : View(context) {
                     shapeEndDocPos = docPos
                     isLongPressPickerActive = false
 
-                    if (v.longPressEyedropperEnabled) {
-                        val delayMs = (560L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(220L, 650L)
+                    if (canEyedrop) {
+                        isPendingLongPress = true
+                        pendingDownDocPos = docPos
+                        pendingDownScreenPos = screenPos
+                        pendingDownPressure = pressure
+                        val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
                         postDelayed(longPressRunnable, delayMs)
+                    } else {
+                        isPendingLongPress = false
+                        handleToolDown(docPos, pressure, isStylus = true)
                     }
-
-                    handleToolDown(docPos, pressure, isStylus = true)
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val moveDist = hypot(screenPos.x - previousSinglePos.x, screenPos.y - previousSinglePos.y)
-                    if (moveDist > 5f * density) {
-                        removeCallbacks(longPressRunnable)
-                    }
-                    previousSinglePos = screenPos
-
                     if (isLongPressPickerActive) {
                         sampleColorAtScreenPos(screenPos)
                         return true
                     }
 
-                    handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
+                    if (isPendingLongPress) {
+                        val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
+                        if (moveDist > 5f * density) {
+                            removeCallbacks(longPressRunnable)
+                            isPendingLongPress = false
+                            handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
+                            handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
+                        }
+                    } else {
+                        handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
+                    }
+                    previousSinglePos = screenPos
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     removeCallbacks(longPressRunnable)
@@ -505,7 +472,13 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
-                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    if (isPendingLongPress) {
+                        isPendingLongPress = false
+                        handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
+                        handleToolUp(event, pendingDownDocPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    } else {
+                        handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    }
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
@@ -525,6 +498,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // 1. 多指手势 (双指捏合缩放/旋转/平移 + 碎片期融合)
         if (pointerCount >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
             removeCallbacks(longPressRunnable)
+            isPendingLongPress = false
 
             if (pointerCount >= 2) {
                 val raw0 = Offset(event.getX(0), event.getY(0))
@@ -677,6 +651,8 @@ class CanvasTouchView(context: Context) : View(context) {
         // 2. 单指手势 (根据 vm.penOnlyMode 切换手指平移 vs 手指作画)
         val screenPos = Offset(event.x, event.y)
         val docPos = screenToDoc(screenPos)
+        val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode &&
+            (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -687,13 +663,21 @@ class CanvasTouchView(context: Context) : View(context) {
                 shapeEndDocPos = docPos
                 isLongPressPickerActive = false
 
-                if (v.longPressEyedropperEnabled) {
-                    val delayMs = (560L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(220L, 650L)
+                if (canEyedrop) {
+                    isPendingLongPress = true
+                    pendingDownDocPos = docPos
+                    pendingDownScreenPos = screenPos
+                    pendingDownPressure = 1f
+                    val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
                     postDelayed(longPressRunnable, delayMs)
-                }
-
-                if (!v.penOnlyMode) {
-                    // 笔模式关闭：手指作画
+                    localCursorPos = screenPos
+                    localIsTouching = true
+                    localIsHovering = false
+                    localPressure = 1f
+                    invalidate()
+                } else if (!v.penOnlyMode) {
+                    // 笔模式关闭：手指直接作画
+                    isPendingLongPress = false
                     localCursorPos = screenPos
                     localIsTouching = true
                     localIsHovering = false
@@ -707,11 +691,6 @@ class CanvasTouchView(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val deltaX = screenPos.x - previousSinglePos.x
                 val deltaY = screenPos.y - previousSinglePos.y
-                val moveDist = hypot(deltaX, deltaY)
-
-                if (moveDist > 5f * density) {
-                    removeCallbacks(longPressRunnable)
-                }
                 previousSinglePos = screenPos
 
                 if (isLongPressPickerActive) {
@@ -726,11 +705,23 @@ class CanvasTouchView(context: Context) : View(context) {
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                     return true
                 } else {
-                    // 笔模式关闭：手指正常绘制
-                    localCursorPos = screenPos
-                    localIsTouching = true
-                    invalidate()
-                    handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                    if (isPendingLongPress) {
+                        val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
+                        if (moveDist > 5f * density) {
+                            removeCallbacks(longPressRunnable)
+                            isPendingLongPress = false
+                            localCursorPos = screenPos
+                            localIsTouching = true
+                            invalidate()
+                            handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = false)
+                            handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                        }
+                    } else {
+                        localCursorPos = screenPos
+                        localIsTouching = true
+                        invalidate()
+                        handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                    }
                     return true
                 }
             }
@@ -758,11 +749,16 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 if (!v.penOnlyMode) {
-                    // 笔模式关闭：手指结束绘制
+                    if (isPendingLongPress) {
+                        isPendingLongPress = false
+                        handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = false)
+                        handleToolUp(event, pendingDownDocPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    } else {
+                        handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    }
                     localIsTouching = false
                     localCursorPos = null
                     invalidate()
-                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                 }
                 return true
             }
