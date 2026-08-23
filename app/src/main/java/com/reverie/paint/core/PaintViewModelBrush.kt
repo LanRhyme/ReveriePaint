@@ -374,11 +374,13 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushAirbrush(v: Boolean) {
         brushAirbrush = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushAirbrush(v, brushAirbrushRate) }
     }
 
     internal fun PaintViewModel.updateBrushAirbrushRate(v: Double) {
         brushAirbrushRate = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushAirbrush(brushAirbrush, v) }
     }
 
     internal fun PaintViewModel.updateBrushSmudgeRate(v: Double) {
@@ -776,6 +778,7 @@ import kotlinx.coroutines.launch
             ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
             ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
             ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
+            ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
         }
     }
 
@@ -893,10 +896,12 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
+                ReverieCoreBridge.setBrushAirbrush(saved.airbrush, saved.airbrushRate)
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
+                ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
             }
         }
     }

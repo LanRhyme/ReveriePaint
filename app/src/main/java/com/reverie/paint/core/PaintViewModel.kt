@@ -1722,6 +1722,7 @@ class PaintViewModel : ViewModel() {
     }
 
     override fun onCleared() {
+        stopAirbrush()
         mainHandler.removeCallbacks(persistParamsRunnable)
         persistBrushParams()
         mainHandler.removeCallbacks(persistToolStatesRunnable)
@@ -1816,6 +1817,40 @@ class PaintViewModel : ViewModel() {
             pendingCoreOps.incrementAndGet()
             h.post(sampleRunnable) // 预建 Runnable 直接投递, 每样本零分配
         }
+    }
+
+    // Airbrush hold-still ink flow: a self-rescheduling timer on the render
+    // handler; every tick paints one dab via strokeAirbrushTick (engine-side,
+    // same thread contract as queueStrokeMove). Ticks are not recorded into
+    // the stroke event stream (known replay limitation).
+    @Volatile private var airbrushActive = false
+    private var airbrushIntervalMs = 950L
+    private val airbrushRunnable: Runnable = Runnable {
+        if (!airbrushActive) return@Runnable
+        val h = renderHandler ?: return@Runnable
+        pendingCoreOps.incrementAndGet()
+        val painted = try {
+            ReverieCoreBridge.strokeAirbrushTick()
+        } catch (_: Throwable) {
+            false
+        }
+        pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
+        if (painted) scheduleRender()
+        h.postDelayed(airbrushRunnable, airbrushIntervalMs)
+    }
+
+    /** Arm the airbrush timer for the current stroke if the brush enables it. */
+    internal fun startAirbrushIfNeeded() {
+        if (!brushAirbrush) return
+        airbrushIntervalMs = ((1000.0 * (1.0 - brushAirbrushRate)).coerceAtLeast(20.0)).toLong()
+        airbrushActive = true
+        renderHandler?.postDelayed(airbrushRunnable, airbrushIntervalMs)
+    }
+
+    /** Disarm the airbrush timer; safe to call repeatedly. */
+    internal fun stopAirbrush() {
+        airbrushActive = false
+        renderHandler?.removeCallbacks(airbrushRunnable)
     }
 
     internal var renderDeferCount = 0

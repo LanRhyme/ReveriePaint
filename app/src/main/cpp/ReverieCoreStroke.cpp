@@ -741,6 +741,51 @@ void ReverieCore::redo()
 #include <arm_neon.h>
 #endif
 
+// Airbrush hold-still tick: paint one dab at the current stroke position
+// (last sample, or the start point when nothing has moved yet). Runs on the
+// render thread while a stroke batch is open; reuses the tap-dot painting
+// path (paintAt + inline job execution + conservative dirty rect). Returns
+// false when no stroke is active so Kotlin can stop its timer.
+bool ReverieCore::strokeAirbrushTick()
+{
+    if (!m_strokeBatchOpen || !m_document) {
+        return false;
+    }
+    if (!m_strokePainter && !m_strokeSamples.isEmpty()) {
+        // The painter/op pipeline is created lazily by the first flush. A
+        // pure hold-still stroke never flushes on its own, so force one:
+        // the single-sample path paints the initial dot AND leaves
+        // m_strokePainter/m_strokeOp ready for subsequent ticks.
+        flushStrokeBatch();
+    }
+    if (!m_strokePainter || !m_strokeOp) {
+        return false;
+    }
+    const QPointF p = m_strokeSamples.isEmpty() ? m_strokeStartImg : m_strokeSamples.last().imgPos;
+    const qreal pressure = m_strokeSamples.isEmpty()
+        ? 1.0
+        : qBound<qreal>(0.0, m_strokeSamples.last().pressure, 1.0);
+    m_strokeOp->paintAt(KisPaintInformation(p, pressure), m_strokeDistance);
+    QVector<KisRunnableStrokeJobData *> jobs;
+    m_strokeOp->doAsynchronousUpdate(jobs);
+    for (auto *j : jobs) {
+        j->run();
+        delete j;
+    }
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    KisPaintDeviceSP target =
+        (pl && pl->hasTemporaryTarget()) ? pl->temporaryTarget() : currentPaintDevice();
+    if (target) {
+        const int tw = int(m_brushSize) + 2;
+        const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        target->setDirty(tr);
+        markRegionDirty(tr);
+    }
+    return true;
+}
+
 // Fast ARM NEON SIMD blitter to convert Krita's native BGRA/ARGB32 projection bytes
 // to Android Bitmap RGBA_8888 byte format with hardware vector acceleration.
 

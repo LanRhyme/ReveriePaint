@@ -364,6 +364,8 @@ public:
     void setBrushFlow(qreal v);
     void setBrushSmudgeRate(qreal v);
     void setBrushSmudgeLength(qreal v);
+    void setBrushAirbrush(bool enabled, qreal rate);
+    bool strokeAirbrushTick();
     void setBrushSpacing(qreal v);
     void setBrushAngle(qreal v);
     void setBrushScatter(qreal v);
@@ -561,6 +563,9 @@ private:
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
     qreal m_smudgeLength = 0.5; // smudge length -> SmudgeRateValue
+    // Airbrush hold-still state (Krita PaintOpSettings/isAirbrushing + /rate)
+    bool m_airbrushEnabled = false;
+    qreal m_airbrushRate = 1.0; // dabs per second
 
     // Document size
     int m_docWidth = 0;

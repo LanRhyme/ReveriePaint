@@ -178,6 +178,10 @@ internal fun PaintViewModel.touchStart(
         ReverieCoreBridge.setToolMode(mode)
         ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
     }
+    // Airbrush: start the hold-still ink timer after the stroke-start op is
+    // queued (FIFO keeps the first tick behind touchStrokeStart). Hold-still
+    // ticks are NOT recorded into the event stream (replay limitation).
+    startAirbrushIfNeeded()
 }
 
 internal fun PaintViewModel.touchMove(
@@ -212,6 +216,7 @@ internal fun PaintViewModel.touchMove(
 }
 
 internal fun PaintViewModel.touchEnd() {
+    stopAirbrush()
     isModified = true
     totalStrokes++
     onPaintingActivity()
@@ -241,6 +246,7 @@ internal fun PaintViewModel.touchEnd() {
 }
 
 internal fun PaintViewModel.touchCancel() {
+    stopAirbrush()
     if (recorder.recording) {
         recorder.strokeCancel()
     }
@@ -322,6 +328,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                         ReverieCoreBridge.setBrushFlow(saved.flow)
                         ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
                         ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
+                        ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
                     }
                 }
                 applyToolParamMemoryOverlay()

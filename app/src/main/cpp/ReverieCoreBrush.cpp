@@ -146,6 +146,9 @@ bool ReverieCore::loadBrushPreset(int index)
     setBrushFlow(m_brushFlow);
     setBrushSmudgeRate(m_smudgeRate);
     setBrushSmudgeLength(m_smudgeLength);
+    // Re-apply the airbrush mode over the preset's own keys (same pattern as
+    // size/opacity/flow above; members keep the user's last values).
+    setBrushAirbrush(m_airbrushEnabled, m_airbrushRate);
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =
@@ -276,6 +279,20 @@ void ReverieCore::setBrushSmudgeLength(qreal v)
     m_smudgeLength = v;
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setProperty("SmudgeRateValue", v);
+    }
+}
+
+// Airbrush mode. Krita keys (kis_paintop_settings.h):
+//   AIRBRUSH_ENABLED = "PaintOpSettings/isAirbrushing" (bool)
+//   AIRBRUSH_RATE    = "PaintOpSettings/rate" (dabs per second, interval=1000/rate)
+void ReverieCore::setBrushAirbrush(bool enabled, qreal rate)
+{
+    m_airbrushEnabled = enabled;
+    m_airbrushRate = rate > 0.0 ? rate : 1.0;
+    if (m_brushPreset && m_brushPreset->settings()) {
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setProperty("PaintOpSettings/isAirbrushing", enabled);
+        s->setProperty("PaintOpSettings/rate", m_airbrushRate);
     }
 }
 

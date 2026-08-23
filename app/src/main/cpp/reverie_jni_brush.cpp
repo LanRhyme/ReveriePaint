@@ -169,6 +169,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSmudgeLength(JNIEnv *, job
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushAirbrush(JNIEnv *, jobject, jboolean enabled, jdouble rate)
+{
+    core()->setBrushAirbrush(enabled == JNI_TRUE, rate);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_strokeAirbrushTick(JNIEnv *, jobject)
+{
+    return core()->strokeAirbrushTick() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setPresetIsEraser(JNIEnv *, jobject, jboolean eraser)
 {
     core()->setPresetIsEraser(eraser == JNI_TRUE);
