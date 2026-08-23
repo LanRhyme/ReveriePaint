@@ -263,9 +263,12 @@ class CanvasTouchView(context: Context) : View(context) {
         val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-            val pressureScale = if (localIsTouching) localPressure.coerceIn(0.08f, 1f) else 1f
+            // Krita-aligned: the outline always shows the FULL brush diameter.
+            // The engine maps pressure through each preset's own nonlinear
+            // SizeSensor curve, so shrinking the ring by raw linear pressure
+            // made it far larger than the actual dab at light pressure.
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
-            val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureScale).coerceAtLeast(2f)
+            val brushRadiusScreen = (cursorBrushSize * scale * 0.5f).coerceAtLeast(2f)
 
             when (v.cursorStyleMode) {
                 0 -> { // 双对比圆环
