@@ -175,6 +175,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_layerIsGroup(JNIEnv *, jobject, ji
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerNodeType(JNIEnv *, jobject, jint index)
+{
+    return core()->layerNodeType(index);
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_layerDepth(JNIEnv *, jobject, jint index)
 {
     return core()->layerDepth(index);

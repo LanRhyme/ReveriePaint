@@ -244,6 +244,17 @@ void ReverieCore::syncLayersFromImage()
                 entry.colorLabel = l->colorLabelIndex();
                 entry.clipped = l->alphaChannelDisabled();
                 entry.background = m_layers.isEmpty();  // first layer = bg
+                if (isGroup) {
+                    entry.nodeType = NodeTypeGroup;
+                } else if (dynamic_cast<KisAdjustmentLayer *>(l)) {
+                    entry.nodeType = NodeTypeAdjustment;
+                } else if (dynamic_cast<KisGeneratorLayer *>(l)) {
+                    entry.nodeType = NodeTypeFill;
+                } else if (dynamic_cast<KisCloneLayer *>(l)) {
+                    entry.nodeType = NodeTypeClone;
+                } else {
+                    entry.nodeType = NodeTypePaint;
+                }
                 m_layers.append(entry);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {
                 LayerEntry entry;
@@ -257,6 +268,15 @@ void ReverieCore::syncLayersFromImage()
                 entry.colorLabel = m->colorLabelIndex();
                 entry.clipped = false;
                 entry.background = false;
+                if (dynamic_cast<KisFilterMask *>(m)) {
+                    entry.nodeType = NodeTypeFilterMask;
+                } else if (dynamic_cast<KisTransformMask *>(m)) {
+                    entry.nodeType = NodeTypeTransformMask;
+                } else if (dynamic_cast<KisSelectionMask *>(m)) {
+                    entry.nodeType = NodeTypeSelectionMask;
+                } else {
+                    entry.nodeType = NodeTypeTransparencyMask;
+                }
                 m_layers.append(entry);
             }
             if (node->childCount() > 0) {

@@ -511,6 +511,9 @@ object ReverieCoreBridge {
 
     external fun layerIsGroup(index: Int): Boolean
 
+    /** NodeType 值域: 0paint/1group/2fill/3adjust/5clone/10-13四mask, 越界-1 */
+    external fun layerNodeType(index: Int): Int
+
     external fun layerDepth(index: Int): Int
 
     external fun layerBackground(index: Int): Boolean

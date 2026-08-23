@@ -1634,6 +1634,7 @@ class PaintViewModel : ViewModel() {
         val locked: Boolean,
         val alphaLocked: Boolean,
         val isGroup: Boolean,
+        val nodeType: Int = 0, // 0paint/1group/2fill/3adjust/5clone/10-13四mask
         val depth: Int,
         val colorLabel: Int,
         val clipped: Boolean,
@@ -2037,6 +2038,7 @@ class PaintViewModel : ViewModel() {
                     locked = ReverieCoreBridge.layerLocked(i),
                     alphaLocked = ReverieCoreBridge.layerAlphaLocked(i),
                     isGroup = ReverieCoreBridge.layerIsGroup(i),
+                    nodeType = ReverieCoreBridge.layerNodeType(i),
                     depth = ReverieCoreBridge.layerDepth(i),
                     colorLabel = ReverieCoreBridge.layerColorLabel(i),
                     clipped = ReverieCoreBridge.layerClipped(i),

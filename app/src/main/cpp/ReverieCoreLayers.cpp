@@ -498,6 +498,14 @@ bool ReverieCore::layerIsGroup(int index) const
     return m_layers[index].isGroup;
 }
 
+int ReverieCore::layerNodeType(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return -1;
+    }
+    return m_layers[index].nodeType;
+}
+
 int ReverieCore::layerDepth(int index) const
 {
     if (index < 0 || index >= m_layers.size()) {

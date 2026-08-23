@@ -83,6 +83,7 @@ public:
     int layerColorLabel(int index) const;
     void setLayerColorLabel(int index, int label);
     bool layerIsGroup(int index) const;
+    int layerNodeType(int index) const;
     int layerDepth(int index) const;
     bool layerBackground(int index) const;
     void setBackgroundColor(quint32 color, bool commit = true);
@@ -132,6 +133,19 @@ public:
         MaskTypeFilter = 1,
         MaskTypeTransform = 2,
         MaskTypeSelection = 3
+    };
+    // LayerEntry.nodeType 值域 (与 Kotlin LayerUiState.nodeType 镜像同步)
+    enum {
+        NodeTypePaint = 0,
+        NodeTypeGroup = 1,
+        NodeTypeFill = 2,       // KisGeneratorLayer
+        NodeTypeAdjustment = 3, // KisAdjustmentLayer
+        NodeTypeVector = 4,
+        NodeTypeClone = 5,
+        NodeTypeTransparencyMask = 10,
+        NodeTypeFilterMask = 11,
+        NodeTypeTransformMask = 12,
+        NodeTypeSelectionMask = 13
     };
     bool addLayerWithType(const QString &name, int type, quint32 fillColor = 0xFFFFFFFF);
     bool addMaskToLayer(int layerIndex, int maskType);
@@ -219,6 +233,7 @@ public:
         QString name;
         int depth = 0;                // group nesting depth (UI indent)
         bool isGroup = false;
+        int nodeType = 0;             // NodeType* 值域 (paint/group/fill/adjustment/clone + 四种 mask)
         bool locked = false;          // full lock: no editing at all
         bool alphaLocked = false;     // preserve alpha (transparency lock)
         int colorLabel = 0;           // color label index 0-9
