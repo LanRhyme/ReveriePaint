@@ -72,3 +72,43 @@ class TransformState {
         handle = -1
     }
 }
+
+// ---- Transform geometry helpers (relocated from the removed legacy
+// CanvasGestures.kt; used by CanvasOverlay handle drawing and
+// CanvasTouchView handle hit-testing) ----
+
+internal fun tfTransform(
+    tfState: TransformState,
+    p: Offset,
+): Offset {
+    val c = tfState.bounds.center
+    val dx = p.x - c.x
+    val dy = p.y - c.y
+    val sx = dx * tfState.scaleX
+    val sy = dy * tfState.scaleY
+    val rad = Math.toRadians(tfState.rotation.toDouble())
+    val cos = kotlin.math.cos(rad).toFloat()
+    val sin = kotlin.math.sin(rad).toFloat()
+    val rx = sx * cos - sy * sin
+    val ry = sx * sin + sy * cos
+    return Offset(rx + c.x + tfState.tx, ry + c.y + tfState.ty)
+}
+
+internal fun tfHandles(tfState: TransformState): List<Offset> {
+    if (tfState.mode == TransformMode.PERSPECTIVE) {
+        return tfState.quadCorners
+    }
+    if (tfState.mode == TransformMode.DISTORT) {
+        return tfState.meshPoints
+    }
+    val r = tfState.bounds
+    val corners = listOf(r.topLeft, r.topRight, r.bottomRight, r.bottomLeft)
+    val mids =
+        listOf(
+            Offset((r.left + r.right) / 2f, r.top),
+            Offset(r.right, (r.top + r.bottom) / 2f),
+            Offset((r.left + r.right) / 2f, r.bottom),
+            Offset(r.left, (r.top + r.bottom) / 2f),
+        )
+    return corners.map { tfTransform(tfState, it) } + mids.map { tfTransform(tfState, it) }
+}
