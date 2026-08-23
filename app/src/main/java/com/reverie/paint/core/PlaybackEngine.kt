@@ -240,6 +240,16 @@ internal fun PaintViewModel.exitReplay() {
 
 /** Re-apply the current UI tool/brush state to native (render thread only;
  *  mirrors applyReplayContextLocked's bridge calls, sourced from UI state). */
+/** Re-assert the preset's eraser metadata after loadBrushPreset (loading a
+ *  preset resets the native override to "unknown", which would fall back to
+ *  name heuristics for custom-named eraser presets). */
+private fun PaintViewModel.sendPresetEraserFlagLocked(presetIndex: Int) {
+    val p = brushPresets.getOrNull(presetIndex) ?: return
+    val isEraser =
+        p.group == "橡皮擦" || p.name.startsWith("a)") || p.name.contains("Eraser", ignoreCase = true)
+    ReverieCoreBridge.setPresetIsEraser(isEraser)
+}
+
 internal fun PaintViewModel.restoreBrushStateFromUi() {
     val mode =
         when (currentToolId) {
@@ -253,6 +263,7 @@ internal fun PaintViewModel.restoreBrushStateFromUi() {
     }
     if (brushPresetIndex >= 0) {
         ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
+        sendPresetEraserFlagLocked(brushPresetIndex)
         ReverieCoreBridge.setBrushSize(brushSize)
         ReverieCoreBridge.setBrushOpacity(brushOpacity)
         ReverieCoreBridge.setBrushFlow(brushFlow)
@@ -394,7 +405,10 @@ private fun PaintViewModel.seekLocked(
         val type = r.u8()
         val dt = r.varint()
         s.currentMs += dt
-        dispatchReplayLocked(type, r)
+        // Seek fast-forwards the document state only: per-event renders are
+        // suppressed (one immediate render at the end), otherwise dragging
+        // the scrub bar queued hundreds of throttled renders and stalled.
+        dispatchReplayLocked(type, r, render = false)
     }
     s.elapsedMs = target
     s.progress = fraction
@@ -407,6 +421,7 @@ private fun PaintViewModel.seekLocked(
 private fun PaintViewModel.dispatchReplayLocked(
     type: Int,
     r: RecordingReader,
+    render: Boolean = true,
 ) {
     when (type) {
         STROKE_START -> {
@@ -422,13 +437,14 @@ private fun PaintViewModel.dispatchReplayLocked(
             val p = r.f32()
             ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), p.toDouble())
             // Grow the stroke on screen: throttled render per move point,
-            // same pacing the live painter uses while drawing
-            scheduleRender()
+            // same pacing the live painter uses while drawing (skipped while
+            // seeking - seekLocked renders once at the end)
+            if (render) scheduleRender()
         }
 
         STROKE_END -> {
             ReverieCoreBridge.touchStrokeEnd()
-            scheduleRender(immediate = true)
+            if (render) scheduleRender(immediate = true)
         }
 
         STROKE_CANCEL -> {
@@ -439,13 +455,13 @@ private fun PaintViewModel.dispatchReplayLocked(
             applyReplayContextLocked(
                 com.reverie.paint.model.ReplayContext(
                     toolMode = r.u8(),
-                    preset = r.u16(),
+                    preset = r.u16().let { if (it == 0xFFFF) -1 else it },
                     size = r.f32(),
                     opacity = r.f32(),
                     flow = r.f32(),
                     compositeOp = r.str(),
                     color = r.str(),
-                    layer = r.u16(),
+                    layer = r.u16().let { if (it == 0xFFFF) -1 else it },
                 ),
             )
         }
@@ -475,6 +491,7 @@ private fun PaintViewModel.applyReplayContextLocked(c: com.reverie.paint.model.R
     ReverieCoreBridge.setToolMode(c.toolMode)
     if (c.preset >= 0) {
         ReverieCoreBridge.loadBrushPreset(c.preset)
+        sendPresetEraserFlagLocked(c.preset)
         ReverieCoreBridge.setBrushSize(c.size.toDouble())
         ReverieCoreBridge.setBrushOpacity(c.opacity.toDouble())
         ReverieCoreBridge.setBrushFlow(c.flow.toDouble())
@@ -507,7 +524,12 @@ private fun PaintViewModel.dispatchLayerOpLocked(
         }
 
         L_VISIBLE -> {
-            ReverieCoreBridge.setLayerVisible(i, !ReverieCoreBridge.layerVisible(i))
+            // New recordings carry the target visibility in arg; fall back to
+            // the legacy toggle for old recordings with an empty arg.
+            ReverieCoreBridge.setLayerVisible(
+                i,
+                if (arg.isEmpty()) !ReverieCoreBridge.layerVisible(i) else arg == "1",
+            )
         }
 
         L_OPACITY -> {

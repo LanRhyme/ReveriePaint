@@ -39,6 +39,11 @@ class ParsedRecording(
  */
 class PaintRecorder {
     private var buffer: RecordingBuffer? = null
+    // Guards buffer/eventCount/lastEventMs between main-thread emit() and
+    // render-thread serialize(); snapshotBytes carries the copied event
+    // region out of the lock.
+    private val ioLock = Any()
+    private var snapshotBytes: ByteArray? = null
     private var lastEventMs = 0L
     private var sessionStartMs = 0L
 
@@ -113,25 +118,44 @@ class PaintRecorder {
 
     /** Stop and discard the current session (temp snapshot file removed). */
     fun endSession() {
-        recording = false
-        buffer = null
-        eventCount = 0
+        synchronized(ioLock) {
+            recording = false
+            buffer = null
+            eventCount = 0
+            snapshotBytes = null
+        }
         snapshotFile?.delete()
         snapshotFile = null
     }
 
-    /** Serialize the session into the "recording" blob; null if empty. */
+    /** Serialize the session into the "recording" blob; null if empty.
+     *  Thread-safety: emit() writes the buffer on the main thread while this
+     *  runs on the render thread (autosave); ioLock guards the shared state
+     *  snapshot so a concurrent stroke can't tear the serialized stream. */
     fun serialize(): ByteArray? {
-        val b =
-            buffer ?: run {
+        val b: RecordingBuffer
+        val count: Int
+        val durationMs: Int
+        val snap: java.io.File?
+        synchronized(ioLock) {
+            val buf = buffer ?: run {
                 android.util.Log.d("ReverieRec", "serialize: no session")
                 return null
             }
-        if (eventCount == 0) {
-            android.util.Log.d("ReverieRec", "serialize: zero events")
-            return null
+            count = eventCount
+            if (count == 0) {
+                android.util.Log.d("ReverieRec", "serialize: zero events")
+                return null
+            }
+            b = buf
+            // Snapshot exactly the used region: emit() may append concurrently.
+            val used = ByteArray(buf.size)
+            System.arraycopy(buf.data, 0, used, 0, buf.size)
+            snapshotBytes = used
+            durationMs =
+                ((lastEventMs - sessionStartMs).coerceAtLeast(0L)).toInt().coerceAtMost(Int.MAX_VALUE)
+            snap = snapshotFile
         }
-        val snap = snapshotFile
         val snapBytes =
             if (snap != null) {
                 try {
@@ -143,16 +167,18 @@ class PaintRecorder {
             } else {
                 null
             }
-        val out = RecordingBuffer(64 + b.size + (snapBytes?.size ?: 0))
+        val used = snapshotBytes ?: return null
+        snapshotBytes = null
+        val out = RecordingBuffer(64 + used.size + (snapBytes?.size ?: 0))
         out.writeBytes(MAGIC.toByteArray(Charsets.US_ASCII))
         out.u16(VERSION)
         out.u16(sessionW)
         out.u16(sessionH)
         out.u8(if (snapBytes != null) 1 else 0)
-        out.u32(eventCount)
-        out.u32((lastEventMs - sessionStartMs).coerceAtLeast(0L).toInt().coerceAtMost(Int.MAX_VALUE))
-        out.u32(b.size)
-        out.writeBytes(b.data, 0, b.size)
+        out.u32(count)
+        out.u32(durationMs)
+        out.u32(used.size)
+        out.writeBytes(used, 0, used.size)
         if (snapBytes != null) {
             out.u64(snapBytes.size.toLong())
             out.writeBytes(snapBytes)
@@ -166,14 +192,16 @@ class PaintRecorder {
         type: Int,
         writePayload: (RecordingBuffer) -> Unit,
     ) {
-        val b = buffer ?: return
-        val now = android.os.SystemClock.elapsedRealtime()
-        val dt = (now - lastEventMs).coerceAtLeast(0L)
-        lastEventMs = now
-        b.u8(type)
-        b.varint(dt.toInt().coerceAtMost(Int.MAX_VALUE))
-        writePayload(b)
-        eventCount++
+        synchronized(ioLock) {
+            val b = buffer ?: return
+            val now = android.os.SystemClock.elapsedRealtime()
+            val dt = (now - lastEventMs).coerceAtLeast(0L)
+            lastEventMs = now
+            b.u8(type)
+            b.varint(dt.toInt().coerceAtMost(Int.MAX_VALUE))
+            writePayload(b)
+            eventCount++
+        }
     }
 
     fun strokeStart(
@@ -232,13 +260,15 @@ class PaintRecorder {
         lastLayer = layer
         emit(CONTEXT) {
             it.u8(toolMode.coerceIn(0, 255))
-            it.u16(preset.coerceIn(0, 65535))
+            // 0xFFFF sentinel encodes "no preset / no layer" (-1); 0xFFFE cap
+            // keeps the sentinel unambiguous.
+            it.u16(if (preset < 0) 0xFFFF else preset.coerceIn(0, 0xFFFE))
             it.f32(size.toFloat())
             it.f32(opacity.toFloat())
             it.f32(flow.toFloat())
             it.str(compositeOp)
             it.str(color)
-            it.u16(layer.coerceIn(0, 65535))
+            it.u16(if (layer < 0) 0xFFFF else layer.coerceIn(0, 0xFFFE))
         }
     }
 

@@ -132,10 +132,22 @@ internal fun PaintViewModel.touchStart(
             addRecentColor(brushColor)
         }
     }
+    val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
+    if (curLayer?.name?.contains("滤镜") == true) {
+        showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
+        return
+    }
+    if (curLayer?.isGroup == true) {
+        showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
+        return
+    }
     if (recorder.recording) {
         // Diff-based brush/tool/layer context capture: emitted only when the
         // context changed since the previous stroke, so slider tweaks between
-        // strokes are replayed without hooking every setter
+        // strokes are replayed without hooking every setter.
+        // NOTE: recorded AFTER the filter-layer/group guards above so a
+        // rejected stroke start never enters the event stream (phantom dots
+        // on replay).
         val mode =
             when (currentToolId) {
                 "brush" -> 0
@@ -154,15 +166,6 @@ internal fun PaintViewModel.touchStart(
             layer = currentLayerIndex,
         )
         recorder.strokeStart(x, y, effPressure.toFloat())
-    }
-    val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
-    if (curLayer?.name?.contains("滤镜") == true) {
-        showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
-        return
-    }
-    if (curLayer?.isGroup == true) {
-        showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
-        return
     }
     val mode =
         when (currentToolId) {

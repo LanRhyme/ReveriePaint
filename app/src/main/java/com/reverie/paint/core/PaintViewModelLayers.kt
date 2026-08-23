@@ -161,11 +161,14 @@ internal fun PaintViewModel.setLayerBlendMode(
 }
 
 internal fun PaintViewModel.toggleLayerVisible(i: Int) {
+    // Record the TARGET visibility so replay sets it directly (toggling the
+    // live value instead cascades wrong once any earlier op drifts indices).
+    val target = !ReverieCoreBridge.layerVisible(i)
     if (recorder.recording) {
-        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_VISIBLE, i)
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_VISIBLE, i, if (target) "1" else "0")
     }
     runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.setLayerVisible(i, !ReverieCoreBridge.layerVisible(i))
+        ReverieCoreBridge.setLayerVisible(i, target)
     }
 }
 
