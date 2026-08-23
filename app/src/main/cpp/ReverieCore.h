@@ -148,6 +148,13 @@ public:
         NodeTypeSelectionMask = 13
     };
     bool addLayerWithType(const QString &name, int type, quint32 fillColor = 0xFFFFFFFF);
+    // 非破坏性调整图层 (KisAdjustmentLayer, 滤镜 ID reverie-f<type>)
+    bool createAdjustmentLayer(const QString &name, int filterType,
+                               double p1 = 0.0, double p2 = 0.0, double p3 = 0.0, double p4 = 0.0);
+    bool setAdjustmentLayerConfig(int index, int filterType,
+                                  double p1, double p2, double p3, double p4,
+                                  const QByteArray &lut = QByteArray());
+    QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
     bool addMaskToLayer(int layerIndex, int maskType);
     bool removeMask(int layerIndex);
     bool rasterizeLayer(int index);
@@ -637,7 +644,11 @@ private:
     // cancel - taps and no-paint strokes never create an undo command.
     KisTransaction *m_strokeTxn = nullptr;
     bool m_strokeTxnActive = false;
-    // Filter backup device for non-destructive live preview
+    // 调整层配置组装 (ReverieCoreAdjustment.cpp)
+    static KisFilterConfigurationSP reverieMakeConfig(int filterType, double p1, double p2, double p3, double p4,
+                                                      const QByteArray &lut = QByteArray());
+
+// Filter backup device for non-destructive live preview
     KisPaintDeviceSP m_filterBackupDevice;
     int m_filterBackupIndex = -1;
     QRect m_filterBackupExt;

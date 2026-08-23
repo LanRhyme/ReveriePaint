@@ -384,4 +384,44 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderLayerThumb(JNIEnv *env, jobj
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_createAdjustmentLayer(
+    JNIEnv *env, jobject, jstring name, jint filterType,
+    jdouble p1, jdouble p2, jdouble p3, jdouble p4)
+{
+    if (!name) {
+        return JNI_FALSE;
+    }
+    const char *c = env->GetStringUTFChars(name, nullptr);
+    const bool ok = core()->createAdjustmentLayer(
+        QString::fromUtf8(c), filterType, p1, p2, p3, p4);
+    env->ReleaseStringUTFChars(name, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setAdjustmentLayerConfig(
+    JNIEnv *env, jobject, jint index, jint filterType,
+    jdouble p1, jdouble p2, jdouble p3, jdouble p4, jbyteArray lut)
+{
+    QByteArray lutBytes;
+    if (lut) {
+        const jsize len = env->GetArrayLength(lut);
+        jbyte *bytes = env->GetByteArrayElements(lut, nullptr);
+        lutBytes = QByteArray(reinterpret_cast<const char *>(bytes), len);
+        env->ReleaseByteArrayElements(lut, bytes, JNI_ABORT);
+    }
+    const bool ok = core()->setAdjustmentLayerConfig(
+        index, filterType, p1, p2, p3, p4, lutBytes);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_getAdjustmentLayerConfig(
+    JNIEnv *env, jobject, jint index)
+{
+    const QString json = core()->getAdjustmentLayerConfig(index);
+    return env->NewStringUTF(json.toUtf8().constData());
+}
 }

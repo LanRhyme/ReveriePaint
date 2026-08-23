@@ -514,6 +514,30 @@ object ReverieCoreBridge {
     /** NodeType 值域: 0paint/1group/2fill/3adjust/5clone/10-13四mask, 越界-1 */
     external fun layerNodeType(index: Int): Int
 
+    /** 创建真 KisAdjustmentLayer（滤镜类型为 reverie-f<filterType>，参数 p1-p4） */
+    external fun createAdjustmentLayer(
+        name: String,
+        filterType: Int,
+        p1: Double,
+        p2: Double,
+        p3: Double,
+        p4: Double,
+    ): Boolean
+
+    /** 更新调整层滤镜配置并入撤销栈；lut 仅曲线 LUT(768B)/渐变映射(1024B)时非空 */
+    external fun setAdjustmentLayerConfig(
+        index: Int,
+        filterType: Int,
+        p1: Double,
+        p2: Double,
+        p3: Double,
+        p4: Double,
+        lut: ByteArray?,
+    ): Boolean
+
+    /** 读取调整层当前配置 JSON（{"type","p1"-"p4","lut":base64}），非调整层返回空串 */
+    external fun getAdjustmentLayerConfig(index: Int): String
+
     external fun layerDepth(index: Int): Int
 
     external fun layerBackground(index: Int): Boolean

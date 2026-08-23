@@ -66,7 +66,7 @@ static QString defaultPaintLayerName(const QVector<ReverieCore::LayerEntry> &lay
 
 // Insert position above the current layer: inside the current group when the
 // current layer IS a group, otherwise directly above it at the same level.
-static void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current, KisNodeSP &above, KisNodeSP &parent, KisImageSP image)
+void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current, KisNodeSP &above, KisNodeSP &parent, KisImageSP image)
 {
     if (current >= 0 && current < int(layers.size())) {
         const auto &e = layers[current];
@@ -190,9 +190,17 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
             paintLayer->original()->setDirty();
         } else if (type == LayerTypeAdjustment) {
-            paintLayer->setCompositeOpId(QStringLiteral("overlay"));
+            // 兼容旧录制/旧入口: 建中性 reverie-f0 配置的真调整层
+            // (带参创建走 createAdjustmentLayer); 注册表不可用时回退旧伪实现
+            if (KisFilterConfigurationSP cfg = reverieMakeConfig(0, 0.0, 0.0, 0.0, 0.0, QByteArray())) {
+                newNode = new KisAdjustmentLayer(image, finalName, cfg, nullptr);
+            } else {
+                paintLayer->setCompositeOpId(QStringLiteral("overlay"));
+                newNode = paintLayer;
+            }
+        } else {
+            newNode = paintLayer;
         }
-        newNode = paintLayer;
     }
 
     pushUndoCommand(new KisImageLayerAddCommand(image, newNode, parent, above));

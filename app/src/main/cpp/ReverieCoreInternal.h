@@ -898,4 +898,8 @@ void krita_register_hatching_paintop();
 void registerCoreFilters();
 void registerReverieRegistryFilters();
 
+/** 新图层插入位置判定（定义于 ReverieCoreLayers.cpp，调整层等域复用） */
+void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current,
+                           KisNodeSP &above, KisNodeSP &parent, KisImageSP image);
+
 #endif // REVERIECORE_INTERNAL_H
