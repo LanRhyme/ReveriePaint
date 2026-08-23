@@ -341,6 +341,23 @@ bool ReverieCore::loadRevp(const QString &path)
 
     QJsonArray layersArray = meta["layers"].toArray();
     bool bgLayerVisible = false;
+
+    // 新格式优先: layers.xml 节点树 (含调整层/蒙版等非破坏结构); 无则回退平铺路径
+    QByteArray layersXml;
+    if (store->open(QStringLiteral("layers.xml"))) {
+        layersXml = readAllStoreBytes(store.data());
+        store->close();
+    }
+    bool treeLoaded = false;
+    bool treeBgVisible = false;
+    if (!layersXml.isEmpty()) {
+        treeLoaded = loadLayersXmlTree(layersXml, image, store.data(), &treeBgVisible);
+        if (treeLoaded) {
+            bgLayerVisible = treeBgVisible;
+        }
+    }
+
+    if (!treeLoaded) {
     if (layersArray.isEmpty()) {
         KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
         KoColor white(QColor(Qt::white), cs);
@@ -401,6 +418,7 @@ bool ReverieCore::loadRevp(const QString &path)
             image->addNode(layer, image->rootLayer());
         }
     }
+    } // !treeLoaded
 
     if (bgLayerVisible) {
         image->setDefaultProjectionColor(KoColor(Qt::white, cs));
