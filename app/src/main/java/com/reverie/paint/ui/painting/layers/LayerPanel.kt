@@ -190,14 +190,19 @@ fun LayerPanel(
 
     Box(
         modifier =
-            (if (isFilterAdjust) {
+            if (isFilterAdjust) {
+                // Filter-adjust mode must not intercept ANY touch: the
+                // full-screen transparent box used to carry .systemHoverIcon,
+                // which made it the top pointer-input target and swallowed
+                // canvas pinch/pan/two-finger-undo on CanvasTouchView.
                 modifier.fillMaxSize().background(Color.Transparent)
             } else {
                 modifier
                     .fillMaxSize()
                     .background(Color.Transparent)
                     .noRippleClickable(onClose)
-            }).systemHoverIcon(context),
+                    .systemHoverIcon(context)
+            },
     ) {
         Column(
             modifier =
