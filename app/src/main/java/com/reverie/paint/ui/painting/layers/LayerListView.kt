@@ -409,6 +409,30 @@ internal fun LayerListView(
                             showNewLayerMenu = false
                         },
                     )
+                    // 蒙版四类: 挂在当前选中层下 (Krita 行为对齐)
+                    listOf(
+                        "透明度蒙版" to 0,
+                        "滤镜蒙版" to 1,
+                        "变换蒙版" to 2,
+                        "选区蒙版" to 3,
+                    ).forEach { (label, type) ->
+                        DropdownMenuItem(
+                            text = { Text(label, color = Morandi.text, fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    painterResource(R.drawable.ic_layers),
+                                    null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            enabled = vm.currentLayerIndex > 0,
+                            onClick = {
+                                showNewLayerMenu = false
+                                vm.addMaskToLayer(vm.currentLayerIndex, type)
+                            },
+                        )
+                    }
                 }
             }
 
