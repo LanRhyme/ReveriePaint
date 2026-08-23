@@ -426,7 +426,8 @@ internal fun LayerListView(
                                     modifier = Modifier.size(16.dp),
                                 )
                             },
-                            enabled = vm.currentLayerIndex > 0,
+                            // 背景层(0)也允许挂蒙版; addMaskToLayer 内部校验父节点
+                            enabled = vm.currentLayerIndex >= 0,
                             onClick = {
                                 showNewLayerMenu = false
                                 vm.addMaskToLayer(vm.currentLayerIndex, type)

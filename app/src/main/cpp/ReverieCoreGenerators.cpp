@@ -15,6 +15,7 @@
 #include <kis_paint_device.h>
 #include <KoColorSpace.h>
 #include <KisGlobalResourcesInterface.h>
+#include <QDebug>
 
 namespace
 {
@@ -55,11 +56,20 @@ public:
     {
         Q_UNUSED(progressUpdater);
         KisPaintDeviceSP dev = dst.paintDevice();
-        if (!dev || !config) {
+        // 插桩取证: 真机 SIGSEGV (fault 0x0) 前伴随空 profile 警告, 此处逐级标记定位
+        if (!dev || !dev->colorSpace() || !config) {
+            qWarning("reverie-solid-color: generate abort dev=%p cs=%p config=%p",
+                     (void *)dev.data(),
+                     dev ? (const void *)dev->colorSpace() : nullptr,
+                     (void *)config.data());
             return;
         }
         QVariant v;
-        const QColor c = config->getProperty("color", v) ? v.value<QColor>() : QColor(Qt::white);
+        QColor c = config->getProperty("color", v) ? v.value<QColor>() : QColor(Qt::white);
+        if (!c.isValid()) {
+            qWarning("reverie-solid-color: color prop invalid, fallback white");
+            c = QColor(Qt::white);
+        }
         const QRect rect(dst.topLeft(), size);
         dev->fill(rect, KoColor(c, dev->colorSpace()));
     }

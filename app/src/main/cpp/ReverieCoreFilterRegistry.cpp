@@ -100,11 +100,14 @@ public:
         const int margin = reverieFilterMargin(type);
         const QRect work = applyRect.adjusted(-margin, -margin, margin, margin);
 
-        // 与预览管线同款字节路径: convertToQImage(ARGB32_Premultiplied) → 内核 → writeBytes
-        QImage img = device->convertToQImage(nullptr, work.x(), work.y(), work.width(), work.height());
+        // 与预览管线完全同款字节路径: readBytes(设备原生字节直拷入 ARGB32_Premultiplied 缓冲)
+        // → 内核 → writeBytes。禁止改用 convertToQImage(预乘输出), 否则预乘数据被
+        // writeBytes 当非预乘写回, 每次合并都会污染投影 (真机已验证的黑画布根因)。
+        QImage img(work.width(), work.height(), QImage::Format_ARGB32_Premultiplied);
         if (img.isNull()) {
             return;
         }
+        device->readBytes(img.bits(), work.x(), work.y(), work.width(), work.height());
 
         const bool hasLut = config->getProperty("lut", v);
         const QByteArray lut = hasLut ? v.toByteArray() : QByteArray();
