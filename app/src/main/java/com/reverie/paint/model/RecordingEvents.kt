@@ -54,7 +54,8 @@ object RecordingEvents {
 
     // Filter commit (payload: index u16, type u8, p1..p4 f64, name str;
     // type 0xFF marks a LUT-based filter that cannot be rebuilt from scalars)
-    const val FILTER = 0x40
+    const val FILTER = 0x40 // index u16, type u8(0xFF=LUT), p1..p4 f64, name str
+    const val FILTER_LUT = 0x41 // index u16, kind u8(0=curves RGB 3x256B, 1=gradientMap 256 int LE), len u32, bytes, name str
 
     // ---- Layer op codes (LAYER_OP) ----
     const val L_ADD = 0
@@ -127,6 +128,8 @@ object RecordingEvents {
     const val T_LIQUIFY_LAYERS = 31 // count u16, layer indexes u16[] (before BEGIN)
     const val T_MOVE_CONTENT_LAYERS = 32 // count u16, layer indexes u16[] (before MOVE_CONTENT)
     const val T_TRANSFORM_LAYERS = 33 // count u16, layer indexes u16[] (before TRANSFORM)
+    const val T_FILL_V2 = 34 // x/y f32, tolerance u16, sampleMerged u8
+    const val T_GRADIENT_V2 = 35 // x1..y2 f32, type u8, repeat u8, reverse u8
 }
 
 /** Growable byte sink with little-endian primitive writers. */

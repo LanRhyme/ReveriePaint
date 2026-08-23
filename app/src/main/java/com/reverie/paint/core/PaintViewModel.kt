@@ -2125,6 +2125,9 @@ class PaintViewModel : ViewModel() {
 
     /** Last scalar filter preview params [type, p1..p4] captured at commit. */
     internal var lastFilterPreviewParams: DoubleArray? = null
+    // LUT payloads captured for recording (curves RGB 3x256B / gradient map 256 ints)
+    internal var lastCurvesLUT: ByteArray? = null
+    internal var lastGradientMapLut: IntArray? = null
 }
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }

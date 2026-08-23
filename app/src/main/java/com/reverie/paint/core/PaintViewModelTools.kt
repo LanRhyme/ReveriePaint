@@ -20,6 +20,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
+import com.reverie.paint.model.RecordingEvents.T_FILL_V2
+import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
 import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS
 import com.reverie.paint.model.RecordingEvents.T_CONTRACT
 import com.reverie.paint.model.RecordingEvents.T_CROP
@@ -353,12 +355,14 @@ internal fun PaintViewModel.gradientFill(
     reverse: Boolean = gradientReverse,
 ) {
     if (recorder.recording) {
-        recorder.toolOp(T_GRADIENT) {
+        recorder.toolOp(T_GRADIENT_V2) {
             it.u8(type)
             it.f32(x1.toFloat())
             it.f32(y1.toFloat())
             it.f32(x2.toFloat())
             it.f32(y2.toFloat())
+            it.u8(repeat.coerceIn(0, 255))
+            it.u8(if (reverse) 1 else 0)
         }
     }
     runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
@@ -1316,10 +1320,11 @@ internal fun PaintViewModel.floodFill(
     sampleMerged: Boolean = fillSampleLayers == 1,
 ) {
     if (recorder.recording) {
-        recorder.toolOp(T_FILL) {
+        recorder.toolOp(T_FILL_V2) {
             it.f32(x)
             it.f32(y)
             it.u16(tolerance.coerceIn(0, 65535))
+            it.u8(if (sampleMerged) 1 else 0)
         }
     }
     runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged) }

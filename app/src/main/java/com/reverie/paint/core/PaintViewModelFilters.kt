@@ -56,6 +56,8 @@ internal fun PaintViewModel.applyCurvesLUTPreview(
     lutB: ByteArray,
 ) {
     lastFilterPreviewParams = null // LUT filters are not rebuildable from scalar params
+    lastCurvesLUT = lutR + lutG + lutB
+    lastGradientMapLut = null
     runCore(render = true) {
         ReverieCoreBridge.applyCurvesLUTPreview(index, lutR, lutG, lutB)
     }
@@ -66,6 +68,8 @@ internal fun PaintViewModel.applyGradientMapPreview(
     gradientLut: IntArray,
 ) {
     lastFilterPreviewParams = null // LUT filters are not rebuildable from scalar params
+    lastCurvesLUT = null
+    lastGradientMapLut = gradientLut
     runCore(render = true) {
         ReverieCoreBridge.applyGradientMapPreview(index, gradientLut)
     }
@@ -78,18 +82,36 @@ internal fun PaintViewModel.commitFilter(
     isFilterAdjustActive = false
     filterPreviewJob?.cancel()
     if (recorder.recording) {
-        val p = lastFilterPreviewParams
-        recorder.filterCommit(
-            index = index,
-            filterType = if (p != null) p[0].toInt() else -1,
-            p1 = p?.getOrNull(1) ?: 0.0,
-            p2 = p?.getOrNull(2) ?: 0.0,
-            p3 = p?.getOrNull(3) ?: 0.0,
-            p4 = p?.getOrNull(4) ?: 0.0,
-            name = filterName,
-        )
+        val curves = lastCurvesLUT
+        val gradMap = lastGradientMapLut
+        if (curves != null && curves.size >= 768) {
+            recorder.filterLutCommit(index, kind = 0, bytes = curves, name = filterName)
+        } else if (gradMap != null) {
+            val bytes = ByteArray(1024)
+            for (i in 0 until 256) {
+                val v = gradMap[i]
+                bytes[i * 4] = (v and 0xFF).toByte()
+                bytes[i * 4 + 1] = ((v shr 8) and 0xFF).toByte()
+                bytes[i * 4 + 2] = ((v shr 16) and 0xFF).toByte()
+                bytes[i * 4 + 3] = ((v shr 24) and 0xFF).toByte()
+            }
+            recorder.filterLutCommit(index, kind = 1, bytes = bytes, name = filterName)
+        } else {
+            val p = lastFilterPreviewParams
+            recorder.filterCommit(
+                index = index,
+                filterType = if (p != null) p[0].toInt() else -1,
+                p1 = p?.getOrNull(1) ?: 0.0,
+                p2 = p?.getOrNull(2) ?: 0.0,
+                p3 = p?.getOrNull(3) ?: 0.0,
+                p4 = p?.getOrNull(4) ?: 0.0,
+                name = filterName,
+            )
+        }
     }
     lastFilterPreviewParams = null
+    lastCurvesLUT = null
+    lastGradientMapLut = null
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.commitFilter(index, filterName)
     }
@@ -99,6 +121,8 @@ internal fun PaintViewModel.cancelFilter(index: Int) {
     isFilterAdjustActive = false
     filterPreviewJob?.cancel()
     lastFilterPreviewParams = null
+    lastCurvesLUT = null
+    lastGradientMapLut = null
     runCore(render = true, after = ::notifyLayerChanged) {
         ReverieCoreBridge.cancelFilter(index)
     }

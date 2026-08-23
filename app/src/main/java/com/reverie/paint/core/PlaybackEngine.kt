@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.FILTER
+import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
 import com.reverie.paint.model.RecordingEvents.L_ADD
 import com.reverie.paint.model.RecordingEvents.L_ADD_GROUP
@@ -59,7 +60,9 @@ import com.reverie.paint.model.RecordingEvents.T_CROP
 import com.reverie.paint.model.RecordingEvents.T_EXPAND
 import com.reverie.paint.model.RecordingEvents.T_FEATHER
 import com.reverie.paint.model.RecordingEvents.T_FILL
+import com.reverie.paint.model.RecordingEvents.T_FILL_V2
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT
+import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
 import com.reverie.paint.model.RecordingEvents.T_INVERT_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_LASSO
 import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
@@ -484,6 +487,15 @@ private fun PaintViewModel.dispatchReplayLocked(
             val name = r.str()
             replayFilterLocked(index, filterType, p1, p2, p3, p4, name)
         }
+
+        FILTER_LUT -> {
+            val index = r.u16()
+            val kind = r.u8()
+            val len = r.u32()
+            val bytes = r.readBytes(len)
+            val name = r.str()
+            replayFilterLutLocked(index, kind, bytes, name)
+        }
     }
 }
 
@@ -695,6 +707,25 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val y2 = r.f32().toInt()
             val t = r.u8()
             ReverieCoreBridge.gradientFill(x1, y1, x2, y2, t)
+        }
+
+        T_FILL_V2 -> {
+            val x = r.f32().toInt()
+            val y = r.f32().toInt()
+            val tol = r.u16()
+            val sampleMerged = r.u8() != 0
+            ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged)
+        }
+
+        T_GRADIENT_V2 -> {
+            val x1 = r.f32().toInt()
+            val y1 = r.f32().toInt()
+            val x2 = r.f32().toInt()
+            val y2 = r.f32().toInt()
+            val t = r.u8()
+            val repeat = r.u8()
+            val reverse = r.u8() != 0
+            ReverieCoreBridge.gradientFill(x1, y1, x2, y2, t, repeat, reverse)
         }
 
         T_TEXT -> {
@@ -938,6 +969,38 @@ private fun PaintViewModel.replayFilterLocked(
     if (filterType == 0xFF) return // LUT-based filter, not rebuildable from scalars
     ReverieCoreBridge.beginFilterPreview(index)
     ReverieCoreBridge.applyFilterPreview(index, filterType, p1, p2, p3, p4)
+    ReverieCoreBridge.commitFilter(index, name)
+}
+
+/** Replay a LUT-based filter commit (curves RGB or gradient map). */
+private fun PaintViewModel.replayFilterLutLocked(
+    index: Int,
+    kind: Int,
+    lutBytes: ByteArray,
+    name: String,
+) {
+    if (kind == 0) {
+        if (lutBytes.size < 768) return
+        val r = ByteArray(256)
+        val g = ByteArray(256)
+        val b = ByteArray(256)
+        System.arraycopy(lutBytes, 0, r, 0, 256)
+        System.arraycopy(lutBytes, 256, g, 0, 256)
+        System.arraycopy(lutBytes, 512, b, 0, 256)
+        ReverieCoreBridge.beginFilterPreview(index)
+        ReverieCoreBridge.applyCurvesLUTPreview(index, r, g, b)
+    } else {
+        if (lutBytes.size < 1024) return
+        val lut = IntArray(256)
+        for (i in 0 until 256) {
+            lut[i] = (lutBytes[i * 4].toInt() and 0xFF) or
+                ((lutBytes[i * 4 + 1].toInt() and 0xFF) shl 8) or
+                ((lutBytes[i * 4 + 2].toInt() and 0xFF) shl 16) or
+                ((lutBytes[i * 4 + 3].toInt() and 0xFF) shl 24)
+        }
+        ReverieCoreBridge.beginFilterPreview(index)
+        ReverieCoreBridge.applyGradientMapPreview(index, lut)
+    }
     ReverieCoreBridge.commitFilter(index, name)
 }
 

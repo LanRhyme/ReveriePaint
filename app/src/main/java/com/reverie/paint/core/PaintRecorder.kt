@@ -7,6 +7,7 @@ package com.reverie.paint.core
 import com.reverie.paint.model.RecordingBuffer
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.FILTER
+import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
 import com.reverie.paint.model.RecordingEvents.MAGIC
 import com.reverie.paint.model.RecordingEvents.STROKE_CANCEL
@@ -316,6 +317,20 @@ class PaintRecorder {
         it.f64(p2)
         it.f64(p3)
         it.f64(p4)
+        it.str(name)
+    }
+
+    /** Commit a LUT-based filter (curves / gradient map) with its full lookup table. */
+    fun filterLutCommit(
+        index: Int,
+        kind: Int,
+        bytes: ByteArray,
+        name: String,
+    ) = emit(FILTER_LUT) {
+        it.u16(index.coerceIn(0, 65535))
+        it.u8(kind.coerceIn(0, 255))
+        it.u32(bytes.size)
+        it.writeBytes(bytes)
         it.str(name)
     }
 
