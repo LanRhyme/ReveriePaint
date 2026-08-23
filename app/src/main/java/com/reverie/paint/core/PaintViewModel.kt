@@ -635,6 +635,61 @@ class PaintViewModel : ViewModel() {
         return y.coerceIn(0.01f, 1f)
     }
 
+    /**
+     * Hot-path variant of [evaluatePressure] used per stroke sample.
+     * Assumes control points are kept ascending by x (the curve editor
+     * clamps each point past its left neighbour and sorts on insert), so
+     * no per-call sort/allocation happens. Collinear default points yield
+     * an exact identity mapping.
+     */
+    internal fun applyGlobalPressureCurve(raw: Double): Double {
+        val pts = pressureControlPoints
+        val n = pts.size
+        if (n < 2) return raw
+        val x = raw.toFloat().coerceIn(0f, 1f)
+        if (x <= pts[0].x) return pts[0].y.coerceIn(0.01f, 1f).toDouble()
+        if (x >= pts[n - 1].x) return pts[n - 1].y.coerceIn(0.01f, 1f).toDouble()
+        var i = 0
+        while (i < n - 2 && pts[i + 1].x < x) i++
+        val p0 = if (i > 0) pts[i - 1] else pts[i]
+        val p1 = pts[i]
+        val p2 = pts[i + 1]
+        val p3 = if (i + 2 < n) pts[i + 2] else p2
+        val dx = (p2.x - p1.x).coerceAtLeast(0.0001f)
+        val t = ((x - p1.x) / dx).coerceIn(0f, 1f)
+        val m1 = (p2.y - p0.y) / (p2.x - p0.x).coerceAtLeast(0.0001f)
+        val m2 = (p3.y - p1.y) / (p3.x - p1.x).coerceAtLeast(0.0001f)
+        val t2 = t * t
+        val t3 = t2 * t
+        val h00 = 2f * t3 - 3f * t2 + 1f
+        val h10 = t3 - 2f * t2 + t
+        val h01 = -2f * t3 + 3f * t2
+        val h11 = t3 - t2
+        val y = h00 * p1.y + h10 * dx * m1 + h01 * p2.y + h11 * dx * m2
+        return y.coerceIn(0.01f, 1f).toDouble()
+    }
+
+    /** Persist a user-drawn custom pressure curve together with preset id 4. */
+    fun updateCustomPressureCurve(points: List<androidx.compose.ui.geometry.Offset>) {
+        pressureCurvePreset = 4
+        pressureControlPoints = points
+        if (::appContext.isInitialized) {
+            try {
+                val arr = org.json.JSONArray()
+                for (pt in points) {
+                    arr.put(org.json.JSONObject().put("x", pt.x.toDouble()).put("y", pt.y.toDouble()))
+                }
+                appContext
+                    .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("pressureCurvePreset", 4)
+                    .putString("pressureControlPoints", arr.toString())
+                    .apply()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     var gestureTwoFingerUndo by mutableStateOf(true)
     var gestureThreeFingerRedo by mutableStateOf(true)
     var gesturePinchTransform by mutableStateOf(true)
@@ -1113,6 +1168,23 @@ class PaintViewModel : ViewModel() {
             quickShapeEnabled = prefs.getBoolean("quickShapeEnabled", true)
             val savedPreset = prefs.getInt("pressureCurvePreset", 0)
             updatePressureCurvePreset(savedPreset)
+            // Restore a user-drawn custom curve (preset 4) over the preset defaults
+            try {
+                val savedPts = prefs.getString("pressureControlPoints", null)
+                if (savedPreset == 4 && savedPts != null) {
+                    val arr = org.json.JSONArray(savedPts)
+                    if (arr.length() >= 2) {
+                        pressureControlPoints = (0 until arr.length()).map { i ->
+                            val o = arr.getJSONObject(i)
+                            androidx.compose.ui.geometry.Offset(
+                                o.getDouble("x").toFloat(),
+                                o.getDouble("y").toFloat(),
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            }
 
             autoSaveEnabled = prefs.getBoolean("autoSaveEnabled", true)
             autoSaveIntervalMinutes = prefs.getInt("autoSaveIntervalMinutes", 5).coerceIn(1, 60)

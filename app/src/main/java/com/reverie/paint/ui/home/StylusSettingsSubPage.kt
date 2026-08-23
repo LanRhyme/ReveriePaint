@@ -202,8 +202,7 @@ internal fun StylusSettingsSubPage(
         PressureCurveEditor(
             points = vm.pressureControlPoints,
             onPointsChanged = { newPoints ->
-                vm.pressureControlPoints = newPoints
-                vm.pressureCurvePreset = 4 // custom
+                vm.updateCustomPressureCurve(newPoints)
             }
         )
 

@@ -65,11 +65,15 @@ import java.util.zip.ZipFile
 private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     if (!brushPressureEnabled) return 1.0
     val p = raw.coerceIn(0.0, 1.0)
+    // Stage 1: global stylus curve (settings page; identity for the default
+    // collinear points, so behaviour is unchanged until the user customises it)
+    val g = applyGlobalPressureCurve(p)
+    // Stage 2: per-brush response curve (brush studio)
     return when (brushPressureCurve) {
-        1 -> Math.pow(p, 0.6) // Soft
-        2 -> Math.pow(p, 1.8) // Hard
-        3 -> p * p * (3.0 - 2.0 * p) // S-Curve
-        else -> p // Linear
+        1 -> Math.pow(g, 0.6) // Soft
+        2 -> Math.pow(g, 1.8) // Hard
+        3 -> g * g * (3.0 - 2.0 * g) // S-Curve
+        else -> g // Linear
     }
 }
 
