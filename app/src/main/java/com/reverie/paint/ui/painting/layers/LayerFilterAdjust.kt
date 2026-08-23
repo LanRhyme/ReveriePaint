@@ -297,7 +297,13 @@ internal fun FilterAdjustPage(
                         .clip(RoundedCornerShape(6.dp))
                         .background(Morandi.accent)
                         .noRippleClickable {
-                            vm.commitFilter(index, filterName)
+                            // 调整图层: 参数写入层配置(非破坏), 不落像素盖印
+                            val isAdj = index in vm.layers.indices && vm.layers[index].nodeType == 3
+                            if (isAdj) {
+                                vm.commitAdjustmentConfig(index, filterId)
+                            } else {
+                                vm.commitFilter(index, filterName)
+                            }
                             onDone()
                         },
                     contentAlignment = Alignment.Center
