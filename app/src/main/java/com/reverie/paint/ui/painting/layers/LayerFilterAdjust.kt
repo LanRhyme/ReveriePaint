@@ -137,8 +137,33 @@ internal fun FilterAdjustPage(
 ) {
     val st = remember { FilterAdjustState() }
 
+    // 调整层模式: 不走像素预览三步 (与 merger 重算互踩), 滑条节流直推层配置
+    val isAdj = index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
+    val savedJson = remember(isAdj) { if (isAdj) vm.snapshotAdjustmentConfig(index) else "" }
+    var lastPushMs by remember { mutableStateOf(0L) }
+
+    /** 把曲线面板当前样条打包成 768B RGB LUT (调整层配置用)。 */
+    fun buildCurvesLut768(): ByteArray {
+        val lutMaster = calculateMonotoneCubicSplineLUT(st.curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutR = calculateMonotoneCubicSplineLUT(st.curveChannels[1] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutG = calculateMonotoneCubicSplineLUT(st.curveChannels[2] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val lutB = calculateMonotoneCubicSplineLUT(st.curveChannels[3] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        val out = ByteArray(768)
+        for (i in 0..255) {
+            val mVal = lutMaster[i].toInt() and 0xFF
+            out[i] = lutR[mVal]
+            out[256 + i] = lutG[mVal]
+            out[512 + i] = lutB[mVal]
+        }
+        return out
+    }
+
     fun sendCurvesPreview() {
         if (!st.isPreview) return
+        if (isAdj) {
+            vm.previewAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
+            return
+        }
         val lutMaster = calculateMonotoneCubicSplineLUT(st.curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
         val lutR = calculateMonotoneCubicSplineLUT(st.curveChannels[1] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
         val lutG = calculateMonotoneCubicSplineLUT(st.curveChannels[2] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
@@ -159,22 +184,47 @@ internal fun FilterAdjustPage(
     fun sendGradientMapPreview() {
         if (!st.isPreview) return
         val lut = generateGradientLUTFromStops(st.customGradStops, st.reverseGradient)
+        if (isAdj) {
+            vm.previewAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
+            return
+        }
         vm.applyGradientMapPreview(index, lut)
     }
 
     fun sendPreview() {
-        if (!st.isPreview) return
+        if (!st.isPreview && !isAdj) return
+        // 调整层模式节流: 滑条高频回调直推 merger 会过载
+        if (isAdj) {
+            val now = System.currentTimeMillis()
+            if (now - lastPushMs < 120) return
+            lastPushMs = now
+        }
         when (filterId) {
             13 -> sendCurvesPreview()
             30 -> sendGradientMapPreview()
-            else -> dispatchFilterPreview(vm, index, filterId, st)
+            else -> {
+                if (isAdj) {
+                    val ap = adjustParamsOf(st, filterId)
+                    vm.previewAdjustmentConfig(
+                        index, filterId,
+                        ap?.p1 ?: 0.0, ap?.p2 ?: 0.0, ap?.p3 ?: 0.0, ap?.p4 ?: 0.0,
+                    )
+                } else {
+                    dispatchFilterPreview(vm, index, filterId, st)
+                }
+            }
         }
     }
 
 
     LaunchedEffect(Unit) {
-        vm.beginFilterPreview(index)
-        sendPreview()
+        if (isAdj) {
+            // 创建流已带初始参数; 进入面板把面板当前值再对齐一次 (不落像素)
+            sendPreview()
+        } else {
+            vm.beginFilterPreview(index)
+            sendPreview()
+        }
     }
 
     Column(
@@ -211,8 +261,14 @@ internal fun FilterAdjustPage(
                         .background(if (st.isPreview) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
                         .noRippleClickable {
                             st.isPreview = !st.isPreview
-                            if (st.isPreview) sendPreview()
-                            else vm.cancelFilter(index)
+                            if (isAdj) {
+                                // 调整层: 眼睛=切层可见性 (配置始终在层上)
+                                if (index in vm.layers.indices) {
+                                    vm.toggleLayerVisible(index)
+                                }
+                            } else {
+                                if (st.isPreview) sendPreview() else vm.cancelFilter(index)
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
@@ -277,7 +333,12 @@ internal fun FilterAdjustPage(
                         .size(28.dp)
                         .clip(RoundedCornerShape(6.dp))
                         .noRippleClickable {
-                            vm.cancelFilter(index)
+                            if (isAdj) {
+                                // 回滚到进入面板时的配置快照
+                                vm.restoreAdjustmentConfig(index, savedJson)
+                            } else {
+                                vm.cancelFilter(index)
+                            }
                             onBack()
                         },
                     contentAlignment = Alignment.Center
@@ -298,9 +359,22 @@ internal fun FilterAdjustPage(
                         .background(Morandi.accent)
                         .noRippleClickable {
                             // 调整图层: 参数写入层配置(非破坏), 不落像素盖印
-                            val isAdj = index in vm.layers.indices && vm.layers[index].nodeType == 3
-                            if (isAdj) {
-                                vm.commitAdjustmentConfig(index, filterId)
+                            val isAdjNow = index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
+                            if (isAdjNow) {
+                                when (filterId) {
+                                    13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
+                                    30 -> {
+                                        val lut = generateGradientLUTFromStops(st.customGradStops, st.reverseGradient)
+                                        vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
+                                    }
+                                    else -> {
+                                        val ap = adjustParamsOf(st, filterId)
+                                        vm.commitAdjustmentConfig(
+                                            index, filterId,
+                                            ap?.p1 ?: 0.0, ap?.p2 ?: 0.0, ap?.p3 ?: 0.0, ap?.p4 ?: 0.0,
+                                        )
+                                    }
+                                }
                             } else {
                                 vm.commitFilter(index, filterName)
                             }

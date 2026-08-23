@@ -688,7 +688,9 @@ private fun PaintViewModel.dispatchLayerOpLocked(
         L_ADJ_CONFIG -> {
             val c = AdjustmentConfigCodec.decode(arg)
             if (c != null) {
-                ReverieCoreBridge.setAdjustmentLayerConfig(i, c.type, c.p1, c.p2, c.p3, c.p4, c.lut)
+                // 创建流里初始配置以 index=-1 记录, 解析为"刚建好的当前层"
+                val target = if (i < 0) ReverieCoreBridge.currentLayerIndex() else i
+                ReverieCoreBridge.setAdjustmentLayerConfig(target, c.type, c.p1, c.p2, c.p3, c.p4, c.lut)
             }
         }
 

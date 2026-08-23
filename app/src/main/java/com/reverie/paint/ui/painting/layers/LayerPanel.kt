@@ -153,6 +153,9 @@ private sealed interface LayerView {
         val filterId: Int,
         val filterName: String,
     ) : LayerView
+
+    /** 创建流: 先选滤镜再建层 (避免全零参数建层即污染画布)。 */
+    data object FiltersCreate : LayerView
 }
 
 /**
@@ -256,6 +259,7 @@ fun LayerPanel(
                             vm = vm,
                             onOpenDetail = { view = LayerView.Detail(it) },
                             onOpenFilters = { view = LayerView.Filters(it) },
+                            onOpenCreateFilter = { view = LayerView.FiltersCreate },
                         )
                     }
 
@@ -297,6 +301,31 @@ fun LayerPanel(
                             filterName = v.filterName,
                             onBack = { view = LayerView.Filters(v.index) },
                             onDone = { view = LayerView.List }
+                        )
+                    }
+
+                    is LayerView.FiltersCreate -> {
+                        FiltersPage(
+                            vm = vm,
+                            index = -1,
+                            onBack = { view = LayerView.List },
+                            onSelectFilter = { filterId, filterName ->
+                                // 初始参数取面板默认值 (所见即所得), 避免全零参数建层
+                                val st = FilterAdjustState()
+                                val ap = adjustParamsOf(st, filterId)
+                                vm.addAdjustmentLayer(
+                                    "滤镜图层",
+                                    filterId,
+                                    ap?.p1 ?: 0.0,
+                                    ap?.p2 ?: 0.0,
+                                    ap?.p3 ?: 0.0,
+                                    ap?.p4 ?: 0.0,
+                                ) { newIdx ->
+                                    if (newIdx >= 0) {
+                                        view = LayerView.FilterAdjust(newIdx, filterId, filterName)
+                                    }
+                                }
+                            },
                         )
                     }
                 }

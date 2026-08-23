@@ -131,6 +131,7 @@ internal fun LayerListView(
     vm: PaintViewModel,
     onOpenDetail: (Int) -> Unit,
     onOpenFilters: (Int) -> Unit,
+    onOpenCreateFilter: () -> Unit = {},
 ) {
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
@@ -389,9 +390,7 @@ internal fun LayerListView(
                         enabled = true,
                         onClick = {
                             showNewLayerMenu = false
-                            vm.addAdjustmentLayer { newIdx ->
-                                if (newIdx >= 0) onOpenFilters(newIdx)
-                            }
+                            onOpenCreateFilter()
                         },
                     )
                     DropdownMenuItem(
@@ -409,31 +408,6 @@ internal fun LayerListView(
                             showNewLayerMenu = false
                         },
                     )
-                    // 蒙版四类: 挂在当前选中层下 (Krita 行为对齐)
-                    listOf(
-                        "透明度蒙版" to 0,
-                        "滤镜蒙版" to 1,
-                        "变换蒙版" to 2,
-                        "选区蒙版" to 3,
-                    ).forEach { (label, type) ->
-                        DropdownMenuItem(
-                            text = { Text(label, color = Morandi.text, fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_layers),
-                                    null,
-                                    tint = Morandi.icon,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
-                            // 背景层(0)也允许挂蒙版; addMaskToLayer 内部校验父节点
-                            enabled = vm.currentLayerIndex >= 0,
-                            onClick = {
-                                showNewLayerMenu = false
-                                vm.addMaskToLayer(vm.currentLayerIndex, type)
-                            },
-                        )
-                    }
                 }
             }
 

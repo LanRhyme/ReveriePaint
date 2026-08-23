@@ -232,6 +232,54 @@ internal class FilterAdjustState {
 
 
 /**
+ * 过滤器参数纯表:把 FilterAdjustState 的 UI 状态翻译为 (type, p1..p4)。
+ * 供像素预览分派与"新建调整图层时的初始参数"两处共用 —— 保证创建即所见即所得
+ * (此前创建用全零参数导致 HSBC sat=0 全图变灰, 真机已验证的根因)。
+ * 返回 null 表示 LUT 型 (13 曲线 / 30 渐变映射), 由调用方的专用路径处理。
+ */
+internal data class AdjustParams(val type: Int, val p1: Double, val p2: Double, val p3: Double, val p4: Double)
+
+internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams? {
+    val p = when (filterId) {
+            0 -> AdjustParams(0, st.hue.toDouble(), st.sat.toDouble(), st.bright.toDouble(), st.contrast.toDouble())
+            1 -> AdjustParams(1, st.cr.toDouble(), st.mg.toDouble(), st.yb.toDouble(), 0.0)
+            2 -> AdjustParams(2, st.blurRadius.toDouble(), 0.0, 0.0, 0.0)
+            3 -> AdjustParams(3, st.motionAngle.toDouble(), st.motionDist.toDouble(), 0.0, 0.0)
+            4 -> AdjustParams(4, st.sharpenAmt.toDouble(), 0.0, 0.0, 0.0)
+            5 -> AdjustParams(5, st.mosaicSize.toDouble(), 0.0, 0.0, 0.0)
+            6 -> AdjustParams(6, st.invertAmt.toDouble(), 0.0, 0.0, 0.0)
+            7 -> AdjustParams(7, st.lineartThresh.toDouble(), if (st.lineartWhiteLine) 1.0 else 0.0, 0.0, 0.0)
+            8 -> AdjustParams(8, st.sobelStrength.toDouble(), st.sobelMode.toDouble(), 0.0, 0.0)
+            9 -> AdjustParams(9, st.embossDepth.toDouble(), st.embossAngle.toDouble(), if (st.embossPreserveColor) 1.0 else 0.0, 0.0)
+            10 -> AdjustParams(10, st.noiseAmt.toDouble(), 0.0, 0.0, 0.0)
+            11 -> AdjustParams(11, st.glitchOffset.toDouble(), 0.0, 0.0, 0.0)
+            12 -> AdjustParams(12, st.desaturateAmt.toDouble(), 0.0, 0.0, 0.0)
+            14 -> AdjustParams(14, st.levelBlack.toDouble(), st.levelWhite.toDouble(), st.levelGamma.toDouble(), 0.0)
+            15 -> AdjustParams(15, st.tempVal.toDouble(), st.tintVal.toDouble(), 0.0, 0.0)
+            16 -> AdjustParams(16, st.thresholdVal.toDouble(), 0.0, 0.0, 0.0)
+            17 -> AdjustParams(17, st.posterizeLevels.toDouble(), 0.0, 0.0, 0.0)
+            18 -> AdjustParams(18, st.bloomThresh.toDouble(), st.bloomRadius.toDouble(), st.bloomIntensity.toDouble(), 0.0)
+            19 -> AdjustParams(19, st.shadowAngle.toDouble(), st.shadowDist.toDouble(), st.shadowRadius.toDouble(), st.shadowOpacity.toDouble())
+            20 -> AdjustParams(20, if (st.lumOpacityInvert) 1.0 else 0.0, 0.0, 0.0, 0.0)
+            21 -> AdjustParams(21, st.oilRadius.toDouble(), 0.0, 0.0, 0.0)
+            22 -> AdjustParams(22, st.radialBlurAmt.toDouble(), 0.5, 0.5, 0.0)
+            23 -> AdjustParams(23, st.halftoneDotSize.toDouble(), 0.0, 0.0, 0.0)
+            24 -> AdjustParams(24, st.exposureVal.toDouble(), st.exposureGamma.toDouble(), 0.0, 0.0)
+            25 -> AdjustParams(25, st.edgeGlowStrength.toDouble(), st.edgeGlowRadius.toDouble(), st.edgeGlowHue.toDouble(), 0.0)
+            26 -> AdjustParams(26, st.defocusRadius.toDouble(), 0.0, 0.0, 0.0)
+            27 -> AdjustParams(27, st.shadowBoost.toDouble(), st.highlightReduce.toDouble(), 0.0, 0.0)
+            28 -> AdjustParams(28, st.vibranceAmt.toDouble(), 0.0, 0.0, 0.0)
+            29 -> AdjustParams(29, st.colorToAlphaTarget.toDouble(), st.colorToAlphaTol.toDouble(), st.colorToAlphaSmooth.toDouble(), 0.0)
+            31 -> AdjustParams(31, st.rippleAmp.toDouble(), st.rippleFreq.toDouble(), 0.0, 0.0)
+            32 -> AdjustParams(32, st.twirlAngle.toDouble(), st.twirlRadius.toDouble(), 0.0, 0.0)
+            33 -> AdjustParams(33, st.surfaceBlurRadius.toDouble(), st.surfaceBlurThresh.toDouble(), 0.0, 0.0)
+            34 -> AdjustParams(34, st.scanlineSpacing.toDouble(), st.scanlineIntensity.toDouble(), 0.0, 0.0)
+            else -> return null // 13 / 30 为 LUT 型, 走专用通道
+    }
+    return p
+}
+
+/**
  * 过滤器参数分派:把 FilterAdjustState 的 UI 状态翻译为
  * vm.applyFilterPreview(index, filterType, p1..p4) 调用
  * (13 曲线 / 30 渐变映射由 FilterAdjustPage 内的专用预览处理)
@@ -242,41 +290,8 @@ internal fun dispatchFilterPreview(
     filterId: Int,
     st: FilterAdjustState,
 ) {
-    when (filterId) {
-            0 -> vm.applyFilterPreview(index, 0, st.hue.toDouble(), st.sat.toDouble(), st.bright.toDouble(), st.contrast.toDouble())
-            1 -> vm.applyFilterPreview(index, 1, st.cr.toDouble(), st.mg.toDouble(), st.yb.toDouble(), 0.0)
-            2 -> vm.applyFilterPreview(index, 2, st.blurRadius.toDouble(), 0.0, 0.0, 0.0)
-            3 -> vm.applyFilterPreview(index, 3, st.motionAngle.toDouble(), st.motionDist.toDouble(), 0.0, 0.0)
-            4 -> vm.applyFilterPreview(index, 4, st.sharpenAmt.toDouble(), 0.0, 0.0, 0.0)
-            5 -> vm.applyFilterPreview(index, 5, st.mosaicSize.toDouble(), 0.0, 0.0, 0.0)
-            6 -> vm.applyFilterPreview(index, 6, st.invertAmt.toDouble(), 0.0, 0.0, 0.0)
-            7 -> vm.applyFilterPreview(index, 7, st.lineartThresh.toDouble(), if (st.lineartWhiteLine) 1.0 else 0.0, 0.0, 0.0)
-            8 -> vm.applyFilterPreview(index, 8, st.sobelStrength.toDouble(), st.sobelMode.toDouble(), 0.0, 0.0)
-            9 -> vm.applyFilterPreview(index, 9, st.embossDepth.toDouble(), st.embossAngle.toDouble(), if (st.embossPreserveColor) 1.0 else 0.0, 0.0)
-            10 -> vm.applyFilterPreview(index, 10, st.noiseAmt.toDouble(), 0.0, 0.0, 0.0)
-            11 -> vm.applyFilterPreview(index, 11, st.glitchOffset.toDouble(), 0.0, 0.0, 0.0)
-            12 -> vm.applyFilterPreview(index, 12, st.desaturateAmt.toDouble(), 0.0, 0.0, 0.0)
-            14 -> vm.applyFilterPreview(index, 14, st.levelBlack.toDouble(), st.levelWhite.toDouble(), st.levelGamma.toDouble(), 0.0)
-            15 -> vm.applyFilterPreview(index, 15, st.tempVal.toDouble(), st.tintVal.toDouble(), 0.0, 0.0)
-            16 -> vm.applyFilterPreview(index, 16, st.thresholdVal.toDouble(), 0.0, 0.0, 0.0)
-            17 -> vm.applyFilterPreview(index, 17, st.posterizeLevels.toDouble(), 0.0, 0.0, 0.0)
-            18 -> vm.applyFilterPreview(index, 18, st.bloomThresh.toDouble(), st.bloomRadius.toDouble(), st.bloomIntensity.toDouble(), 0.0)
-            19 -> vm.applyFilterPreview(index, 19, st.shadowAngle.toDouble(), st.shadowDist.toDouble(), st.shadowRadius.toDouble(), st.shadowOpacity.toDouble())
-            20 -> vm.applyFilterPreview(index, 20, if (st.lumOpacityInvert) 1.0 else 0.0, 0.0, 0.0, 0.0)
-            21 -> vm.applyFilterPreview(index, 21, st.oilRadius.toDouble(), 0.0, 0.0, 0.0)
-            22 -> vm.applyFilterPreview(index, 22, st.radialBlurAmt.toDouble(), 0.5, 0.5, 0.0)
-            23 -> vm.applyFilterPreview(index, 23, st.halftoneDotSize.toDouble(), 0.0, 0.0, 0.0)
-            24 -> vm.applyFilterPreview(index, 24, st.exposureVal.toDouble(), st.exposureGamma.toDouble(), 0.0, 0.0)
-            25 -> vm.applyFilterPreview(index, 25, st.edgeGlowStrength.toDouble(), st.edgeGlowRadius.toDouble(), st.edgeGlowHue.toDouble(), 0.0)
-            26 -> vm.applyFilterPreview(index, 26, st.defocusRadius.toDouble(), 0.0, 0.0, 0.0)
-            27 -> vm.applyFilterPreview(index, 27, st.shadowBoost.toDouble(), st.highlightReduce.toDouble(), 0.0, 0.0)
-            28 -> vm.applyFilterPreview(index, 28, st.vibranceAmt.toDouble(), 0.0, 0.0, 0.0)
-            29 -> vm.applyFilterPreview(index, 29, st.colorToAlphaTarget.toDouble(), st.colorToAlphaTol.toDouble(), st.colorToAlphaSmooth.toDouble(), 0.0)
-            31 -> vm.applyFilterPreview(index, 31, st.rippleAmp.toDouble(), st.rippleFreq.toDouble(), 0.0, 0.0)
-            32 -> vm.applyFilterPreview(index, 32, st.twirlAngle.toDouble(), st.twirlRadius.toDouble(), 0.0, 0.0)
-            33 -> vm.applyFilterPreview(index, 33, st.surfaceBlurRadius.toDouble(), st.surfaceBlurThresh.toDouble(), 0.0, 0.0)
-            34 -> vm.applyFilterPreview(index, 34, st.scanlineSpacing.toDouble(), st.scanlineIntensity.toDouble(), 0.0, 0.0)
-    }
+    val params = adjustParamsOf(st, filterId) ?: return
+    vm.applyFilterPreview(index, params.type, params.p1, params.p2, params.p3, params.p4)
 }
 
 
