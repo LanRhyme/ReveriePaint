@@ -22,6 +22,8 @@ import com.reverie.paint.R
 import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_FILL_V2
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
+import com.reverie.paint.model.RecordingEvents.T_REDO
+import com.reverie.paint.model.RecordingEvents.T_UNDO
 import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS
 import com.reverie.paint.model.RecordingEvents.T_CONTRACT
 import com.reverie.paint.model.RecordingEvents.T_CROP
@@ -698,6 +700,9 @@ internal fun PaintViewModel.applyWarpMeshTransform(
 
 internal fun PaintViewModel.undo() {
     if (ReverieCoreBridge.canUndo()) {
+        if (recorder.recording) {
+            recorder.toolOp(T_UNDO) { }
+        }
         showActionToast("撤销", R.drawable.ic_undo)
         runCore(after = {
             notifyLayerChanged(forceThumbs = false, immediateRender = true)
@@ -710,6 +715,9 @@ internal fun PaintViewModel.undo() {
 
 internal fun PaintViewModel.redo() {
     if (ReverieCoreBridge.canRedo()) {
+        if (recorder.recording) {
+            recorder.toolOp(T_REDO) { }
+        }
         showActionToast("恢复", R.drawable.ic_redo)
         runCore(after = {
             notifyLayerChanged(forceThumbs = false, immediateRender = true)

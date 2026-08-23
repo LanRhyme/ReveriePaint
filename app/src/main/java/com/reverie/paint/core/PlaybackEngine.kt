@@ -64,6 +64,8 @@ import com.reverie.paint.model.RecordingEvents.T_FILL
 import com.reverie.paint.model.RecordingEvents.T_FILL_V2
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
+import com.reverie.paint.model.RecordingEvents.T_REDO
+import com.reverie.paint.model.RecordingEvents.T_UNDO
 import com.reverie.paint.model.RecordingEvents.T_INVERT_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_LASSO
 import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
@@ -746,6 +748,17 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val repeat = r.u8()
             val reverse = r.u8() != 0
             ReverieCoreBridge.gradientFill(x1, y1, x2, y2, t, repeat, reverse)
+        }
+
+        T_UNDO -> {
+            // The replay rebuilt the native undo stack stroke-by-stroke in the
+            // same order as the live session, so a plain native undo pops the
+            // exact transaction the user undid while recording.
+            ReverieCoreBridge.undo()
+        }
+
+        T_REDO -> {
+            ReverieCoreBridge.redo()
         }
 
         T_TEXT -> {
