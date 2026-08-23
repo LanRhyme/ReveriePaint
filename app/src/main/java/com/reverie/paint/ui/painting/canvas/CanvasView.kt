@@ -77,6 +77,10 @@ fun CanvasView(
     liquifyStrength: Float = 0.9f,
     liquifyMode: Int = 0,
     liquifyBrushSize: Float = 60f,
+
+    /** PaintingPage mirrors its overlay-panel booleans here so the touch view
+     *  can restore the system pointer icon over full-screen panels. */
+    overlayPanelsOpen: Boolean = false,
 ) {
     var viewW by remember { mutableStateOf(1) }
     var viewH by remember { mutableStateOf(1) }
@@ -323,6 +327,7 @@ fun CanvasView(
                 touchView.gradientType = gradientType
                 touchView.liquifyStrength = liquifyStrength
                 touchView.liquifyBrushSize = liquifyBrushSize
+                touchView.overlayPanelsOpen = overlayPanelsOpen
                 touchView.liquifyMode = liquifyMode
             },
         )

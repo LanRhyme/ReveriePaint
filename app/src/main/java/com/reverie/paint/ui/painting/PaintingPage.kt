@@ -457,6 +457,8 @@ fun PaintingPage(
                 liquifyStrength = liquifyStrength,
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
+                overlayPanelsOpen = brushPanelOpen || layerPanelOpen ||
+                    colorPanelOpen || settingsPanelOpen || moreToolsOpen,
             )
 
             // Diffusion Animation Canvas Overlay

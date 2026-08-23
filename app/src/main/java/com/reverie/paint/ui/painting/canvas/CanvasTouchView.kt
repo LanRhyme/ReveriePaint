@@ -78,6 +78,9 @@ class CanvasTouchView(context: Context) : View(context) {
     var gradientType: Int = 0
     var liquifyStrength: Float = 0.9f
     var liquifyBrushSize: Float = 60f
+
+    /** True while any full-screen overlay panel is open (see isHoverOverUi). */
+    @Volatile var overlayPanelsOpen: Boolean = false
     var liquifyMode: Int = 0
 
     private val density = context.resources.displayMetrics.density
@@ -198,6 +201,10 @@ class CanvasTouchView(context: Context) : View(context) {
     private fun isHoverOverUi(x: Float, y: Float): Boolean {
         val v = vm ?: return false
         if (v.brushStudioOpen || v.moreSettingsOpen) return true
+        // Any full-screen overlay panel (brush/layers/color/settings/more)
+        // must restore the system pointer; PaintingPage mirrors its local
+        // panel booleans into this field via CanvasView's update block.
+        if (overlayPanelsOpen) return true
 
         val d = density
         // 顶部操作栏区域 (右上角，宽约 380dp，高约 56dp)
@@ -250,7 +257,7 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onDraw(canvas)
         val v = vm ?: return
         val pos = localCursorPos ?: return
-        if (v.brushStudioOpen || v.moreSettingsOpen) return
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
         val isEraser = tool == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
         // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
