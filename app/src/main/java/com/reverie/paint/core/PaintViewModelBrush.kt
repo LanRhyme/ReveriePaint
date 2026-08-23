@@ -906,7 +906,7 @@ import kotlinx.coroutines.launch
         if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
             val state = toolBrushStates[t.id] ?: PaintViewModel.ToolBrushState()
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(t.id, updater(state)) }
-            persistToolBrushStates()
+            schedulePersistToolBrushStates()
         }
     }
 

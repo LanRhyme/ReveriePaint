@@ -1724,6 +1724,8 @@ class PaintViewModel : ViewModel() {
     override fun onCleared() {
         mainHandler.removeCallbacks(persistParamsRunnable)
         persistBrushParams()
+        mainHandler.removeCallbacks(persistToolStatesRunnable)
+        persistToolBrushStates()
         recorder.endSession()
         replaySession?.stop()
         renderThread?.quitSafely()
@@ -1736,6 +1738,15 @@ class PaintViewModel : ViewModel() {
     internal fun schedulePersistBrushParams(delayMs: Long = 250L) {
         mainHandler.removeCallbacks(persistParamsRunnable)
         mainHandler.postDelayed(persistParamsRunnable, delayMs)
+    }
+
+    // Same debounced-write pattern for per-tool brush states: slider ticks
+    // update the in-memory map every event, disk writes coalesce 250ms after
+    // the last tick.
+    private val persistToolStatesRunnable = Runnable { persistToolBrushStates() }
+    internal fun schedulePersistToolBrushStates(delayMs: Long = 250L) {
+        mainHandler.removeCallbacks(persistToolStatesRunnable)
+        mainHandler.postDelayed(persistToolStatesRunnable, delayMs)
     }
 
     internal fun startRenderThread() {

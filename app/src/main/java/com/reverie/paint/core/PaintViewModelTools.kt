@@ -301,7 +301,12 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         brushPresetScrollIndex = state.presetScrollIndex
         brushPresetScrollOffset = state.presetScrollOffset
 
-        if (state.presetIndex >= 0) {
+        // Stale-index clamp: persisted presetIndex can point past the end of
+        // the current preset list (preset set changed between runs). Treat it
+        // as "no selection" instead of letting selectBrushPreset fail late.
+        // (Clamping at use-time, not load-time: loadBrushParams runs before
+        // brushPresets is built.)
+        if (state.presetIndex in brushPresets.indices) {
             if (state.presetIndex != brushPresetIndex) {
                 selectBrushPreset(state.presetIndex)
             } else {
