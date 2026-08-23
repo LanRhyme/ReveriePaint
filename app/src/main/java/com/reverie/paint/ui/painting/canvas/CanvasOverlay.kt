@@ -55,10 +55,13 @@ import kotlin.math.sin
 internal fun CanvasOverlay(
     imageBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     vm: PaintViewModel,
-    zoom: Float,
-    rotation: Float,
-    panX: Float,
-    panY: Float,
+    // Transform states are read INSIDE the draw lambda only: gesture writes
+    // then invalidate just this canvas redraw instead of recomposing the
+    // whole page (see perf note in PaintingPage's onTransform).
+    zoom: androidx.compose.runtime.State<Float>,
+    rotation: androidx.compose.runtime.State<Float>,
+    panX: androidx.compose.runtime.State<Float>,
+    panY: androidx.compose.runtime.State<Float>,
     fitScale: Float,
     tool: Tool,
     tfState: TransformState,
@@ -98,11 +101,11 @@ internal fun CanvasOverlay(
             val imgH = bmp.height.toFloat()
             if (imgW <= 0f || imgH <= 0f) return@Canvas
 
-            val scale = (zoom * fitScale).coerceAtLeast(0.001f)
-            val center = Offset(size.width / 2f + panX, size.height / 2f + panY)
+            val scale = (zoom.value * fitScale).coerceAtLeast(0.001f)
+            val center = Offset(size.width / 2f + panX.value, size.height / 2f + panY.value)
             withTransform({
                 translate(center.x + 8f, center.y + 8f)
-                rotate(rotation, pivot = Offset.Zero)
+                rotate(rotation.value, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
                 drawRect(
@@ -113,7 +116,7 @@ internal fun CanvasOverlay(
             }
             withTransform({
                 translate(center.x, center.y)
-                rotate(rotation, pivot = Offset.Zero)
+                rotate(rotation.value, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
                 // Draw transparency checkerboard under the canvas image
@@ -390,7 +393,7 @@ internal fun CanvasOverlay(
                     val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
                     val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
                     val handles = tfHandles(tfState).map { bx(it) }
-                    val currentScale = zoom * fitScale
+                    val currentScale = zoom.value * fitScale
 
                     if (tfState.mode == TransformMode.DISTORT) {
                         // 3x3 Mesh Grid (16 Handles + 4 horizontal lines + 4 vertical lines)
@@ -569,7 +572,7 @@ internal fun CanvasOverlay(
                     val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
                     val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
                     val mappedPts = polyPoints.map { bx(it) }
-                    val currentScale = zoom * fitScale
+                    val currentScale = zoom.value * fitScale
                     val polyPath = androidx.compose.ui.graphics.Path()
                     polyPath.moveTo(mappedPts[0].x, mappedPts[0].y)
                     for (i in 1 until mappedPts.size) {
@@ -604,7 +607,7 @@ internal fun CanvasOverlay(
                     val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
                     val s = bx(liveShapeStart.value!!)
                     val e = bx(liveShapeEnd.value!!)
-                    val currentScale = zoom * fitScale
+                    val currentScale = zoom.value * fitScale
                     val strokeStyle = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
 
                     when (tool) {
@@ -646,7 +649,7 @@ internal fun CanvasOverlay(
                 }
 
                 liveSelectionPath.value?.let { livePath ->
-                    val currentScale = (zoom * fitScale).coerceAtLeast(0.001f)
+                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
                     val strokeW = 1.5.dp.toPx() / currentScale
                     val dashInterval = 5.dp.toPx() / currentScale
 

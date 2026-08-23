@@ -146,10 +146,17 @@ fun PaintingPage(
             focusRequester.requestFocus()
         } catch (_: Exception) {}
     }
-    var zoom by remember { mutableFloatStateOf(1f) }
-    var rotation by remember { mutableFloatStateOf(0f) }
-    var panX by remember { mutableFloatStateOf(0f) }
-    var panY by remember { mutableFloatStateOf(0f) }
+    // Gesture-driven transforms: exposed as State objects so CanvasView/
+    // CanvasOverlay read them inside draw lambdas — pinch writes then only
+    // invalidate canvas redraw instead of recomposing this whole page.
+    val zoomState = remember { mutableFloatStateOf(1f) }
+    var zoom by zoomState
+    val rotationState = remember { mutableFloatStateOf(0f) }
+    var rotation by rotationState
+    val panXState = remember { mutableFloatStateOf(0f) }
+    var panX by panXState
+    val panYState = remember { mutableFloatStateOf(0f) }
+    var panY by panYState
     var fitScale by remember { mutableFloatStateOf(1f) }
 
     var canvasW by remember { mutableStateOf(1) }
@@ -158,6 +165,10 @@ fun PaintingPage(
     // Popup panels
     var showIndicator by remember { mutableStateOf(false) }
     var indicatorTick by remember { mutableStateOf(0) }
+
+    // Plain holder (no snapshot writes) gating indicator ticks during pinch:
+    // each tick restarts the auto-hide LaunchedEffect below.
+    val indicatorGate = remember { LongArray(1) }
 
     fun flashIndicator() {
         showIndicator = true
@@ -410,10 +421,10 @@ fun PaintingPage(
                             canvasW = it.width
                             canvasH = it.height
                         },
-                zoom = zoom,
-                rotation = rotation,
-                panX = panX,
-                panY = panY,
+                zoom = zoomState,
+                rotation = rotationState,
+                panX = panXState,
+                panY = panYState,
                 fitScale = fitScale,
                 onFitScale = {
                     fitScale = it
@@ -426,7 +437,13 @@ fun PaintingPage(
                     if (!showIndicator) {
                         showIndicator = true
                     }
-                    indicatorTick++
+                    // Throttle tick writes: each one restarts the indicator
+                    // LaunchedEffect, and pinch fires hundreds of events.
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - indicatorGate[0] >= 120) {
+                        indicatorGate[0] = now
+                        indicatorTick++
+                    }
                 },
                 onTextRequested = { x, y -> textDialogPos = x to y },
                 tool = tool,

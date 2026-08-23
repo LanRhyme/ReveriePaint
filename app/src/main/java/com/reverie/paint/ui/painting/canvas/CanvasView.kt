@@ -55,10 +55,13 @@ import kotlin.math.sin
 fun CanvasView(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
-    zoom: Float,
-    rotation: Float,
-    panX: Float,
-    panY: Float,
+    // Gesture-driven transform states arrive as State objects and are read
+    // inside draw lambdas / the AndroidView update block only, so pinch
+    // writes never recompose this composable (draw-phase invalidation).
+    zoom: androidx.compose.runtime.State<Float>,
+    rotation: androidx.compose.runtime.State<Float>,
+    panX: androidx.compose.runtime.State<Float>,
+    panY: androidx.compose.runtime.State<Float>,
     fitScale: Float,
     onFitScale: (Float) -> Unit,
     onTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit,
@@ -81,11 +84,6 @@ fun CanvasView(
     val bmp = vm.displayBitmap
     val rev = vm.displayRevision
     val imageBitmap = remember(bmp, rev) { bmp?.asImageBitmap() }
-    val latestZoom by rememberUpdatedState(zoom)
-    val latestRotation by rememberUpdatedState(rotation)
-    val latestPanX by rememberUpdatedState(panX)
-    val latestPanY by rememberUpdatedState(panY)
-    val latestFitScale by rememberUpdatedState(fitScale)
 
     // Live selection preview path (updated while dragging a selection tool)
     val liveSelectionPath = remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
@@ -297,10 +295,10 @@ fun CanvasView(
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
-                    touchView.canvasZoom = zoom
-                    touchView.canvasRotation = rotation
-                    touchView.canvasPanX = panX
-                    touchView.canvasPanY = panY
+                    touchView.canvasZoom = zoom.value
+                    touchView.canvasRotation = rotation.value
+                    touchView.canvasPanX = panX.value
+                    touchView.canvasPanY = panY.value
                     touchView.canvasFitScale = fitScale
                 }
                 touchView.onTransform = onTransform
