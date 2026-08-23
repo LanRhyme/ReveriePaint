@@ -286,4 +286,6 @@ void registerCoreFilters()
         }
         filtersDone = true;
     }
+    // reverie-f0..f34 内核滤镜 (调整层/滤镜蒙版用), 独立幂等守卫
+    registerReverieRegistryFilters();
 }

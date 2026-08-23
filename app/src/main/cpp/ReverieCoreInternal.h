@@ -894,5 +894,6 @@ void krita_register_hatching_paintop();
 }
 
 void registerCoreFilters();
+void registerReverieRegistryFilters();
 
 #endif // REVERIECORE_INTERNAL_H
