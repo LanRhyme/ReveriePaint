@@ -44,8 +44,8 @@ android {
         applicationId = "com.reverie.paint"
         minSdk = 23
         targetSdk = 33
-        versionCode = 3
-        versionName = "1.0.0-Preview2"
+        versionCode = 4
+        versionName = "1.0.0-Preview3"
 
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
