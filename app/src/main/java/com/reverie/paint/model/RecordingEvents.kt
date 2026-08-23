@@ -45,6 +45,7 @@ object RecordingEvents {
     // the context changed since the previous stroke (diff-based, so slider
     // tweaks between strokes are captured without hooking every setter)
     const val CONTEXT = 0x10
+    const val CONTEXT_EXT = 0x11 // follows a CONTEXT; extended brush params (softness/spacing/.../smudge/airbrush)
 
     // Layer structural operations (payload: op u8, index u16, arg string)
     const val LAYER_OP = 0x20

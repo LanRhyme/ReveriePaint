@@ -6,6 +6,7 @@ package com.reverie.paint.core
 
 import com.reverie.paint.model.RecordingBuffer
 import com.reverie.paint.model.RecordingEvents.CONTEXT
+import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
 import com.reverie.paint.model.RecordingEvents.FILTER
 import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
@@ -334,8 +335,40 @@ class PaintRecorder {
         it.str(name)
     }
 
-    companion object {
-        /** Parse a recording blob; null on any error. */
+    /**
+     * Extended brush context emitted right after every [CONTEXT] event.
+     * Carries the shape/dynamics parameters that CONTEXT v1 omits so replays
+     * reproduce softness/spacing/scatter/smudge/airbrush behaviour.
+     */
+    fun captureContextExt(
+        softness: Double,
+        spacing: Double,
+        angle: Double,
+        scatter: Double,
+        rotation: Double,
+        ratio: Double,
+        sharpness: Double,
+        smudgeRate: Double,
+        smudgeLength: Double,
+        secondaryColor: String,
+        airbrushEnabled: Boolean,
+        airbrushRate: Double,
+    ) = emit(CONTEXT_EXT) {
+        it.f32(softness.toFloat())
+        it.f32(spacing.toFloat())
+        it.f32(angle.toFloat())
+        it.f32(scatter.toFloat())
+        it.f32(rotation.toFloat())
+        it.f32(ratio.toFloat())
+        it.f32(sharpness.toFloat())
+        it.f32(smudgeRate.toFloat())
+        it.f32(smudgeLength.toFloat())
+        it.str(secondaryColor)
+        it.u8(if (airbrushEnabled) 1 else 0)
+        it.f32(airbrushRate.toFloat())
+    }
+
+    companion object {        /** Parse a recording blob; null on any error. */
         fun parse(data: ByteArray): ParsedRecording? {
             val r = RecordingReader(data)
             return try {

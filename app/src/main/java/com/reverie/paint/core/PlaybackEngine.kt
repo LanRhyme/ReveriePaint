@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.reverie.paint.model.RecordingEvents.CONTEXT
+import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
 import com.reverie.paint.model.RecordingEvents.FILTER
 import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
@@ -313,20 +314,11 @@ private fun PaintViewModel.replayStepLocked(
             finishReplayLocked(s)
             return
         }
-        // Stroke path animation: MOVE events get a per-point floor so fast
-        // strokes grow point-by-point instead of appearing instantly, paced
-        // against the 16ms render throttle. The floor scales with speed so
-        // 4x still fast-forwards (4ms/point) while 1x/0.5x animate smoothly
-        // (16ms/32ms). Slow strokes (real dt above the floor) keep their
-        // recorded timing untouched.
-        val base = (dt / s.speed).toLong().coerceIn(1L, 500L)
-        val floor =
-            if (type == STROKE_MOVE) {
-                (16.0 / s.speed).toLong().coerceIn(1L, 64L)
-            } else {
-                1L
-            }
-        val d = maxOf(base, floor)
+        // Replay pacing follows the recorded inter-event timing directly
+        // (live sampling is ~8ms), so playback duration matches the real
+        // drawing time; smooth on-screen growth is preserved by the 16ms
+        // render throttle in scheduleRender.
+        val d = (dt / s.speed).toLong().coerceIn(1L, 500L)
         if (type != STROKE_MOVE && d < 8L) {
             continue // batch the next micro-delay event into this message
         }
@@ -467,6 +459,34 @@ private fun PaintViewModel.dispatchReplayLocked(
                     layer = r.u16().let { if (it == 0xFFFF) -1 else it },
                 ),
             )
+        }
+
+        CONTEXT_EXT -> {
+            // Extended brush params following a CONTEXT; apply via the same
+            // setters the UI uses. Field order must match captureContextExt.
+            val softness = r.f32()
+            val spacing = r.f32()
+            val angle = r.f32()
+            val scatter = r.f32()
+            val rotation = r.f32()
+            val ratio = r.f32()
+            val sharpness = r.f32()
+            val smudgeRate = r.f32()
+            val smudgeLength = r.f32()
+            val secondaryColor = r.str()
+            val airbrushEnabled = r.u8() != 0
+            val airbrushRate = r.f32()
+            ReverieCoreBridge.setBrushSoftness(softness.toDouble())
+            ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
+            ReverieCoreBridge.setBrushAngle(angle.toDouble())
+            ReverieCoreBridge.setBrushScatter(scatter.toDouble())
+            ReverieCoreBridge.setBrushRotation(rotation.toDouble())
+            ReverieCoreBridge.setBrushRatio(ratio.toDouble())
+            ReverieCoreBridge.setBrushSharpness(sharpness.toDouble())
+            ReverieCoreBridge.setBrushSmudgeRate(smudgeRate.toDouble())
+            ReverieCoreBridge.setBrushSmudgeLength(smudgeLength.toDouble())
+            ReverieCoreBridge.setBrushSecondaryColor(secondaryColor)
+            ReverieCoreBridge.setBrushAirbrush(airbrushEnabled, airbrushRate.toDouble())
         }
 
         LAYER_OP -> {

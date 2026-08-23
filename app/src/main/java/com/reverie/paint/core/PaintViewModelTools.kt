@@ -167,6 +167,20 @@ internal fun PaintViewModel.touchStart(
             color = strokeColor,
             layer = currentLayerIndex,
         )
+        recorder.captureContextExt(
+            softness = brushSoftness,
+            spacing = brushSpacing,
+            angle = brushAngle,
+            scatter = brushScatter,
+            rotation = brushRotation,
+            ratio = brushRatio,
+            sharpness = brushSharpness,
+            smudgeRate = brushSmudgeRate,
+            smudgeLength = brushSmudgeLength,
+            secondaryColor = brushSecondaryColor,
+            airbrushEnabled = brushAirbrush,
+            airbrushRate = brushAirbrushRate,
+        )
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
     val mode =
