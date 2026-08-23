@@ -1709,6 +1709,10 @@ class PaintViewModel : ViewModel() {
         sampleQueued = false
         pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
         ReverieCoreBridge.touchStrokeMove(pendingSampleX, pendingSampleY, pendingSampleP)
+        // Mirror runCore's render=true contract: without this the only
+        // mid-stroke display refresh would be touchEnd's final flush, so ink
+        // would pile up invisibly until pen-up.
+        scheduleRender()
     }
 
     internal fun queueStrokeMove(x: Float, y: Float, p: Double) {
