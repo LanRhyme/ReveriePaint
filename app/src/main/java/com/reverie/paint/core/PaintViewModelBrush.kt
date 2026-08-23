@@ -784,14 +784,13 @@ import kotlinx.coroutines.launch
         val isBuiltIn = preset?.isBuiltIn == true
         val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
         
-        if (isEraserPreset) {
-            if (currentToolId != "eraser") {
-                applyTool("eraser")
-            }
-        } else {
-            if (currentToolId == "eraser") {
-                applyTool("brush")
-            }
+        // Krita-style decoupling: presets never force a tool change except
+        // the one-way convenience of jumping to the eraser tool when an
+        // eraser-group preset is picked elsewhere. The eraser tool may adopt
+        // ANY preset - native erasing is driven by m_toolMode (setToolMode),
+        // so any brush shape works as an eraser.
+        if (isEraserPreset && currentToolId != "eraser") {
+            applyTool("eraser")
         }
 
         val saved = if (preset != null) brushParams[preset.name] else null
