@@ -217,6 +217,7 @@ internal fun PaintViewModel.touchMove(
 
 internal fun PaintViewModel.touchEnd() {
     stopAirbrush()
+    lastStrokeEndElapsedMs = android.os.SystemClock.elapsedRealtime()
     isModified = true
     totalStrokes++
     onPaintingActivity()

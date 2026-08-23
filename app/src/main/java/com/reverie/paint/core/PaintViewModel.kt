@@ -134,6 +134,13 @@ class PaintViewModel : ViewModel() {
         val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
+        // 无感化门控: 引擎队列非空 (笔画/滤镜/撤销在途) 或刚抬笔不久时不触发,
+        // 防止 saveRevp 的秒级序列化排在下一笔前面造成卡顿/撤销迟滞。
+        if (pendingCoreOps.get() > 0) return
+        if (filterPreviewJob?.isActive == true) return
+        val sinceStrokeEnd = android.os.SystemClock.elapsedRealtime() - lastStrokeEndElapsedMs
+        if (lastStrokeEndElapsedMs != 0L && sinceStrokeEnd < 4_000L) return
+
         val now = android.os.SystemClock.elapsedRealtime()
         val intervalMs = autoSaveIntervalMinutes * 60 * 1000L
         if (lastAutoSaveTimeMs == 0L) {
@@ -154,6 +161,9 @@ class PaintViewModel : ViewModel() {
         autoSaveProject()
     }
 
+    /** ElapsedRealtime of the last stroke end; autosave defers for a quiet window after it. */
+    @Volatile internal var lastStrokeEndElapsedMs = 0L
+
     fun markModified() {
         isModified = true
     }
@@ -167,7 +177,8 @@ class PaintViewModel : ViewModel() {
     var autoSaveEnabled by mutableStateOf(true)
     var autoSaveIntervalMinutes by mutableIntStateOf(5)
     var autoSaveToastEnabled by mutableStateOf(true)
-    var isAutoSaving by mutableStateOf(false)
+    // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
+    var isAutoSaving = false
     var lastAutoSaveTimeMs by mutableLongStateOf(0L)
     var maxUndoSteps by mutableIntStateOf(50)
     var promptSaveOnExit by mutableStateOf(true)
