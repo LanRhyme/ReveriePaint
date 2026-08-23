@@ -183,8 +183,8 @@ internal fun PaintViewModel.touchStart(
     }
     // Airbrush: start the hold-still ink timer after the stroke-start op is
     // queued (FIFO keeps the first tick behind touchStrokeStart). Hold-still
-    // ticks are NOT recorded into the event stream (replay limitation).
-    startAirbrushIfNeeded()
+    // ticks ARE recorded as same-point STROKE_MOVE samples for replay.
+    startAirbrushIfNeeded(x, y, effPressure)
 }
 
 internal fun PaintViewModel.touchMove(

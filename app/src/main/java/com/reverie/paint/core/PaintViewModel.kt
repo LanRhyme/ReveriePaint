@@ -1846,12 +1846,33 @@ class PaintViewModel : ViewModel() {
             false
         }
         pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
-        if (painted) scheduleRender()
+        if (painted) {
+            scheduleRender()
+            // Airbrush hold-still ticks enter the recording as ordinary
+            // STROKE_MOVE samples at the same position/pressure, so playback
+            // reproduces the continuous ink at the recorded cadence.
+            if (recorder.recording) {
+                recorder.strokeMove(
+                    pendingSampleX.toFloat(),
+                    pendingSampleY.toFloat(),
+                    pendingSampleP.toFloat(),
+                )
+            }
+        }
         h.postDelayed(airbrushRunnable, airbrushIntervalMs)
     }
 
-    /** Arm the airbrush timer for the current stroke if the brush enables it. */
-    internal fun startAirbrushIfNeeded() {
+    /** Arm the airbrush timer for the current stroke if the brush enables it.
+     *  Also seeds the coalesced-sample fields so ticks fired before the first
+     *  move record the stroke's true start point instead of stale values. */
+    internal fun startAirbrushIfNeeded(
+        x: Float,
+        y: Float,
+        p: Double,
+    ) {
+        pendingSampleX = x.toDouble()
+        pendingSampleY = y.toDouble()
+        pendingSampleP = p
         if (!brushAirbrush) return
         airbrushIntervalMs = ((1000.0 * (1.0 - brushAirbrushRate)).coerceAtLeast(20.0)).toLong()
         airbrushActive = true
