@@ -98,6 +98,21 @@
 
 ## 架构决策
 
+## 非破坏性调整图层与蒙版系统 (2026-08-23)
+
+设计: docs/superpowers/specs/2026-08-23-adjustment-layers-design.md; 计划: docs/superpowers/plans/2026-08-23-adjustment-layers.md
+踩坑前置调研: docs/FILTER-LAYER-RESEARCH.md (上次回滚根因=merger 只认注册表滤镜)
+
+- [x] 滤镜内核抽取 ReverieCoreFilterKernels (35 case 像素体, 行为零改动)
+- [x] 35 滤镜注册 reverie-f0..34 进 KisFilterRegistry (supportsAdjustmentLayers)
+- [x] 图层节点类型 nodeType 贯穿 C++/JNI/LayerUiState
+- [x] 真 KisAdjustmentLayer (create/set/getConfig + 配置命令入撤销栈)
+- [x] "滤镜图层"菜单启用 + 调整层参数编辑流 (✓提交写配置不盖印)
+- [x] 录制回放 L_ADJ_CONFIG (codec 纯 Kotlin 单测)
+- [x] revp/kra 写入 layers.xml 节点树 + 加载原生重建 (旧档平铺兼容)
+- [x] 四种蒙版菜单接入 (复用 addMaskToLayer 全类实现)
+- [x] 填充图层升级 KisGeneratorLayer+reverie-solid-color (换色即时生效)
+
 - UI 用 Compose: Qt QQuickWidget 在 Android 上透明 overlay 不可靠, 反复失败
 - C++ 引擎绕过 KisDocument/KisPart: 它们是 kritaui 的一部分, 需要完整 QApplication;
   KisImage 公开构造即可满足单文档绘画引擎需求, 依赖面大幅缩小
