@@ -103,6 +103,13 @@ void ReverieCore::writeLayersXml(QString *out)
             if (KisAdjustmentLayer *al = dynamic_cast<KisAdjustmentLayer *>(e.node)) {
                 writeFilterAttrs(w, al->filter());
             }
+        } else if (e.nodeType == NodeTypeFill) {
+            if (KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(e.node)) {
+                QVariant v;
+                const QColor c = (gl->filter() && gl->filter()->getProperty("color", v))
+                    ? v.value<QColor>() : QColor(Qt::white);
+                w.writeAttribute("color_argb", QString::number(c.rgba()));
+            }
         } else if (e.nodeType == NodeTypeFilterMask) {
             if (KisFilterMask *fm = dynamic_cast<KisFilterMask *>(e.node)) {
                 writeFilterAttrs(w, fm->filter());
@@ -240,8 +247,16 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
                 KisFilterConfigurationSP cfg = reverieMakeConfig(type, p1, p2, p3, p4, lut);
                 if (!cfg) continue; // 滤镜缺失则放弃该节点(不中断整树)
                 node = new KisAdjustmentLayer(image, nodeName, cfg, nullptr);
-            } else if (name == QLatin1String("clonelayer") || name == QLatin1String("generatorlayer")) {
-                // v1 限制: 克隆层源关系与生成器参数未序列化, 回退为颜料层保结构(T10 后 generator 走原生重建)
+            } else if (name == QLatin1String("generatorlayer")) {
+                // 原生 generator 填充层重建; color 缺失回退白色
+                const QXmlStreamAttributes a = r.attributes();
+                bool okColor = false;
+                const quint32 colorArgb = a.value("color_argb").toUInt(&okColor, 10);
+                KisFilterConfigurationSP gcfg = reverieMakeSolidColorConfig(okColor ? colorArgb : 0xFFFFFFFFu);
+                if (!gcfg) continue;
+                node = new KisGeneratorLayer(image, nodeName, gcfg, nullptr);
+            } else if (name == QLatin1String("clonelayer")) {
+                // v1 限制: 克隆层源关系未序列化, 回退为颜料层保结构
                 const QString fn = r.attributes().value("filename").toString();
                 QByteArray png;
                 if (!fn.isEmpty() && store->open(fn)) {

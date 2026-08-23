@@ -537,6 +537,8 @@ object ReverieCoreBridge {
 
     /** 读取调整层当前配置 JSON（{"type","p1"-"p4","lut":base64}），非调整层返回空串 */
     external fun getAdjustmentLayerConfig(index: Int): String
+    // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
+    external fun setFillLayerColor(index: Int, colorArgb: Int): Boolean
 
     external fun layerDepth(index: Int): Int
 

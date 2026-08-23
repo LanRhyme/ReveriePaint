@@ -156,6 +156,8 @@ public:
                                   double p1, double p2, double p3, double p4,
                                   const QByteArray &lut = QByteArray());
     QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
+    // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
+    bool setFillLayerColor(int index, quint32 colorArgb);
     bool addMaskToLayer(int layerIndex, int maskType);
     bool removeMask(int layerIndex);
     bool rasterizeLayer(int index);
@@ -652,6 +654,8 @@ private:
     // 调整层配置组装 (ReverieCoreAdjustment.cpp)
     static KisFilterConfigurationSP reverieMakeConfig(int filterType, double p1, double p2, double p3, double p4,
                                                       const QByteArray &lut = QByteArray());
+    // 纯色填充层配置组装 (ReverieCoreGenerators.cpp)
+    static KisFilterConfigurationSP reverieMakeSolidColorConfig(quint32 rgba);
 
 // Filter backup device for non-destructive live preview
     KisPaintDeviceSP m_filterBackupDevice;

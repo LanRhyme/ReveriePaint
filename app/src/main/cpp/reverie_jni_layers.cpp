@@ -425,3 +425,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_getAdjustmentLayerConfig(
     return env->NewStringUTF(json.toUtf8().constData());
 }
 }
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setFillLayerColor(JNIEnv *env, jobject, jint index, jint colorArgb)
+{
+    return core()->setFillLayerColor(index, static_cast<quint32>(colorArgb)) ? JNI_TRUE : JNI_FALSE;
+}

@@ -288,4 +288,6 @@ void registerCoreFilters()
     }
     // reverie-f0..f34 内核滤镜 (调整层/滤镜蒙版用), 独立幂等守卫
     registerReverieRegistryFilters();
+    // reverie-solid-color 纯色填充 generator (填充图层用)
+    registerReverieGenerators();
 }
