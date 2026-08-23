@@ -305,28 +305,8 @@ fun LayerPanel(
                     }
 
                     is LayerView.FiltersCreate -> {
-                        FiltersPage(
-                            vm = vm,
-                            index = -1,
-                            onBack = { view = LayerView.List },
-                            onSelectFilter = { filterId, filterName ->
-                                // 初始参数取面板默认值 (所见即所得), 避免全零参数建层
-                                val st = FilterAdjustState()
-                                val ap = adjustParamsOf(st, filterId)
-                                vm.addAdjustmentLayer(
-                                    "滤镜图层",
-                                    filterId,
-                                    ap?.p1 ?: 0.0,
-                                    ap?.p2 ?: 0.0,
-                                    ap?.p3 ?: 0.0,
-                                    ap?.p4 ?: 0.0,
-                                ) { newIdx ->
-                                    if (newIdx >= 0) {
-                                        view = LayerView.FilterAdjust(newIdx, filterId, filterName)
-                                    }
-                                }
-                            },
-                        )
+                        // 滤镜图层功能暂时下线 (回滚), 路由保留兜底
+                        view = LayerView.List
                     }
                 }
             }

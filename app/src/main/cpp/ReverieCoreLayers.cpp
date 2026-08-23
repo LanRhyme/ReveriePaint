@@ -186,16 +186,11 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         const KoColorSpace *cs = image->colorSpace();
         KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
         if (type == LayerTypeFill) {
-            // v2: 原生 generator 非破坏填充层, 换色即时生效;
-            // 注册表不可用时回退旧"预填色颜料层"降级实现
-            if (KisFilterConfigurationSP gcfg = reverieMakeSolidColorConfig(fillColor)) {
-                newNode = new KisGeneratorLayer(image, finalName, gcfg, nullptr);
-            } else {
-                QColor qc = QColor::fromRgba(fillColor);
-                paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
-                paintLayer->original()->setDirty();
-                newNode = paintLayer;
-            }
+            // 回滚至稳定行为: 预填色颜料层 (generator 填充层待真机问题解决后再启用)
+            QColor qc = QColor::fromRgba(fillColor);
+            paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
+            paintLayer->original()->setDirty();
+            newNode = paintLayer;
         } else if (type == LayerTypeAdjustment) {
             // 兼容旧录制/旧入口: 建中性 reverie-f0 配置的真调整层
             // (带参创建走 createAdjustmentLayer); 注册表不可用时回退旧伪实现

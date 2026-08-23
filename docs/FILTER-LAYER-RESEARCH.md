@@ -25,3 +25,10 @@
 - [ ] 针对局部脏区的增量 GPU / 异步着色器滤镜管线探索
 - [ ] 笔刷绘制中对局部实时视口应用滤镜着色器 而非全局 CPU 多核遍历
 - [ ] 完善 KisAdjustmentLayer 插件注册接口或在 KisAsyncMerger 接入原生滤镜通道
+
+## 2026-08-23 二次实验记录 (已回滚)
+
+- 全量滤镜注册为 KisFilter(reverie-f0..34) + 真 KisAdjustmentLayer + generator 填充层在真机暴露三类问题, 功能入口暂时下线(基础设施保留: 内核抽取/注册表/layers.xml 持久化/录制回放码):
+- ①创建即污染画布: 菜单以 HSBC(filterType=0) 全零参数建层, sat=0 饱和度归零/bright=0 压暗随 merger 重放 → 画布变灰内容消失。教训: 调整层初始参数必须取面板默认值(所见即所得), 且面板需配置流(节流直推 setFilter+进入快照回滚)。
+- ②预乘字节序: 注册表滤镜 processImpl 若用 convertToQImage(输出 ARGB32_Premultiplied) 后 writeBytes 写回(按非预乘解释)会逐帧污染投影; 必须用 Format_ARGB32_Premultiplied + readBytes 区域读写。
+- ③填充层 SIGSEGV(fault addr 0x0, reverie-render 线程): 前置日志 profileForCsIdWithFallbackImpl couldn't fetch a fallback profile for <空>(KoColorSpaceRegistry.cpp:431) — KisGeneratorLayer 链上某处 colorSpace() 返回 null。generate() 已插桩守卫(qWarning 标记 "reverie-solid-color: generate abort dev=%p cs=%p config=%p"), 复现时 `adb logcat -d -s reverie` 看最后一条定位帧; 无标记则崩点在 strategy/ctor 链更上游。
