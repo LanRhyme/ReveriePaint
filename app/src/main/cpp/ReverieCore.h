@@ -415,8 +415,9 @@ public:
     bool savePng(const QString &path);
     bool exportJpg(const QString &path, int quality = 90);
     bool exportPsd(const QString &path);
-    bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),
-                  const QByteArray &recordingBlob = QByteArray());
+    // 兼容 KRA 语义的图层树元数据 (定义于 ReverieCoreLayerIO.cpp)
+    void writeLayersXml(QString *out);
+    bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool loadRevp(const QString &path);
     bool saveKra(const QString &path);
 

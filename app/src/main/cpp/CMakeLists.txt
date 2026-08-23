@@ -192,6 +192,7 @@ add_library(reverie_jni SHARED
     ReverieCoreFilterKernels.cpp
     ReverieCoreFilterRegistry.cpp
     ReverieCoreAdjustment.cpp
+    ReverieCoreLayerIO.cpp
     ReverieCoreFilterPreview.cpp
     ReverieCoreFilterPreviewFx.cpp
     ReverieCoreSelection.cpp

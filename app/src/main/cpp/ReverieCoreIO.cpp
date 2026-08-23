@@ -178,6 +178,14 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         store->close();
     }
 
+    // 兼容 KRA 语义的图层树元数据 (加载端重建非破坏节点树用)
+    if (store->open("layers.xml")) {
+        QString xml;
+        writeLayersXml(&xml);
+        store->write(xml.toUtf8());
+        store->close();
+    }
+
     // 2. Merged Preview thumbnail
     const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
     if (!comp.isNull()) {
@@ -593,6 +601,14 @@ bool ReverieCore::saveKra(const QString &path)
     if (store->open("meta.json")) {
         QJsonDocument doc(meta);
         store->write(doc.toJson(QJsonDocument::Indented));
+        store->close();
+    }
+
+    // 兼容 KRA 语义的图层树元数据 (加载端重建非破坏节点树用)
+    if (store->open("layers.xml")) {
+        QString xml;
+        writeLayersXml(&xml);
+        store->write(xml.toUtf8());
         store->close();
     }
 
