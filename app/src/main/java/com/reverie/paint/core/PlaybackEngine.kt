@@ -20,6 +20,9 @@ import com.reverie.paint.model.RecordingEvents.L_ADD_GROUP
 import com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE
 import com.reverie.paint.model.RecordingEvents.L_ADD_MASK
 import com.reverie.paint.model.RecordingEvents.L_ALPHA_LOCKED
+import com.reverie.paint.model.AdjustmentConfigCodec
+import com.reverie.paint.model.RecordingEvents.L_ADD_MASK_TYPE
+import com.reverie.paint.model.RecordingEvents.L_ADJ_CONFIG
 import com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER
 import com.reverie.paint.model.RecordingEvents.L_BLEND
 import com.reverie.paint.model.RecordingEvents.L_CLEAR
@@ -680,6 +683,13 @@ private fun PaintViewModel.dispatchLayerOpLocked(
                 p.getOrNull(1)?.toIntOrNull() ?: 0,
                 p.getOrNull(2)?.toLongOrNull()?.toInt() ?: 0xFFFFFFFF.toInt(),
             )
+        }
+
+        L_ADJ_CONFIG -> {
+            val c = AdjustmentConfigCodec.decode(arg)
+            if (c != null) {
+                ReverieCoreBridge.setAdjustmentLayerConfig(i, c.type, c.p1, c.p2, c.p3, c.p4, c.lut)
+            }
         }
 
         L_SOLO -> {

@@ -5,7 +5,9 @@
  */
 package com.reverie.paint.core
 
+import com.reverie.paint.model.AdjustmentConfigCodec
 import com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE
+import com.reverie.paint.model.RecordingEvents.L_ADJ_CONFIG
 
 
 // PaintViewModel 调整图层扩展 (同包 partial 模式)。
@@ -53,6 +55,13 @@ internal fun PaintViewModel.commitAdjustmentConfig(index: Int, filterId: Int) {
     lastFilterPreviewParams = null
     lastCurvesLUT = null
     lastGradientMapLut = null
+    if (recorder.recording) {
+        recorder.layerOp(
+            L_ADJ_CONFIG,
+            index,
+            AdjustmentConfigCodec.encode(filterId, p1, p2, p3, p4, lut),
+        )
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut)
     }

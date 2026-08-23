@@ -93,6 +93,8 @@ object RecordingEvents {
     const val L_ADD_LAYER_TYPE = 31
     const val L_SOLO = 32
     const val L_APPLY_FILTER = 33
+    const val L_ADJ_CONFIG = 34 // index=层号; arg 见 AdjustmentConfigCodec ("type|p1|p2|p3|p4|lutHex")
+    const val L_ADD_MASK_TYPE = 35 // index=父层号; arg="maskType" (0透明度/1滤镜/2变换/3选区)
 
     // ---- Tool op codes (TOOL_OP; payload layout is op-specific) ----
     const val T_SHAPE = 0 // kind u8, x1..y2 f32, filled u8
