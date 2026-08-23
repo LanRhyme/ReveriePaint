@@ -80,6 +80,16 @@ internal fun CanvasOverlay(
     liveSelectionPath: androidx.compose.runtime.MutableState<androidx.compose.ui.graphics.Path?>,
     checkerboardPaint: android.graphics.Paint,
 ) {
+        // Hoisted draw paints: the draw lambda runs every frame, so these must
+        // not be allocated inside it (grid paint is reconfigured per frame)
+        val gridPaint = remember { android.graphics.Paint() }
+        val imagePaint = remember(vm.magnificationInterpolation) {
+            android.graphics.Paint().apply {
+                isFilterBitmap = vm.magnificationInterpolation
+                isAntiAlias = vm.magnificationInterpolation
+                isDither = true
+            }
+        }
         Canvas(Modifier.fillMaxSize()) {
             val rev = vm.displayRevision
             val bmp = vm.displayBitmap ?: return@Canvas
@@ -117,11 +127,6 @@ internal fun CanvasOverlay(
                 )
                 
                 // Draw the actual canvas image over the checkerboard
-                val imagePaint = android.graphics.Paint().apply {
-                    isFilterBitmap = vm.magnificationInterpolation
-                    isAntiAlias = vm.magnificationInterpolation
-                    isDither = true
-                }
                 nativeCanvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, imagePaint)
 
                 // Pixel grid on high zoom (scale >= 4.0)
@@ -130,11 +135,12 @@ internal fun CanvasOverlay(
                     val halfH = imgH / 2f
                     val gridAlpha = ((scale - 4f) / 4f).coerceIn(0f, 1f) * 0.15f
                     if (gridAlpha > 0.01f) {
-                        val gridPaint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
-                            strokeWidth = 1f / scale
-                            style = android.graphics.Paint.Style.STROKE
-                        }
+                        // Remembered Paint mutated per frame: allocation-free,
+                        // only color/strokeWidth depend on the live zoom scale
+                        gridPaint.color =
+                            android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
+                        gridPaint.strokeWidth = 1f / scale
+                        gridPaint.style = android.graphics.Paint.Style.STROKE
                         for (gx in 0..image.width) {
                             nativeCanvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, gridPaint)
                         }

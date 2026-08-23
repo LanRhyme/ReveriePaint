@@ -1743,6 +1743,14 @@ class PaintViewModel : ViewModel() {
         thread.start()
         renderThread = thread
         renderHandler = Handler(thread.looper)
+        // First runnable on the thread: raise priority so stroke flushes and
+        // projection recomposition win CPU contention over background work.
+        val h = renderHandler
+        h?.post {
+            android.os.Process.setThreadPriority(
+                android.os.Process.THREAD_PRIORITY_DISPLAY
+            )
+        }
     }
 
     /**
