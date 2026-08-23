@@ -38,7 +38,7 @@
   - 配置经 KisFilterConfiguration 的 setProperty/getProperty 存取 p1-p4（f64）；LUT 类额外存 ByteArray（曲线 RGB 768B / 渐变映射 1024B，属性名固定，序列化由 config 自带机制承担）。
 - 21 个实例 ID: `reverie-hsbc` `reverie-color-balance` `reverie-gaussian` `reverie-motion` `reverie-sharpen` `reverie-mosaic` `reverie-invert` `reverie-lineart` `reverie-edges` `reverie-emboss` `reverie-noise` `reverie-glitch` `reverie-desaturate` `reverie-curves-scalar` `reverie-levels` `reverie-temp-tint` `reverie-threshold` `reverie-posterize` `reverie-bloom` `reverie-curves-lut` `reverie-gradient-map`；均 `setSupportsAdjustmentLayers(true)`。
 - 与既有 3 个插件（blur/gaussian blur/unsharp，ReverieCoreFilterPlugins.cpp）并存不冲突。
-- 预览管线 `applyFilterPreview` 改为: 组装 KisFilterConfiguration → 从注册表取 filter → 直接调 process 设备级应用（保留三步备份语义），对外签名与行为不变。
+- **既有单层滤镜预览管线保持不动**（已验证的热路径，回归风险为零）；注册表滤镜仅供调整层/滤镜蒙版使用。
 
 ## 4. 阶段 2 — 调整图层核心
 
