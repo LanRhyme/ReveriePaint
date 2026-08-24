@@ -747,8 +747,8 @@ internal fun BlendModesPage(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val itemH = 38.dp
-    val wheelH = 228.dp
+    val itemH = 40.dp
+    val wheelH = 240.dp
     val padV = (wheelH - itemH) / 2
         // 混合模式图标（语义映射到现有 drawable，便于扫视区分）
         // GIMP ell/blending-mode-icons 分支转换的白描边专属图标（GPL 兼容）
@@ -888,47 +888,27 @@ internal fun BlendModesPage(
                             Icon(
                                 painterResource(iconFor(opId)),
                                 contentDescription = null,
-                                tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.3f, 0.85f, t)),
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = lerp(0.85f, 1f, t)
-                                    scaleY = lerp(0.85f, 1f, t)
-                                }.size(17.dp),
+                                tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 0.9f, t)),
+                                modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(9.dp))
                             Text(
                                 name,
-                                color = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 1f, t)),
-                                fontSize = (12f + 2f * t).sp,
-                                fontWeight = if (t > 0.9f || isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                modifier = Modifier.graphicsLayer {
-                                    scaleX = lerp(0.85f, 1f, t)
-                                    scaleY = lerp(0.85f, 1f, t)
-                                },
+                                color = if (isSelected) Morandi.accent else Morandi.subText.copy(alpha = lerp(0.45f, 1f, t)),
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             )
                         }
                     }
                 }
             }
-            // 中央定位条：只留上下两条中性 hairline（弱化）
+            // 中央定位托盘：淡中性胶囊底（无描边），iOS picker 质感
             Box(
                 Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 10.dp)
                     .height(itemH)
-                    .drawBehind {
-                        val stroke = 1.dp.toPx()
-                        drawLine(
-                            color = Morandi.border,
-                            start = Offset(0f, 0f),
-                            end = Offset(size.width, 0f),
-                            strokeWidth = stroke,
-                        )
-                        drawLine(
-                            color = Morandi.border,
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = stroke,
-                        )
-                    },
+                    .background(Morandi.panelHi.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
             )
         }
     }
