@@ -7,10 +7,8 @@ package com.reverie.paint.ui.home
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,13 +21,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.AppColors
@@ -37,7 +38,9 @@ import com.reverie.paint.ui.theme.Motion
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.liquidJelly
 import com.reverie.paint.ui.components.liquidLean
+import com.reverie.paint.ui.components.liquidSheen
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
@@ -55,9 +58,17 @@ internal fun HomeBottomBar(
 
     val createSource = remember { MutableInteractionSource() }
 
-    // iOS 式 tab 选中：pill 背景 spring 缩放浮现 + 图标 pop 回弹
-    val galleryPill by animateFloatAsState(if (isGallery) 1f else 0f, Motion.springSnap, label = "tabGalleryPill")
-    val settingsPill by animateFloatAsState(if (isSettings) 1f else 0f, Motion.springSnap, label = "tabSettingsPill")
+    // 滑行 pill：单个指示背景在两个槽位之间弹簧滑行（穿过中间）
+    var gallerySlot by remember { mutableStateOf(Rect.Zero) }
+    var settingsSlot by remember { mutableStateOf(Rect.Zero) }
+    val targetSlot = if (isGallery) gallerySlot else settingsSlot
+    val ready = targetSlot != Rect.Zero && gallerySlot != Rect.Zero && settingsSlot != Rect.Zero
+    val pillLeft by animateFloatAsState(if (ready) targetSlot.left else 0f, Motion.springSnap, label = "pillX")
+    val pillWidth by animateFloatAsState(if (ready) targetSlot.width else 0f, Motion.springSnap, label = "pillW")
+    val pillHeight by animateFloatAsState(if (ready) targetSlot.height else 0f, Motion.springSnap, label = "pillH")
+    val pillTop by animateFloatAsState(if (ready) targetSlot.top else 0f, Motion.springSnap, label = "pillY")
+
+    // 图标切换 pop 回弹
     val galleryIconScale = remember { Animatable(1f) }
     val settingsIconScale = remember { Animatable(1f) }
     LaunchedEffect(isGallery) {
@@ -83,6 +94,7 @@ internal fun HomeBottomBar(
     ) {
         Row(
             modifier = Modifier
+                .liquidJelly(maxOffset = 10.dp)
                 .shadow(
                     elevation = 16.dp,
                     shape = shape,
@@ -101,26 +113,29 @@ internal fun HomeBottomBar(
                     }
                 )
                 .glassBorder(shape)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .liquidSheen(trigger = selectedTab)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .drawBehind {
+                    // 滑行 pill 背景（画在内容之下，坐标系与 tab 槽位一致）
+                    if (pillWidth > 1f) {
+                        drawRoundRect(
+                            color = colors.panelHi.copy(alpha = 0.85f),
+                            topLeft = Offset(pillLeft, pillTop),
+                            size = Size(pillWidth, pillHeight),
+                            cornerRadius = CornerRadius(22.dp.toPx()),
+                        )
+                    }
+                },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Gallery Tab Button with Animated Pill Container
+            // Gallery Tab
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(22.dp))
-                    .drawBehind {
-                        if (galleryPill > 0.01f) withTransform({
-                            scale(lerp(0.75f, 1f, galleryPill), lerp(0.6f, 1f, galleryPill), center)
-                        }) {
-                            drawRoundRect(
-                                colors.panelHi.copy(alpha = 0.85f * galleryPill),
-                                cornerRadius = CornerRadius(22.dp.toPx()),
-                            )
-                        }
-                    }
                     .clickable { vm.homeSelectedTab = 0 }
+                    .onGloballyPositioned { gallerySlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Icon(
@@ -166,22 +181,13 @@ internal fun HomeBottomBar(
                 )
             }
 
-            // Settings Tab Button with Animated Pill Container
+            // Settings Tab
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(22.dp))
-                    .drawBehind {
-                        if (settingsPill > 0.01f) withTransform({
-                            scale(lerp(0.75f, 1f, settingsPill), lerp(0.6f, 1f, settingsPill), center)
-                        }) {
-                            drawRoundRect(
-                                colors.panelHi.copy(alpha = 0.85f * settingsPill),
-                                cornerRadius = CornerRadius(22.dp.toPx()),
-                            )
-                        }
-                    }
                     .clickable { vm.homeSelectedTab = 1 }
+                    .onGloballyPositioned { settingsSlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Icon(
