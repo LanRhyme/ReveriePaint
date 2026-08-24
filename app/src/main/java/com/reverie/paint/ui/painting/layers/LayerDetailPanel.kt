@@ -860,6 +860,15 @@ internal fun BlendModesPage(
                 },
             contentAlignment = Alignment.Center,
         ) {
+            // 中央定位托盘：中性胶囊底 + 细描边（先声明 → 画在列表下层，不遮内容）
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp)
+                    .height(itemH)
+                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp))
+                    .border(1.dp, Morandi.border.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
+            )
             androidx.compose.foundation.lazy.LazyColumn(
                 state = listState,
                 flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(listState),
@@ -911,15 +920,6 @@ internal fun BlendModesPage(
                     }
                 }
             }
-            // 中央定位托盘：中性胶囊底 + 细描边，iOS picker 质感
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp)
-                    .height(itemH)
-                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp))
-                    .border(1.dp, Morandi.border.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
-            )
         }
     }
 }
