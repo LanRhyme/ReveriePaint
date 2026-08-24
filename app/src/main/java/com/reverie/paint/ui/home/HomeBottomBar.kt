@@ -94,7 +94,7 @@ internal fun HomeBottomBar(
     ) {
         Row(
             modifier = Modifier
-                .liquidJelly(maxOffset = 10.dp)
+                .liquidJelly(maxOffset = 14.dp)
                 .shadow(
                     elevation = 16.dp,
                     shape = shape,

@@ -335,7 +335,7 @@ internal fun LayerRow(
 
                                     selected -> Morandi.accent.copy(alpha = 0.72f)
 
-                                    multiSelected -> Morandi.panelHi.copy(alpha = 0.6f)
+                                    multiSelected -> Morandi.accent.copy(alpha = 0.55f)
 
                                     // rows are transparent by default; the
                                     // panel itself is translucent

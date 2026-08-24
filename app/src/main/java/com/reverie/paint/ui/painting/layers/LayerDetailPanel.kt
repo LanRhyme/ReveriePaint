@@ -103,6 +103,13 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.util.lerp
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
@@ -734,11 +741,39 @@ internal fun BlendModesPage(
 ) {
     val current = vm.layers.firstOrNull { it.index == index }?.blendMode
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val itemH = 38.dp
+    val wheelH = 228.dp
+    val padV = (wheelH - itemH) / 2
 
-    // 打开时自动滚到当前模式附近（Procreate 式直接滚动浏览）
+    fun applyMode(opId: String) {
+        if (opId != vm.layers.firstOrNull { it.index == index }?.blendMode) {
+            vm.setLayerBlendMode(index, opId)
+        }
+    }
+
+    // 滚动停止后：吸附在定位条的项即生效（iOS 时间选择器交互）
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
+                    val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
+                    val centerItem = listState.layoutInfo.visibleItemsInfo
+                        .minByOrNull { abs((it.offset + it.size / 2) - mid) } ?: return@collect
+                    val op = vm.blendModes.getOrNull(centerItem.index)
+                    if (op != null) applyMode(op.first)
+                }
+            }
+    }
+
+    // 打开时把当前模式滚到定位条正中
     LaunchedEffect(Unit) {
         val curIdx = vm.blendModes.indexOfFirst { it.first == current }
-        if (curIdx > 2) listState.scrollToItem(curIdx - 2)
+        if (curIdx > 0) {
+            listState.scrollToItem(curIdx)
+            listState.scrollBy(with(density) { padV.toPx() })
+        }
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -765,46 +800,61 @@ internal fun BlendModesPage(
             Text("混合模式", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-        androidx.compose.foundation.lazy.LazyColumn(
-            state = listState,
-            modifier = Modifier.heightIn(max = 520.dp).fillMaxWidth(),
+        Box(
+            modifier = Modifier.fillMaxWidth().height(wheelH).clip(RoundedCornerShape(10.dp)),
+            contentAlignment = Alignment.Center,
         ) {
-            itemsIndexed(vm.blendModes) { _, (opId, name) ->
-                val isSelected = opId == current
-                val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .pressScale(rowSource, pressedScale = 0.97f)
-                            .clickable(interactionSource = rowSource, indication = null) {
-                                // 即时应用并停留，方便连续试不同模式
-                                if (!isSelected) vm.setLayerBlendMode(index, opId)
-                            }.background(if (isSelected) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
-                            .padding(horizontal = 14.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        name,
-                        color = if (isSelected) Morandi.accent else Morandi.text,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isSelected,
-                        enter = fadeIn() + scaleIn(),
-                        exit = fadeOut() + scaleOut(),
+            androidx.compose.foundation.lazy.LazyColumn(
+                state = listState,
+                flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(listState),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                itemsIndexed(vm.blendModes) { itemIdx, (opId, name) ->
+                    val isSelected = opId == current
+                    val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == itemIdx }
+                    val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
+                    val dist = if (info != null) abs((info.offset + info.size / 2) - mid).toFloat() else Float.MAX_VALUE
+                    val maxDist = with(density) { (itemH * 2f).toPx() }
+                    val t = (1f - dist / maxDist).coerceIn(0f, 1f) // 1=正中
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(itemH)
+                                .pressScale(rowSource, pressedScale = 0.97f)
+                                .clickable(interactionSource = rowSource, indication = null) {
+                                    applyMode(opId)
+                                    scope.launch {
+                                        listState.animateScrollToItem(
+                                            vm.blendModes.indexOfFirst { it.first == opId },
+                                            with(density) { -padV.toPx() }.toInt(),
+                                        )
+                                    }
+                                },
+                        contentAlignment = Alignment.CenterStart,
                     ) {
-                        Icon(
-                            painterResource(R.drawable.ic_check),
-                            contentDescription = null,
-                            tint = Morandi.accent,
-                            modifier = Modifier.size(16.dp),
+                        Text(
+                            name,
+                            color = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 1f, t)),
+                            fontSize = (12f + 2f * t).sp,
+                            fontWeight = if (t > 0.9f || isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = lerp(0.85f, 1f, t)
+                                scaleY = lerp(0.85f, 1f, t)
+                            }.padding(horizontal = 18.dp),
                         )
                     }
                 }
             }
+            // 中央定位条：上下 hairline + 微亮带
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(itemH)
+                    .background(Morandi.panelHi.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                    .border(0.5.dp, Morandi.accent.copy(alpha = 0.30f), RoundedCornerShape(8.dp)),
+            )
         }
     }
 }

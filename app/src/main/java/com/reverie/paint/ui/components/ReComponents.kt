@@ -10,6 +10,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -724,31 +727,32 @@ fun ReSlider(
                 .clip(RoundedCornerShape((height / 2).dp))
                 .background(colors.panelHi)
                 .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            interacting = true
-                            tryAwaitRelease()
-                            interacting = false
+                    // 单一手势源：按下即定位，拖动持续跟随（避免 tap/drag 双检测器
+                    // 互相取消导致 interacting 提前复位）
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        interacting = true
+                        val w0 = size.width.toFloat()
+                        if (w0 > 0f) onValue((down.position.x / w0).coerceIn(0f, 1f))
+                        var dragged = false
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            val dxTotal = abs(change.position.x - down.position.x)
+                            if (!dragged && dxTotal > viewConfiguration.touchSlop) dragged = true
+                            if (dragged) {
+                                change.consume()
+                                val w = size.width.toFloat()
+                                if (w > 0f) {
+                                    onValue((change.position.x / w).coerceIn(0f, 1f))
+                                    // 拖动步进触感
+                                }
+                            }
                         }
-                    ) { offset ->
-                        val w = size.width.toFloat()
-                        if (w > 0f) {
-                            onValue((offset.x / w).coerceIn(0f, 1f))
-                            onRelease?.invoke()
-                        }
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { interacting = true },
-                        onDragEnd = { interacting = false; onRelease?.invoke() },
-                        onDragCancel = { interacting = false; onRelease?.invoke() },
-                    ) { change, _ ->
-                        val w = size.width.toFloat()
-                        if (w > 0f) {
-                            onValue((change.position.x / w).coerceIn(0f, 1f))
-                            change.consume()
-                        }
+                        if (!dragged) onRelease?.invoke()
+                        else onRelease?.invoke()
+                        interacting = false
                     }
                 },
     ) {

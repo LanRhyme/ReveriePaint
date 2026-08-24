@@ -185,16 +185,20 @@ fun Modifier.liquidHighlight(
 fun Modifier.liquidJelly(maxOffset: Dp = 10.dp): Modifier = composed {
     val density = LocalDensity.current
     val maxPx = with(density) { maxOffset.toPx() }.coerceAtLeast(0.01f)
+    val glowR = with(density) { 90.dp.toPx() }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
     val leanX = remember { Animatable(0f) }
     val leanY = remember { Animatable(0f) }
     val squashX = remember { Animatable(1f) }
     val squashY = remember { Animatable(1f) }
+    val glowAlpha = remember { Animatable(0f) }
+    var glowCenter by remember { mutableStateOf(Offset.Zero) }
 
     pointerInput(maxPx) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
+            scope.launch { glowAlpha.animateTo(0.14f, Motion.springSnap) }
             while (true) {
                 val event = awaitPointerEvent()
                 val change = event.changes.firstOrNull() ?: break
@@ -204,10 +208,11 @@ fun Modifier.liquidJelly(maxOffset: Dp = 10.dp): Modifier = composed {
                 val dy = change.position.y - size.height / 2f
                 val nx = tanh(0.06 * dx / maxPx).toFloat()
                 val ny = tanh(0.06 * dy / maxPx).toFloat()
-                val tx = maxPx * nx
-                val ty = maxPx * ny
-                val sxT = 1f - 0.015f * abs(ny) - 0.008f * abs(nx)
-                val syT = 1f - 0.015f * abs(nx) - 0.042f * abs(ny)
+                val tx = maxPx * nx * 1.4f          // 倾倒加强
+                val ty = maxPx * ny * 1.4f
+                val sxT = 1f - 0.022f * abs(ny) - 0.012f * abs(nx)
+                val syT = 1f - 0.022f * abs(nx) - 0.06f * abs(ny)
+                glowCenter = Offset(change.position.x, change.position.y)
                 scope.launch {
                     launch { leanX.animateTo(tx, Motion.springSnap) }
                     launch { leanY.animateTo(ty, Motion.springSnap) }
@@ -215,13 +220,14 @@ fun Modifier.liquidJelly(maxOffset: Dp = 10.dp): Modifier = composed {
                     launch { squashY.animateTo(syT, Motion.springSnap) }
                 }
             }
-            // 松手：低阻尼果冻回正
+            // 松手：低阻尼果冻回正 + 光效淡出
             scope.launch {
                 launch { leanX.animateTo(0f, Motion.springJelly) }
                 launch { leanY.animateTo(0f, Motion.springJelly) }
                 launch { squashX.animateTo(1f, Motion.springJelly) }
                 launch { squashY.animateTo(1f, Motion.springJelly) }
             }
+            scope.launch { glowAlpha.animateTo(0f, Motion.springSoft) }
         }
     }
 
@@ -232,6 +238,20 @@ fun Modifier.liquidJelly(maxOffset: Dp = 10.dp): Modifier = composed {
             translationY = leanY.value
             scaleX = squashX.value
             scaleY = squashY.value
+        }
+        .drawWithContent {
+            drawContent()
+            if (glowAlpha.value > 0.01f && glowCenter != Offset.Zero) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = glowAlpha.value), Color.Transparent),
+                        center = glowCenter,
+                        radius = glowR,
+                    ),
+                    radius = glowR,
+                    center = glowCenter,
+                )
+            }
         }
 }
 
