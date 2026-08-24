@@ -147,7 +147,7 @@ internal fun LayerDetailPage(
     val isBg = layer?.isBackground ?: true
     val name = layer?.name ?: ""
     if (layer?.isBackground == true) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -746,6 +746,34 @@ internal fun BlendModesPage(
     val itemH = 38.dp
     val wheelH = 228.dp
     val padV = (wheelH - itemH) / 2
+        // 混合模式图标（语义映射到现有 drawable，便于扫视区分）
+        val modeIcons = mapOf(
+            "normal" to R.drawable.ic_layers,
+            "multiply" to R.drawable.ic_layerstack,
+            "screen" to R.drawable.ic_gradient,
+            "overlay" to R.drawable.ic_color_profile,
+            "darken" to R.drawable.ic_circle,
+            "lighten" to R.drawable.ic_ellipse,
+            "dodge" to R.drawable.ic_plus,
+            "burn" to R.drawable.ic_minus,
+            "linear_burn" to R.drawable.ic_triangle,
+            "linear_dodge" to R.drawable.ic_rect,
+            "difference" to R.drawable.ic_flip_horizontal,
+            "add" to R.drawable.ic_file_new,
+            "subtract" to R.drawable.ic_crop,
+            "divide" to R.drawable.ic_line,
+            "hard_light" to R.drawable.ic_image_adjust,
+            "soft_light" to R.drawable.ic_magicwand,
+            "vivid_light" to R.drawable.ic_fill,
+            "pin_light" to R.drawable.ic_stamp,
+            "linear light" to R.drawable.ic_polyline,
+            "exclusion" to R.drawable.ic_merge_down,
+            "hue" to R.drawable.ic_palette,
+            "saturation" to R.drawable.ic_picker,
+            "color" to R.drawable.ic_smudge,
+            "value" to R.drawable.ic_circle_check,
+        )
+        fun iconFor(opId: String) = modeIcons[opId] ?: R.drawable.ic_palette
 
     fun applyMode(opId: String) {
         if (opId != vm.layers.firstOrNull { it.index == index }?.blendMode) {
@@ -767,13 +795,10 @@ internal fun BlendModesPage(
             }
     }
 
-    // 打开时把当前模式滚到定位条正中
+    // 打开时把当前模式滚到定位条正中（contentPadding 已保证首尾可居中）
     LaunchedEffect(Unit) {
         val curIdx = vm.blendModes.indexOfFirst { it.first == current }
-        if (curIdx > 0) {
-            listState.scrollToItem(curIdx)
-            listState.scrollBy(with(density) { padV.toPx() })
-        }
+        if (curIdx > 0) listState.scrollToItem(curIdx)
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -807,6 +832,7 @@ internal fun BlendModesPage(
             androidx.compose.foundation.lazy.LazyColumn(
                 state = listState,
                 flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(listState),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = padV),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 itemsIndexed(vm.blendModes) { itemIdx, (opId, name) ->
@@ -828,12 +854,20 @@ internal fun BlendModesPage(
                                     scope.launch {
                                         listState.animateScrollToItem(
                                             vm.blendModes.indexOfFirst { it.first == opId },
-                                            with(density) { -padV.toPx() }.toInt(),
                                         )
                                     }
                                 },
                         contentAlignment = Alignment.CenterStart,
                     ) {
+                        Icon(
+                            painterResource(iconFor(opId)),
+                            contentDescription = null,
+                            tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.3f, 0.85f, t)),
+                            modifier = Modifier.graphicsLayer {
+                                scaleX = lerp(0.85f, 1f, t)
+                                scaleY = lerp(0.85f, 1f, t)
+                            }.padding(start = 14.dp).size(17.dp),
+                        )
                         Text(
                             name,
                             color = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 1f, t)),
@@ -842,7 +876,7 @@ internal fun BlendModesPage(
                             modifier = Modifier.graphicsLayer {
                                 scaleX = lerp(0.85f, 1f, t)
                                 scaleY = lerp(0.85f, 1f, t)
-                            }.padding(horizontal = 18.dp),
+                            }.padding(start = 8.dp),
                         )
                     }
                 }

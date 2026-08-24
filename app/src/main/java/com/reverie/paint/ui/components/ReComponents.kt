@@ -717,7 +717,7 @@ fun ReSlider(
     val colors = Theme.current
     var interacting by remember { mutableStateOf(false) }
     val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
-    val glowAlpha by animateFloatAsState(if (interacting) 0.38f else 0f, Motion.springSnap, label = "sliderGlow")
+    val glowAlpha by animateFloatAsState(if (interacting) 0.20f else 0f, Motion.springSnap, label = "sliderGlow")
     Box(
         modifier =
             modifier
@@ -770,9 +770,9 @@ fun ReSlider(
                     brush = Brush.radialGradient(
                         colors = listOf(Color.White.copy(alpha = glowAlpha), Color.Transparent),
                         center = c,
-                        radius = size.height * 1.4f,
+                        radius = size.height * 1.05f,
                     ),
-                    radius = size.height * 1.4f,
+                    radius = size.height * 1.05f,
                     center = c,
                 )
             }
