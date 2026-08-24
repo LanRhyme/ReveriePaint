@@ -522,7 +522,7 @@ class PaintViewModel : ViewModel() {
     // UI & View Settings (persisted)
     var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
-    var blurBackground by mutableStateOf(false) // 背景毛玻璃效果，默认关闭
+    var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
     var accentColorHex by mutableStateOf("#5E8BA8")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
@@ -1159,7 +1159,8 @@ class PaintViewModel : ViewModel() {
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
-            blurBackground = prefs.getBoolean("blurBackground", false)
+            blurBackground = prefs.getBoolean("blurBackground", true) &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
             accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)

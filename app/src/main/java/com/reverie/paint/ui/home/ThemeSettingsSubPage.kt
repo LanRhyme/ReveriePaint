@@ -456,10 +456,12 @@ internal fun ThemeSettingsSubPage(
         // Section: 显示与效果
         SettingCategoryHeader("显示与效果")
 
+        val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         SettingSwitchRow(
             title = "背景毛玻璃效果",
-            summary = "为所有面板与工具栏启用半透明背景高斯模糊",
+            summary = if (blurSupported) "为所有面板与工具栏启用半透明背景高斯模糊" else "此设备系统版本不支持模糊效果",
             checked = vm.blurBackground,
+            enabled = blurSupported,
             onCheckedChange = { vm.updateBlurBackground(it) }
         )
 
