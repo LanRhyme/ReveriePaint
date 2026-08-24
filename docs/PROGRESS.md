@@ -173,3 +173,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - 滤镜: 灰度 / 反色 / 模糊 / 锐化
 - 选区: 从图层 alpha 创建, 绘画受限 (KisSelection)
 - 图层面板: 左滑 复制/独显/删除, 点击二级面板, 更多操作菜单
+
+## UI 玻璃拟态与液态动效系统 (2026-08-24)
+
+- 新增 ui/theme/Motion.kt: 三档弹簧动效 token (snapBouncy 按压回弹 / springSoft 面板出入场 / springSnap 选中切换)
+- 新增 ui/theme/Glass.kt: HazeStyle 工厂 (barStyle/popupStyle) + glassBorder 方向性受光描边 + deviceSupportsBlur 能力判断
+- 新增 ui/components/Liquid.kt: liquidPress/pressScale/liquidLean/liquidHighlight 液态交互 Modifier 集
+- 全部 13 处内联 HazeStyle 统一迁移 Glass 工厂; 纯色边框改玻璃描边 (TopBar/BrushPanel/LayerPanel/ToolRail 等 11 文件)
+- ReComponents 全面接入: 按压回弹、ReSwitch 弹簧滑块、选中态中性化 (panelHi 底 + accent 描边文字)
+- 面板出入场统一 springSoft 入场, 出场保留短 tween; PaintingPage 四向面板/抽屉/全屏页全覆盖
+- blurBackground 默认开启, API<31 自动回退实色并在设置页禁用开关
+- 大面积 accent 装饰性着色中性化 (LayerRow 拖拽/多选态等), 功能性强状态保留实色
