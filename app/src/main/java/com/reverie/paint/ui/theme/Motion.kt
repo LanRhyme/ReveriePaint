@@ -21,6 +21,9 @@ object Motion {
     val springSoft: SpringSpec<Float> = spring(dampingRatio = 0.85f, stiffness = 350f)
     val springSnap: SpringSpec<Float> = spring(dampingRatio = 0.90f, stiffness = 500f)
 
+    /** 果冻回弹：低阻尼晃 2-3 周期（软体容器松手回正） */
+    val springJelly: SpringSpec<Float> = spring(dampingRatio = 0.45f, stiffness = 260f)
+
     /** 面板出入场入场用泛型版本 */
     fun <T> enterSpring(): SpringSpec<T> = spring(dampingRatio = 0.85f, stiffness = 350f)
 }
