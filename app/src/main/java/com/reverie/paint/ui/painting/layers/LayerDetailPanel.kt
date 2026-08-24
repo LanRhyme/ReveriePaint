@@ -786,7 +786,10 @@ internal fun BlendModesPage(
         }
     }
 
-    // 滚动停止后：吸附在定位条的项即生效（iOS 时间选择器交互）
+    val haptic = LocalHapticFeedback.current
+    var lastCenterIdx by remember { mutableIntStateOf(-1) }
+
+    // 滚动停止后：吸附在定位条的项即生效（iOS 时间选择器交互，换挡轻震）
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .collect { scrolling ->
@@ -795,7 +798,13 @@ internal fun BlendModesPage(
                     val centerItem = listState.layoutInfo.visibleItemsInfo
                         .minByOrNull { abs((it.offset + it.size / 2) - mid) } ?: return@collect
                     val op = vm.blendModes.getOrNull(centerItem.index)
-                    if (op != null) applyMode(op.first)
+                    if (op != null) {
+                        if (centerItem.index != lastCenterIdx) {
+                            lastCenterIdx = centerItem.index
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                        applyMode(op.first)
+                    }
                 }
             }
     }
@@ -873,6 +882,7 @@ internal fun BlendModesPage(
                                 .height(itemH)
                                 .pressScale(rowSource, pressedScale = 0.97f)
                                 .clickable(interactionSource = rowSource, indication = null) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     applyMode(opId)
                                     scope.launch {
                                         listState.animateScrollToItem(
@@ -902,13 +912,14 @@ internal fun BlendModesPage(
                     }
                 }
             }
-            // 中央定位托盘：淡中性胶囊底（无描边），iOS picker 质感
+            // 中央定位托盘：中性胶囊底 + 细描边，iOS picker 质感
             Box(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
                     .height(itemH)
-                    .background(Morandi.panelHi.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp))
+                    .border(1.dp, Morandi.border.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
             )
         }
     }
