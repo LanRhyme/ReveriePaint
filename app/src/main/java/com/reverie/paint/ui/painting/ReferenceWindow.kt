@@ -59,6 +59,7 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.abs
@@ -328,7 +329,7 @@ fun ReferenceWindow(
         // 3. Top Navigation Bar (Overlaid on top)
         AnimatedVisibility(
             visible = !vm.referenceBarsCollapsed,
-            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { -it },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -it },
             exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
@@ -350,7 +351,7 @@ fun ReferenceWindow(
         // 4. Bottom Navigation Bar (Overlaid at bottom)
         AnimatedVisibility(
             visible = !vm.referenceBarsCollapsed,
-            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
             exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { it },
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {

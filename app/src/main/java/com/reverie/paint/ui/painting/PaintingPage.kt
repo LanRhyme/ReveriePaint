@@ -95,6 +95,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.Motion
 import kotlin.math.min
 import kotlin.math.roundToInt
 import com.reverie.paint.ui.painting.brush.BrushPanel
@@ -749,10 +750,7 @@ fun PaintingPage(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -789,10 +787,7 @@ fun PaintingPage(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -859,10 +854,7 @@ fun PaintingPage(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -893,10 +885,7 @@ fun PaintingPage(
             visible = tool == Tool.GRADIENT,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -922,13 +911,9 @@ fun PaintingPage(
             visible = vm.soloActive,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ) +
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
                     androidx.compose.animation.scaleIn(
-                        androidx.compose.animation.core
-                            .tween(200),
+                        Motion.enterSpring(),
                         initialScale = 0.95f,
                     ),
             exit =
@@ -970,10 +955,7 @@ fun PaintingPage(
             visible = tool == Tool.FILL,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -993,10 +975,7 @@ fun PaintingPage(
             visible = tool == Tool.LIQUIFY,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
             exit =
                 androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core
@@ -1029,13 +1008,9 @@ fun PaintingPage(
                     .offset { IntOffset(selectionPanelOffsetX.roundToInt(), selectionPanelOffsetY.roundToInt()) }
                     .padding(bottom = 24.dp),
             enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ) +
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
                     androidx.compose.animation.slideInVertically(
-                        androidx.compose.animation.core
-                            .tween(200),
+                        Motion.enterSpring(),
                         initialOffsetY = { it },
                     ),
             exit =
@@ -1199,7 +1174,7 @@ fun PaintingPage(
         // ---- Popup panels (topmost) ----
         AnimatedVisibility(
             visible = brushPanelOpen,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
             modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
@@ -1212,7 +1187,7 @@ fun PaintingPage(
         }
         AnimatedVisibility(
             visible = layerPanelOpen,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
             modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
@@ -1225,7 +1200,7 @@ fun PaintingPage(
         }
         AnimatedVisibility(
             visible = settingsPanelOpen,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
             modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
@@ -1238,7 +1213,7 @@ fun PaintingPage(
         }
         AnimatedVisibility(
             visible = colorPanelOpen,
-            enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + slideInVertically(tween(300, easing = FastOutSlowInEasing)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
             modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
@@ -1266,9 +1241,8 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = moreToolsOpen,
             enter =
-                fadeIn(
-                    tween(250, easing = FastOutSlowInEasing),
-                ) + slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -40 },
+                fadeIn(Motion.enterSpring()) +
+                    slideInHorizontally(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
             modifier = Modifier.fillMaxSize().zIndex(10f),
         ) {
@@ -1300,7 +1274,7 @@ fun PaintingPage(
         // ---- Persistent Floating Reference Window (常态固定显示参考窗口) ----
         AnimatedVisibility(
             visible = vm.referenceWindowOpen,
-            enter = fadeIn(tween(200)) + androidx.compose.animation.scaleIn(tween(200), initialScale = 0.92f),
+            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
             exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(tween(150), targetScale = 0.92f),
             modifier = Modifier.zIndex(8f),
         ) {
@@ -1316,8 +1290,8 @@ fun PaintingPage(
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.brushStudioOpen,
             enter =
-                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
-                    slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 4 },
+                fadeIn(Motion.enterSpring()) +
+                    slideInHorizontally(Motion.enterSpring()) { it / 4 },
             exit =
                 fadeOut(tween(180)) +
                     slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { it / 4 },
@@ -1335,8 +1309,8 @@ fun PaintingPage(
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.moreSettingsOpen,
             enter =
-                fadeIn(tween(220, easing = FastOutSlowInEasing)) +
-                    slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 5 },
+                fadeIn(Motion.enterSpring()) +
+                    slideInHorizontally(Motion.enterSpring()) { it / 5 },
             exit =
                 fadeOut(tween(180)) +
                     slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 4 },
