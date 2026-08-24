@@ -70,7 +70,7 @@ fun Modifier.pressGrow(source: MutableInteractionSource, growFraction: Float = 0
  * 触点倾倒：按住时向触点方向饱和位移 `maxOffset * tanh(0.05 · d/maxOffset)`（不越界），
  * 松手弹回。用于工具栏大按钮。位移经 offset{} lambda 延迟读取，不触发重组。
  */
-fun Modifier.liquidLean(source: MutableInteractionSource, maxOffset: Dp = 5.dp): Modifier =
+fun Modifier.liquidLean(source: MutableInteractionSource, maxOffset: Dp = 8.dp): Modifier =
     composed {
         val density = LocalDensity.current
         val maxPx = with(density) { maxOffset.toPx() }.coerceAtLeast(0.01f)
@@ -84,8 +84,8 @@ fun Modifier.liquidLean(source: MutableInteractionSource, maxOffset: Dp = 5.dp):
                     is PressInteraction.Press -> {
                         val dx = interaction.pressPosition.x - size.width / 2f
                         val dy = interaction.pressPosition.y - size.height / 2f
-                        val tx = (maxPx * tanh(0.05 * dx / maxPx)).toFloat()
-                        val ty = (maxPx * tanh(0.05 * dy / maxPx)).toFloat()
+                        val tx = (maxPx * tanh(0.07 * dx / maxPx)).toFloat()
+                        val ty = (maxPx * tanh(0.07 * dy / maxPx)).toFloat()
                         coroutineScope {
                             launch { offsetX.animateTo(tx, Motion.springSnap) }
                             launch { offsetY.animateTo(ty, Motion.springSnap) }

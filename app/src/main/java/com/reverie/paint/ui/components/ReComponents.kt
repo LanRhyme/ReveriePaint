@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -54,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.composed
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.window.Popup
@@ -636,12 +638,18 @@ fun ReVerticalSlider(
                 }
 
                 val capsuleRadius = (trackWidth / 2).dp
+                val capsuleGrow by animateFloatAsState(if (isDragging) 1.05f else 1f, Motion.springSnap, label = "capsuleGrow")
 
                 // Track Background & Outlined Border
                 Box(
                     modifier = Modifier
                         .width(trackWidth.dp)
                         .fillMaxHeight()
+                        .graphicsLayer {
+                            scaleX = capsuleGrow
+                            scaleY = 1f + (capsuleGrow - 1f) * 0.4f
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                        }
                         .clip(RoundedCornerShape(capsuleRadius))
                         .background(colors.panel.copy(alpha = 0.55f))
                         .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
@@ -703,15 +711,25 @@ fun ReSlider(
     onRelease: (() -> Unit)? = null,
 ) {
     val colors = Theme.current
+    var interacting by remember { mutableStateOf(false) }
+    val trackScale by animateFloatAsState(if (interacting) 1.18f else 1f, Motion.springSnap, label = "sliderTrackScale")
+    val thumbR by animateFloatAsState(if (interacting) 0.46f else 0.34f, Motion.snapBouncy, label = "sliderThumb")
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(height.dp)
+                .graphicsLayer { scaleY = trackScale }
                 .clip(RoundedCornerShape((height / 2).dp))
                 .background(colors.panelHi)
                 .pointerInput(Unit) {
-                    detectTapGestures { offset ->
+                    detectTapGestures(
+                        onPress = {
+                            interacting = true
+                            tryAwaitRelease()
+                            interacting = false
+                        }
+                    ) { offset ->
                         val w = size.width.toFloat()
                         if (w > 0f) {
                             onValue((offset.x / w).coerceIn(0f, 1f))
@@ -721,9 +739,9 @@ fun ReSlider(
                 }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
-                        onDragStart = { },
-                        onDragEnd = { onRelease?.invoke() },
-                        onDragCancel = { onRelease?.invoke() },
+                        onDragStart = { interacting = true },
+                        onDragEnd = { interacting = false; onRelease?.invoke() },
+                        onDragCancel = { interacting = false; onRelease?.invoke() },
                     ) { change, _ ->
                         val w = size.width.toFloat()
                         if (w > 0f) {
@@ -734,10 +752,26 @@ fun ReSlider(
                 },
     ) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val fillW = size.width * value.coerceIn(0f, 1f)
             drawRoundRect(
                 color = colors.accent,
-                size = androidx.compose.ui.geometry.Size(size.width * value.coerceIn(0f, 1f), size.height),
+                size = androidx.compose.ui.geometry.Size(fillW, size.height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
+            )
+            // 液态 thumb：填充边缘的白色圆点，触控时弹性放大并带光晕
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.55f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
+                    radius = size.height * thumbR * 1.8f,
+                ),
+                radius = size.height * thumbR * 1.8f,
+                center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
+            )
+            drawCircle(
+                color = Color.White,
+                radius = size.height * thumbR,
+                center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
             )
         }
     }
@@ -782,13 +816,18 @@ fun ReColorDot(
     size: Int = 40,
 ) {
     val colors = Theme.current
+    val dotInteraction = remember { MutableInteractionSource() }
+    val selectedScale by animateFloatAsState(if (selected) 1.06f else 1f, Motion.springSnap, label = "dotSel")
     Box(
         modifier =
             modifier
                 .size(size.dp)
+                .scale(selectedScale)
+                .pressScale(dotInteraction, pressedScale = 0.88f)
                 .clip(RoundedCornerShape((size / 4).dp))
+                .liquidHighlight(dotInteraction, Color.White, radius = (size * 0.7f).dp)
                 .background(if (selected) colors.accentHi else Color.Transparent)
-                .clickable { onTap() }
+                .clickable(interactionSource = dotInteraction, indication = null) { onTap() }
                 .padding(3.dp),
         contentAlignment = Alignment.Center,
     ) {

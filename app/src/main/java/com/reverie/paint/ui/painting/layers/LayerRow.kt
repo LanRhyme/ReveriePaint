@@ -113,6 +113,7 @@ import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
@@ -165,6 +166,7 @@ internal fun LayerRow(
     val selectMaxPx = with(density) { 64.dp.roundToPx() }
     var rowTop by remember { mutableStateOf(0f) }
     var rowBottom by remember { mutableStateOf(0f) }
+    val rowInteraction = remember { MutableInteractionSource() }
 
     // Row slide offset in px. While swiping it snapTo()s the finger (instant
     // follow, no lag); on release it animates to the revealed/closed position.
@@ -195,6 +197,7 @@ internal fun LayerRow(
             modifier
                 .fillMaxWidth()
                 .height(rowHeight)
+                .pressScale(rowInteraction, pressedScale = 0.985f)
                 .onGloballyPositioned { c ->
                     rowTop = c.boundsInRoot().top
                     rowBottom = c.boundsInRoot().bottom
@@ -268,6 +271,8 @@ internal fun LayerRow(
                         }
                     }
                 }.combinedClickable(
+                    interactionSource = rowInteraction,
+                    indication = null,
                     onClick = { onClick() },
                     onLongClick = {
                         // 画世界 Pro style: vibrate then drag

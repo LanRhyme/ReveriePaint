@@ -19,16 +19,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.AppColors
+import com.reverie.paint.ui.theme.Motion
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.components.liquidHighlight
@@ -49,6 +54,24 @@ internal fun HomeBottomBar(
     val isSettings = selectedTab == 1
 
     val createSource = remember { MutableInteractionSource() }
+
+    // iOS 式 tab 选中：pill 背景 spring 缩放浮现 + 图标 pop 回弹
+    val galleryPill by animateFloatAsState(if (isGallery) 1f else 0f, Motion.springSnap, label = "tabGalleryPill")
+    val settingsPill by animateFloatAsState(if (isSettings) 1f else 0f, Motion.springSnap, label = "tabSettingsPill")
+    val galleryIconScale = remember { Animatable(1f) }
+    val settingsIconScale = remember { Animatable(1f) }
+    LaunchedEffect(isGallery) {
+        if (isGallery) {
+            galleryIconScale.snapTo(0.75f)
+            galleryIconScale.animateTo(1f, Motion.snapBouncy)
+        }
+    }
+    LaunchedEffect(isSettings) {
+        if (isSettings) {
+            settingsIconScale.snapTo(0.75f)
+            settingsIconScale.animateTo(1f, Motion.snapBouncy)
+        }
+    }
 
     val shape = RoundedCornerShape(32.dp)
 
@@ -87,7 +110,16 @@ internal fun HomeBottomBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(22.dp))
-                    .background(if (isGallery) colors.panelHi.copy(alpha = 0.85f) else Color.Transparent)
+                    .drawBehind {
+                        if (galleryPill > 0.01f) withTransform({
+                            scale(lerp(0.75f, 1f, galleryPill), lerp(0.6f, 1f, galleryPill), center)
+                        }) {
+                            drawRoundRect(
+                                colors.panelHi.copy(alpha = 0.85f * galleryPill),
+                                cornerRadius = CornerRadius(22.dp.toPx()),
+                            )
+                        }
+                    }
                     .clickable { vm.homeSelectedTab = 0 }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
@@ -95,7 +127,7 @@ internal fun HomeBottomBar(
                     painter = painterResource(R.drawable.ic_brush),
                     contentDescription = "画廊",
                     tint = if (isGallery) colors.accent else colors.subText,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(20.dp).scale(galleryIconScale.value),
                 )
                 AnimatedVisibility(
                     visible = isGallery,
@@ -118,7 +150,7 @@ internal fun HomeBottomBar(
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .liquidLean(createSource, maxOffset = 4.dp)
+                    .liquidLean(createSource, maxOffset = 6.dp)
                     .pressScale(createSource, pressedScale = 0.90f)
                     .clip(CircleShape)
                     .liquidHighlight(createSource, Color.White, radius = 30.dp)
@@ -139,7 +171,16 @@ internal fun HomeBottomBar(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(22.dp))
-                    .background(if (isSettings) colors.panelHi.copy(alpha = 0.85f) else Color.Transparent)
+                    .drawBehind {
+                        if (settingsPill > 0.01f) withTransform({
+                            scale(lerp(0.75f, 1f, settingsPill), lerp(0.6f, 1f, settingsPill), center)
+                        }) {
+                            drawRoundRect(
+                                colors.panelHi.copy(alpha = 0.85f * settingsPill),
+                                cornerRadius = CornerRadius(22.dp.toPx()),
+                            )
+                        }
+                    }
                     .clickable { vm.homeSelectedTab = 1 }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
@@ -147,7 +188,7 @@ internal fun HomeBottomBar(
                     painterResource(R.drawable.ic_settings),
                     contentDescription = "设置",
                     tint = if (isSettings) colors.accent else colors.subText,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(20.dp).scale(settingsIconScale.value),
                 )
                 AnimatedVisibility(
                     visible = isSettings,
