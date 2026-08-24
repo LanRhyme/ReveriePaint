@@ -791,43 +791,29 @@ internal fun BlendModesPage(
     val haptic = LocalHapticFeedback.current
     var lastCenterIdx by remember { mutableIntStateOf(-1) }
 
-    // 持续追踪中心条目：每换挡一格即轻震；应用节流 90ms 防甩动时引擎堆积
-    var lastApplyMs by remember { mutableStateOf(0L) }
     LaunchedEffect(listState) {
-        snapshotFlow {
-            val info = listState.layoutInfo
-            val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
-            info.visibleItemsInfo
-                .minByOrNull { abs((it.offset + it.size / 2) - mid) }?.index ?: -1
-        }
-            .distinctUntilChanged()
-            .collect { idx ->
-                if (idx != -1 && idx != lastCenterIdx) {
-                    lastCenterIdx = idx
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    val now = System.currentTimeMillis()
-                    if (now - lastApplyMs >= 90) {
-                        lastApplyMs = now
-                        vm.blendModes.getOrNull(idx)?.let { applyMode(it.first) }
+        // 换挡轻震（不应用模式）
+        launch {
+            snapshotFlow {
+                val info = listState.layoutInfo
+                val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
+                info.visibleItemsInfo
+                    .minByOrNull { abs((it.offset + it.size / 2) - mid) }?.index ?: -1
+            }
+                .distinctUntilChanged()
+                .collect { idx ->
+                    if (idx != -1 && idx != lastCenterIdx) {
+                        lastCenterIdx = idx
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
                 }
-            }
-
-        // 滚动停止：强制应用当前中心项（补上被节流跳过的最后一个），顶/底回弹
+        }
+        // 滚动停止才应用当前中心项——快速甩动的中间模式不会被选中
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
             .collect { scrolling ->
-                if (!scrolling) {
-                    lastApplyMs = System.currentTimeMillis()
+                if (!scrolling && lastCenterIdx != -1) {
                     vm.blendModes.getOrNull(lastCenterIdx)?.let { applyMode(it.first) }
-                    val nudge = with(density) { 22.dp.toPx() }
-                    if (!listState.canScrollBackward) {
-                        listState.animateScrollBy(-nudge, tween(70))
-                        listState.animateScrollBy(nudge, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
-                    } else if (!listState.canScrollForward) {
-                        listState.animateScrollBy(nudge, tween(70))
-                        listState.animateScrollBy(-nudge, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
-                    }
                 }
             }
     }
