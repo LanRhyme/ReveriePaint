@@ -135,7 +135,8 @@ fun ReIconButton(
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = size, minHeight = size)
-            .pressScale(interaction, pressedScale = 0.88f)
+            .pressScale(interaction, pressedScale = 0.82f)
+            .liquidLean(interaction, maxOffset = 4.dp)
             .clip(RoundedCornerShape(8.dp))
             .liquidHighlight(interaction, Color.White, radius = 20.dp)
             .clickable(interactionSource = interaction, indication = null) { onTap() },
@@ -638,7 +639,7 @@ fun ReVerticalSlider(
                 }
 
                 val capsuleRadius = (trackWidth / 2).dp
-                val capsuleGrow by animateFloatAsState(if (isDragging) 1.05f else 1f, Motion.springSnap, label = "capsuleGrow")
+                val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
 
                 // Track Background & Outlined Border
                 Box(
@@ -712,8 +713,7 @@ fun ReSlider(
 ) {
     val colors = Theme.current
     var interacting by remember { mutableStateOf(false) }
-    val trackScale by animateFloatAsState(if (interacting) 1.18f else 1f, Motion.springSnap, label = "sliderTrackScale")
-    val thumbR by animateFloatAsState(if (interacting) 0.46f else 0.34f, Motion.snapBouncy, label = "sliderThumb")
+    val trackScale by animateFloatAsState(if (interacting) 1.08f else 1f, Motion.springSnap, label = "sliderTrackScale")
     Box(
         modifier =
             modifier
@@ -757,21 +757,6 @@ fun ReSlider(
                 color = colors.accent,
                 size = androidx.compose.ui.geometry.Size(fillW, size.height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
-            )
-            // 液态 thumb：填充边缘的白色圆点，触控时弹性放大并带光晕
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color.White.copy(alpha = 0.55f), Color.Transparent),
-                    center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
-                    radius = size.height * thumbR * 1.8f,
-                ),
-                radius = size.height * thumbR * 1.8f,
-                center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
-            )
-            drawCircle(
-                color = Color.White,
-                radius = size.height * thumbR,
-                center = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f),
             )
         }
     }
@@ -956,10 +941,11 @@ fun ReChip(
     Box(
         modifier =
             modifier
-                .pressScale(interaction, pressedScale = 0.95f)
+                .pressScale(interaction, pressedScale = 0.93f)
+                .liquidLean(interaction, maxOffset = 3.dp)
                 .clip(shape)
                 .background(colors.panelHi)
-                .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape) else Modifier)
+                .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape).liquidSheen(trigger = selected) else Modifier)
                 .clickable(interactionSource = interaction, indication = null) { onTap() }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -1020,7 +1006,8 @@ fun ReMenuItem(
 
     Column(
         modifier = modifier
-            .pressScale(interaction, pressedScale = 0.96f)
+            .pressScale(interaction, pressedScale = 0.93f)
+            .liquidLean(interaction, maxOffset = 3.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(cardBg)
             .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
