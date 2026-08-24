@@ -109,6 +109,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.scrollBy
@@ -789,22 +790,20 @@ internal fun BlendModesPage(
     val haptic = LocalHapticFeedback.current
     var lastCenterIdx by remember { mutableIntStateOf(-1) }
 
-    // 滚动停止后：吸附在定位条的项即生效（iOS 时间选择器交互，换挡轻震）
+    // 持续追踪中心条目：每换挡一格即轻震+即时生效（iOS 时间选择器交互）
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (!scrolling && listState.layoutInfo.visibleItemsInfo.isNotEmpty()) {
-                    val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                    val centerItem = listState.layoutInfo.visibleItemsInfo
-                        .minByOrNull { abs((it.offset + it.size / 2) - mid) } ?: return@collect
-                    val op = vm.blendModes.getOrNull(centerItem.index)
-                    if (op != null) {
-                        if (centerItem.index != lastCenterIdx) {
-                            lastCenterIdx = centerItem.index
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        }
-                        applyMode(op.first)
-                    }
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            info.visibleItemsInfo
+                .minByOrNull { abs((it.offset + it.size / 2) - mid) }?.index ?: -1
+        }
+            .distinctUntilChanged()
+            .collect { idx ->
+                if (idx != -1 && idx != lastCenterIdx) {
+                    lastCenterIdx = idx
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    vm.blendModes.getOrNull(idx)?.let { applyMode(it.first) }
                 }
             }
     }
