@@ -609,6 +609,8 @@ private:
     int m_renderBufH = -1;
     QRect m_dirtyRect;
     QByteArray m_subRegionBuffer;
+    void markBlendChanged(int index);  // blend-only change: targeted thumb invalidation
+
     void markDirty() {
         markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
         // A document-wide content change invalidates every layer thumbnail:

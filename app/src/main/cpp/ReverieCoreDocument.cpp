@@ -335,3 +335,20 @@ void ReverieCore::bumpLayerThumbGen(KisNode *node)
     }
 }
 
+
+void ReverieCore::markBlendChanged(int index)
+{
+    // Blend-mode change recomposites the whole canvas but only alters the
+    // merged view: bump thumbs just for the node's ancestor groups (their
+    // thumbs show composite) instead of stamping every cached thumb stale.
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    if (index > 0 && index < m_layers.size() && m_layers[index].node) {
+        KisNode *n = m_layers[index].node->parent().data();
+        while (n) {
+            auto it = m_thumbCache.find(n);
+            if (it != m_thumbCache.end()) ++it->gen;
+            KisNodeSP p = n->parent();
+            n = p ? p.data() : nullptr;
+        }
+    }
+}

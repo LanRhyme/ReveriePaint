@@ -113,6 +113,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.util.lerp
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -790,7 +791,8 @@ internal fun BlendModesPage(
     val haptic = LocalHapticFeedback.current
     var lastCenterIdx by remember { mutableIntStateOf(-1) }
 
-    // 持续追踪中心条目：每换挡一格即轻震+即时生效（iOS 时间选择器交互）
+    // 持续追踪中心条目：每换挡一格即轻震；应用节流 90ms 防甩动时引擎堆积
+    var lastApplyMs by remember { mutableStateOf(0L) }
     LaunchedEffect(listState) {
         snapshotFlow {
             val info = listState.layoutInfo
@@ -803,7 +805,29 @@ internal fun BlendModesPage(
                 if (idx != -1 && idx != lastCenterIdx) {
                     lastCenterIdx = idx
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    vm.blendModes.getOrNull(idx)?.let { applyMode(it.first) }
+                    val now = System.currentTimeMillis()
+                    if (now - lastApplyMs >= 90) {
+                        lastApplyMs = now
+                        vm.blendModes.getOrNull(idx)?.let { applyMode(it.first) }
+                    }
+                }
+            }
+
+        // 滚动停止：强制应用当前中心项（补上被节流跳过的最后一个），顶/底回弹
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (!scrolling) {
+                    lastApplyMs = System.currentTimeMillis()
+                    vm.blendModes.getOrNull(lastCenterIdx)?.let { applyMode(it.first) }
+                    val nudge = with(density) { 22.dp.toPx() }
+                    if (!listState.canScrollBackward) {
+                        listState.animateScrollBy(-nudge, tween(70))
+                        listState.animateScrollBy(nudge, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
+                    } else if (!listState.canScrollForward) {
+                        listState.animateScrollBy(nudge, tween(70))
+                        listState.animateScrollBy(-nudge, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMediumLow))
+                    }
                 }
             }
     }

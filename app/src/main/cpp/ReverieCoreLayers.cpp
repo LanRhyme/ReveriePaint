@@ -471,7 +471,7 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), opId));
         m_layers[index].node->setDirty(
             QRect(0, 0, m_document->width(), m_document->height()));
-        markDirty();
+        markBlendChanged(index);
     }
 }
 
