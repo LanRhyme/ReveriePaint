@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Derived from GIMP ell/blending-mode-icons (GPL/CC-BY-SA, by Ell) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="16" android:viewportHeight="16">
+  <path android:pathData="m 3.916748,3.4437084 2.3498536,0 0,3.4729004 3.4667968,0 0,-3.4729004 2.3498536,0 0,9.1125486 -2.3498536,0 0,-3.8635251 -3.4667968,0 0,3.8635251 -2.3498536,0 0,-9.1125486 z" android:fillColor="#FFFFFFFF"/>
+</vector>

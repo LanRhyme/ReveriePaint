@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Derived from GIMP ell/blending-mode-icons (GPL/CC-BY-SA, by Ell) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="16" android:viewportHeight="16">
+  <path android:pathData="M 8,4 8,2" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="M 5.1708515,5.1719 3.7566379,3.7577" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="m 3.9989998,8.001 -1.9999904,0" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="M 5.1708513,10.8301 3.7566446,12.2443" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="m 7.9999513,12.002 -4.8e-6,2" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="m 10.829085,10.8302 1.414211,1.4142" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="m 12.000997,8.0011 1.999989,0" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+  <path android:pathData="M 10.829189,5.1719 12.243394,3.7577" android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:fillColor="#00000000"/>
+</vector>

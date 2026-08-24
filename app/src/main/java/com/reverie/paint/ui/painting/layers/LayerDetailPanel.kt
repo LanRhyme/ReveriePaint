@@ -86,6 +86,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -747,33 +751,34 @@ internal fun BlendModesPage(
     val wheelH = 228.dp
     val padV = (wheelH - itemH) / 2
         // 混合模式图标（语义映射到现有 drawable，便于扫视区分）
+        // GIMP ell/blending-mode-icons 分支转换的白描边专属图标（GPL 兼容）
         val modeIcons = mapOf(
-            "normal" to R.drawable.ic_layers,
-            "multiply" to R.drawable.ic_layerstack,
-            "screen" to R.drawable.ic_gradient,
-            "overlay" to R.drawable.ic_color_profile,
-            "darken" to R.drawable.ic_circle,
-            "lighten" to R.drawable.ic_ellipse,
-            "dodge" to R.drawable.ic_plus,
-            "burn" to R.drawable.ic_minus,
-            "linear_burn" to R.drawable.ic_triangle,
-            "linear_dodge" to R.drawable.ic_rect,
-            "difference" to R.drawable.ic_flip_horizontal,
-            "add" to R.drawable.ic_file_new,
-            "subtract" to R.drawable.ic_crop,
-            "divide" to R.drawable.ic_line,
-            "hard_light" to R.drawable.ic_image_adjust,
-            "soft_light" to R.drawable.ic_magicwand,
-            "vivid_light" to R.drawable.ic_fill,
-            "pin_light" to R.drawable.ic_stamp,
-            "linear light" to R.drawable.ic_polyline,
-            "exclusion" to R.drawable.ic_merge_down,
-            "hue" to R.drawable.ic_palette,
-            "saturation" to R.drawable.ic_picker,
-            "color" to R.drawable.ic_smudge,
-            "value" to R.drawable.ic_circle_check,
+            "normal" to R.drawable.ic_blend_normal,
+            "multiply" to R.drawable.ic_blend_multiply,
+            "screen" to R.drawable.ic_blend_screen,
+            "overlay" to R.drawable.ic_blend_hardlight,
+            "darken" to R.drawable.ic_blend_darken,
+            "lighten" to R.drawable.ic_blend_lighten,
+            "dodge" to R.drawable.ic_blend_dodge,
+            "burn" to R.drawable.ic_blend_burn,
+            "linear_burn" to R.drawable.ic_blend_darken,
+            "linear_dodge" to R.drawable.ic_blend_add,
+            "difference" to R.drawable.ic_blend_difference,
+            "add" to R.drawable.ic_blend_add,
+            "subtract" to R.drawable.ic_blend_subtract,
+            "divide" to R.drawable.ic_blend_divide,
+            "hard_light" to R.drawable.ic_blend_hardlight,
+            "soft_light" to R.drawable.ic_blend_softlight,
+            "vivid_light" to R.drawable.ic_blend_dodge,
+            "pin_light" to R.drawable.ic_blend_burn,
+            "linear light" to R.drawable.ic_blend_softlight,
+            "exclusion" to R.drawable.ic_blend_difference,
+            "hue" to R.drawable.ic_blend_hue,
+            "saturation" to R.drawable.ic_blend_saturation,
+            "color" to R.drawable.ic_blend_color,
+            "value" to R.drawable.ic_blend_value,
         )
-        fun iconFor(opId: String) = modeIcons[opId] ?: R.drawable.ic_palette
+        fun iconFor(opId: String) = modeIcons[opId] ?: R.drawable.ic_blend_normal
 
     fun applyMode(opId: String) {
         if (opId != vm.layers.firstOrNull { it.index == index }?.blendMode) {
@@ -826,7 +831,25 @@ internal fun BlendModesPage(
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
         Box(
-            modifier = Modifier.fillMaxWidth().height(wheelH).clip(RoundedCornerShape(10.dp)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(wheelH)
+                .clip(RoundedCornerShape(10.dp))
+                // 顶部/底部渐隐（iOS 滚轮签名效果）
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val f = ((itemH.toPx() * 1.1f) / size.height).coerceIn(0f, 0.45f)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0f to Color.Transparent,
+                            f to Color.Black,
+                            (1f - f) to Color.Black,
+                            1f to Color.Transparent,
+                        ),
+                        blendMode = BlendMode.DstIn,
+                    )
+                },
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.foundation.lazy.LazyColumn(
@@ -857,11 +880,10 @@ internal fun BlendModesPage(
                                         )
                                     }
                                 },
-                        contentAlignment = Alignment.CenterStart,
+                        contentAlignment = Alignment.Center,
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 18.dp),
                         ) {
                             Icon(
                                 painterResource(iconFor(opId)),
@@ -887,13 +909,26 @@ internal fun BlendModesPage(
                     }
                 }
             }
-            // 中央定位条：上下 hairline + 微亮带
+            // 中央定位条：只留上下两条中性 hairline（弱化）
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(itemH)
-                    .background(Morandi.panelHi.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                    .border(0.5.dp, Morandi.accent.copy(alpha = 0.30f), RoundedCornerShape(8.dp)),
+                    .drawBehind {
+                        val stroke = 1.dp.toPx()
+                        drawLine(
+                            color = Morandi.border,
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = stroke,
+                        )
+                        drawLine(
+                            color = Morandi.border,
+                            start = Offset(0f, size.height),
+                            end = Offset(size.width, size.height),
+                            strokeWidth = stroke,
+                        )
+                    },
             )
         }
     }
