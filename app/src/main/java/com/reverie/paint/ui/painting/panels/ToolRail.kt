@@ -52,6 +52,9 @@ import androidx.compose.ui.window.Popup
 import com.reverie.paint.R
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.liquidLean
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.components.noRippleClickable
@@ -182,12 +185,16 @@ fun ToolRail(
                 // More tools button
                 val isMoreToolsActive = moreToolsOpen || tool in moreTools
                 val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.accent else Morandi.icon, androidx.compose.animation.core.tween(200))
+                val moreSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(32.dp)
+                        .pressScale(moreSource, pressedScale = 0.92f)
+                        .liquidLean(moreSource, maxOffset = 4.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onToggleMoreTools() },
+                        .liquidHighlight(moreSource, Color.White, radius = 22.dp)
+                        .clickable(interactionSource = moreSource, indication = null) { onToggleMoreTools() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

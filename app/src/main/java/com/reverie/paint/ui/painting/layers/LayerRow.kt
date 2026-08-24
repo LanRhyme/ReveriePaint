@@ -116,6 +116,7 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.Motion
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -197,7 +198,7 @@ internal fun LayerRow(
             modifier
                 .fillMaxWidth()
                 .height(rowHeight)
-                .pressScale(rowInteraction, pressedScale = 0.985f)
+                .pressScale(rowInteraction, pressedScale = 0.97f)
                 .onGloballyPositioned { c ->
                     rowTop = c.boundsInRoot().top
                     rowBottom = c.boundsInRoot().bottom
@@ -340,7 +341,7 @@ internal fun LayerRow(
                                     // panel itself is translucent
                                     else -> Color.Transparent
                                 },
-                            animationSpec = tween(180),
+                            animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
                             label = "rowBg",
                         ).value,
                     )

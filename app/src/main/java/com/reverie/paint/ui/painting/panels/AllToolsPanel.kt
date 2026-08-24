@@ -36,6 +36,9 @@ import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.noRippleClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.painting.ToolbarCustomizeDialog
@@ -137,16 +140,19 @@ fun AllToolsPanel(
                             ) {
                                 rowTools.forEach { t ->
                                     val isSelected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t
+                                    val cellSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .weight(1f)
+                                            .pressScale(cellSource, pressedScale = 0.94f)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
                                                 if (isSelected) Morandi.accent.copy(alpha = 0.18f)
                                                 else Color.Transparent
                                             )
-                                            .clickable {
+                                            .liquidHighlight(cellSource, Color.White, radius = 28.dp)
+                                            .clickable(interactionSource = cellSource, indication = null) {
                                                 if (t == tool && t.group == ToolGroup.BRUSH) {
                                                     vm.updateBrushPanelCategory(
                                                         when (t) {

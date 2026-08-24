@@ -23,6 +23,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.liquidLean
+import com.reverie.paint.ui.components.liquidSheen
+import com.reverie.paint.ui.components.pressScale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -157,28 +163,29 @@ fun TransformPanel(
                     )
                     modes.forEach { (modeVal, modeName) ->
                         val isSel = tfState.mode == modeVal
+                        val modeSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                         Box(
                             modifier = Modifier
+                                .pressScale(modeSource, pressedScale = 0.94f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (isSel) Morandi.accent else Color.Transparent)
-                                .pointerInput(modeVal) {
-                                    detectTapGestures {
-                                        if (tfState.mode != modeVal) {
-                                            tfState.mode = modeVal
-                                            val b = tfState.bounds
-                                            val mList = List(16) { idx ->
-                                                val r = idx / 4
-                                                val c = idx % 4
-                                                Offset(
-                                                    b.left + b.width * (c / 3f),
-                                                    b.top + b.height * (r / 3f),
-                                                )
+                                .liquidSheen(trigger = isSel)
+                                .clickable(interactionSource = modeSource, indication = null) {
+                                    if (tfState.mode != modeVal) {
+                                        tfState.mode = modeVal
+                                        val b = tfState.bounds
+                                        val mList = List(16) { idx ->
+                                            val r = idx / 4
+                                            val c = idx % 4
+                                            Offset(
+                                                b.left + b.width * (c / 3f),
+                                                b.top + b.height * (r / 3f),
+                                            )
                                             }
                                             tfState.meshPoints = mList
                                             tfState.origMeshPoints = mList
                                             tfState.quadCorners = listOf(b.topLeft, b.topRight, b.bottomRight, b.bottomLeft)
                                         }
-                                    }
                                 }
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center,
@@ -285,14 +292,14 @@ private fun TransformActionItem(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.90f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "btn_scale")
+    val btnSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(3.dp),
         modifier = Modifier
-            .scale(scale)
+            .pressScale(btnSource, pressedScale = 0.90f)
+            .liquidLean(btnSource, maxOffset = 2.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(
                 when {
@@ -312,16 +319,8 @@ private fun TransformActionItem(
                 },
                 RoundedCornerShape(10.dp)
             )
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            }
+            .liquidHighlight(btnSource, Color.White, radius = 30.dp)
+            .clickable(interactionSource = btnSource, indication = null) { onClick() }
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Icon(
@@ -357,26 +356,18 @@ private fun TransformIconButton(
     rotation: Float = 0f,
     onClick: () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.88f else 1f, label = "btn_scale")
+    val iconSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
     Box(
         modifier = Modifier
             .size(size)
-            .scale(scale)
+            .pressScale(iconSource, pressedScale = 0.86f)
+            .liquidLean(iconSource, maxOffset = 3.dp)
             .clip(CircleShape)
             .background(Color(0xFF262A33).copy(alpha = 0.90f))
             .border(1.dp, Color(0xFF485060), CircleShape)
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            },
+            .liquidHighlight(iconSource, Color.White, radius = 20.dp)
+            .clickable(interactionSource = iconSource, indication = null) { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
