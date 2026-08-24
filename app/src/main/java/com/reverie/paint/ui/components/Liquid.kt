@@ -132,7 +132,7 @@ fun Modifier.liquidHighlight(
                         interaction.pressPosition.x.coerceIn(0f, size.width.toFloat()),
                         interaction.pressPosition.y.coerceIn(0f, size.height.toFloat()),
                     )
-                    alpha.animateTo(0.45f, Motion.springSnap)
+                    alpha.animateTo(0.24f, Motion.springSnap)
                 }
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
                     alpha.animateTo(0f, Motion.springSoft)

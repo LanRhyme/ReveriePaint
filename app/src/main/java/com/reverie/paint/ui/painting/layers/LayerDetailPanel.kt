@@ -14,6 +14,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -49,6 +51,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -114,6 +117,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -729,6 +733,14 @@ internal fun BlendModesPage(
     onBack: () -> Unit,
 ) {
     val current = vm.layers.firstOrNull { it.index == index }?.blendMode
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // 打开时自动滚到当前模式附近（Procreate 式直接滚动浏览）
+    LaunchedEffect(Unit) {
+        val curIdx = vm.blendModes.indexOfFirst { it.first == current }
+        if (curIdx > 2) listState.scrollToItem(curIdx - 2)
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
@@ -753,32 +765,37 @@ internal fun BlendModesPage(
             Text("混合模式", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-        Column(
-            modifier =
-                Modifier
-                    .heightIn(max = 520.dp)
-                    .verticalScroll(rememberScrollState()),
+        androidx.compose.foundation.lazy.LazyColumn(
+            state = listState,
+            modifier = Modifier.heightIn(max = 520.dp).fillMaxWidth(),
         ) {
-            for ((opId, name) in vm.blendModes) {
+            itemsIndexed(vm.blendModes) { _, (opId, name) ->
+                val isSelected = opId == current
+                val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .noRippleClickable {
-                                vm.setLayerBlendMode(index, opId)
-                                onBack()
-                            }.background(if (opId == current) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
+                            .pressScale(rowSource, pressedScale = 0.97f)
+                            .clickable(interactionSource = rowSource, indication = null) {
+                                // 即时应用并停留，方便连续试不同模式
+                                if (!isSelected) vm.setLayerBlendMode(index, opId)
+                            }.background(if (isSelected) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
                             .padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         name,
-                        color = if (opId == current) Morandi.accent else Morandi.text,
+                        color = if (isSelected) Morandi.accent else Morandi.text,
                         fontSize = 13.sp,
-                        fontWeight = if (opId == current) FontWeight.SemiBold else FontWeight.Normal,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     )
                     Spacer(Modifier.weight(1f))
-                    if (opId == current) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isSelected,
+                        enter = fadeIn() + scaleIn(),
+                        exit = fadeOut() + scaleOut(),
+                    ) {
                         Icon(
                             painterResource(R.drawable.ic_check),
                             contentDescription = null,

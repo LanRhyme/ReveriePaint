@@ -113,7 +113,6 @@ internal fun HomeBottomBar(
                     }
                 )
                 .glassBorder(shape)
-                .liquidSheen(trigger = selectedTab)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
                 .drawBehind {
                     // 滑行 pill 背景（画在内容之下，坐标系与 tab 槽位一致）

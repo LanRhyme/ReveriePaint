@@ -333,7 +333,7 @@ internal fun LayerRow(
                                 when {
                                     dragOnGroup -> Morandi.panelHi
 
-                                    selected -> Morandi.accent
+                                    selected -> Morandi.accent.copy(alpha = 0.72f)
 
                                     multiSelected -> Morandi.panelHi.copy(alpha = 0.6f)
 

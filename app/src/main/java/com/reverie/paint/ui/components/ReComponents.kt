@@ -713,7 +713,8 @@ fun ReSlider(
 ) {
     val colors = Theme.current
     var interacting by remember { mutableStateOf(false) }
-    val trackScale by animateFloatAsState(if (interacting) 1.08f else 1f, Motion.springSnap, label = "sliderTrackScale")
+    val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
+    val glowAlpha by animateFloatAsState(if (interacting) 0.38f else 0f, Motion.springSnap, label = "sliderGlow")
     Box(
         modifier =
             modifier
@@ -758,6 +759,19 @@ fun ReSlider(
                 size = androidx.compose.ui.geometry.Size(fillW, size.height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
             )
+            // 拖动时填充端的柔光晕（无实心指示点）
+            if (glowAlpha > 0.01f && fillW > 1f) {
+                val c = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = glowAlpha), Color.Transparent),
+                        center = c,
+                        radius = size.height * 1.4f,
+                    ),
+                    radius = size.height * 1.4f,
+                    center = c,
+                )
+            }
         }
     }
 }
