@@ -74,16 +74,17 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.offset
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlin.math.roundToInt
 
@@ -123,13 +124,18 @@ fun ReIconButton(
     size: androidx.compose.ui.unit.Dp = 32.dp,
 ) {
     val colors = Theme.current
-    val tintColor by animateColorAsState(if (selected) colors.accent else colors.icon, tween(200))
+    val interaction = remember { MutableInteractionSource() }
+    val tintColor by animateColorAsState(
+        if (selected) colors.accent else colors.icon,
+        spring(dampingRatio = 0.90f, stiffness = 500f)
+    )
 
     Box(
         modifier = modifier
             .defaultMinSize(minWidth = size, minHeight = size)
+            .pressScale(interaction, pressedScale = 0.88f)
             .clip(RoundedCornerShape(8.dp))
-            .clickable { onTap() },
+            .clickable(interactionSource = interaction, indication = null) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -150,12 +156,15 @@ fun ReButton(
     primary: Boolean = true,
 ) {
     val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier =
             modifier
+                .pressScale(interaction, pressedScale = 0.97f)
                 .clip(RoundedCornerShape(Dimens.radius))
                 .background(if (primary) colors.accent else colors.panelHi)
-                .clickable { onClick() }
+                .then(if (!primary) Modifier.glassBorder(RoundedCornerShape(Dimens.radius)) else Modifier)
+                .clickable(interactionSource = interaction, indication = null) { onClick() }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -205,16 +214,8 @@ fun SliderFineTunePopup(
     }
 
     val leftInteraction = remember { MutableInteractionSource() }
-    val isLeftPressed by leftInteraction.collectIsPressedAsState()
-    val leftScale by animateFloatAsState(if (isLeftPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "leftScale")
-
     val rightInteraction = remember { MutableInteractionSource() }
-    val isRightPressed by rightInteraction.collectIsPressedAsState()
-    val rightScale by animateFloatAsState(if (isRightPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "rightScale")
-
     val addInteraction = remember { MutableInteractionSource() }
-    val isAddPressed by addInteraction.collectIsPressedAsState()
-    val addScale by animateFloatAsState(if (isAddPressed) 0.86f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "addScale")
 
     Popup(
         alignment = Alignment.CenterStart,
@@ -224,9 +225,10 @@ fun SliderFineTunePopup(
     ) {
         AnimatedVisibility(
             visibleState = visibleState,
-            enter = fadeIn(tween(220, easing = LinearOutSlowInEasing)) +
-                    slideInHorizontally(tween(220, easing = LinearOutSlowInEasing)) { -it / 2 } +
-                    scaleIn(initialScale = 0.92f, animationSpec = tween(220, easing = LinearOutSlowInEasing)),
+            enter =
+                fadeIn(Motion.enterSpring()) +
+                    slideInHorizontally(Motion.enterSpring()) { -it / 2 } +
+                    scaleIn(initialScale = 0.92f, animationSpec = Motion.enterSpring()),
             exit = fadeOut(tween(160, easing = FastOutLinearInEasing)) +
                    slideOutHorizontally(tween(160, easing = FastOutLinearInEasing)) { -it / 2 } +
                    scaleOut(targetScale = 0.92f, animationSpec = tween(160, easing = FastOutLinearInEasing))
@@ -240,18 +242,13 @@ fun SliderFineTunePopup(
                         if (vm?.blurBackground == true && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = colors.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f)),
-                                    tint = HazeTint(colors.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f))),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.05f,
-                                )
+                                style = Glass.popupStyle(popupAlpha),
                             )
                         } else {
                             Modifier.background(colors.panel.copy(alpha = popupAlpha))
                         }
                     )
-                    .border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                    .glassBorder(RoundedCornerShape(18.dp))
                     .padding(14.dp)
             ) {
                 Column(
@@ -286,7 +283,7 @@ fun SliderFineTunePopup(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(colors.accent.copy(alpha = 0.12f))
+                                .background(colors.panelHi)
                                 .padding(horizontal = 8.dp, vertical = 3.dp),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -309,7 +306,7 @@ fun SliderFineTunePopup(
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
-                                .scale(leftScale)
+                                .pressScale(leftInteraction, pressedScale = 0.90f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
                                 .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
@@ -345,7 +342,7 @@ fun SliderFineTunePopup(
                         Box(
                             modifier = Modifier
                                 .size(28.dp)
-                                .scale(rightScale)
+                                .pressScale(rightInteraction, pressedScale = 0.90f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
                                 .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
@@ -392,9 +389,9 @@ fun SliderFineTunePopup(
 
                         Row(
                             modifier = Modifier
-                                .scale(addScale)
+                                .pressScale(addInteraction, pressedScale = 0.90f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(colors.accent.copy(alpha = 0.12f))
+                                .background(colors.panelHi)
                                 .clickable(
                                     interactionSource = addInteraction,
                                     indication = null
@@ -619,7 +616,7 @@ fun ReVerticalSlider(
                     ) {
                         Box(
                             modifier = Modifier
-                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = colors.accent.copy(alpha = 0.25f))
+                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panel.copy(alpha = popupAlpha))
                                 .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
@@ -751,18 +748,23 @@ fun ReSwitch(
     modifier: Modifier = Modifier,
 ) {
     val colors = Theme.current
+    val trackColor by animateColorAsState(
+        if (checked) colors.accent else colors.panelHi,
+        spring(dampingRatio = 0.90f, stiffness = 500f)
+    )
+    val thumbProgress by animateFloatAsState(if (checked) 1f else 0f, Motion.springSnap, label = "switchThumb")
     Box(
         modifier =
             modifier
                 .size(48.dp, 28.dp)
                 .clip(RoundedCornerShape(14.dp))
-                .background(if (checked) colors.accent else colors.panelHi)
+                .background(trackColor)
                 .clickable { onChecked(!checked) }
                 .padding(3.dp),
-        contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
+        contentAlignment = Alignment.CenterStart,
     ) {
         Box(
-            Modifier.size(22.dp).clip(CircleShape).background(colors.onAccent),
+            Modifier.offset(x = 20.dp * thumbProgress).size(22.dp).clip(CircleShape).background(colors.onAccent),
         )
     }
 }
@@ -829,7 +831,7 @@ fun RePanel(
     ) {
         AnimatedVisibility(
             visible = true,
-            enter = slideInVertically(initialOffsetY = { it }, animationSpec = tween(250)),
+            enter = slideInVertically(initialOffsetY = { it }, animationSpec = Motion.enterSpring()),
             exit = slideOutVertically(targetOffsetY = { it }, animationSpec = tween(200)),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
@@ -907,18 +909,23 @@ fun ReChip(
     selected: Boolean = false,
 ) {
     val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(Dimens.radiusSm)
     Box(
         modifier =
             modifier
-                .clip(RoundedCornerShape(Dimens.radiusSm))
-                .background(if (selected) colors.accent else colors.panelHi)
-                .clickable { onTap() }
+                .pressScale(interaction, pressedScale = 0.95f)
+                .clip(shape)
+                .background(colors.panelHi)
+                .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape) else Modifier)
+                .clickable(interactionSource = interaction, indication = null) { onTap() }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
-            color = if (selected) colors.onAccent else colors.text,
+            color = if (selected) colors.accent else colors.text,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
         )
@@ -964,16 +971,18 @@ fun ReMenuItem(
     textColor: Color = Theme.current.text,
 ) {
     val colors = Theme.current
-    var isPressed by remember { mutableStateOf(false) }
-    val cardBg = if (isPressed) colors.accent.copy(alpha = 0.15f) else colors.panelHi.copy(alpha = 0.6f)
-    val cardBorder = if (isPressed) colors.accent.copy(alpha = 0.4f) else colors.border.copy(alpha = 0.4f)
+    val interaction = remember { MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    val cardBg = if (isPressed) colors.panelHi.copy(alpha = 0.95f) else colors.panelHi.copy(alpha = 0.6f)
+    val cardBorder = if (isPressed) colors.accent.copy(alpha = 0.3f) else colors.border.copy(alpha = 0.4f)
 
     Column(
         modifier = modifier
+            .pressScale(interaction, pressedScale = 0.96f)
             .clip(RoundedCornerShape(10.dp))
             .background(cardBg)
             .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
-            .clickable { onTap() }
+            .clickable(interactionSource = interaction, indication = null) { onTap() }
             .padding(vertical = 10.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
