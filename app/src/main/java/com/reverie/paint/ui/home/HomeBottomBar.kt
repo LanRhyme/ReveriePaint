@@ -30,9 +30,9 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.AppColors
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 
 @Composable
 internal fun HomeBottomBar(
@@ -74,18 +74,13 @@ internal fun HomeBottomBar(
                     if (hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = colors.panel,
-                                tint = HazeTint(colors.panel.copy(alpha = 0.75f)),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f,
-                            ),
+                            style = Glass.barStyle(0.90f),
                         )
                     } else {
                         Modifier.background(colors.panel.copy(alpha = 0.90f))
                     }
                 )
-                .border(1.dp, colors.border.copy(alpha = 0.7f), shape)
+                .glassBorder(shape)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

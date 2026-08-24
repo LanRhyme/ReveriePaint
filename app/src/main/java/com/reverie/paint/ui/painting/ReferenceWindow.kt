@@ -58,9 +58,9 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -116,18 +116,13 @@ fun ReferenceWindow(
                 if (vm.blurBackground && hazeState != null) {
                     Modifier.hazeChild(
                         state = hazeState,
-                        style = HazeStyle(
-                            backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f)),
-                            tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f))),
-                            blurRadius = 24.dp,
-                            noiseFactor = 0.05f
-                        )
+                        style = Glass.popupStyle(opacity),
                     )
                 } else {
                     Modifier.background(Morandi.panel.copy(alpha = opacity))
                 }
             )
-            .border(1.dp, Morandi.border, windowShape)
+            .glassBorder(windowShape)
     ) {
         // 1. Full-bleed Viewport Content (Underneath navigation bars)
         Box(

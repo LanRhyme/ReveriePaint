@@ -49,8 +49,8 @@ import kotlin.math.roundToInt
 
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.core.*
 
 /**
@@ -86,23 +86,19 @@ fun ToolFloatPanel(
                 .systemHoverIcon(context)
                 .clip(capsuleShape)
                 .then(
-                    if (vm?.blurBackground == true && hazeState != null) {
+                    run {
                         val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = Morandi.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f)),
-                                tint = HazeTint(Morandi.panel.copy(alpha = popupAlpha.coerceIn(0.05f, 0.98f))),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f
+                        if (vm?.blurBackground == true && hazeState != null) {
+                            Modifier.hazeChild(
+                                state = hazeState,
+                                style = Glass.popupStyle(popupAlpha),
                             )
-                        )
-                    } else {
-                        val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-                        Modifier.background(Morandi.panel.copy(alpha = popupAlpha))
+                        } else {
+                            Modifier.background(Morandi.panel.copy(alpha = popupAlpha))
+                        }
                     }
                 )
-                .border(1.dp, Morandi.border, capsuleShape)
+                .glassBorder(capsuleShape)
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),

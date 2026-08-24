@@ -59,8 +59,7 @@ import java.util.Date
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.painting.canvas.CanvasTabPage
 import com.reverie.paint.ui.painting.ExportTabPage
 
@@ -100,12 +99,7 @@ fun SettingsPanel(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
-                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f
-                            )
+                            style = Glass.barStyle(opacity),
                         )
                     } else {
                         Modifier.background(Morandi.panel.copy(alpha = opacity))

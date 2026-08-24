@@ -73,9 +73,8 @@ import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.Glass
 import kotlin.math.*
 import com.reverie.paint.ui.painting.layers.LayerListView
 import com.reverie.paint.ui.painting.layers.LayerPanel
@@ -190,12 +189,7 @@ fun ColorPanel(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f)),
-                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.1f, 0.98f))),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f
-                            )
+                            style = Glass.popupStyle(opacity),
                         )
                     } else {
                         Modifier.background(Morandi.panel.copy(alpha = opacity))

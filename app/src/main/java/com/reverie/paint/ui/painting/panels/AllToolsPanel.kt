@@ -32,8 +32,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.noRippleClickable
@@ -81,12 +80,7 @@ fun AllToolsPanel(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = HazeStyle(
-                                backgroundColor = Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f)),
-                                tint = HazeTint(Morandi.panel.copy(alpha = opacity.coerceIn(0.05f, 0.98f))),
-                                blurRadius = 24.dp,
-                                noiseFactor = 0.05f
-                            )
+                            style = Glass.barStyle(opacity),
                         )
                     } else {
                         Modifier.background(Morandi.panel.copy(alpha = opacity))

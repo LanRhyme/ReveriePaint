@@ -61,8 +61,7 @@ import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
+import com.reverie.paint.ui.theme.Glass
 
 @Composable
 fun ToolRail(
@@ -121,12 +120,7 @@ fun ToolRail(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f)),
-                                    tint = HazeTint(Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f))),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.05f
-                                )
+                                style = Glass.barStyle(opacity.toFloat()),
                             )
                         } else {
                             Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
@@ -216,12 +210,7 @@ fun ToolRail(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = HazeStyle(
-                                    backgroundColor = Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f)),
-                                    tint = HazeTint(Morandi.panel.copy(alpha = opacity.toFloat().coerceIn(0.05f, 0.98f))),
-                                    blurRadius = 24.dp,
-                                    noiseFactor = 0.05f
-                                )
+                                style = Glass.barStyle(opacity.toFloat()),
                             )
                         } else {
                             Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
