@@ -962,6 +962,7 @@ fun ReChip(
                 .pressScale(interaction, pressedScale = 0.93f)
                 .liquidLean(interaction, maxOffset = 3.dp)
                 .clip(shape)
+                .liquidHighlight(interaction, Color.White, radius = 26.dp)
                 .background(colors.panelHi)
                 .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape).liquidSheen(trigger = selected) else Modifier)
                 .clickable(interactionSource = interaction, indication = null) { onTap() }
@@ -1027,6 +1028,7 @@ fun ReMenuItem(
             .pressScale(interaction, pressedScale = 0.93f)
             .liquidLean(interaction, maxOffset = 3.dp)
             .clip(RoundedCornerShape(10.dp))
+            .liquidHighlight(interaction, Color.White, radius = 30.dp)
             .background(cardBg)
             .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
             .clickable(interactionSource = interaction, indication = null) { onTap() }

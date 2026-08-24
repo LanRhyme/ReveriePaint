@@ -43,8 +43,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -285,16 +283,11 @@ internal fun SettingSliderRow(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        Spacer(Modifier.height(4.dp))
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = 0.2f..1f,
-            colors = SliderDefaults.colors(
-                thumbColor = colors.accentHi,
-                activeTrackColor = colors.accent,
-                inactiveTrackColor = colors.panel
-            )
+        Spacer(Modifier.height(6.dp))
+        // 自定义液态滑块（值域 0.2..1 映射到 0..1 fraction）
+        com.reverie.paint.ui.components.ReSlider(
+            value = ((value - 0.2f) / 0.8f).coerceIn(0f, 1f),
+            onValue = { f -> onValueChange((0.2f + f * 0.8f).coerceIn(0.2f, 1f)) },
         )
     }
 }

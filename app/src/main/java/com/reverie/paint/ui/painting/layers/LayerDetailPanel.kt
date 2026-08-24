@@ -859,25 +859,31 @@ internal fun BlendModesPage(
                                 },
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        Icon(
-                            painterResource(iconFor(opId)),
-                            contentDescription = null,
-                            tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.3f, 0.85f, t)),
-                            modifier = Modifier.graphicsLayer {
-                                scaleX = lerp(0.85f, 1f, t)
-                                scaleY = lerp(0.85f, 1f, t)
-                            }.padding(start = 14.dp).size(17.dp),
-                        )
-                        Text(
-                            name,
-                            color = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 1f, t)),
-                            fontSize = (12f + 2f * t).sp,
-                            fontWeight = if (t > 0.9f || isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.graphicsLayer {
-                                scaleX = lerp(0.85f, 1f, t)
-                                scaleY = lerp(0.85f, 1f, t)
-                            }.padding(start = 8.dp),
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 18.dp),
+                        ) {
+                            Icon(
+                                painterResource(iconFor(opId)),
+                                contentDescription = null,
+                                tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.3f, 0.85f, t)),
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = lerp(0.85f, 1f, t)
+                                    scaleY = lerp(0.85f, 1f, t)
+                                }.size(17.dp),
+                            )
+                            Spacer(Modifier.width(9.dp))
+                            Text(
+                                name,
+                                color = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 1f, t)),
+                                fontSize = (12f + 2f * t).sp,
+                                fontWeight = if (t > 0.9f || isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.graphicsLayer {
+                                    scaleX = lerp(0.85f, 1f, t)
+                                    scaleY = lerp(0.85f, 1f, t)
+                                },
+                            )
+                        }
                     }
                 }
             }

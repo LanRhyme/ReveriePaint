@@ -129,11 +129,14 @@ internal fun HomeBottomBar(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // Gallery Tab
+            val gallerySource = remember { MutableInteractionSource() }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
+                    .pressScale(gallerySource, pressedScale = 0.95f)
                     .clip(RoundedCornerShape(22.dp))
-                    .clickable { vm.homeSelectedTab = 0 }
+                    .liquidHighlight(gallerySource, Color.White, radius = 26.dp)
+                    .clickable(interactionSource = gallerySource, indication = null) { vm.homeSelectedTab = 0 }
                     .onGloballyPositioned { gallerySlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
@@ -181,11 +184,14 @@ internal fun HomeBottomBar(
             }
 
             // Settings Tab
+            val settingsSource = remember { MutableInteractionSource() }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
+                    .pressScale(settingsSource, pressedScale = 0.95f)
                     .clip(RoundedCornerShape(22.dp))
-                    .clickable { vm.homeSelectedTab = 1 }
+                    .liquidHighlight(settingsSource, Color.White, radius = 26.dp)
+                    .clickable(interactionSource = settingsSource, indication = null) { vm.homeSelectedTab = 1 }
                     .onGloballyPositioned { settingsSlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
