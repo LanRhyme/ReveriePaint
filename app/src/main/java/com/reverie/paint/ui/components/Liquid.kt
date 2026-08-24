@@ -6,6 +6,8 @@ package com.reverie.paint.ui.components
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -22,6 +24,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -103,7 +106,7 @@ fun Modifier.liquidLean(source: MutableInteractionSource, maxOffset: Dp = 5.dp):
             .offset { IntOffset(offsetX.value.roundToInt(), offsetY.value.roundToInt()) }
     }
 
-/** 高光跟随：按压时在触点画径向高光，松手淡出。center 固定于按下点。 */
+/** 高光跟随：按压时在触点画径向高光，指尖移动时高光实时跟随，松手淡出。 */
 fun Modifier.liquidHighlight(
     source: MutableInteractionSource,
     color: Color,
@@ -115,6 +118,7 @@ fun Modifier.liquidHighlight(
     var center by remember { mutableStateOf(Offset.Zero) }
     val alpha = remember { Animatable(0f) }
 
+    // 按压状态驱动高光淡入淡出（与 clickable 共用同一 interactionSource）
     LaunchedEffect(source) {
         source.interactions.collect { interaction ->
             when (interaction) {
@@ -128,6 +132,22 @@ fun Modifier.liquidHighlight(
                 is PressInteraction.Release, is PressInteraction.Cancel -> {
                     alpha.animateTo(0f, Motion.springSoft)
                 }
+            }
+        }
+    }
+
+    // 触点跟踪：只观察不消费，不影响既有手势；写 center 仅触发 draw 重绘
+    pointerInput(size) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull() ?: break
+                if (!change.pressed) break
+                center = Offset(
+                    change.position.x.coerceIn(0f, size.width.toFloat()),
+                    change.position.y.coerceIn(0f, size.height.toFloat()),
+                )
             }
         }
     }

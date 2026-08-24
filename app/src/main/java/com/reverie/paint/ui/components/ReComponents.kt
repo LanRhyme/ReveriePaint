@@ -135,6 +135,7 @@ fun ReIconButton(
             .defaultMinSize(minWidth = size, minHeight = size)
             .pressScale(interaction, pressedScale = 0.88f)
             .clip(RoundedCornerShape(8.dp))
+            .liquidHighlight(interaction, Color.White, radius = 20.dp)
             .clickable(interactionSource = interaction, indication = null) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
@@ -157,13 +158,15 @@ fun ReButton(
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
+    val buttonShape = RoundedCornerShape(Dimens.radius)
     Box(
         modifier =
             modifier
-                .pressScale(interaction, pressedScale = 0.97f)
-                .clip(RoundedCornerShape(Dimens.radius))
+                .then(if (primary) Modifier.pressGrow(interaction, growFraction = 0.03f) else Modifier.pressScale(interaction, pressedScale = 0.97f))
+                .clip(buttonShape)
+                .liquidHighlight(interaction, Color.White, radius = 40.dp)
                 .background(if (primary) colors.accent else colors.panelHi)
-                .then(if (!primary) Modifier.glassBorder(RoundedCornerShape(Dimens.radius)) else Modifier)
+                .then(if (!primary) Modifier.glassBorder(buttonShape) else Modifier)
                 .clickable(interactionSource = interaction, indication = null) { onClick() }
                 .padding(horizontal = 18.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,

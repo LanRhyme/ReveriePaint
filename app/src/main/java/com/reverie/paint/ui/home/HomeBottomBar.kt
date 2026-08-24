@@ -31,6 +31,9 @@ import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.AppColors
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.liquidLean
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 
@@ -46,12 +49,6 @@ internal fun HomeBottomBar(
     val isSettings = selectedTab == 1
 
     val createSource = remember { MutableInteractionSource() }
-    val isCreatePressed by createSource.collectIsPressedAsState()
-    val createScale by animateFloatAsState(
-        targetValue = if (isCreatePressed) 0.88f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "CreateBtnScale",
-    )
 
     val shape = RoundedCornerShape(32.dp)
 
@@ -117,12 +114,14 @@ internal fun HomeBottomBar(
                 }
             }
 
-            // Create Action Button (Pulsing / Press-responsive Accent Circle)
+            // Create Action Button (Liquid: 触点倾倒 + 按压缩放 + 高光跟随)
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .scale(createScale)
+                    .liquidLean(createSource, maxOffset = 4.dp)
+                    .pressScale(createSource, pressedScale = 0.90f)
                     .clip(CircleShape)
+                    .liquidHighlight(createSource, Color.White, radius = 30.dp)
                     .background(colors.accent)
                     .clickable(interactionSource = createSource, indication = null) { vm.goCreate() },
                 contentAlignment = Alignment.Center,
