@@ -228,6 +228,9 @@ object ReverieCoreBridge {
 
     external fun setBrushSize(size: Double)
 
+    /** 当前预设 Size 压感曲线求值：pressure(0..1) → 实际笔刷直径比例(0..1)，光标环同源缩放 */
+    external fun brushPressureFraction(pressure: Float): Float
+
     external fun setBrushColor(color: String)
 
     external fun setBrushOpacity(opacity: Double)

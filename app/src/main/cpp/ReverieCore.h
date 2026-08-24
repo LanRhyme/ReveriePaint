@@ -337,6 +337,8 @@ public:
     // Brush
     void setBrushSize(qreal size);
     qreal brushSize() const { return m_brushSize; }
+    /** 当前预设 Size 压感曲线求值：pressure∈[0,1] → 尺寸比例∈[0,1]（光标环同源缩放） */
+    float brushPressureFraction(float pressure);
     void setBrushColor(const QColor &c) { m_brushColor = c; }
     void setBrushSecondaryColor(const QColor &c) { m_brushSecondaryColor = c; }
     void setBrushColorName(const QString &colorName);
@@ -540,6 +542,10 @@ private:
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
+    // Size 压感曲线缓存（预设切换时失效；光标环每帧查询用）
+    const void *m_sizeCurveOwner = nullptr;   // settings 指针，变更即重解析
+    QVector<QPointF> m_sizeCurveCache;        // 归一化控制点（空 = 无压感响应）
+    bool m_sizeUseCurveCache = false;
     // In-progress stroke op + distance accumulator (lives across flushes)
     KisPaintOpSP m_strokeOp;
     KisDistanceInformation *m_strokeDistance = nullptr;
