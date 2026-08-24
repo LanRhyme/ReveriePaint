@@ -325,11 +325,11 @@ internal fun LayerRow(
                         animateColorAsState(
                             targetValue =
                                 when {
-                                    dragOnGroup -> Morandi.accent.copy(alpha = 0.3f)
+                                    dragOnGroup -> Morandi.panelHi
 
                                     selected -> Morandi.accent
 
-                                    multiSelected -> Morandi.accent.copy(alpha = 0.25f)
+                                    multiSelected -> Morandi.panelHi.copy(alpha = 0.6f)
 
                                     // rows are transparent by default; the
                                     // panel itself is translucent

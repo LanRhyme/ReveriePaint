@@ -150,7 +150,7 @@ fun AboutSettingsSubPage(
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.30f),
+                            Morandi.accent.copy(alpha = 0.15f),
                             Color.Transparent,
                         ),
                         center = Offset(w * 0.8f, h * 0.35f),
