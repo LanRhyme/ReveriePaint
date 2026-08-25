@@ -172,22 +172,19 @@ internal fun ExportTabPage(
                             ) {
                                 Text(
                                     text = item.name,
-                                    color = if (isSel) Morandi.accent else Morandi.text,
+                                    color = Morandi.text,
                                     fontSize = 13.sp,
                                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
                                 )
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(
-                                            if (item.isLayered) Morandi.accent.copy(alpha = 0.15f)
-                                            else Morandi.subText.copy(alpha = 0.12f)
-                                        )
+                                        .background(Morandi.subText.copy(alpha = 0.12f))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = item.tag,
-                                        color = if (item.isLayered) Morandi.accent else Morandi.subText,
+                                        color = Morandi.subText,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium
                                     )

@@ -399,13 +399,13 @@ fun BrushPanel(
                                                 Column(Modifier.weight(1f)) {
                                                     Text(
                                                         preset.name,
-                                                        color = if (isSelected) Morandi.accent else Morandi.subText,
+                                                        color = if (isSelected) Morandi.text else Morandi.subText,
                                                         fontSize = 12.sp,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
                                                     )
                                                     if (isSelected) {
-                                                        Text("使用中 · 点按调属性", color = Morandi.accent, fontSize = 10.sp)
+                                                        Text("使用中 · 点按调属性", color = Morandi.subText, fontSize = 10.sp)
                                                     }
                                                 }
                                             }

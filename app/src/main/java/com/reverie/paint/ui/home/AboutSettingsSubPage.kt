@@ -150,7 +150,7 @@ fun AboutSettingsSubPage(
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.15f),
+                            Morandi.subText.copy(alpha = 0.15f),
                             Color.Transparent,
                         ),
                         center = Offset(w * 0.8f, h * 0.35f),
@@ -175,8 +175,8 @@ fun AboutSettingsSubPage(
                     path = p1,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.10f),
-                            Morandi.accent.copy(alpha = 0.22f),
+                            Morandi.subText.copy(alpha = 0.10f),
+                            Morandi.subText.copy(alpha = 0.22f),
                             Morandi.panel.copy(alpha = 0.1f),
                         )
                     ),
@@ -198,8 +198,8 @@ fun AboutSettingsSubPage(
                     brush = Brush.horizontalGradient(
                         listOf(
                             Morandi.panel.copy(alpha = 0.2f),
-                            Morandi.accent.copy(alpha = 0.18f),
-                            Morandi.accent.copy(alpha = 0.06f),
+                            Morandi.subText.copy(alpha = 0.18f),
+                            Morandi.subText.copy(alpha = 0.06f),
                         )
                     ),
                 )
@@ -226,13 +226,13 @@ fun AboutSettingsSubPage(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Morandi.accent.copy(alpha = 0.18f))
-                            .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .background(Morandi.subText.copy(alpha = 0.15f))
+                            .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
-                            color = Morandi.accent,
+                            color = colors.text,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -253,7 +253,7 @@ fun AboutSettingsSubPage(
         // 3. Contiguous Card Group 1: 项目与社区 (Custom ROM Group Style)
         Text(
             text = "项目与社区",
-            color = Morandi.accent,
+            color = Morandi.subText,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.8.sp,
@@ -296,7 +296,7 @@ fun AboutSettingsSubPage(
         // 4. Contiguous Card Group 2: 应用与系统
         Text(
             text = "应用与系统",
-            color = Morandi.accent,
+            color = Morandi.subText,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.8.sp,
@@ -372,7 +372,7 @@ fun AboutSettingsSubPage(
                             .width(3.5.dp)
                             .height(14.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Morandi.accent),
+                            .background(Morandi.subText),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -488,7 +488,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                                     ) {
                                         Text(
                                             text = lib.license,
-                                            color = Morandi.accent,
+                                            color = Morandi.subText,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
@@ -559,7 +559,7 @@ private fun AboutGroupItem(
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = Morandi.accent,
+                    tint = Morandi.icon,
                     modifier = Modifier.size(22.dp),
                 )
 

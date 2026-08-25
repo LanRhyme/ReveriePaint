@@ -339,7 +339,7 @@ internal fun LayerDetailPage(
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = null,
-                    tint = Morandi.accent,
+                    tint = Morandi.icon,
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -379,7 +379,7 @@ internal fun LayerDetailPage(
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
                         contentDescription = null,
-                        tint = Morandi.accent,
+                        tint = Morandi.icon,
                         modifier = Modifier.size(20.dp),
                     )
                     Column {
@@ -390,7 +390,7 @@ internal fun LayerDetailPage(
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = null,
-                    tint = Morandi.accent,
+                    tint = Morandi.icon,
                     modifier = Modifier.size(14.dp),
                 )
             }
@@ -409,7 +409,7 @@ internal fun LayerDetailPage(
             Icon(
                 painterResource(R.drawable.ic_layerstack),
                 contentDescription = null,
-                tint = Morandi.accent,
+                tint = Morandi.icon,
                 modifier = Modifier.size(18.dp),
             )
             Text("混合模式", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
@@ -548,7 +548,7 @@ internal fun LayerDetailPage(
                                         Icon(
                                             painterResource(R.drawable.ic_folder),
                                             null,
-                                            tint = Morandi.accent,
+                                            tint = Morandi.icon,
                                             modifier = Modifier.size(18.dp),
                                         )
                                         Text(grp.name, color = Morandi.text, fontSize = 14.sp)
