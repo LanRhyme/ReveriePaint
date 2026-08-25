@@ -53,6 +53,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import com.reverie.paint.ui.components.liquidSheen
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -308,8 +312,28 @@ fun BrushPanel(
                                         items(filtered, key = { it.name }) { preset ->
                                             val isSelected = preset.index == vm.brushPresetIndex
                                             val isDragging = draggingPresetName == preset.name
+                                            val cellBg by animateColorAsState(
+                                                targetValue = when {
+                                                    isDragging -> Morandi.panelHi
+                                                    isSelected -> Morandi.accent.copy(alpha = 0.10f)
+                                                    else -> Morandi.panel.copy(alpha = 0.5f)
+                                                },
+                                                animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
+                                                label = "brushCellBg",
+                                            )
+                                            val cellBorderColor by animateColorAsState(
+                                                targetValue = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
+                                                animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
+                                                label = "brushCellBorder",
+                                            )
+                                            val thumbScale by animateFloatAsState(
+                                                targetValue = if (isSelected) 1.06f else 1f,
+                                                animationSpec = spring(dampingRatio = 0.55f, stiffness = 400f),
+                                                label = "brushThumbPop",
+                                            )
                                             Row(
                                                 modifier = Modifier
+                                                    .animateItem()
                                                     .fillMaxWidth()
                                                     .height(52.dp)
                                                     .graphicsLayer {
@@ -322,16 +346,13 @@ fun BrushPanel(
                                                     }
                                                     .zIndex(if (isDragging) 10f else 0f)
                                                     .clip(RoundedCornerShape(10.dp))
-                                                    .background(
-                                                        if (isDragging) Morandi.panelHi
-                                                        else if (isSelected) Morandi.accent.copy(alpha = 0.10f)
-                                                        else Morandi.panel.copy(alpha = 0.5f)
-                                                    )
+                                                    .background(cellBg)
                                                     .border(
                                                         width = if (isDragging || isSelected) 1.dp else 0.dp,
-                                                        color = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
+                                                        color = cellBorderColor,
                                                         shape = RoundedCornerShape(10.dp)
                                                     )
+                                                    .liquidSheen(trigger = isSelected)
                                                     .pointerInput(preset.name) {
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = {
@@ -385,6 +406,10 @@ fun BrushPanel(
                                                         contentDescription = preset.name,
                                                         modifier = Modifier
                                                             .size(38.dp)
+                                                            .graphicsLayer {
+                                                                scaleX = thumbScale
+                                                                scaleY = thumbScale
+                                                            }
                                                             .clip(RoundedCornerShape(7.dp))
                                                     )
                                                 } else {
