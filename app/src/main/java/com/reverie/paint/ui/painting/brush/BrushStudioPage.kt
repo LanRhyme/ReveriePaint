@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -57,6 +58,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -1519,15 +1521,10 @@ private fun StudioSwitchItem(label: String, checked: Boolean, textMain: Color, o
     ) {
         Text(label, color = textMain, fontSize = 13.sp)
         Spacer(Modifier.weight(1f))
-        Switch(
+        ReSwitch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF555560),
-                uncheckedThumbColor = Color(0xFF888890),
-                uncheckedTrackColor = Color(0xFF25252A),
-            ),
+            onChecked = onCheckedChange,
+            modifier = Modifier.scale(0.85f),
         )
     }
 }

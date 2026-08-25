@@ -786,6 +786,7 @@ fun ReSwitch(
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val colors = Theme.current
     val trackColor by animateColorAsState(
@@ -796,15 +797,21 @@ fun ReSwitch(
     Box(
         modifier =
             modifier
+                .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
                 .size(48.dp, 28.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(trackColor)
-                .clickable { onChecked(!checked) }
+                .clickable(enabled = enabled) { onChecked(!checked) }
                 .padding(3.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         Box(
-            Modifier.offset(x = 20.dp * thumbProgress).size(22.dp).clip(CircleShape).background(colors.onAccent),
+            Modifier
+                .offset(x = 20.dp * thumbProgress)
+                .size(22.dp)
+                .shadow(2.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
+                .clip(CircleShape)
+                .background(colors.onAccent),
         )
     }
 }

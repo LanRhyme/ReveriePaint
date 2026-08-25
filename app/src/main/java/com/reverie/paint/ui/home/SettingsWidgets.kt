@@ -43,8 +43,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import com.reverie.paint.ui.components.ReSwitch
+import androidx.compose.ui.draw.scale
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -235,16 +235,11 @@ internal fun SettingSwitchRow(
             )
         }
         Spacer(Modifier.width(12.dp))
-        Switch(
+        ReSwitch(
             checked = checked,
+            onChecked = onCheckedChange,
             enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = colors.panelHi,
-                checkedTrackColor = colors.accent,
-                uncheckedThumbColor = colors.subText,
-                uncheckedTrackColor = colors.panel
-            )
+            modifier = Modifier.scale(0.9f),
         )
     }
 }

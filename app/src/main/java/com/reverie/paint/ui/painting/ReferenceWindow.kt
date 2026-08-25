@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,6 +53,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
@@ -880,19 +879,13 @@ private fun ReferenceSettingsPopup(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
-                    Switch(
+                    ReSwitch(
                         checked = vm.referenceIsGrayscale,
-                        onCheckedChange = {
+                        onChecked = {
                             vm.referenceIsGrayscale = it
                             vm.persistReferenceState()
                         },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Morandi.accent,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Morandi.panel
-                        ),
-                        modifier = Modifier.scale(0.75f)
+                        modifier = Modifier.scale(0.75f),
                     )
                 }
 
@@ -910,16 +903,10 @@ private fun ReferenceSettingsPopup(
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
-                    Switch(
+                    ReSwitch(
                         checked = vm.referenceAllowRotation,
-                        onCheckedChange = { vm.updateReferenceAllowRotation(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Morandi.accent,
-                            uncheckedThumbColor = Color.LightGray,
-                            uncheckedTrackColor = Morandi.panel
-                        ),
-                        modifier = Modifier.scale(0.75f)
+                        onChecked = { vm.updateReferenceAllowRotation(it) },
+                        modifier = Modifier.scale(0.75f),
                     )
                 }
 

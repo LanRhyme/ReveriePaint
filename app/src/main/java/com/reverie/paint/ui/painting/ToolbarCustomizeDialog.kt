@@ -30,8 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.material3.Text
@@ -63,6 +62,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.systemHoverIcon
+import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
@@ -422,15 +422,10 @@ private fun ToolRowContent(
         )
 
         // Switch
-        Switch(
+        ReSwitch(
             checked = isEnabled,
-            onCheckedChange = onToggle,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Morandi.panelHi,
-                checkedTrackColor = Morandi.accent,
-                uncheckedThumbColor = Morandi.subText,
-                uncheckedTrackColor = Morandi.panel
-            )
+            onChecked = onToggle,
+            modifier = Modifier.scale(0.85f),
         )
     }
 }
