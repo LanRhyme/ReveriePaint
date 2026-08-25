@@ -365,7 +365,13 @@ public:
     // is untouched by both.
     void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = on; }
     void clearUndoHistory();
-    void touchStrokeMove(qreal x, qreal y, qreal pressure);
+    // Returns true when this call flushed a batch and painted new ink (used
+    // by the Kotlin transport to render only after real paint work).
+    bool touchStrokeMove(qreal x, qreal y, qreal pressure);
+    // Flush the pending stroke start as an ink dot when no movement arrived
+    // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
+    // Returns true when a dot was painted.
+    bool touchStrokeKickIdle();
     void touchStrokeEnd();
     void touchStrokeCancel();
 
@@ -457,8 +463,10 @@ private:
     // mode): after those the root projection device is rebuilt empty and
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
-    void appendStrokeSample(const QPointF &imgPos, qreal pressure);
-    void flushStrokeBatch();
+    // Returns true when a flush painted ink in this call.
+    bool appendStrokeSample(const QPointF &imgPos, qreal pressure);
+    // Returns true when new ink was painted (dirty region produced).
+    bool flushStrokeBatch();
     void endStrokeBatch();
 
     struct StrokeSample {
@@ -566,6 +574,10 @@ private:
     // for the eraser) at every 8ms flush boundary.
     int m_strokeCarryCount = 0;
     qint64 m_lastFlushMs = 0;
+    // True when touchStrokeKickIdle already painted the stroke-start dot and
+    // cleared the sample list: touchStrokeEnd must not re-append the start
+    // point (it would dab the same spot a second time, doubling ink density).
+    bool m_idleKickPainted = false;
     KisPainter *m_strokePainter = nullptr;
     void *m_strokeDevice = nullptr;
     bool m_strokeBatchOpen = false;

@@ -220,10 +220,44 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeStart(JNIEnv *, jobject
     core()->touchStrokeStart(x, y, pressure);
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMove(JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure)
 {
-    core()->touchStrokeMove(x, y, pressure);
+    return core()->touchStrokeMove(x, y, pressure) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Batched stroke transport: drains all samples accumulated by the Kotlin UI
+// thread in ONE JNI call. coords layout is [x,y,p] triplets; count is the
+// number of triplets. Returns true when any flush painted new ink, so the
+// caller only schedules a display refresh after real paint work.
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, jobject, jfloatArray coords, jint count)
+{
+    if (!coords || count <= 0) {
+        return JNI_FALSE;
+    }
+    const jsize len = env->GetArrayLength(coords);
+    if (len < count * 3) {
+        return JNI_FALSE;
+    }
+    jfloat *c = env->GetFloatArrayElements(coords, nullptr);
+    if (!c) {
+        return JNI_FALSE;
+    }
+    bool painted = false;
+    for (int i = 0; i < count; ++i) {
+        if (core()->touchStrokeMove(c[i * 3], c[i * 3 + 1], c[i * 3 + 2])) {
+            painted = true;
+        }
+    }
+    env->ReleaseFloatArrayElements(coords, c, JNI_ABORT);
+    return painted ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeKickIdle(JNIEnv *, jobject)
+{
+    return core()->touchStrokeKickIdle() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL

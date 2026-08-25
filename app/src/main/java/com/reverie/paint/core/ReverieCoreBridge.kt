@@ -293,6 +293,16 @@ object ReverieCoreBridge {
         pressure: Double,
     )
 
+    /** Batched stroke transport: [coords] holds [x,y,pressure] triplets,
+     *  [count] is the triplet count. Drains every pending sample in one JNI
+     *  call (no intermediate points lost) and returns true when a flush
+     *  painted new ink — only then does the caller schedule a render. */
+    external fun touchStrokeMoveBatch(coords: FloatArray, count: Int): Boolean
+
+    /** Flush the pending stroke-start dot when no movement arrived yet
+     *  (pen-down instant-ink feedback). Returns true when ink was painted. */
+    external fun touchStrokeKickIdle(): Boolean
+
     external fun touchStrokeEnd()
 
     external fun touchStrokeCancel()

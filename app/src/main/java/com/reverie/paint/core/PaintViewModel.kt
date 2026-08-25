@@ -30,6 +30,15 @@ import java.io.File
 import java.util.zip.ZipFile
 import kotlin.math.roundToInt
 
+/** Max stroke samples buffered between render-thread drains. Sized for a
+ *  240Hz stylus under a worst-case ~60ms render stall (~15 samples) with
+ *  generous headroom; beyond capacity new appends are skipped and the stroke
+ *  self-heals on the next sample (positions are absolute). */
+private const val STROKE_BATCH_CAPACITY = 32
+
+/** Delay before the stroke-start idle kick flushes a pen-down dot. */
+private const val STROKE_START_KICK_MS = 24L
+
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
  *
@@ -1803,32 +1812,74 @@ class PaintViewModel : ViewModel() {
 
     internal val pendingCoreOps = java.util.concurrent.atomic.AtomicInteger(0)
 
-    // Coalesced stroke-sample transport: at most one runnable queued at a
-    // time, latest x/y/pressure win. Removes the per-sample lambda+Message
-    // allocations and collapses input bursts between handler executions.
+    // Stroke-sample transport (batch-preserving). The UI thread appends every
+    // touch sample into preallocated arrays and posts ONE drain runnable; the
+    // render thread submits the whole batch in a single JNI call. The old
+    // latest-wins single slot DROPPED intermediate samples whenever the
+    // render thread was busy, which turned fast strokes into polylines and
+    // lost pressure detail. Buffers are allocated once: zero allocation on
+    // the hot path (架构铁律 §4).
     @Volatile private var pendingSampleX = 0.0
     @Volatile private var pendingSampleY = 0.0
     @Volatile private var pendingSampleP = 1.0
-    @Volatile private var sampleQueued = false
-    private val sampleRunnable = Runnable {
-        sampleQueued = false
+    private val strokeBatchLock = Any()
+    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
+    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
+    private var strokeBatchCount = 0
+    @Volatile private var strokeBatchQueued = false
+
+    private val strokeBatchRunnable = Runnable {
+        strokeBatchQueued = false
+        val n: Int
+        synchronized(strokeBatchLock) {
+            n = strokeBatchCount
+            strokeBatchCount = 0
+            if (n > 0) {
+                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * 3)
+            }
+        }
         pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
-        ReverieCoreBridge.touchStrokeMove(pendingSampleX, pendingSampleY, pendingSampleP)
-        // Mirror runCore's render=true contract: without this the only
-        // mid-stroke display refresh would be touchEnd's final flush, so ink
-        // would pile up invisibly until pen-up.
-        scheduleRender()
+        val painted = n > 0 && try {
+            ReverieCoreBridge.touchStrokeMoveBatch(strokeDrainCoords, n)
+        } catch (_: Throwable) {
+            false
+        }
+        // Render only after real ink landed. Scheduling a +16ms render for
+        // no-flush samples used to steal render-thread time from input,
+        // widening the coalescing window and compounding pen latency.
+        if (painted) {
+            scheduleRender()
+        }
     }
 
     internal fun queueStrokeMove(x: Float, y: Float, p: Double) {
         val h = renderHandler ?: return
+        // Airbrush hold-still ticks mirror the latest sample position into
+        // their recording; keep these legacy fields in sync.
         pendingSampleX = x.toDouble()
         pendingSampleY = y.toDouble()
         pendingSampleP = p
-        if (!sampleQueued) {
-            sampleQueued = true
+        synchronized(strokeBatchLock) {
+            if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
+                val o = strokeBatchCount * 3
+                strokeBatchCoords[o] = x
+                strokeBatchCoords[o + 1] = y
+                strokeBatchCoords[o + 2] = p.toFloat()
+                strokeBatchCount++
+            }
+        }
+        if (!strokeBatchQueued) {
+            strokeBatchQueued = true
             pendingCoreOps.incrementAndGet()
-            h.post(sampleRunnable) // 预建 Runnable 直接投递, 每样本零分配
+            h.post(strokeBatchRunnable) // 预建 Runnable 直接投递, 每样本零分配
+        }
+    }
+
+    /** Drop undelivered stroke samples (cancel path: they must not reach the
+     *  engine after touchStrokeCancel ran). */
+    internal fun clearPendingStrokeSamples() {
+        synchronized(strokeBatchLock) {
+            strokeBatchCount = 0
         }
     }
 
@@ -1887,6 +1938,30 @@ class PaintViewModel : ViewModel() {
         renderHandler?.removeCallbacks(airbrushRunnable)
     }
 
+    // Pen-down instant-ink kick: shortly after touchStrokeStart, if the stylus
+    // has not moved yet, flush the start point as an ink dot so holding still
+    // or a slow stroke start shows ink immediately instead of nothing until
+    // pen-up. The engine side no-ops once the stroke moved, so fast strokes
+    // never pay the deferred-undo-snapshot cost this avoids.
+    internal val strokeStartKickRunnable = Runnable {
+        val painted = try {
+            ReverieCoreBridge.touchStrokeKickIdle()
+        } catch (_: Throwable) {
+            false
+        }
+        if (painted) {
+            scheduleRender()
+        }
+    }
+
+    internal fun armStrokeStartKick() {
+        renderHandler?.postDelayed(strokeStartKickRunnable, STROKE_START_KICK_MS)
+    }
+
+    internal fun disarmStrokeStartKick() {
+        renderHandler?.removeCallbacks(strokeStartKickRunnable)
+    }
+
     internal var renderDeferCount = 0
 
     internal fun scheduleRender(immediate: Boolean = false) {
@@ -1901,10 +1976,13 @@ class PaintViewModel : ViewModel() {
             h.post { doRender() }
             return
         }
-        // Throttle to ~60fps: during fast strokes several touchMove events
-        // arrive per frame; rendering each one separately (waitForDone +
-        // projection recomposite + bitmap copy) saturates the render thread
-        // and made large brushes lag badly.
+        // Post immediately. The old fixed +16ms delay existed because renders
+        // fired per touch event; now they only fire after the engine actually
+        // painted ink (strokeBatchRunnable gates on touchStrokeMoveBatch's
+        // result) or once per user op via runCore, so at most ONE render is
+        // ever pending (renderScheduled dedupe) and doRender's input-first
+        // defer still keeps queued stroke ops ahead of rendering. The delay
+        // was two full frames of constant pen latency on 120Hz panels.
         if (renderScheduled) return
         renderScheduled = true
         val r =
@@ -1914,7 +1992,7 @@ class PaintViewModel : ViewModel() {
                 doRender()
             }
         pendingRenderRunnable = r
-        h.postDelayed(r, 16)
+        h.post(r)
     }
 
     internal fun doRender() {

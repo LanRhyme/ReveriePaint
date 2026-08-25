@@ -199,6 +199,10 @@ internal fun PaintViewModel.touchStart(
         ReverieCoreBridge.setToolMode(mode)
         ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
     }
+    // Pen-down instant ink: if the stylus stays still (or moves slower than
+    // the sample-spacing gate), paint the start dot after ~1 frame instead
+    // of showing nothing until pen-up.
+    armStrokeStartKick()
     // Airbrush: start the hold-still ink timer after the stroke-start op is
     // queued (FIFO keeps the first tick behind touchStrokeStart). Hold-still
     // ticks ARE recorded as same-point STROKE_MOVE samples for replay.
@@ -238,6 +242,7 @@ internal fun PaintViewModel.touchMove(
 
 internal fun PaintViewModel.touchEnd() {
     stopAirbrush()
+    disarmStrokeStartKick()
     lastStrokeEndElapsedMs = android.os.SystemClock.elapsedRealtime()
     isModified = true
     totalStrokes++
@@ -269,6 +274,10 @@ internal fun PaintViewModel.touchEnd() {
 
 internal fun PaintViewModel.touchCancel() {
     stopAirbrush()
+    disarmStrokeStartKick()
+    // Drop undelivered samples so the queued drain cannot append to a stroke
+    // whose cancel (transaction revert) is already in flight behind it.
+    clearPendingStrokeSamples()
     if (recorder.recording) {
         recorder.strokeCancel()
     }

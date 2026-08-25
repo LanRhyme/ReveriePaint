@@ -23,6 +23,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_lastPressure = pressure;
     m_strokeColor = m_brushColor;
     m_strokeOpacity = m_brushOpacity;
+    m_idleKickPainted = false;
     // The stroke paints straight onto the layer device with per-dab opacity
     // (Krita-native); no temporary buffer is used.
     m_strokeStartImg = QPointF(x, y);
@@ -40,10 +41,10 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_strokeSamples.append(s);
 }
 
-void ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
+bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
 {
     if (!m_drawing || !m_strokeBatchOpen) {
-        return;
+        return false;
     }
     const QPointF imgPos(x, y);
     m_accumulatedStrokeBounds = m_accumulatedStrokeBounds.united(QRectF(x, y, 1.0, 1.0));
@@ -51,18 +52,41 @@ void ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
             ? m_strokeStartImg
             : m_strokeSamples.last().imgPos;
     if (imgPos != lastPos) {
-        appendStrokeSample(imgPos, pressure);
+        return appendStrokeSample(imgPos, pressure);
     }
+    return false;
+}
+
+bool ReverieCore::touchStrokeKickIdle()
+{
+    // Called shortly after touchStrokeStart from Kotlin when nothing moved
+    // yet: paint the stroke-start dot right away so pen-down gives instant
+    // ink feedback (hold-still / very slow start previously showed nothing
+    // until pen-up). Once the stroke has real movement this is a no-op - the
+    // normal flush path already covers it and the undo snapshot cost stays
+    // deferred to the first real flush.
+    if (!m_strokeBatchOpen || !m_document || m_strokeHadMove) {
+        return false;
+    }
+    if (flushStrokeBatch()) {
+        m_idleKickPainted = true;
+        return true;
+    }
+    return false;
 }
 
 void ReverieCore::touchStrokeEnd()
 {
     if (m_strokeBatchOpen) {
         if (m_strokeSamples.isEmpty()) {
-            StrokeSample s;
-            s.imgPos = m_strokeStartImg;
-            s.pressure = m_lastPressure;
-            m_strokeSamples.append(s);
+            // The idle kick already painted the start dot: do not re-append
+            // and re-dab it on pen-up (double ink at the same spot).
+            if (!m_idleKickPainted) {
+                StrokeSample s;
+                s.imgPos = m_strokeStartImg;
+                s.pressure = m_lastPressure;
+                m_strokeSamples.append(s);
+            }
         }
         flushStrokeBatch();
         endStrokeBatch();
@@ -186,12 +210,13 @@ void ReverieCore::touchStrokeCancel()
     m_snapshotPending = false;
     m_strokeSamples.clear();
     m_strokeCarryCount = 0;
+    m_idleKickPainted = false;
     endStrokeBatch();
     m_strokeBatchOpen = false;
     m_drawing = false;
 }
 
-void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
+bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
 {
     QString opId;
     if (m_brushPreset) {
@@ -212,7 +237,7 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
         const qreal dist = QLineF(last, imgPos).length();
         if (dist < spacing) {
             m_strokeSamples.last().pressure = pressure;
-            return;
+            return false;
         }
     }
     m_strokeHadMove = true;
@@ -227,8 +252,9 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (now - m_lastFlushMs >= 8 || m_strokeSamples.size() >= 64) {
         m_lastFlushMs = now;
-        flushStrokeBatch();
+        return flushStrokeBatch();
     }
+    return false;
 }
 
 // Centripetal Catmull-Rom spline point: evaluates the curve through
@@ -236,15 +262,15 @@ void ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
 // parameterisation prevents the overshoot "hooks" that uniform Catmull-Rom
 // produces on sharply curving strokes.
 
-void ReverieCore::flushStrokeBatch()
+bool ReverieCore::flushStrokeBatch()
 {
     if (m_strokeSamples.isEmpty()) {
-        return;
+        return false;
     }
     KisImageSP image = m_document;
     if (!image) {
         m_strokeSamples.clear();
-        return;
+        return false;
     }
     bool isEraserPreset;
     if (m_presetIsEraserOverride >= 0) {
@@ -301,7 +327,7 @@ void ReverieCore::flushStrokeBatch()
 
     if (!target) {
         m_strokeSamples.clear();
-        return;
+        return false;
     }
 
     const KoColorSpace *cs = image->colorSpace();
@@ -434,7 +460,7 @@ void ReverieCore::flushStrokeBatch()
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeSamples.clear();
         m_strokeCarryCount = 0;
-        return;
+        return true;
     }
 
     QRect strokeDirty;
@@ -627,6 +653,7 @@ void ReverieCore::flushStrokeBatch()
         markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
+    return !strokeDirty.isNull();
 }
 
 void ReverieCore::endStrokeBatch()
