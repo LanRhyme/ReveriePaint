@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.core.*
@@ -411,12 +412,16 @@ fun HomePage(vm: PaintViewModel) {
 
                             if (!isSearchActive) {
                                 if (isSelectMode) {
-                                    TextButton(onClick = {
+                                    ReTextButton(
+                                        "完成",
+                                        onClick = {
                                         isSelectMode = false
                                         selectedProjects.clear()
-                                    }) {
-                                        Text("完成", color = colors.accent, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    }
+                                    },
+                                        textColor = colors.accent,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                    )
                                 } else {
                                     // Top Bar Buttons Group
                                     Row(
@@ -1266,37 +1271,26 @@ fun HomePage(vm: PaintViewModel) {
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            TextButton(onClick = {
-                                targetMoveProjects = selectedProjects.toList()
-                                showMoveDialog = true
-                            }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_folder_symlink),
-                                    contentDescription = null,
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    "移动 (${selectedProjects.size})",
-                                    color = colors.accent,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
+                            ReTextButton(
+                                "移动 (${selectedProjects.size})",
+                                {
+                                    targetMoveProjects = selectedProjects.toList()
+                                    showMoveDialog = true
+                                },
+                                icon = R.drawable.ic_folder_symlink,
+                                textColor = colors.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
                             Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
-                            TextButton(onClick = {
-                                showBatchDeleteConfirm = true
-                            }) {
-                                Icon(
-                                    painterResource(R.drawable.ic_trash),
-                                    contentDescription = null,
-                                    tint = Color(0xFFFF5252),
-                                    modifier = Modifier.size(18.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text("删除", color = Color(0xFFFF5252), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
+                            ReTextButton(
+                                "删除",
+                                { showBatchDeleteConfirm = true },
+                                icon = R.drawable.ic_trash,
+                                textColor = Color(0xFFFF5252),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         }
                     }
                 }

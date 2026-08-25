@@ -33,7 +33,6 @@ import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +54,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.ui.dialog.ContributorsDialog
@@ -517,9 +517,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("确定", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                    }
+                    ReTextButton("确定", onDismiss, textColor = Morandi.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

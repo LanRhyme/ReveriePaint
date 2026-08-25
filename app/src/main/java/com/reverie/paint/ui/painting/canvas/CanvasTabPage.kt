@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.canvas
 
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -120,11 +121,11 @@ internal fun CanvasTabPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        androidx.compose.material3.TextButton(onClick = { showSaveAsDialog = false }) {
-                            Text("取消", color = Morandi.subText)
-                        }
+                        ReTextButton("取消", { showSaveAsDialog = false }, textColor = Morandi.subText)
                         Spacer(Modifier.width(8.dp))
-                        androidx.compose.material3.TextButton(onClick = {
+                        ReTextButton(
+                            "保存",
+                            onClick = {
                             val name = saveAsName.trim()
                             showSaveAsDialog = false
                             onClose()
@@ -133,9 +134,10 @@ internal fun CanvasTabPage(
                                     android.widget.Toast.makeText(context, "已另存为 $name.revp", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
-                        }) {
-                            Text("保存", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                        }
+                        },
+                            textColor = Morandi.accent,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -203,19 +205,20 @@ internal fun CanvasTabPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        androidx.compose.material3.TextButton(onClick = { showNewCanvasDialog = false }) {
-                            Text("取消", color = Morandi.subText)
-                        }
+                        ReTextButton("取消", { showNewCanvasDialog = false }, textColor = Morandi.subText)
                         Spacer(Modifier.width(8.dp))
-                        androidx.compose.material3.TextButton(onClick = {
+                        ReTextButton(
+                            "创建",
+                            onClick = {
                             val w = newW.toIntOrNull() ?: 1080
                             val h = newH.toIntOrNull() ?: 1920
                             vm.startPainting(w, h, "画布_${System.currentTimeMillis() % 1000}")
                             showNewCanvasDialog = false
                             onClose()
-                        }) {
-                            Text("创建", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                        }
+                        },
+                            textColor = Morandi.accent,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -289,20 +292,21 @@ internal fun CanvasTabPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        androidx.compose.material3.TextButton(onClick = { showCanvasResizeDialog = false }) {
-                            Text("取消", color = Morandi.subText)
-                        }
+                        ReTextButton("取消", { showCanvasResizeDialog = false }, textColor = Morandi.subText)
                         Spacer(Modifier.width(8.dp))
-                        androidx.compose.material3.TextButton(onClick = {
+                        ReTextButton(
+                            "确定",
+                            onClick = {
                             val targetW = resizeW.toIntOrNull() ?: vm.docWidth
                             val targetH = resizeH.toIntOrNull() ?: vm.docHeight
                             vm.cropCanvas(0, 0, targetW, targetH)
                             android.widget.Toast.makeText(context, "画布已调整为 $targetW×$targetH", android.widget.Toast.LENGTH_SHORT).show()
                             showCanvasResizeDialog = false
                             onClose()
-                        }) {
-                            Text("确定", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                        }
+                        },
+                            textColor = Morandi.accent,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -379,9 +383,7 @@ internal fun CanvasTabPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        androidx.compose.material3.TextButton(onClick = { showImageAdjustDialog = false }) {
-                            Text("关闭", color = Morandi.subText)
-                        }
+                        ReTextButton("关闭", { showImageAdjustDialog = false }, textColor = Morandi.subText)
                     }
                 }
             }
@@ -425,9 +427,7 @@ internal fun CanvasTabPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        androidx.compose.material3.TextButton(onClick = { showProfileDialog = false }) {
-                            Text("确定", color = Morandi.accent, fontWeight = FontWeight.Bold)
-                        }
+                        ReTextButton("确定", { showProfileDialog = false }, textColor = Morandi.accent, fontWeight = FontWeight.Bold)
                     }
                 }
             }

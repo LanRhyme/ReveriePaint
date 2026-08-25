@@ -37,10 +37,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.TextButton
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -118,6 +115,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateListOf
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
@@ -357,23 +355,16 @@ fun CompactColorPickerDialog(
                     Text(hex, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = onDismiss,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text("取消", color = Morandi.subText, fontSize = 12.sp)
-                        }
-                        Button(
-                            onClick = {
+                        ReTextButton("取消", onDismiss, textColor = Morandi.subText, fontSize = 12.sp)
+                        ReTextButton(
+                            "确定",
+                            {
                                 onColorSelected(currentColor)
                                 onDismiss()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Morandi.accent),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
-                        ) {
-                            Text("确定", color = Color.White, fontSize = 12.sp)
-                        }
+                            primary = true,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }

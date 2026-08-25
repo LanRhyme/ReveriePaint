@@ -41,7 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +66,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.noRippleClickable
@@ -1037,9 +1037,7 @@ private fun PalettesPage(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showAddColorPalettePicker = false }) {
-                    Text("取消", color = Morandi.subText)
-                }
+                ReTextButton("取消", { showAddColorPalettePicker = false }, textColor = Morandi.subText)
             }
         )
     }
@@ -1067,19 +1065,19 @@ private fun PalettesPage(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                ReTextButton(
+                    "创建",
+                    onClick = {
                     if (newPaletteName.isNotBlank()) {
                         vm.createNewPalette(newPaletteName.trim(), listOf(vm.brushColor))
                         showCreatePaletteDialog = false
                     }
-                }) {
-                    Text("创建", color = Morandi.accent)
-                }
+                },
+                    textColor = Morandi.accent,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showCreatePaletteDialog = false }) {
-                    Text("取消", color = Morandi.subText)
-                }
+                ReTextButton("取消", { showCreatePaletteDialog = false }, textColor = Morandi.subText)
             }
         )
     }
@@ -1107,19 +1105,19 @@ private fun PalettesPage(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                ReTextButton(
+                    "确定",
+                    onClick = {
                     if (renamePaletteText.isNotBlank()) {
                         vm.renamePalette(palToRename.id, renamePaletteText.trim())
                         showRenameDialog = null
                     }
-                }) {
-                    Text("确定", color = Morandi.accent)
-                }
+                },
+                    textColor = Morandi.accent,
+                )
             },
             dismissButton = {
-                TextButton(onClick = { showRenameDialog = null }) {
-                    Text("取消", color = Morandi.subText)
-                }
+                ReTextButton("取消", { showRenameDialog = null }, textColor = Morandi.subText)
             }
         )
     }

@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
@@ -623,18 +624,18 @@ fun BrushStudioPage(
                 title = { Text("确认删除笔刷", color = textMain, fontSize = 15.sp) },
                 text = { Text("确定要删除笔刷 \"${preset.name}\" 吗？此操作无法撤销。", color = textSub, fontSize = 13.sp) },
                 confirmButton = {
-                    TextButton(onClick = {
+                    ReTextButton(
+                        "删除",
+                        onClick = {
                         vm.deleteBrushPreset(presetIndex)
                         showDeleteConfirmDialog = false
                         Toast.makeText(context, "笔刷已删除", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Text("删除", color = Color(0xFFC86464))
-                    }
+                    },
+                        textColor = Color(0xFFC86464),
+                    )
                 },
                 dismissButton = {
-                    TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                        Text("取消", color = textSub)
-                    }
+                    ReTextButton("取消", { showDeleteConfirmDialog = false }, textColor = textSub)
                 },
                 containerColor = cardBg,
             )
@@ -1743,17 +1744,15 @@ private fun StudioNewBrushDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
+            ReTextButton(
+                "创建",
                 onClick = { onCreate(name.trim(), group) },
-            ) {
-                Text("创建", color = if (name.isNotBlank()) textMain else textSub)
-            }
+                enabled = name.isNotBlank(),
+                textColor = if (name.isNotBlank()) textMain else textSub,
+            )
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = textSub)
-            }
+            ReTextButton("取消", onDismiss, textColor = textSub)
         },
         containerColor = cardBg,
     )
@@ -1791,17 +1790,15 @@ private fun StudioRenameDialog(
             }
         },
         confirmButton = {
-            TextButton(
-                enabled = name.isNotBlank(),
+            ReTextButton(
+                "保存",
                 onClick = { onRename(name.trim()) },
-            ) {
-                Text("保存", color = if (name.isNotBlank()) textMain else textSub)
-            }
+                enabled = name.isNotBlank(),
+                textColor = if (name.isNotBlank()) textMain else textSub,
+            )
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消", color = textSub)
-            }
+            ReTextButton("取消", onDismiss, textColor = textSub)
         },
         containerColor = cardBg,
     )

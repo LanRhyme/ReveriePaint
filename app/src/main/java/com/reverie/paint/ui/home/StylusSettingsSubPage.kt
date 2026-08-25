@@ -48,7 +48,6 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,6 +71,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Theme
@@ -315,9 +315,7 @@ internal fun StylusSettingsSubPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { showHelpDialog = false }) {
-                            Text("我知道了", color = colors.accent, fontWeight = FontWeight.Bold)
-                        }
+                        ReTextButton("我知道了", { showHelpDialog = false }, textColor = colors.accent, fontWeight = FontWeight.Bold)
                     }
                 }
             }

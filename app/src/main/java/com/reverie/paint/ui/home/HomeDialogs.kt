@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.activity.compose.BackHandler
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
@@ -101,19 +102,20 @@ internal fun NewFolderDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.subText)
-                    }
+                    ReTextButton("取消", onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = {
+                    ReTextButton(
+                        "创建",
+                        onClick = {
                         if (folderName.isNotBlank()) {
                             onCreate(folderName.trim())
                         }
                         onDismiss()
                         onFolderNameChange("")
-                    }) {
-                        Text("创建", color = colors.accent, fontWeight = FontWeight.Bold)
-                    }
+                    },
+                        textColor = colors.accent,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -166,16 +168,17 @@ internal fun RenameProjectDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.subText)
-                    }
+                    ReTextButton("取消", onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = {
+                    ReTextButton(
+                        "确定",
+                        onClick = {
                         if (name.isNotBlank()) onRename(name.trim())
                         onDismiss()
-                    }) {
-                        Text("确定", color = colors.accent, fontWeight = FontWeight.Bold)
-                    }
+                    },
+                        textColor = colors.accent,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }
@@ -275,9 +278,7 @@ val context = LocalContext.current
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.subText)
-                    }
+                    ReTextButton("取消", onDismiss, textColor = colors.subText)
                 }
             }
         }
@@ -362,23 +363,20 @@ val context = LocalContext.current
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = onDismiss) {
-                            Text("取消", color = colors.subText, fontSize = 14.sp)
-                        }
+                        ReTextButton("取消", onDismiss, textColor = colors.subText, fontSize = 14.sp)
                         Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
+                        ReTextButton(
+                            "确认删除",
+                            {
                                 onDismiss()
                                 onDelete()
                             },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFF5252),
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
+                            primary = true,
+                            containerColor = Color(0xFFFF5252),
+                            contentColor = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
                     }
                 }
             }
@@ -459,23 +457,20 @@ val context = LocalContext.current
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        TextButton(onClick = onDismiss) {
-                            Text("取消", color = colors.subText, fontSize = 14.sp)
-                        }
+                        ReTextButton("取消", onDismiss, textColor = colors.subText, fontSize = 14.sp)
                         Spacer(Modifier.width(8.dp))
-                        Button(
-                            onClick = {
+                        ReTextButton(
+                            "确认删除",
+                            {
                                 onDismiss()
                                 onConfirm()
                             },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFF5252),
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("确认删除", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
+                            primary = true,
+                            containerColor = Color(0xFFFF5252),
+                            contentColor = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                        )
                     }
                 }
             }

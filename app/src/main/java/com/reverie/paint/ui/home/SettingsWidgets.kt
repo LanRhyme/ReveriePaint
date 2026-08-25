@@ -43,10 +43,10 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.ReSwitch
 import androidx.compose.ui.draw.scale
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -411,18 +411,17 @@ internal fun CustomColorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("取消", color = colors.subText)
-                    }
+                    ReTextButton("取消", onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
-                    TextButton(
+                    ReTextButton(
+                        "确定",
                         onClick = {
                             val hex = if (hexInput.length == 6) "#$hexInput" else initialHex
                             onConfirm(hex)
-                        }
-                    ) {
-                        Text("确定", color = colors.accent, fontWeight = FontWeight.Bold)
-                    }
+                        },
+                        textColor = colors.accent,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
         }

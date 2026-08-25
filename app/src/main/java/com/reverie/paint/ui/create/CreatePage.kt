@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -364,7 +365,9 @@ fun CreatePage(vm: PaintViewModel) {
                                     }
                                 },
                                 confirmButton = {
-                                    TextButton(onClick = {
+                                    ReTextButton(
+                                        "保存",
+                                        onClick = {
                                         val pName = newPresetName.ifBlank { "自定义 ${widthVal}×${heightVal}" }
                                         customPresets.add(
                                             0,
@@ -372,14 +375,13 @@ fun CreatePage(vm: PaintViewModel) {
                                         )
                                         showSavePresetDialog = false
                                         selectedTab = 0
-                                    }) {
-                                        Text("保存", color = colors.accent, fontWeight = FontWeight.Bold)
-                                    }
+                                    },
+                                        textColor = colors.accent,
+                                        fontWeight = FontWeight.Bold,
+                                    )
                                 },
                                 dismissButton = {
-                                    TextButton(onClick = { showSavePresetDialog = false }) {
-                                        Text("取消", color = colors.subText)
-                                    }
+                                    ReTextButton("取消", { showSavePresetDialog = false }, textColor = colors.subText)
                                 },
                                 containerColor = colors.panel
                             )

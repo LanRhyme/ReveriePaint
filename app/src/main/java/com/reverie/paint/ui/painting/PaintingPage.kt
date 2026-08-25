@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
@@ -1522,14 +1523,10 @@ fun TextInputDialog(
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(onClick = { onConfirm(text, fontSize.toDouble()) }) {
-                Text("确定", color = Morandi.accentHi)
-            }
+            ReTextButton("确定", { onConfirm(text, fontSize.toDouble()) }, textColor = Morandi.accentHi)
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) {
-                Text("取消", color = Morandi.subText)
-            }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )

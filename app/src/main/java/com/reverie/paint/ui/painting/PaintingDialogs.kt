@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.ReSlider
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
@@ -126,17 +127,11 @@ internal fun ExitSaveDialog(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        androidx.compose.material3.TextButton(onClick = onDismiss) {
-                            Text("取消", color = Morandi.subText, fontSize = 13.sp)
-                        }
+                        ReTextButton("取消", onDismiss, textColor = Morandi.subText, fontSize = 13.sp)
                         Spacer(Modifier.width(4.dp))
-                        androidx.compose.material3.TextButton(onClick = onDiscard) {
-                            Text("不保存", color = Color(0xFFFF5252), fontSize = 13.sp)
-                        }
+                        ReTextButton("不保存", onDiscard, textColor = Color(0xFFFF5252), fontSize = 13.sp)
                         Spacer(Modifier.width(4.dp))
-                        androidx.compose.material3.TextButton(onClick = onSaveAndExit) {
-                            Text("保存并退出", color = Morandi.accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
+                        ReTextButton("保存并退出", onSaveAndExit, textColor = Morandi.accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }

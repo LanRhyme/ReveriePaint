@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
 import android.graphics.BitmapFactory
@@ -37,8 +38,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -573,18 +572,18 @@ fun BrushPanel(
             title = { Text("删除自定义分组", color = Morandi.text, fontSize = 15.sp) },
             text = { Text("确定要删除分类「$grp」吗？组内的笔刷将保留并移至默认分类。", color = Morandi.subText, fontSize = 13.sp) },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
+                ReTextButton(
+                    "删除",
+                    onClick = {
                     vm.deleteBrushGroup(grp)
                     if (selectedCategory == grp) selectedCategory = "全部"
                     groupPendingDelete = null
-                }) {
-                    Text("删除", color = Color(0xFFC86464))
-                }
+                },
+                    textColor = Color(0xFFC86464),
+                )
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { groupPendingDelete = null }) {
-                    Text("取消", color = Morandi.subText)
-                }
+                ReTextButton("取消", { groupPendingDelete = null }, textColor = Morandi.subText)
             },
             containerColor = Morandi.panelHi,
         )
@@ -659,7 +658,7 @@ private fun CategoryMenuDialog(
         },
         confirmButton = {},
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -692,13 +691,15 @@ private fun RenameBrushGroupDialog(
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(
+            ReTextButton(
+                "确定",
+                onClick = { onRename(name.trim()) },
                 enabled = name.isNotBlank() && name.trim() != initialName,
-                onClick = { onRename(name.trim()) }
-            ) { Text("确定", color = Morandi.accent) }
+                textColor = Morandi.accent,
+            )
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -757,7 +758,7 @@ private fun ReorderBrushMenu(
         },
         confirmButton = {},
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -792,13 +793,10 @@ private fun NewBrushPresetDialog(
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onCreate(name.trim(), selectedGroup) }
-            ) { Text("创建", color = Morandi.accent) }
+            ReTextButton("创建", { onCreate(name.trim(), selectedGroup) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -831,13 +829,10 @@ private fun RenameBrushPresetDialog(
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(
-                enabled = name.isNotBlank(),
-                onClick = { onRename(name.trim()) }
-            ) { Text("保存", color = Morandi.accent) }
+            ReTextButton("保存", { onRename(name.trim()) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -874,13 +869,15 @@ private fun NewBrushGroupDialog(
             }
         },
         confirmButton = {
-            androidx.compose.material3.TextButton(
+            ReTextButton(
+                "创建",
+                onClick = { onCreate(name.trim()) },
                 enabled = name.isNotBlank() && !existing.contains(name.trim()),
-                onClick = { onCreate(name.trim()) }
-            ) { Text("创建", color = Morandi.accent) }
+                textColor = Morandi.accent,
+            )
         },
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -918,7 +915,7 @@ private fun MoveBrushGroupDialog(
         },
         confirmButton = {},
         dismissButton = {
-            androidx.compose.material3.TextButton(onClick = onDismiss) { Text("取消", color = Morandi.subText) }
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1033,21 +1030,15 @@ fun BrushPropertyPage(
 
         // Advanced Brush Studio entry button
         Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Button(
-                onClick = onOpenStudio,
-                modifier = Modifier.fillMaxWidth().height(38.dp),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Morandi.accent.copy(alpha = 0.9f)),
-                contentPadding = PaddingValues(0.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(painterResource(R.drawable.ic_sliders), contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
-                    Text("进入高级笔刷工作室", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
+            ReTextButton(
+                "进入高级笔刷工作室",
+                onOpenStudio,
+                modifier = Modifier.fillMaxWidth(),
+                icon = R.drawable.ic_sliders,
+                primary = true,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
         }
 
         Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))

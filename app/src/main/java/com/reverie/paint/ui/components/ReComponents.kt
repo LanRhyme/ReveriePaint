@@ -990,8 +990,10 @@ fun ReChip(
 
 // ---------- glass text button (dialog actions) ----------
 /**
- * 对话框文字按钮：玻璃胶囊 + 按压光效。替换全部 material3 TextButton。
- * textColor 由调用点传入以保留原语义（accent 主操作 / 红色危险 / subText 取消）。
+ * 对话框文字按钮：玻璃胶囊 + 按压光效。替换全部 material3 TextButton/Button。
+ * - 默认幽灵态：panelHi 半透玻璃底 + glassBorder，文字色由调用点传入保留原语义
+ * - primary=true：accent 实心胶囊（主操作）
+ * - containerColor/contentColor 可覆盖（危险操作红底等）
  */
 @Composable
 fun ReTextButton(
@@ -999,6 +1001,9 @@ fun ReTextButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: Int? = null,
+    primary: Boolean = false,
+    containerColor: Color? = null,
+    contentColor: Color? = null,
     textColor: Color = Theme.current.accent,
     fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
     fontWeight: FontWeight? = FontWeight.Medium,
@@ -1007,6 +1012,16 @@ fun ReTextButton(
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(18.dp)
+    val bg = when {
+        containerColor != null -> containerColor
+        primary -> colors.accent
+        else -> colors.panelHi.copy(alpha = if (enabled) 0.55f else 0.3f)
+    }
+    val fg = when {
+        contentColor != null -> contentColor
+        primary -> colors.onAccent
+        else -> textColor
+    }
     Box(
         modifier =
             modifier
@@ -1014,8 +1029,8 @@ fun ReTextButton(
                 .pressScale(interaction, pressedScale = 0.94f)
                 .clip(shape)
                 .liquidHighlight(interaction, Color.White, radius = 30.dp)
-                .background(colors.panelHi.copy(alpha = if (enabled) 0.55f else 0.3f))
-                .then(if (enabled) Modifier.glassBorder(shape) else Modifier)
+                .background(bg)
+                .then(if (!primary && containerColor == null && enabled) Modifier.glassBorder(shape) else Modifier)
                 .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
                 .padding(horizontal = 16.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
@@ -1028,13 +1043,13 @@ fun ReTextButton(
                 Icon(
                     painter = painterResource(icon),
                     contentDescription = null,
-                    tint = textColor,
+                    tint = fg,
                     modifier = Modifier.size(16.dp),
                 )
             }
             Text(
                 text,
-                color = textColor,
+                color = fg,
                 fontSize = fontSize,
                 fontWeight = fontWeight,
             )
