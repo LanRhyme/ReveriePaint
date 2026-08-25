@@ -979,6 +979,94 @@ fun ReChip(
     }
 }
 
+// ---------- glass text button (dialog actions) ----------
+/**
+ * 对话框文字按钮：玻璃胶囊 + 按压光效。替换全部 material3 TextButton。
+ * textColor 由调用点传入以保留原语义（accent 主操作 / 红色危险 / subText 取消）。
+ */
+@Composable
+fun ReTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: Int? = null,
+    textColor: Color = Theme.current.accent,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    fontWeight: FontWeight? = FontWeight.Medium,
+    enabled: Boolean = true,
+) {
+    val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier =
+            modifier
+                .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                .pressScale(interaction, pressedScale = 0.94f)
+                .clip(shape)
+                .liquidHighlight(interaction, Color.White, radius = 30.dp)
+                .background(colors.panelHi.copy(alpha = if (enabled) 0.55f else 0.3f))
+                .then(if (enabled) Modifier.glassBorder(shape) else Modifier)
+                .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() }
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (icon != null) {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            Text(
+                text,
+                color = textColor,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+            )
+        }
+    }
+}
+
+// ---------- floating action button (glass circle) ----------
+/** 圆形玻璃 FAB：accent 实心 + 高光缘 + pressGrow 光效，替换 material3 FloatingActionButton */
+@Composable
+fun ReFab(
+    icon: Int,
+    desc: String,
+    onTap: () -> Unit,
+    modifier: Modifier = Modifier,
+    sizeDp: androidx.compose.ui.unit.Dp = 56.dp,
+) {
+    val colors = Theme.current
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier =
+            modifier
+                .pressGrow(interaction, growFraction = 0.06f)
+                .size(sizeDp)
+                .shadow(12.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
+                .clip(CircleShape)
+                .liquidHighlight(interaction, Color.White, radius = sizeDp * 0.7f)
+                .background(colors.accent)
+                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                .clickable(interactionSource = interaction, indication = null) { onTap() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = desc,
+            tint = colors.onAccent,
+            modifier = Modifier.size(22.dp),
+        )
+    }
+}
+
 // ---------- modal text field (replaces the ad-hoc text dialog) ----------
 @Composable
 fun ReTextInput(
