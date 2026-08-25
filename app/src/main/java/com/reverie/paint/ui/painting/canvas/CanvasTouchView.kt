@@ -936,8 +936,6 @@ class CanvasTouchView(context: Context) : View(context) {
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 smoothedPressure = pressure
-                livePressure?.value = pressure
-                isCursorTouching?.value = true
                 v.touchStart(docPos.x, docPos.y, pressure.toDouble())
                 strokeStarted = true
             }
@@ -1062,12 +1060,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                // 光标环同源缩放：实时压感写入共享状态并触发重绘
-                if (pressure != localPressure) {
-                    localPressure = pressure
-                    livePressure?.value = pressure
-                    invalidate()
-                }
                 if (!strokeStarted) {
                     v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
                     strokeStarted = true
@@ -1230,9 +1222,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         v.touchEnd()
                     }
                     strokeStarted = false
-                    isCursorTouching?.value = false
-                    livePressure?.value = 1f
-                    invalidate()
                 }
             }
             Tool.LIQUIFY -> {
