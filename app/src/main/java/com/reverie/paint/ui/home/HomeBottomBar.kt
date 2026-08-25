@@ -143,7 +143,7 @@ internal fun HomeBottomBar(
                 Icon(
                     painter = painterResource(R.drawable.ic_brush),
                     contentDescription = "画廊",
-                    tint = if (isGallery) colors.accent else colors.subText,
+                    tint = if (isGallery) colors.text else colors.subText,
                     modifier = Modifier.size(20.dp).scale(galleryIconScale.value),
                 )
                 AnimatedVisibility(
@@ -198,7 +198,7 @@ internal fun HomeBottomBar(
                 Icon(
                     painterResource(R.drawable.ic_settings),
                     contentDescription = "设置",
-                    tint = if (isSettings) colors.accent else colors.subText,
+                    tint = if (isSettings) colors.text else colors.subText,
                     modifier = Modifier.size(20.dp).scale(settingsIconScale.value),
                 )
                 AnimatedVisibility(

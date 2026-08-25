@@ -563,7 +563,7 @@ fun HomePage(vm: PaintViewModel) {
                                             Icon(
                                                 painterResource(R.drawable.ic_canvas_tab),
                                                 contentDescription = null,
-                                                tint = colors.accent.copy(alpha = 0.7f),
+                                                tint = colors.subText.copy(alpha = 0.7f),
                                                 modifier = Modifier.size(36.dp),
                                             )
                                         }
@@ -891,7 +891,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                         if (isSelectMode &&
                                                                             isSelected
                                                                         ) {
-                                                                            colors.accent
+                                                                            colors.selStroke
                                                                         } else {
                                                                             Color.Black.copy(alpha = 0.18f)
                                                                         },
@@ -967,7 +967,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                         .clip(CircleShape)
                                                                         .background(
                                                                             if (isSelected) {
-                                                                                colors.accent
+                                                                                colors.selStroke
                                                                             } else {
                                                                                 Color.Black.copy(
                                                                                     alpha = 0.45f,
@@ -1049,7 +1049,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                         .padding(6.dp)
                                                                         .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
                                                                         .clip(RoundedCornerShape(12.dp))
-                                                                        .background(colors.accent)
+                                                                        .background(Color.Black.copy(alpha = 0.55f))
                                                                         .padding(horizontal = 7.dp, vertical = 3.dp),
                                                             ) {
                                                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1081,7 +1081,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                         .clip(CircleShape)
                                                                         .background(
                                                                             if (isSelected) {
-                                                                                colors.accent
+                                                                                colors.selStroke
                                                                             } else {
                                                                                 Color.Black.copy(
                                                                                     alpha = 0.45f,

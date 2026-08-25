@@ -41,6 +41,8 @@ data class AppColors(
     val scrim: Color, // full-screen backdrop over the canvas
     val gridLine: Color, // canvas grid
     val canvasShadow: Color, // drop shadow under the document
+    val selFill: Color = Color.White.copy(alpha = 0.10f), // 中性选中填充（状态反馈，非品牌色）
+    val selStroke: Color = Color.White.copy(alpha = 0.45f), // 中性选中描边/高光缘
 )
 
 /** Default Morandi Dark palette - deep elegant charcoal slate. */
@@ -79,6 +81,8 @@ val MorandiLightColors =
         scrim = Color(0x66000000),
         gridLine = Color(0xFFCCD1DA),
         canvasShadow = Color(0x2E000000),
+        selFill = Color.Black.copy(alpha = 0.06f),
+        selStroke = Color.Black.copy(alpha = 0.32f),
     )
 
 /** Alias for backward compatibility */

@@ -124,14 +124,14 @@ fun ToolFloatChip(
             .clip(RoundedCornerShape(8.dp))
             .background(
                 when {
-                    selected -> Morandi.accent
+                    selected -> Morandi.text
                     danger -> Color(0x33B05552)
                     else -> Morandi.panelHi
                 }
             )
             .border(
                 1.dp, 
-                if (selected) Morandi.accent else Morandi.border.copy(alpha = 0.3f), 
+                if (selected) Morandi.selStroke else Morandi.border.copy(alpha = 0.3f), 
                 RoundedCornerShape(8.dp)
             )
             .pointerInput(Unit) {

@@ -487,7 +487,7 @@ internal fun LayerDetailPage(
                             .background(if (label == 0) Morandi.panelHi else color)
                             .border(
                                 width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
+                                color = if (isSelected) Morandi.selStroke else Morandi.border.copy(alpha = 0.6f),
                                 shape = CircleShape,
                             ).clickable { vm.setLayerColorLabel(index, label) },
                     contentAlignment = Alignment.Center,
@@ -913,13 +913,13 @@ internal fun BlendModesPage(
                             Icon(
                                 painterResource(iconFor(opId)),
                                 contentDescription = null,
-                                tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 0.9f, t)),
+                                tint = if (isSelected) Morandi.text else Morandi.icon.copy(alpha = lerp(0.6f, 1f, t)),
                                 modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(9.dp))
                             Text(
                                 name,
-                                color = if (isSelected) Morandi.accent else Morandi.subText.copy(alpha = lerp(0.45f, 1f, t)),
+                                color = if (isSelected) Morandi.text else Morandi.subText.copy(alpha = lerp(0.45f, 1f, t)),
                                 fontSize = 13.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             )
