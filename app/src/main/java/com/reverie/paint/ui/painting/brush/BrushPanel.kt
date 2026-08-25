@@ -56,7 +56,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import com.reverie.paint.ui.components.liquidSheen
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -352,7 +351,6 @@ fun BrushPanel(
                                                         color = cellBorderColor,
                                                         shape = RoundedCornerShape(10.dp)
                                                     )
-                                                    .liquidSheen(trigger = isSelected)
                                                     .pointerInput(preset.name) {
                                                         detectDragGesturesAfterLongPress(
                                                             onDragStart = {
