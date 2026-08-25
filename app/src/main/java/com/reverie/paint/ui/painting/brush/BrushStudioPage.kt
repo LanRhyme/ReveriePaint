@@ -59,6 +59,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -278,14 +279,7 @@ fun BrushStudioPage(
                     .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left),
-                        contentDescription = "返回画布",
-                        tint = textMain,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+                ReIconButton(R.drawable.ic_arrow_left, "返回画布", onBack, size = 36.dp, tint = textMain)
 
                 Text(
                     "笔刷工作台",
@@ -315,50 +309,22 @@ fun BrushStudioPage(
                 Spacer(Modifier.weight(1f))
 
                 // New Brush action
-                IconButton(onClick = { showNewBrushDialog = true }) {
-                    Icon(
-                        painterResource(R.drawable.ic_plus),
-                        contentDescription = "新建笔刷",
-                        tint = textSub,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                ReIconButton(R.drawable.ic_plus, "新建笔刷", { showNewBrushDialog = true }, tint = textSub, iconSize = 18.dp)
 
                 // Duplicate action
-                IconButton(onClick = {
+                ReIconButton(R.drawable.ic_copy, "复制笔刷", {
                     if (presetIndex in vm.brushPresets.indices) {
                         vm.duplicateBrushPreset(presetIndex)
                         Toast.makeText(context, "已创建副本", Toast.LENGTH_SHORT).show()
                     }
-                }) {
-                    Icon(
-                        painterResource(R.drawable.ic_copy),
-                        contentDescription = "复制笔刷",
-                        tint = textSub,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                }, tint = textSub, iconSize = 18.dp)
 
                 // Import action
-                IconButton(onClick = { importBrushLauncher.launch(arrayOf("*/*")) }) {
-                    Icon(
-                        painterResource(R.drawable.ic_export_tab),
-                        contentDescription = "导入外部笔刷",
-                        tint = textSub,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                ReIconButton(R.drawable.ic_export_tab, "导入外部笔刷", { importBrushLauncher.launch(arrayOf("*/*")) }, tint = textSub, iconSize = 18.dp)
 
                 // Overflow Menu
                 Box {
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            painterResource(R.drawable.ic_dots_vertical),
-                            contentDescription = "更多操作",
-                            tint = textSub,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
+                    ReIconButton(R.drawable.ic_dots_vertical, "更多操作", { showMenu = true }, tint = textSub, iconSize = 18.dp)
 
                     DropdownMenu(
                         expanded = showMenu,
@@ -923,9 +889,7 @@ private fun BrushTipPickerModal(
 
                         Spacer(Modifier.width(6.dp))
 
-                        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                            Icon(painterResource(R.drawable.ic_x), contentDescription = "关闭", tint = textSub, modifier = Modifier.size(16.dp))
-                        }
+                        ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
                     }
 
                     Spacer(Modifier.height(10.dp))

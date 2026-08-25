@@ -127,11 +127,13 @@ fun ReIconButton(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     size: androidx.compose.ui.unit.Dp = 32.dp,
+    tint: Color? = null,
+    iconSize: androidx.compose.ui.unit.Dp = Dimens.icon,
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
     val tintColor by animateColorAsState(
-        if (selected) colors.accent else colors.icon,
+        tint ?: if (selected) colors.accent else colors.icon,
         spring(dampingRatio = 0.90f, stiffness = 500f)
     )
 
@@ -149,7 +151,7 @@ fun ReIconButton(
             painter = painterResource(icon),
             contentDescription = desc,
             tint = tintColor,
-            modifier = Modifier.size(Dimens.icon),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

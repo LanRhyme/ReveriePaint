@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.R
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Dispatchers
@@ -310,20 +312,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                     }
                 }
 
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Morandi.panel),
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "关闭",
-                        tint = Morandi.text,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
+                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
             }
         }
     }

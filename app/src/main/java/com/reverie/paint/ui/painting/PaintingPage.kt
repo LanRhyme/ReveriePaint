@@ -87,6 +87,7 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -1332,13 +1333,7 @@ fun PaintingPage(
                                 .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = { vm.closeMoreSettings() }) {
-                            Icon(
-                                painterResource(R.drawable.ic_arrow_left),
-                                contentDescription = "返回画布",
-                                tint = Morandi.text,
-                            )
-                        }
+                        ReIconButton(R.drawable.ic_arrow_left, "返回画布", { vm.closeMoreSettings() }, tint = Morandi.text)
                         Text(
                             "更多设置",
                             color = Morandi.text,

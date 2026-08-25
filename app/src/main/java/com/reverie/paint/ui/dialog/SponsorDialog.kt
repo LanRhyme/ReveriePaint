@@ -35,6 +35,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.R
+import com.reverie.paint.ui.components.ReFab
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -309,20 +312,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                         color = Morandi.subText,
                                     )
                                 }
-                                IconButton(
-                                    onClick = onDismiss,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Morandi.panel),
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "关闭",
-                                        tint = Morandi.text,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
+                                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
                             }
 
                             // Disclaimer banner (MicYou Style)
@@ -363,8 +353,10 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         }
 
                         // Floating Action Button
-                        FloatingActionButton(
-                            onClick = {
+                        ReFab(
+                            R.drawable.ic_heart,
+                            "前往爱发电赞助",
+                            {
                                 try {
                                     uriHandler.openUri("https://afdian.com/a/LanRhyme")
                                 } catch (_: Exception) {}
@@ -372,16 +364,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(20.dp),
-                            containerColor = Morandi.accent,
-                            contentColor = Morandi.onAccent,
-                            shape = CircleShape,
-                        ) {
-                            Icon(
-                                Icons.Default.Favorite,
-                                contentDescription = "前往爱发电赞助",
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
+                        )
                     }
                 }
 
@@ -410,20 +393,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                         color = Morandi.subText,
                                     )
                                 }
-                                IconButton(
-                                    onClick = onDismiss,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Morandi.panel),
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "关闭",
-                                        tint = Morandi.text,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
+                                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
                             }
 
                             // Disclaimer banner
@@ -458,8 +428,10 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         }
 
                         // Floating Action Button
-                        FloatingActionButton(
-                            onClick = {
+                        ReFab(
+                            R.drawable.ic_heart,
+                            "前往爱发电赞助",
+                            {
                                 try {
                                     uriHandler.openUri("https://afdian.com/a/LanRhyme")
                                 } catch (_: Exception) {}
@@ -467,16 +439,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .padding(20.dp),
-                            containerColor = Morandi.accent,
-                            contentColor = Morandi.onAccent,
-                            shape = CircleShape,
-                        ) {
-                            Icon(
-                                Icons.Default.Favorite,
-                                contentDescription = "前往爱发电赞助",
-                                modifier = Modifier.size(24.dp),
-                            )
-                        }
+                        )
                     }
                 }
             }

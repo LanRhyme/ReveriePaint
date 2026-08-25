@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -46,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
+import com.reverie.paint.ui.components.ReFab
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.core.*
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
@@ -86,13 +87,7 @@ fun ReplayPage(vm: PaintViewModel) {
                         .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { vm.exitReplay() }) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left),
-                        contentDescription = "返回",
-                        tint = colors.text,
-                    )
-                }
+                ReIconButton(R.drawable.ic_arrow_left, "返回", { vm.exitReplay() }, tint = colors.text)
                 Text(
                     text = if (vm.docName.isNotBlank()) "回放 · ${vm.docName}" else "回放",
                     color = colors.text,
@@ -186,21 +181,12 @@ fun ReplayPage(vm: PaintViewModel) {
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = { if (s.isPlaying) vm.pauseReplay() else vm.playReplay() },
-                            modifier =
-                                Modifier
-                                    .size(54.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.accent),
-                        ) {
-                            Icon(
-                                painterResource(if (s.isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
-                                contentDescription = if (s.isPlaying) "暂停" else "播放",
-                                tint = colors.onAccent,
-                                modifier = Modifier.size(26.dp),
-                            )
-                        }
+                        ReFab(
+                            icon = if (s.isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
+                            desc = if (s.isPlaying) "暂停" else "播放",
+                            onTap = { if (s.isPlaying) vm.pauseReplay() else vm.playReplay() },
+                            sizeDp = 54.dp,
+                        )
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Slider(
@@ -227,13 +213,7 @@ fun ReplayPage(vm: PaintViewModel) {
                             }
                         }
                         Spacer(Modifier.width(10.dp))
-                        IconButton(onClick = { vm.seekReplay(0f) }) {
-                            Icon(
-                                painterResource(R.drawable.ic_refresh),
-                                contentDescription = "从头播放",
-                                tint = colors.text,
-                            )
-                        }
+                        ReIconButton(R.drawable.ic_refresh, "从头播放", { vm.seekReplay(0f) }, tint = colors.text)
                     }
                 }
             }

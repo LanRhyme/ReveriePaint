@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
@@ -379,17 +380,17 @@ fun HomePage(vm: PaintViewModel) {
                                     placeholder = { Text("搜索作品...", color = colors.subText, fontSize = 13.sp) },
                                     singleLine = true,
                                     trailingIcon = {
-                                        IconButton(onClick = {
-                                            vm.searchQuery = ""
-                                            isSearchActive = false
-                                        }) {
-                                            Icon(
-                                                painterResource(R.drawable.ic_x),
-                                                contentDescription = "Close",
-                                                tint = colors.subText,
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        }
+                                        ReIconButton(
+                                            R.drawable.ic_x,
+                                            "Close",
+                                            {
+                                                vm.searchQuery = ""
+                                                isSearchActive = false
+                                            },
+                                            size = 30.dp,
+                                            tint = colors.subText,
+                                            iconSize = 18.dp,
+                                        )
                                     },
                                     colors =
                                         OutlinedTextFieldDefaults.colors(
