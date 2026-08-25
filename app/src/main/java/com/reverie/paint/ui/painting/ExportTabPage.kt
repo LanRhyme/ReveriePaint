@@ -14,6 +14,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -50,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReMenuItem
+import com.reverie.paint.ui.components.liquidHighlight
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
@@ -147,18 +150,23 @@ internal fun ExportTabPage(
         ) {
             exportFormats.forEach { item ->
                 val isSel = selectedFormat == item.format
+                val cardInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isSel) Morandi.accent.copy(alpha = 0.12f) else Morandi.panel)
+                        .pressScale(cardInteraction, pressedScale = 0.98f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .liquidHighlight(cardInteraction, Color.White, radius = 60.dp)
+                        .background(if (isSel) Morandi.accent.copy(alpha = 0.10f) else Morandi.panel)
                         .border(
-                            width = if (isSel) 1.5.dp else 1.dp,
+                            width = 1.dp,
                             color = if (isSel) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(12.dp)
                         )
-                        .clickable { selectedFormat = item.format }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .clickable(interactionSource = cardInteraction, indication = null) {
+                            selectedFormat = item.format
+                        }
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -217,13 +225,17 @@ internal fun ExportTabPage(
         // Action Buttons: Save to File & Share
         val currentItem = exportFormats.firstOrNull { it.format == selectedFormat } ?: exportFormats.first()
 
+        val exportInteraction = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .pressScale(exportInteraction, pressedScale = 0.97f)
+                .height(46.dp)
+                .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.30f))
+                .clip(RoundedCornerShape(14.dp))
+                .liquidHighlight(exportInteraction, Color.White, radius = 80.dp)
                 .background(if (isExporting) Morandi.accent.copy(alpha = 0.6f) else Morandi.accent)
-                .clickable(enabled = !isExporting) {
+                .clickable(interactionSource = exportInteraction, indication = null, enabled = !isExporting) {
                     isExporting = true
                     val ext = selectedFormat.lowercase()
                     val targetDir = context.getExternalFilesDir("exports") ?: context.cacheDir
@@ -261,14 +273,17 @@ internal fun ExportTabPage(
             )
         }
 
+        val shareInteraction = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                .clickable(enabled = !isExporting) {
+                .pressScale(shareInteraction, pressedScale = 0.97f)
+                .height(46.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .liquidHighlight(shareInteraction, Color.White, radius = 80.dp)
+                .background(Morandi.panel.copy(alpha = 0.6f))
+                .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                .clickable(interactionSource = shareInteraction, indication = null, enabled = !isExporting) {
                     isExporting = true
                     val ext = selectedFormat.lowercase()
                     val shareDir = java.io.File(context.cacheDir, "share")

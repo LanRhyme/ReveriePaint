@@ -321,16 +321,16 @@ fun BrushPanel(
                                                         }
                                                     }
                                                     .zIndex(if (isDragging) 10f else 0f)
-                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clip(RoundedCornerShape(10.dp))
                                                     .background(
                                                         if (isDragging) Morandi.panelHi
-                                                        else if (isSelected) Morandi.accent.copy(alpha = 0.15f)
+                                                        else if (isSelected) Morandi.accent.copy(alpha = 0.10f)
                                                         else Morandi.panel.copy(alpha = 0.5f)
                                                     )
                                                     .border(
-                                                        width = if (isDragging) 2.dp else if (isSelected) 1.5.dp else 0.dp,
+                                                        width = if (isDragging || isSelected) 1.dp else 0.dp,
                                                         color = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
-                                                        shape = RoundedCornerShape(8.dp)
+                                                        shape = RoundedCornerShape(10.dp)
                                                     )
                                                     .pointerInput(preset.name) {
                                                         detectDragGesturesAfterLongPress(
@@ -385,13 +385,13 @@ fun BrushPanel(
                                                         contentDescription = preset.name,
                                                         modifier = Modifier
                                                             .size(38.dp)
-                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .clip(RoundedCornerShape(7.dp))
                                                     )
                                                 } else {
                                                     Box(
                                                         modifier = Modifier
                                                             .size(38.dp)
-                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .clip(RoundedCornerShape(7.dp))
                                                             .background(Morandi.panelHi)
                                                     )
                                                 }
@@ -401,6 +401,7 @@ fun BrushPanel(
                                                         preset.name,
                                                         color = if (isSelected) Morandi.text else Morandi.subText,
                                                         fontSize = 12.sp,
+                                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
                                                     )
