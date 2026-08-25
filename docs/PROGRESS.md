@@ -184,3 +184,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - 面板出入场统一 springSoft 入场, 出场保留短 tween; PaintingPage 四向面板/抽屉/全屏页全覆盖
 - blurBackground 默认开启, API<31 自动回退实色并在设置页禁用开关
 - 大面积 accent 装饰性着色中性化 (LayerRow 拖拽/多选态等), 功能性强状态保留实色
+
+## 涟漪清零 · 触点光效 · Accent 收窄 (2026-08-25)
+
+- 设计文档: docs/superpowers/specs/2026-08-25-liquid-glass-ripple-purge-design.md
+- 新增 LiquidIndication (IndicationNodeFactory): 按压触点径向白光, 大面积表面自动衰减亮度; ReverieApp 根部 LocalIndication 统一提供, 默认涟漪全局替换为光效
+- 新增 ReTextButton 玻璃胶囊按钮 (primary 实心 / containerColor 危险色覆盖) 与 ReFab 圆形玻璃 FAB
+- Material 组件清零: Switch x5 -> ReSwitch, IconButton ~15 -> ReIconButton, FAB x2 -> ReFab, TextButton/Button ~65 -> ReTextButton
+- AppColors 新增 selFill/selStroke 中性选中态 token (明暗两套分别校准)
+- accent 收窄: 状态反馈类全部改中性白系 (滑条填充/开关轨道/chip 选中/tab 指示/变换手柄/画廊多选), accent 仅保留主操作按钮与主题强调色选择器
+- 验证: compileDebugKotlin 每 Phase 通过; lintDebug 确认 24 个 error 全部为存量问题 (Locale/NewApi 等) 不在本次改动 hunks 内
