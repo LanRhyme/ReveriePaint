@@ -1188,14 +1188,13 @@ private fun EngineTabContent(
 
     StudioSectionHeader("笔刷管理与预设操作", textSub)
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = onDuplicate,
-            modifier = Modifier.weight(1f).height(38.dp),
-            shape = RoundedCornerShape(6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
-        ) {
-            Text("复制副本", color = textMain, fontSize = 12.sp)
-        }
+        ReTextButton(
+            "复制副本",
+            onDuplicate,
+            modifier = Modifier.weight(1f),
+            textColor = textMain,
+            fontSize = 12.sp,
+        )
         if (preset?.isBuiltIn == true) {
             Box(
                 modifier = Modifier
@@ -1209,26 +1208,24 @@ private fun EngineTabContent(
                 Text("重命名 (内置固定)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         } else {
-            Button(
-                onClick = onRename,
-                modifier = Modifier.weight(1f).height(38.dp),
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = cardBg),
-            ) {
-                Text("重命名", color = textMain, fontSize = 12.sp)
-            }
+            ReTextButton(
+                "重命名",
+                onRename,
+                modifier = Modifier.weight(1f),
+                textColor = textMain,
+                fontSize = 12.sp,
+            )
         }
     }
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(
-            onClick = { vm.resetBrushParams() },
-            modifier = Modifier.weight(1f).height(38.dp),
-            shape = RoundedCornerShape(6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = cardBg),
-        ) {
-            Text("重置参数", color = textMain, fontSize = 12.sp)
-        }
+        ReTextButton(
+            "重置参数",
+            { vm.resetBrushParams() },
+            modifier = Modifier.weight(1f),
+            textColor = textMain,
+            fontSize = 12.sp,
+        )
         if (preset?.isBuiltIn == true) {
             Box(
                 modifier = Modifier
@@ -1242,14 +1239,14 @@ private fun EngineTabContent(
                 Text("内置笔刷 (不可删除)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         } else {
-            Button(
-                onClick = onDelete,
-                modifier = Modifier.weight(1f).height(38.dp),
-                shape = RoundedCornerShape(6.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1E1E)),
-            ) {
-                Text("删除此笔刷", color = Color(0xFFC86464), fontSize = 12.sp)
-            }
+            ReTextButton(
+                "删除此笔刷",
+                onDelete,
+                modifier = Modifier.weight(1f),
+                containerColor = Color(0xFF2C1E1E),
+                contentColor = Color(0xFFC86464),
+                fontSize = 12.sp,
+            )
         }
     }
 }

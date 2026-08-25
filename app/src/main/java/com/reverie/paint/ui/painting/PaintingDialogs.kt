@@ -235,47 +235,28 @@ internal fun DiscardConfirmDialog(
                         Spacer(Modifier.height(22.dp))
 
                         // Top Action: Continue Editing (Cancel)
-                        androidx.compose.material3.Button(
-                            onClick = onDismiss,
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = Morandi.border.copy(alpha = 0.4f),
-                                contentColor = Morandi.text
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                        ) {
-                            Text("继续编辑", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                        }
+                        ReTextButton(
+                            "继续编辑",
+                            onDismiss,
+                            modifier = Modifier.fillMaxWidth(),
+                            containerColor = Morandi.border.copy(alpha = 0.4f),
+                            contentColor = Morandi.text,
+                            fontSize = 14.sp,
+                        )
 
                         Spacer(Modifier.height(10.dp))
 
                         // Bottom Action: Discard Changes & Exit (Pushed to bottom of screen)
-                        androidx.compose.material3.Button(
-                            onClick = onDiscard,
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFF5252),
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                        ) {
-                            Icon(
-                                painterResource(R.drawable.ic_trash),
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "丢弃修改并退出",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        ReTextButton(
+                            "丢弃修改并退出",
+                            onDiscard,
+                            modifier = Modifier.fillMaxWidth(),
+                            icon = R.drawable.ic_trash,
+                            containerColor = Color(0xFFFF5252),
+                            contentColor = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
