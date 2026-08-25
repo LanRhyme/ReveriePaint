@@ -443,7 +443,7 @@ internal fun CanvasOverlay(
                                 val isCorner = (idx == 0 || idx == 3 || idx == 12 || idx == 15)
                                 val hr = (if (isCorner) 9.dp.toPx() else 6.5.dp.toPx()) / currentScale
                                 drawCircle(Color(0xFF22262E), radius = hr, center = h)
-                                drawCircle(if (isCorner) Morandi.text else Color(0xFFAAB3C2), radius = hr, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale))
+                                drawCircle(if (isCorner) Morandi.accent else Color(0xFFAAB3C2), radius = hr, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale))
                                 drawCircle(Color.White, radius = (if (isCorner) 3.dp.toPx() else 2.dp.toPx()) / currentScale, center = h)
                             }
                         }
@@ -470,7 +470,7 @@ internal fun CanvasOverlay(
                             val handleRadius = 11.dp.toPx() / currentScale
                             handles.forEach { h ->
                                 drawCircle(Color(0xFF22262E), radius = handleRadius, center = h)
-                                drawCircle(Morandi.text, radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale))
+                                drawCircle(Morandi.accent, radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale))
                                 drawCircle(Color.White, radius = 3.dp.toPx() / currentScale, center = h)
                             }
                         }
@@ -502,8 +502,8 @@ internal fun CanvasOverlay(
                             val cr = 5.dp.toPx() / currentScale
                             drawLine(Color(0xFF181B22), centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 3.dp.toPx() / currentScale)
                             drawLine(Color(0xFF181B22), centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 3.dp.toPx() / currentScale)
-                            drawLine(Morandi.text, centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 1.5.dp.toPx() / currentScale)
-                            drawLine(Morandi.text, centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 1.5.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent, centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 1.5.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent, centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 1.5.dp.toPx() / currentScale)
 
                             // 3. Huashijie Pro Style Vector Handle Badges
                             val handleRadius = 11.dp.toPx() / currentScale
@@ -623,7 +623,7 @@ internal fun CanvasOverlay(
                         Tool.GRADIENT -> {
                             drawLine(Color.White, s, e, strokeWidth = 2.dp.toPx() / currentScale)
                             drawCircle(Color.White, radius = 5.dp.toPx() / currentScale, center = s)
-                            drawCircle(Morandi.text, radius = 5.dp.toPx() / currentScale, center = e)
+                            drawCircle(Morandi.accent, radius = 5.dp.toPx() / currentScale, center = e)
                         }
                         else -> Unit
                     }

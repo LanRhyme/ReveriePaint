@@ -584,7 +584,7 @@ internal fun SettingsTabPage(
                                         .weight(1f)
                                         .fillMaxHeight()
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isSelected) Morandi.text else Color.Transparent)
+                                        .background(if (isSelected) Morandi.accent else Color.Transparent)
                                         .clickable { vm.updateEyedropperSensitivity(i) },
                                     contentAlignment = Alignment.Center,
                                 ) {

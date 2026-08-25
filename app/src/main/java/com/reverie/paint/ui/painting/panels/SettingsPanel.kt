@@ -167,7 +167,7 @@ private fun TabHeaderItem(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val activeColor = Morandi.text
+    val activeColor = Morandi.accent
     val inactiveColor = Morandi.icon
     val textColor = if (selected) activeColor else Morandi.text
 

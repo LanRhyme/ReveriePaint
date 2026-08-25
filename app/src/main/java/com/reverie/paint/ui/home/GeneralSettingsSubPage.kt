@@ -141,7 +141,7 @@ internal fun GeneralSettingsSubPage(
                                 .weight(1f)
                                 .fillMaxHeight()
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSelected) colors.selStroke else Color.Transparent)
+                                .background(if (isSelected) colors.accent else Color.Transparent)
                                 .clickable { vm.updateAutoSaveIntervalMinutes(mins) },
                         contentAlignment = Alignment.Center,
                     ) {

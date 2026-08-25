@@ -176,7 +176,7 @@ fun CreatePage(vm: PaintViewModel) {
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) colors.selStroke else Color.Transparent)
+                            .background(if (isSelected) colors.accent else Color.Transparent)
                             .clickable { selectedTab = index },
                         contentAlignment = Alignment.Center
                     ) {
@@ -279,7 +279,7 @@ fun CreatePage(vm: PaintViewModel) {
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(6.dp))
-                                                .background(if (isSelected) colors.selFill else colors.panelHi)
+                                                .background(if (isSelected) colors.accent else colors.panelHi)
                                                 .clickable { customPpi = ppiOption.toString() }
                                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                                         ) {
@@ -458,7 +458,7 @@ fun CreatePage(vm: PaintViewModel) {
                                     .background(if (isSelected) colors.panelHi else Color.Transparent)
                                     .border(
                                         1.dp,
-                                        if (isSelected) colors.selStroke else colors.border.copy(alpha = 0.5f),
+                                        if (isSelected) colors.accent.copy(alpha = 0.8f) else colors.border.copy(alpha = 0.5f),
                                         RoundedCornerShape(20.dp)
                                     )
                                     .clickable { selectedCategory = cat }
@@ -466,7 +466,7 @@ fun CreatePage(vm: PaintViewModel) {
                             ) {
                                 Text(
                                     text = cat,
-                                    color = if (isSelected) colors.text else colors.subText,
+                                    color = if (isSelected) colors.accent else colors.subText,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                 )

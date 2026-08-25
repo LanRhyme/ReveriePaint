@@ -131,7 +131,7 @@ internal fun SettingDropdownRow(
                         text = {
                             Text(
                                 text = opt,
-                                color = if (opt == currentText) colors.text else colors.subText,
+                                color = if (opt == currentText) colors.accent else colors.text,
                                 fontSize = 13.sp
                             )
                         },

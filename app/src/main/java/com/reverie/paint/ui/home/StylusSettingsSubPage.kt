@@ -500,10 +500,10 @@ private fun CurvePresetIcon(
         modifier = Modifier
             .size(32.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (selected) colors.selFill else colors.panel)
+            .background(if (selected) colors.accent.copy(alpha = 0.25f) else colors.panel)
             .border(
                 1.dp,
-                if (selected) colors.selStroke else colors.border.copy(alpha = 0.5f),
+                if (selected) colors.accent else colors.border.copy(alpha = 0.5f),
                 RoundedCornerShape(6.dp)
             )
             .clickable(onClick = onClick),
@@ -513,7 +513,7 @@ private fun CurvePresetIcon(
             val w = size.width
             val h = size.height
             val stroke = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
-            val strokeColor = if (selected) colors.text else colors.subText
+            val strokeColor = if (selected) colors.accent else colors.subText
             val path = Path()
 
             when (type) {

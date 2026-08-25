@@ -1514,11 +1514,11 @@ private fun BottomTabButton(
         modifier = Modifier
             .size(48.dp, 30.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Morandi.selFill else Color.Transparent)
+            .background(if (selected) Morandi.accent.copy(alpha = 0.25f) else Color.Transparent)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        iconContent(if (selected) Morandi.text else Morandi.icon)
+        iconContent(if (selected) Morandi.accent else Morandi.icon)
     }
 }
 

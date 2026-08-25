@@ -324,12 +324,12 @@ fun BrushPanel(
                                                     .clip(RoundedCornerShape(8.dp))
                                                     .background(
                                                         if (isDragging) Morandi.panelHi
-                                                        else if (isSelected) Morandi.selFill
+                                                        else if (isSelected) Morandi.accent.copy(alpha = 0.15f)
                                                         else Morandi.panel.copy(alpha = 0.5f)
                                                     )
                                                     .border(
                                                         width = if (isDragging) 2.dp else if (isSelected) 1.5.dp else 0.dp,
-                                                        color = if (isDragging || isSelected) Morandi.selStroke else Color.Transparent,
+                                                        color = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
                                                         shape = RoundedCornerShape(8.dp)
                                                     )
                                                     .pointerInput(preset.name) {
@@ -399,7 +399,7 @@ fun BrushPanel(
                                                 Column(Modifier.weight(1f)) {
                                                     Text(
                                                         preset.name,
-                                                        color = if (isSelected) Morandi.text else Morandi.subText,
+                                                        color = if (isSelected) Morandi.accent else Morandi.subText,
                                                         fontSize = 12.sp,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,

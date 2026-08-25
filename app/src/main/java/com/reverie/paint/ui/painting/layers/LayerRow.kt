@@ -330,9 +330,9 @@ internal fun LayerRow(
                                 when {
                                     dragOnGroup -> Morandi.panelHi
 
-                                    selected -> Morandi.selFill
+                                    selected -> Morandi.accent.copy(alpha = 0.72f)
 
-                                    multiSelected -> Morandi.selStroke.copy(alpha = 0.35f)
+                                    multiSelected -> Morandi.accent.copy(alpha = 0.55f)
 
                                     // rows are transparent by default; the
                                     // panel itself is translucent
@@ -461,14 +461,14 @@ internal fun LayerRowContent(
                     Icon(
                         painterResource(R.drawable.ic_fill),
                         contentDescription = "填充图层",
-                        tint = if (selected) Morandi.onAccent else Morandi.icon,
+                        tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 } else if (layer.name.contains("滤镜")) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
                         contentDescription = "滤镜图层",
-                        tint = if (selected) Morandi.onAccent else Morandi.icon,
+                        tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 }

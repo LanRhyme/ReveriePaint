@@ -305,7 +305,7 @@ private fun TransformActionItem(
                 when {
                     primary -> Morandi.accent
                     danger -> Color(0x33C45656)
-                    active -> Morandi.selFill
+                    active -> Morandi.accent.copy(alpha = 0.25f)
                     else -> Color(0xFF262A33).copy(alpha = 0.7f)
                 }
             )
@@ -314,7 +314,7 @@ private fun TransformActionItem(
                 when {
                     primary -> Morandi.accent
                     danger -> Color(0x66C45656)
-                    active -> Morandi.text
+                    active -> Morandi.accent
                     else -> Color(0xFF383D48)
                 },
                 RoundedCornerShape(10.dp)
@@ -329,7 +329,7 @@ private fun TransformActionItem(
             tint = when {
                 primary -> Morandi.onAccent
                 danger -> Color(0xFFF28B82)
-                active -> Morandi.text
+                active -> Morandi.accent
                 else -> Morandi.text
             },
             modifier = Modifier.size(18.dp),
@@ -341,7 +341,7 @@ private fun TransformActionItem(
             color = when {
                 primary -> Morandi.onAccent
                 danger -> Color(0xFFF28B82)
-                active -> Morandi.text
+                active -> Morandi.accent
                 else -> Morandi.subText
             },
         )

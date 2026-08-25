@@ -274,7 +274,7 @@ internal fun SelectionActionItem(
                 when {
                     primary -> Morandi.accent
                     danger -> Color(0xFFFF4D4F).copy(alpha = 0.12f)
-                    active -> Morandi.selFill
+                    active -> Morandi.accent.copy(alpha = 0.15f)
                     else -> Morandi.panelHi
                 }
             )
@@ -283,7 +283,7 @@ internal fun SelectionActionItem(
                 when {
                     primary -> Morandi.accent
                     danger -> Color(0xFFFF4D4F).copy(alpha = 0.4f)
-                    active -> Morandi.text
+                    active -> Morandi.accent
                     else -> Morandi.border
                 },
                 RoundedCornerShape(10.dp)
@@ -306,7 +306,7 @@ internal fun SelectionActionItem(
             tint = when {
                 primary -> Morandi.onAccent
                 danger -> Color(0xFFFF4D4F)
-                active -> Morandi.text
+                active -> Morandi.accent
                 else -> Morandi.icon
             },
             modifier = Modifier.size(18.dp),
@@ -318,7 +318,7 @@ internal fun SelectionActionItem(
             color = when {
                 primary -> Morandi.onAccent
                 danger -> Color(0xFFFF4D4F)
-                active -> Morandi.text
+                active -> Morandi.accent
                 else -> Morandi.subText
             },
         )

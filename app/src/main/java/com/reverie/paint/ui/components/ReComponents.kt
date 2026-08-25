@@ -133,7 +133,7 @@ fun ReIconButton(
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
     val tintColor by animateColorAsState(
-        tint ?: if (selected) colors.text else colors.icon,
+        tint ?: if (selected) colors.accent else colors.icon,
         spring(dampingRatio = 0.90f, stiffness = 500f)
     )
 
@@ -279,7 +279,7 @@ fun SliderFineTunePopup(
                             Icon(
                                 painter = painterResource(iconRes),
                                 contentDescription = title,
-                                tint = colors.subText,
+                                tint = colors.accent,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
@@ -302,7 +302,7 @@ fun SliderFineTunePopup(
                                 text = valueText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.text,
+                                color = colors.accent,
                             )
                         }
                     }
@@ -417,14 +417,14 @@ fun SliderFineTunePopup(
                             Icon(
                                 painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
                                 contentDescription = "保存预设",
-                                tint = colors.subText,
+                                tint = colors.accent,
                                 modifier = Modifier.size(11.dp),
                             )
                             Text(
                                 text = "存入当前",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.text,
+                                color = colors.accent,
                             )
                         }
                     }
@@ -666,7 +666,7 @@ fun ReVerticalSlider(
                             .fillMaxWidth()
                             .fillMaxHeight(localFraction.coerceIn(0f, 1f))
                             .align(Alignment.BottomCenter)
-                            .background(colors.selFill)
+                            .background(colors.accent.copy(alpha = 0.30f))
                     )
                 }
 
@@ -696,10 +696,10 @@ fun ReVerticalSlider(
                         .shadow(
                             elevation = if (isDragging) 6.dp else 1.dp,
                             shape = RoundedCornerShape(indicatorHeight / 2),
-                            spotColor = Color.Black.copy(alpha = 0.5f),
+                            spotColor = colors.accent.copy(alpha = 0.5f),
                         )
                         .clip(RoundedCornerShape(indicatorHeight / 2))
-                        .background(colors.text.copy(alpha = indicatorAlpha))
+                        .background(colors.accent.copy(alpha = indicatorAlpha))
                         .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
                 )
             }
@@ -761,7 +761,7 @@ fun ReSlider(
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
             val fillW = size.width * value.coerceIn(0f, 1f)
             drawRoundRect(
-                color = colors.text.copy(alpha = 0.85f),
+                color = colors.accent,
                 size = androidx.compose.ui.geometry.Size(fillW, size.height),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
             )
@@ -792,7 +792,7 @@ fun ReSwitch(
 ) {
     val colors = Theme.current
     val trackColor by animateColorAsState(
-        if (checked) colors.selStroke else colors.panelHi,
+        if (checked) colors.accent else colors.panelHi,
         spring(dampingRatio = 0.90f, stiffness = 500f)
     )
     val thumbProgress by animateFloatAsState(if (checked) 1f else 0f, Motion.springSnap, label = "switchThumb")
@@ -838,14 +838,7 @@ fun ReColorDot(
                 .pressScale(dotInteraction, pressedScale = 0.88f)
                 .clip(RoundedCornerShape((size / 4).dp))
                 .liquidHighlight(dotInteraction, Color.White, radius = (size * 0.7f).dp)
-                .then(
-                    if (selected) {
-                        Modifier.border(1.5.dp, colors.selStroke, RoundedCornerShape((size / 4).dp))
-                    } else {
-                        Modifier
-                    }
-                )
-                .background(Color.Transparent)
+                .background(if (selected) colors.accentHi else Color.Transparent)
                 .clickable(interactionSource = dotInteraction, indication = null) { onTap() }
                 .padding(3.dp),
         contentAlignment = Alignment.Center,
@@ -980,14 +973,14 @@ fun ReChip(
                 .clip(shape)
                 .liquidHighlight(interaction, Color.White, radius = 26.dp)
                 .background(colors.panelHi)
-                .then(if (selected) Modifier.border(1.dp, colors.selStroke, shape).liquidSheen(trigger = selected) else Modifier)
+                .then(if (selected) Modifier.border(1.dp, colors.accent.copy(alpha = 0.55f), shape).liquidSheen(trigger = selected) else Modifier)
                 .clickable(interactionSource = interaction, indication = null) { onTap() }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
-            color = colors.text,
+            color = if (selected) colors.accent else colors.text,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
@@ -1140,7 +1133,7 @@ fun ReMenuItem(
     val interaction = remember { MutableInteractionSource() }
     val isPressed by interaction.collectIsPressedAsState()
     val cardBg = if (isPressed) colors.panelHi.copy(alpha = 0.95f) else colors.panelHi.copy(alpha = 0.6f)
-    val cardBorder = if (isPressed) colors.selStroke.copy(alpha = 0.6f) else colors.border.copy(alpha = 0.4f)
+    val cardBorder = if (isPressed) colors.accent.copy(alpha = 0.3f) else colors.border.copy(alpha = 0.4f)
 
     Column(
         modifier = modifier
@@ -1158,13 +1151,13 @@ fun ReMenuItem(
         Icon(
             painter = painterResource(icon),
             contentDescription = label,
-            tint = if (isPressed) colors.text else iconColor,
+            tint = if (isPressed) colors.accent else iconColor,
             modifier = Modifier.size(22.dp)
         )
         Spacer(Modifier.height(6.dp))
         Text(
             label,
-            color = if (isPressed) colors.text else textColor,
+            color = if (isPressed) colors.accent else textColor,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,

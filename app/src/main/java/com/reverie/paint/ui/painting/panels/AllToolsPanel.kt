@@ -148,7 +148,7 @@ fun AllToolsPanel(
                                             .pressScale(cellSource, pressedScale = 0.94f)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(
-                                                if (isSelected) Morandi.selFill
+                                                if (isSelected) Morandi.accent.copy(alpha = 0.18f)
                                                 else Color.Transparent
                                             )
                                             .liquidHighlight(cellSource, Color.White, radius = 28.dp)
@@ -173,13 +173,13 @@ fun AllToolsPanel(
                                         Icon(
                                             painter = painterResource(toolIcon(t)),
                                             contentDescription = t.label,
-                                            tint = if (isSelected) Morandi.text else Morandi.icon,
+                                            tint = if (isSelected) Morandi.accentHi else Morandi.icon,
                                             modifier = Modifier.size(22.dp)
                                         )
                                         Spacer(Modifier.height(3.dp))
                                         Text(
                                             t.label,
-                                            color = if (isSelected) Morandi.text else Morandi.text,
+                                            color = if (isSelected) Morandi.accentHi else Morandi.text,
                                             fontSize = 11.sp,
                                             maxLines = 1,
                                         )

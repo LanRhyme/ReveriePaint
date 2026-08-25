@@ -184,7 +184,7 @@ fun ToolRail(
                 
                 // More tools button
                 val isMoreToolsActive = moreToolsOpen || tool in moreTools
-                val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.text else Morandi.icon, androidx.compose.animation.core.tween(200))
+                val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.accent else Morandi.icon, androidx.compose.animation.core.tween(200))
                 val moreSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Box(
                     modifier = Modifier

@@ -109,7 +109,7 @@ fun ReplayPage(vm: PaintViewModel) {
                             modifier =
                                 Modifier
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (selected) colors.selStroke else colors.panelHi)
+                                    .background(if (selected) colors.accent else colors.panelHi)
                                     .clickable { vm.setReplaySpeed(sp) }
                                     .padding(horizontal = 9.dp, vertical = 5.dp),
                         )
@@ -200,7 +200,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                 colors =
                                     SliderDefaults.colors(
                                         thumbColor = colors.accent,
-                                        activeTrackColor = colors.text.copy(alpha = 0.85f),
+                                        activeTrackColor = colors.accent,
                                         inactiveTrackColor = colors.panelHi,
                                     ),
                             )

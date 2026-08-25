@@ -545,12 +545,12 @@ private fun ReferenceBottomBar(
                 Icon(
                     painter = painterResource(R.drawable.ic_image_adjust),
                     contentDescription = "图片",
-                    tint = if (activeTab == 0) Morandi.text else Morandi.subText,
+                    tint = if (activeTab == 0) Morandi.accent else Morandi.subText,
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
                     text = "图片",
-                    color = if (activeTab == 0) Morandi.text else Morandi.subText,
+                    color = if (activeTab == 0) Morandi.accent else Morandi.subText,
                     fontSize = 12.sp,
                     fontWeight = if (activeTab == 0) FontWeight.SemiBold else FontWeight.Normal
                 )
@@ -568,12 +568,12 @@ private fun ReferenceBottomBar(
                 Icon(
                     painter = painterResource(R.drawable.ic_rect),
                     contentDescription = "画布",
-                    tint = if (activeTab == 1) Morandi.text else Morandi.subText,
+                    tint = if (activeTab == 1) Morandi.accent else Morandi.subText,
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
                     text = "画布",
-                    color = if (activeTab == 1) Morandi.text else Morandi.subText,
+                    color = if (activeTab == 1) Morandi.accent else Morandi.subText,
                     fontSize = 12.sp,
                     fontWeight = if (activeTab == 1) FontWeight.SemiBold else FontWeight.Normal
                 )

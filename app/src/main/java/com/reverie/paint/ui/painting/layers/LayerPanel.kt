@@ -335,10 +335,10 @@ internal fun TopIcon(
             Modifier
                 .size(32.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (active) Morandi.selFill else Color.Transparent)
+                .background(if (active) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
                 .border(
                     width = if (active) 1.dp else 0.dp,
-                    color = if (active) Morandi.selStroke else Color.Transparent,
+                    color = if (active) Morandi.accent else Color.Transparent,
                     shape = RoundedCornerShape(8.dp)
                 )
                 .noRippleClickable { if (enabled) onClick() },
@@ -348,7 +348,7 @@ internal fun TopIcon(
             painterResource(resId),
             contentDescription = desc,
             tint = if (!enabled) Morandi.subText.copy(alpha = 0.35f)
-                   else if (active) Morandi.text
+                   else if (active) Morandi.accent
                    else Morandi.icon,
             modifier = Modifier.size(17.dp),
         )
