@@ -192,5 +192,5 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - 新增 ReTextButton 玻璃胶囊按钮 (primary 实心 / containerColor 危险色覆盖) 与 ReFab 圆形玻璃 FAB
 - Material 组件清零: Switch x5 -> ReSwitch, IconButton ~15 -> ReIconButton, FAB x2 -> ReFab, TextButton/Button ~65 -> ReTextButton
 - AppColors 新增 selFill/selStroke 中性选中态 token (明暗两套分别校准)
-- accent 收窄: 状态反馈类全部改中性白系 (滑条填充/开关轨道/chip 选中/tab 指示/变换手柄/画廊多选), accent 仅保留主操作按钮与主题强调色选择器
+- accent 收窄二次修订 (真机验收后定稿): 初版状态反馈全中性被推翻, 改按「交互与激活」划线——控件激活态/选中容器/激活图标文字/主操作/输入焦点用 accent, 静态未激活与装饰性元素用中性; 整体 revert fd31832 后仅保留 3 处装饰性中性化
 - 验证: compileDebugKotlin 每 Phase 通过; lintDebug 确认 24 个 error 全部为存量问题 (Locale/NewApi 等) 不在本次改动 hunks 内

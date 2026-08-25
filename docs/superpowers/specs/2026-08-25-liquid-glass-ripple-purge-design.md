@@ -51,21 +51,29 @@ CompositionLocalProvider(LocalIndication provides LiquidIndication) { ... }
 | material3 `TextButton` | 约 50 处（各对话框） | `ReTextButton` |
 | `DropdownMenuItem` | HomePage、ThemeSettingsSubPage | 保留容器，样式经 LiquidIndication 兜底去涟漪 |
 
-## 4. Accent 收窄规则
+## 4. Accent 收窄规则（2026-08-25 二次修订：真机验收后定稿）
 
-### 新增语义 token（AppColors）
+> 初版把"状态反馈"一刀切为中性，导致开关/滑条/图层背景灰白而部分图标文字仍是 accent，两头不统一。真机验收后推翻，改为按「交互与激活」划线。
 
-```kotlin
-val selFill: Color    // 中性选中填充: 白 α≈0.10 (暗) / 黑 α≈0.06 (浅)
-val selStroke: Color  // 中性选中描边: 白 α≈0.45 (暗) / 黑 α≈0.30 (浅)
-val selOn: Color      // 选中态文字/图标色 = text
-```
+### 最终规则矩阵
 
-### 分类清扫（约 267 处 `.accent` 引用逐类处理）
+| 类别 | 用色 | 示例 |
+|---|---|---|
+| 控件的激活/填充态 | ✅ accent | 开关开启轨道、滑条填充与指示条 |
+| 选中容器 | ✅ accent 低透明底 + accent 描边 | 当前图层、选中笔刷/预设、tab 指示 |
+| 激活态图标/文字 | ✅ accent | 当前工具图标、选中 tab/chip 文字 |
+| 主操作按钮 | ✅ accent 实心 | 创建 CTA、对话框确定、FAB |
+| 输入焦点 | ✅ accent | 光标、聚焦描边 |
+| 危险操作 | 🔴 红 | 删除、丢弃修改 |
+| 静态/未激活图标与正文 | ⚪ 中性 | 未选中图标、正文、标签页文字 |
+| 装饰性元素 | ⚪ 中性 | 占位插画、「自动保存」角标 |
 
-- **改中性白系**：ReSlider 填充、ReVerticalSlider 进度/指示条、ReSwitch 开启轨道、ReChip/ReMenuItem/ReColorDot 选中底色与文字、tab/图标选中 tint、图层行选中描边
-- **保留 accent**：ReButton primary、创建页 CTA、主题设置强调色选择器本身、取色器当前色等「内容/主操作」场景
-- 判断口径：**表达"状态反馈"→中性；表达"品牌/主操作/内容"→accent**
+一句话：**蓝色只跟「交互与激活」走；装饰和信息展示永远中性。**
+
+### 执行记录
+
+- 初版中性化整体 revert（fd31832），仅保留 3 处装饰性中性化：自动保存角标（黑胶囊）、空画廊占位图标（subText）、微调弹窗标题图标与数值文本（信息展示型）
+- `selFill`/`selStroke` token 随回滚移除；如未来需要极低调的大面积选中场景再按需重引
 
 ## 5. 动效收尾
 

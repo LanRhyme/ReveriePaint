@@ -279,7 +279,7 @@ fun SliderFineTunePopup(
                             Icon(
                                 painter = painterResource(iconRes),
                                 contentDescription = title,
-                                tint = colors.accent,
+                                tint = colors.subText,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
@@ -302,7 +302,7 @@ fun SliderFineTunePopup(
                                 text = valueText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.accent,
+                                color = colors.text,
                             )
                         }
                     }
