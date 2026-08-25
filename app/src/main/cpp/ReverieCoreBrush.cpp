@@ -9,6 +9,60 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 
+#include <QRegularExpression>
+#include <algorithm>
+
+float ReverieCore::brushPressureFraction(float pressure)
+{
+    auto *settings = m_brushPreset ? m_brushPreset->settings().data() : nullptr;
+    if (!settings) return 1.0f;
+
+    // 预设（设置对象）变化时重解析 Size 曲线，其余帧走缓存（零分配）
+    if (m_sizeCurveOwner != static_cast<const void *>(settings)) {
+        m_sizeCurveOwner = static_cast<const void *>(settings);
+        m_sizeCurveCache.clear();
+        m_sizeUseCurveCache = settings->getBool("SizeUseCurve", false);
+        const QString sensorXml = settings->getString("SizeSensor", QString());
+        // 仅 pressure 传感器驱动尺寸；tilt/fuzzy 等视为无压感响应
+        if (m_sizeUseCurveCache && sensorXml.contains(QLatin1String("id=\"pressure\""))) {
+            QRegularExpression re(QStringLiteral("(-?[\\d.]+),(-?[\\d.]+)"));
+            auto it = re.globalMatch(sensorXml);
+            while (it.hasNext()) {
+                const auto m = it.next();
+                m_sizeCurveCache.append(QPointF(m.captured(1).toDouble(), m.captured(2).toDouble()));
+            }
+            std::sort(m_sizeCurveCache.begin(), m_sizeCurveCache.end(),
+                      [](const QPointF &a, const QPointF &b) { return a.x() < b.x(); });
+        } else {
+            m_sizeUseCurveCache = false;
+        }
+    }
+
+    if (!m_sizeUseCurveCache || m_sizeCurveCache.size() < 2) return 1.0f;
+
+    const QVector<QPointF> &pts = m_sizeCurveCache;
+    const double p = qBound(0.0, static_cast<double>(pressure), 1.0);
+    if (p <= pts.first().x()) return static_cast<float>(qBound(0.0, pts.first().y(), 1.0));
+    if (p >= pts.last().x()) return static_cast<float>(qBound(0.0, pts.last().y(), 1.0));
+
+    int i = 0;
+    while (i + 2 < pts.size() && pts[i + 1].x() < p) ++i;
+    const QPointF &p1 = pts[i];
+    const QPointF &p2 = pts[i + 1];
+    const QPointF &p0 = pts[qMax(0, i - 1)];
+    const QPointF &p3 = pts[qMin(pts.size() - 1, i + 2)];
+
+    // Catmull-Rom 三次插值（与 KisCubicCurve 观感一致的平滑曲线）
+    const double t = (p - p1.x()) / qMax(1e-9, p2.x() - p1.x());
+    const double t2 = t * t;
+    const double t3 = t2 * t;
+    const double y = 0.5 * ((2.0 * p1.y())
+        + (-p0.y() + p2.y()) * t
+        + (2.0 * p0.y() - 5.0 * p1.y() + 4.0 * p2.y() - p3.y()) * t2
+        + (-p0.y() + 3.0 * p1.y() - 3.0 * p2.y() + p3.y()) * t3);
+    return static_cast<float>(qBound(0.0, y, 1.0));
+}
+
 void ReverieCore::registerPaintOps()
 {
     static bool done = false;

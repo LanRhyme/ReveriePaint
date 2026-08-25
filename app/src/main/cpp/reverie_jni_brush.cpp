@@ -37,6 +37,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushSize(JNIEnv *, jobject, jd
     core()->setBrushSize(size);
 }
 
+JNIEXPORT jfloat JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_brushPressureFraction(JNIEnv *, jobject, jfloat pressure)
+{
+    return core()->brushPressureFraction(pressure);
+}
+
 JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPresetsFromDir(JNIEnv *env, jobject, jstring dirPath)
 {
