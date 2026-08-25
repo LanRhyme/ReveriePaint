@@ -275,11 +275,12 @@ class CanvasTouchView(context: Context) : View(context) {
             // SizeSensor curve, so shrinking the ring by raw linear pressure
             // made it far larger than the actual dab at light pressure.
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
-            // 与引擎同源：按当前预设 SizeSensor 压感曲线求直径比例，环随实时压感缩放
-            // （livePressure 为 MutableState，View.onDraw 非重组作用域直接读值零开销）
+            // 与引擎同源：按当前预设 SizeSensor 压感曲线求直径比例，环随实时压感缩放。
+            // 用本 View 触摸事件直接维护的 localPressure/localIsTouching（5727344 之前
+            // 已验证会实时更新），不用外部 MutableState（曾因无人写入导致环恒定）。
             val pressureFraction =
-                if (isCursorTouching?.value == true) {
-                    ReverieCoreBridge.brushPressureFraction(livePressure?.value ?: 1f)
+                if (localIsTouching) {
+                    ReverieCoreBridge.brushPressureFraction(localPressure)
                 } else 1f
             val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureFraction).coerceAtLeast(2f)
 
