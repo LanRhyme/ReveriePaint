@@ -5,17 +5,21 @@
 package com.reverie.paint.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -27,18 +31,24 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.ui.theme.Motion
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.tanh
 
@@ -289,6 +299,107 @@ fun Modifier.liquidSheen(trigger: Any?): Modifier = composed {
                     end = Offset(bandX + half, size.height.toFloat()),
                 ),
             )
+        }
+    }
+}
+
+/**
+ * 全局兜底光效 indication：替代 Material 默认涟漪。
+ *
+ * 按下时在触点画径向白柔光，松手淡出。由 ReverieApp 根部
+ * `LocalIndication provides LiquidIndication` 统一提供——所有未显式
+ * 关闭 indication 的 clickable / M3 组件自动获得光效，涟漪全局清零。
+ *
+ * 大面积表面（全屏 scrim 等）自动衰减亮度并限制半径，避免整屏闪光；
+ * 小组件光斑半径贴合自身尺寸。Brush 按触点/尺寸惰性缓存，
+ * 动画期间零分配；节点经 IndicationNodeFactory 身份相等复用。
+ */
+object LiquidIndication : IndicationNodeFactory {
+
+    /** 光斑基准半径上限 */
+    private const val BASE_RADIUS_DP = 140f
+
+    /** 基准峰值透明度 */
+    private const val BASE_ALPHA = 0.16f
+
+    override fun create(interactionSource: InteractionSource): Modifier.Node =
+        LiquidIndicationNode(interactionSource)
+
+    override fun equals(other: Any?): Boolean = other === this
+
+    override fun hashCode(): Int = "LiquidIndication".hashCode()
+
+    private class LiquidIndicationNode(
+        private val source: InteractionSource,
+    ) : Modifier.Node(), DrawModifierNode {
+
+        private val progress = Animatable(0f)
+        private var animJob: Job? = null
+        private var center: Offset = Offset.Zero
+
+        // Brush 缓存：仅在按压开始 / 尺寸变化时重建一次
+        private var cachedBrush: Brush? = null
+        private var brushKey: Any? = null
+        private var builtRadius: Float = 0f
+
+        fun animateTo(target: Float, spec: AnimationSpec<Float>) {
+            animJob?.cancel()
+            animJob = coroutineScope.launch { progress.animateTo(target, spec) }
+        }
+
+        override fun onAttach() {
+            coroutineScope.launch {
+                source.interactions.collect { interaction ->
+                    when (interaction) {
+                        is PressInteraction.Press -> {
+                            center = interaction.pressPosition
+                            brushKey = null // 新触点 → 下一帧重建 Brush
+                            animateTo(1f, tween(durationMillis = 90))
+                        }
+                        is PressInteraction.Release, is PressInteraction.Cancel -> {
+                            animateTo(0f, tween(durationMillis = 240))
+                        }
+                    }
+                }
+            }
+        }
+
+        override fun ContentDrawScope.draw() {
+            drawContent()
+            val p = progress.value
+            if (p <= 0.01f || size.width <= 0f || size.height <= 0f) return
+            if (center == Offset.Zero) return
+
+            val maxDim = max(size.width, size.height)
+            if (brushKey != size) {
+                val baseRadiusPx = with(density) { BASE_RADIUS_DP.dp.toPx() }
+                // 小组件：半径贴合自身；大表面：限制在触点附近
+                builtRadius = min(baseRadiusPx, maxDim * 0.75f)
+                    .coerceAtLeast(with(density) { 40.dp.toPx() })
+                // 大面积表面（scrim 等）按尺寸衰减亮度，避免整屏白闪
+                val alphaScale = if (maxDim > builtRadius * 3f) 0.45f else 1f
+                cachedBrush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = BASE_ALPHA * alphaScale),
+                        Color.White.copy(alpha = BASE_ALPHA * alphaScale * 0.5f),
+                        Color.Transparent,
+                    ),
+                    center = center,
+                    radius = builtRadius,
+                )
+                brushKey = size
+            }
+            val brush = cachedBrush ?: return
+
+            // 裁剪到组件边界，防止光斑溢出到相邻元素
+            clipRect(right = size.width, bottom = size.height) {
+                drawCircle(
+                    brush = brush,
+                    alpha = p,
+                    center = center,
+                    radius = builtRadius,
+                )
+            }
         }
     }
 }

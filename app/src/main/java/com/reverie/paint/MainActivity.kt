@@ -8,12 +8,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reverie.paint.core.*
 import com.reverie.paint.core.Page
+import com.reverie.paint.ui.components.LiquidIndication
 import com.reverie.paint.ui.create.CreatePage
 import com.reverie.paint.ui.home.HomePage
 import com.reverie.paint.ui.painting.PaintingPage
@@ -164,6 +167,9 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
+    // Global indication override: every clickable / M3 component that did not
+    // explicitly opt out renders a touch-point light glow (LiquidIndication)
+    // instead of the Material ripple. See docs spec 2026-08-25.
     androidx.compose.animation.AnimatedContent(
         targetState = vm.currentPage,
         transitionSpec = {
@@ -253,21 +259,23 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
         },
         label = "AppPageTransition",
     ) { page ->
-        when (page) {
-            Page.HOME -> {
-                HomePage(vm)
-            }
+        CompositionLocalProvider(LocalIndication provides LiquidIndication) {
+            when (page) {
+                Page.HOME -> {
+                    HomePage(vm)
+                }
 
-            Page.CREATE -> {
-                CreatePage(vm)
-            }
+                Page.CREATE -> {
+                    CreatePage(vm)
+                }
 
-            Page.PAINTING -> {
-                PaintingPage(vm)
-            }
+                Page.PAINTING -> {
+                    PaintingPage(vm)
+                }
 
-            Page.REPLAY -> {
-                ReplayPage(vm)
+                Page.REPLAY -> {
+                    ReplayPage(vm)
+                }
             }
         }
     }
