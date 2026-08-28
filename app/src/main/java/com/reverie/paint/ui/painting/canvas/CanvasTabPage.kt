@@ -446,11 +446,11 @@ internal fun CanvasTabPage(
         val mins = (vm.elapsedSeconds % 3600) / 60
         val secs = vm.elapsedSeconds % 60
         val durationStr = if (hours > 0) {
-            String.format(Locale.getDefault(), "%d小时%02d分钟", hours, mins)
+            "${hours}小时${mins.toString().padStart(2, '0')}分钟"
         } else if (mins > 0) {
-            String.format(Locale.getDefault(), "%d分钟%02d秒", mins, secs)
+            "${mins}分钟${secs.toString().padStart(2, '0')}秒"
         } else {
-            String.format(Locale.getDefault(), "%d秒", secs)
+            "${secs}秒"
         }
 
         Column(

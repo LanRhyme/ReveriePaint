@@ -388,8 +388,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 localCursorPos = null
                 invalidate()
 
-                if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
                         pointerIcon = systemDefaultPointer
                     }
                 }
@@ -452,8 +452,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 localCursorPos = null
                 invalidate()
 
-                if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    if (systemDefaultPointer != null && pointerIcon != systemDefaultPointer) {
                         pointerIcon = systemDefaultPointer
                     }
                 }
@@ -535,8 +535,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
             val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                 v.cursorStyleMode != 4
-            if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                if (hideCursor && systemNullPointer != null && pointerIcon != systemNullPointer) {
                     pointerIcon = systemNullPointer
                 }
             }

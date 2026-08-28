@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -809,7 +810,7 @@ fun ReSwitch(
     ) {
         Box(
             Modifier
-                .offset(x = 20.dp * thumbProgress)
+                .offset { IntOffset((20.dp.toPx() * thumbProgress).roundToInt(), 0) }
                 .size(22.dp)
                 .shadow(2.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
                 .clip(CircleShape)

@@ -45,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -810,7 +811,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                 Modifier
                                                                     .fillMaxSize(0.86f)
                                                                     .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
-                                                                    .offset(x = fanBottomOffsetX, y = fanBottomOffsetY)
+                                                                    .offset { IntOffset(fanBottomOffsetX.roundToPx(), fanBottomOffsetY.roundToPx()) }
                                                                     .rotate(fanBottomAngle)
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
@@ -846,7 +847,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                 Modifier
                                                                     .fillMaxSize(0.88f)
                                                                     .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
-                                                                    .offset(x = fanMiddleOffsetX, y = fanMiddleOffsetY)
+                                                                    .offset { IntOffset(fanMiddleOffsetX.roundToPx(), fanMiddleOffsetY.roundToPx()) }
                                                                     .rotate(fanMiddleAngle)
                                                                     .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))

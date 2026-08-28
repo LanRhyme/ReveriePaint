@@ -547,6 +547,60 @@ internal fun PaintViewModel.exportDocument(
     }
 }
 
+/**
+ * Export PNG/JPEG image directly to Android MediaStore System Gallery
+ */
+internal fun PaintViewModel.exportImageToGallery(
+    format: String,
+    onSuccess: (android.net.Uri) -> Unit,
+    onError: (String) -> Unit = {},
+) {
+    val fmt = format.lowercase()
+    val isJpg = fmt == "jpg" || fmt == "jpeg"
+    val mimeType = if (isJpg) "image/jpeg" else "image/png"
+    val ext = if (isJpg) "jpg" else "png"
+    val fileName = "${docName}_${System.currentTimeMillis()}.$ext"
+
+    val tempFile = java.io.File(appContext.cacheDir, fileName)
+    exportDocument(
+        format = ext,
+        targetFile = tempFile,
+        onSuccess = { file ->
+            try {
+                val resolver = appContext.contentResolver
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, mimeType)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_PICTURES}/ReveriePaint")
+                        put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                    }
+                }
+                val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { out ->
+                        file.inputStream().use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        values.clear()
+                        values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                        resolver.update(uri, values, null, null)
+                    }
+                    tempFile.delete()
+                    onSuccess(uri)
+                } else {
+                    onError("无法创建媒体库文件")
+                }
+            } catch (e: Exception) {
+                onError("保存至相册失败: ${e.message}")
+            }
+        },
+        onError = onError,
+    )
+}
+
 internal fun PaintViewModel.goHome() {
     recorder.endSession()
     stopPaintingTimer()

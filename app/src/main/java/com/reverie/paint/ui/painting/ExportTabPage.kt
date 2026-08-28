@@ -278,6 +278,46 @@ internal fun ExportTabPage(
             )
         }
 
+        if (selectedFormat == "PNG" || selectedFormat == "JPEG") {
+            val galleryInteraction = remember { MutableInteractionSource() }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .pressScale(galleryInteraction, pressedScale = 0.97f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .liquidHighlight(galleryInteraction, Color.White, radius = 80.dp)
+                    .background(Morandi.panel.copy(alpha = 0.8f))
+                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                    .clickable(interactionSource = galleryInteraction, indication = null, enabled = !isExporting) {
+                        isExporting = true
+                        vm.exportImageToGallery(
+                            format = selectedFormat.lowercase(),
+                            onSuccess = { uri ->
+                                isExporting = false
+                                android.widget.Toast.makeText(context, "已成功保存到系统相册", android.widget.Toast.LENGTH_LONG).show()
+                                onClose()
+                            },
+                            onError = { err ->
+                                isExporting = false
+                                android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_save_as),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("保存到系统相册", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
         val shareInteraction = remember { MutableInteractionSource() }
         Row(
             modifier = Modifier

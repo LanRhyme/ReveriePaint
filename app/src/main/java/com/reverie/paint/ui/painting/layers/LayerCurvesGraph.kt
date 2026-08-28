@@ -129,8 +129,10 @@ internal fun RealCurvesGraph(
     activeChannel: Int,
     onCurveChanged: () -> Unit
 ) {
-    val points = channelPoints.getOrPut(activeChannel) {
-        mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))
+    val points = remember(channelPoints, activeChannel) {
+        channelPoints.getOrPut(activeChannel) {
+            mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))
+        }
     }
     var selectedIndex by remember { mutableIntStateOf(-1) }
     val currentOnCurveChanged by rememberUpdatedState(onCurveChanged)

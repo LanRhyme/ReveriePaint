@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -39,6 +40,14 @@ private const val STROKE_BATCH_CAPACITY = 32
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
 private const val STROKE_START_KICK_MS = 24L
 
+private fun java.util.concurrent.atomic.AtomicInteger.decrementPositive() {
+    while (true) {
+        val cur = get()
+        if (cur <= 0) return
+        if (compareAndSet(cur, cur - 1)) return
+    }
+}
+
 /**
  * Holds the painting UI state. The actual document lives in C++ (ReverieCore).
  *
@@ -52,14 +61,14 @@ class PaintViewModel : ViewModel() {
     var currentPage by mutableStateOf(Page.HOME)
         internal set
 
-    var docWidth by mutableStateOf(1080)
-    var docHeight by mutableStateOf(1920)
+    var docWidth by mutableIntStateOf(1080)
+    var docHeight by mutableIntStateOf(1920)
     var docName by mutableStateOf("Untitled")
-    var totalStrokes by mutableStateOf(0)
-    var initialStrokeCount by mutableStateOf(0)
+    var totalStrokes by mutableIntStateOf(0)
+    var initialStrokeCount by mutableIntStateOf(0)
     var isModified by mutableStateOf(false)
-    var elapsedSeconds by mutableStateOf(0L)
-    var canvasCreatedTime by mutableStateOf(System.currentTimeMillis())
+    var elapsedSeconds by mutableLongStateOf(0L)
+    var canvasCreatedTime by mutableLongStateOf(System.currentTimeMillis())
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
 
     // Active drawing duration tracking (1-minute idle threshold)
@@ -193,12 +202,12 @@ class PaintViewModel : ViewModel() {
     var promptSaveOnExit by mutableStateOf(true)
 
     // Brush state
-    var brushSize by mutableStateOf(20.0)
+    var brushSize by mutableDoubleStateOf(20.0)
     var brushColor by mutableStateOf("#000000")
     var brushSecondaryColor by mutableStateOf("#ffffff")
-    var brushOpacity by mutableStateOf(1.0)
+    var brushOpacity by mutableDoubleStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
-    var brushPresetIndex by mutableStateOf(-1)
+    var brushPresetIndex by mutableIntStateOf(-1)
 
     // User-defined brush groups: preset name -> group name; and the list of
     // custom group names the user created (persisted in SharedPreferences)
@@ -208,51 +217,51 @@ class PaintViewModel : ViewModel() {
     // Custom display order of presets (persisted); empty = default (sorted)
     var brushOrder by mutableStateOf<List<String>>(emptyList())
     var categoryOrder by mutableStateOf<List<String>>(emptyList())
-    var brushFlow by mutableStateOf(1.0)
-    var brushSpacing by mutableStateOf(0.1)
-    var brushAngle by mutableStateOf(0.0)
-    var brushScatter by mutableStateOf(0.0)
-    var brushFade by mutableStateOf(0.0)
-    var brushSoftness by mutableStateOf(0.5)
-    var brushRatio by mutableStateOf(1.0)
-    var brushSharpness by mutableStateOf(0.0)
-    var brushRotation by mutableStateOf(0.0)
+    var brushFlow by mutableDoubleStateOf(1.0)
+    var brushSpacing by mutableDoubleStateOf(0.1)
+    var brushAngle by mutableDoubleStateOf(0.0)
+    var brushScatter by mutableDoubleStateOf(0.0)
+    var brushFade by mutableDoubleStateOf(0.0)
+    var brushSoftness by mutableDoubleStateOf(0.5)
+    var brushRatio by mutableDoubleStateOf(1.0)
+    var brushSharpness by mutableDoubleStateOf(0.0)
+    var brushRotation by mutableDoubleStateOf(0.0)
     var brushCompositeOp by mutableStateOf("normal")
 
     // Extended brush studio properties
-    var brushAntiAliasing by mutableStateOf(1) // 0: 无, 1: 正常, 2: 强化, 3: 分级
-    var brushTipShape by mutableStateOf(0) // 0: 圆形笔触, 1: 方形笔触
+    var brushAntiAliasing by mutableIntStateOf(1) // 0: 无, 1: 正常, 2: 强化, 3: 分级
+    var brushTipShape by mutableIntStateOf(0) // 0: 圆形笔触, 1: 方形笔触
     var brushRandomFlipX by mutableStateOf(false)
     var brushRandomFlipY by mutableStateOf(false)
     var brushFollowDirection by mutableStateOf(false)
-    var brushStreamline by mutableStateOf(0.0)
-    var brushTaper by mutableStateOf(0.0)
+    var brushStreamline by mutableDoubleStateOf(0.0)
+    var brushTaper by mutableDoubleStateOf(0.0)
     var brushTextureEnabled by mutableStateOf(false)
-    var brushTextureScale by mutableStateOf(1.0)
-    var brushTextureStrength by mutableStateOf(0.5)
+    var brushTextureScale by mutableDoubleStateOf(1.0)
+    var brushTextureStrength by mutableDoubleStateOf(0.5)
     var brushTextureMode by mutableStateOf("multiply")
-    var brushHueJitter by mutableStateOf(0.0)
-    var brushSatJitter by mutableStateOf(0.0)
-    var brushValJitter by mutableStateOf(0.0)
-    var brushSecondaryMix by mutableStateOf(0.0)
+    var brushHueJitter by mutableDoubleStateOf(0.0)
+    var brushSatJitter by mutableDoubleStateOf(0.0)
+    var brushValJitter by mutableDoubleStateOf(0.0)
+    var brushSecondaryMix by mutableDoubleStateOf(0.0)
     var brushPressureColorMix by mutableStateOf(false)
     var brushPressureEnabled by mutableStateOf(true)
-    var brushPressureSize by mutableStateOf(1.0)
-    var brushPressureOpacity by mutableStateOf(1.0)
-    var brushPressureFlow by mutableStateOf(1.0)
-    var brushSpeedSize by mutableStateOf(0.0)
-    var brushPressureCurve by mutableStateOf(0) // 0: 线性, 1: 柔和, 2: 硬朗, 3: S型
-    var brushMinSizeLimit by mutableStateOf(1.0)
-    var brushMaxSizeLimit by mutableStateOf(500.0)
+    var brushPressureSize by mutableDoubleStateOf(1.0)
+    var brushPressureOpacity by mutableDoubleStateOf(1.0)
+    var brushPressureFlow by mutableDoubleStateOf(1.0)
+    var brushSpeedSize by mutableDoubleStateOf(0.0)
+    var brushPressureCurve by mutableIntStateOf(0) // 0: 线性, 1: 柔和, 2: 硬朗, 3: S型
+    var brushMinSizeLimit by mutableDoubleStateOf(1.0)
+    var brushMaxSizeLimit by mutableDoubleStateOf(500.0)
     var brushTipAsset by mutableStateOf("")
     var brushPaintOpId by mutableStateOf("defaultpaintop")
     var brushAirbrush by mutableStateOf(false)
-    var brushAirbrushRate by mutableStateOf(0.05)
-    var brushSmudgeRate by mutableStateOf(0.5)
-    var brushSmudgeLength by mutableStateOf(0.5)
-    var brushSpikes by mutableStateOf(2)
-    var brushJitterAngle by mutableStateOf(0.0)
-    var brushJitterSize by mutableStateOf(0.0)
+    var brushAirbrushRate by mutableDoubleStateOf(0.05)
+    var brushSmudgeRate by mutableDoubleStateOf(0.5)
+    var brushSmudgeLength by mutableDoubleStateOf(0.5)
+    var brushSpikes by mutableIntStateOf(2)
+    var brushJitterAngle by mutableDoubleStateOf(0.0)
+    var brushJitterSize by mutableDoubleStateOf(0.0)
 
     // Metadata properties
     var brushAuthor by mutableStateOf("ReveriePaint")
@@ -529,15 +538,15 @@ class PaintViewModel : ViewModel() {
     }
 
     // UI & View Settings (persisted)
-    var uiOpacity by mutableStateOf(1.0f) // For Top and Left panels
-    var popupPanelOpacity by mutableStateOf(0.95f) // For floating panels
+    var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
+    var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
     var accentColorHex by mutableStateOf("#5E8BA8")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
-    var paintingUiScale by mutableStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
+    var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var extendToCutout by mutableStateOf(true)
-    var homeSelectedTab by mutableStateOf(0)
+    var homeSelectedTab by mutableIntStateOf(0)
 
     // View Display Settings (参考图 1)
     var quickSliderMode by mutableIntStateOf(0) // 0: 不透明度, 1: 流量
@@ -550,18 +559,18 @@ class PaintViewModel : ViewModel() {
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
 
     // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0)
-    var strokeStabilizer by mutableStateOf(0.15f)
+    var strokeStabilizer by mutableFloatStateOf(0.15f)
 
     // Keyboard Shortcuts (参考图 2)
     var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
     var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，单指平移，双指缩放旋转)
-    var brushCursorMode by mutableStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
-    var eraserCursorMode by mutableStateOf(3)
-    var cursorStyleMode by mutableStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
+    var brushCursorMode by mutableIntStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
+    var eraserCursorMode by mutableIntStateOf(3)
+    var cursorStyleMode by mutableIntStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
     var quickShapeEnabled by mutableStateOf(true) // 驻停线条成形
-    var pressureCurvePreset by mutableStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
+    var pressureCurvePreset by mutableIntStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
         listOf(
             androidx.compose.ui.geometry
@@ -581,14 +590,14 @@ class PaintViewModel : ViewModel() {
     // Tool options states (persisted)
     var fillTolerance by mutableIntStateOf(24)
     var fillSampleLayers by mutableIntStateOf(0) // 0: 当前图层, 1: 全部图层
-    var fillOpacity by mutableStateOf(1.0)
+    var fillOpacity by mutableDoubleStateOf(1.0)
     var fillCompositeOp by mutableStateOf("normal")
 
     var gradientType by mutableIntStateOf(0) // 0: 线性, 1: 径向, 2: 角度
     var gradientRepeat by mutableIntStateOf(0) // 0: 无, 1: 重复, 2: 往返
     var gradientReverse by mutableStateOf(false)
 
-    var shapeStrokeWidth by mutableStateOf(4.0)
+    var shapeStrokeWidth by mutableDoubleStateOf(4.0)
     var shapeFillMode by mutableIntStateOf(0) // 0: 仅描边, 1: 仅填充, 2: 描边与填充
     var shapeKeepAspect by mutableStateOf(false)
 
@@ -1803,7 +1812,7 @@ class PaintViewModel : ViewModel() {
         // stroke samples extend before the (heavier) render runs
         pendingCoreOps.incrementAndGet()
         h.post {
-            pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
+            pendingCoreOps.decrementPositive()
             op()
             if (render) scheduleRender()
             if (after != null) mainHandler.post { after() }
@@ -1838,7 +1847,7 @@ class PaintViewModel : ViewModel() {
                 System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * 3)
             }
         }
-        pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
+        pendingCoreOps.decrementPositive()
         val painted = n > 0 && try {
             ReverieCoreBridge.touchStrokeMoveBatch(strokeDrainCoords, n)
         } catch (_: Throwable) {
@@ -1898,7 +1907,7 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
-        pendingCoreOps.updateAndGet { if (it > 0) it - 1 else it }
+        pendingCoreOps.decrementPositive()
         if (painted) {
             scheduleRender()
             // Airbrush hold-still ticks enter the recording as ordinary
@@ -2094,7 +2103,7 @@ class PaintViewModel : ViewModel() {
     var layers by mutableStateOf(listOf<LayerUiState>())
         internal set
 
-    var currentLayerIndex by mutableStateOf(-1)
+    var currentLayerIndex by mutableIntStateOf(-1)
         internal set
 
     val layerCount: Int get() = layers.size

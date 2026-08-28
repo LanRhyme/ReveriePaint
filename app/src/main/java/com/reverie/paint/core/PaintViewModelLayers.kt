@@ -80,7 +80,8 @@ private fun PaintViewModel.doRefreshLayerThumbs() {
     if (n <= 0) return
     runCore(after = {}) {
         for (i in 0 until n) {
-            val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
+            val existing = layerThumbStates[i]?.takeIf { !it.isRecycled && it.width == 56 && it.height == 56 }
+            val bmp = existing ?: Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
             if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
                 val idx = i
                 val name = ReverieCoreBridge.layerName(idx)

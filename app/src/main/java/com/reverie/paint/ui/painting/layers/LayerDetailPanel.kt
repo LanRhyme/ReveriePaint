@@ -885,11 +885,15 @@ internal fun BlendModesPage(
                 itemsIndexed(vm.blendModes) { itemIdx, (opId, name) ->
                     val isSelected = opId == current
                     val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                    val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == itemIdx }
-                    val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                    val dist = if (info != null) abs((info.offset + info.size / 2) - mid).toFloat() else Float.MAX_VALUE
-                    val maxDist = with(density) { (itemH * 2f).toPx() }
-                    val t = (1f - dist / maxDist).coerceIn(0f, 1f) // 1=正中
+                    val t by remember(itemIdx) {
+                        androidx.compose.runtime.derivedStateOf {
+                            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == itemIdx }
+                            val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
+                            val dist = if (info != null) abs((info.offset + info.size / 2) - mid).toFloat() else Float.MAX_VALUE
+                            val maxDist = with(density) { (itemH * 2f).toPx() }
+                            (1f - dist / maxDist).coerceIn(0f, 1f) // 1=正中
+                        }
+                    }
                     Box(
                         modifier =
                             Modifier

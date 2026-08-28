@@ -43,65 +43,48 @@ data class AppColors(
     val canvasShadow: Color, // drop shadow under the document
 )
 
-/** Default Morandi Dark palette - deep elegant charcoal slate. */
+/** Default iOS Dark palette - clean black background, dark slate panels, and elevated workspace. */
 val MorandiDarkColors =
     AppColors(
-        bg = Color(0xFF121316), // Deep refined Morandi charcoal
-        panel = Color(0xFF1E2024), // Balanced low-saturation slate panel
-        panelHi = Color(0xFF2A2D33), // Raised button and card surface
-        accent = Color(0xFF5E8BA8), // Refined Morandi blue
+        bg = Color(0xFF000000), // iOS System Background (True OLED Black)
+        panel = Color(0xFF1C1C1E), // iOS Secondary System Background (Dark Slate Panel)
+        panelHi = Color(0xFF2C2C2E), // iOS Tertiary System Background (Raised surfaces/sliders)
+        accent = Color(0xFF5E8BA8), // Morandi blue accent
         accentHi = Color(0xFF7CA4BE),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFFE8EAED), // Clean readable text
-        subText = Color(0xFF9DA1A7), // Gentle subtext
-        canvasBg = Color(0xFF35383F), // Comfortably lifted neutral workspace background
-        border = Color(0xFF32353C), // Muted crisp border
-        icon = Color(0xFFBAC0C7),
+        text = Color(0xFFFFFFFF), // Crisp readable white text
+        subText = Color(0xFF8E8E93), // iOS System Gray secondary text
+        canvasBg = Color(0xFF2C2C2E), // Painting workspace background (brighter than panel)
+        border = Color(0xFF38383A), // iOS Dark Separator / crisp border
+        icon = Color(0xFF98989D),
         scrim = Color(0x99000000),
-        gridLine = Color(0xFF383B42),
-        canvasShadow = Color(0x73000000),
+        gridLine = Color(0xFF3A3A3C),
+        canvasShadow = Color(0x80000000),
     )
 
-/** Default Morandi Light palette - serene light grey background with pure white cards. */
+/** Default iOS Light palette - clean light gray background with pure white cards. */
 val MorandiLightColors =
     AppColors(
-        bg = Color(0xFFE6E8EC), // Page background: clearly deeper/darker than foreground white cards
+        bg = Color(0xFFF2F2F7), // iOS Grouped Background: refined light gray
         panel = Color(0xFFFFFFFF), // Pure white foreground cards/panels
-        panelHi = Color(0xFFF0F2F5), // Inner card surfaces/pills
-        accent = Color(0xFF3E6988), // Refined Morandi blue with crisp legibility on white and grey
+        panelHi = Color(0xFFE5E5EA), // iOS System Gray 5: Inner card surfaces/pills
+        accent = Color(0xFF3E6988), // Refined accent
         accentHi = Color(0xFF5681A0),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFF141619), // Crisp deep dark text
-        subText = Color(0xFF666B74), // Balanced secondary text
-        canvasBg = Color(0xFFD8DCE2), // Clean neutral workspace backdrop
-        border = Color(0xFFD3D7DF), // Subtle light hairline border
-        icon = Color(0xFF313640),
-        scrim = Color(0x66000000),
-        gridLine = Color(0xFFCCD1DA),
-        canvasShadow = Color(0x2E000000),
+        text = Color(0xFF000000), // Crisp deep black text
+        subText = Color(0xFF8E8E93), // iOS Secondary Label gray
+        canvasBg = Color(0xFFE5E5EA), // Clean neutral workspace backdrop
+        border = Color(0xFFD1D1D6), // iOS Separator light hairline border
+        icon = Color(0xFF3C3C43),
+        scrim = Color(0x52000000),
+        gridLine = Color(0xFFD1D1D6),
+        canvasShadow = Color(0x1F000000),
     )
 
 /** Alias for backward compatibility */
 val MorandiColors = MorandiDarkColors
-
-/** Soften and calibrate Monet dynamic color to Morandi saturation and luminance range */
-private fun Color.toMorandiAccent(isDark: Boolean): Color {
-    val hsv = FloatArray(3)
-    android.graphics.Color.colorToHSV(
-        android.graphics.Color.argb(
-            (alpha * 255).toInt(),
-            (red * 255).toInt(),
-            (green * 255).toInt(),
-            (blue * 255).toInt()
-        ),
-        hsv
-    )
-    // Coerce saturation to calm Morandi muted range (22% - 42%)
-    hsv[1] = hsv[1].coerceIn(0.22f, 0.42f)
-    // Coerce brightness/value: comfortable, deeper Morandi tones without high brightness glare
-    hsv[2] = if (isDark) hsv[2].coerceIn(0.48f, 0.65f) else hsv[2].coerceIn(0.32f, 0.48f)
-    return Color(android.graphics.Color.HSVToColor(hsv))
-}
+val IosDarkColors = MorandiDarkColors
+val IosLightColors = MorandiLightColors
 
 fun blendColors(base: Color, tint: Color, tintWeight: Float): Color {
     val r = base.red * (1f - tintWeight) + tint.red * tintWeight
@@ -110,41 +93,30 @@ fun blendColors(base: Color, tint: Color, tintWeight: Float): Color {
     return Color(red = r, green = g, blue = b, alpha = base.alpha)
 }
 
-/** Build theme colors with canvas background dynamically tinted by the theme color */
+/** Build theme colors where changing accent only affects the primary accent, keeping backgrounds/panels pure neutral */
 fun buildThemeColors(isDark: Boolean, accent: Color): AppColors {
     val fallbackBase = if (isDark) MorandiDarkColors else MorandiLightColors
-    val neutralCanvas = if (isDark) Color(0xFF2F2F31) else Color(0xFFD6D6DA)
-    val neutralBg = if (isDark) Color(0xFF131315) else Color(0xFFE6E6E8)
-    val neutralPanel = if (isDark) Color(0xFF1E1E20) else Color(0xFFFFFFFF)
-
-    val tintWeight = if (isDark) 0.12f else 0.08f
-    val bgTintWeight = if (isDark) 0.04f else 0.02f
-    val panelTintWeight = if (isDark) 0.05f else 0.02f
-
+    val accentHi = if (isDark) {
+        blendColors(accent, Color.White, 0.18f)
+    } else {
+        blendColors(accent, Color.Black, 0.12f)
+    }
     return fallbackBase.copy(
-        bg = blendColors(neutralBg, accent, bgTintWeight),
-        panel = blendColors(neutralPanel, accent, panelTintWeight),
         accent = accent,
-        accentHi = accent,
-        canvasBg = blendColors(neutralCanvas, accent, tintWeight),
-        border = blendColors(fallbackBase.border, accent, 0.04f),
+        accentHi = accentHi,
     )
 }
 
-/** Build Monet dynamic color theme for Android 12+ (Material You) with Morandi tuning */
+/** Build Monet dynamic color theme for Android 12+ (Material You) without altering neutral backgrounds */
 fun getMonetColors(
     context: Context,
     isDark: Boolean = true,
-    fallbackAccent: Color = Color(0xFF5E8BA8)
+    fallbackAccent: Color = if (isDark) Color(0xFF5E8BA8) else Color(0xFF3E6988)
 ): AppColors {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {
             val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            val morandiAccent = scheme.primary.toMorandiAccent(isDark)
-            val morandiAccentHi = scheme.primaryContainer.toMorandiAccent(isDark)
-            buildThemeColors(isDark = isDark, accent = morandiAccent).copy(
-                accentHi = morandiAccentHi
-            )
+            buildThemeColors(isDark = isDark, accent = scheme.primary)
         } catch (_: Throwable) {
             buildThemeColors(isDark = isDark, accent = fallbackAccent)
         }

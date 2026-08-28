@@ -1151,8 +1151,9 @@ fun BrushPropertyPage(
 
 @Composable
 private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
-    androidx.compose.runtime.remember(bytes) { }
-    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    return androidx.compose.runtime.remember(bytes) {
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
 }
 
 @Composable

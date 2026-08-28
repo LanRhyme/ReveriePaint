@@ -240,7 +240,7 @@ fun CanvasView(
 
     androidx.compose.runtime.DisposableEffect(hideSystemCursorForTool) {
         onDispose {
-            if (systemDefaultPointer != null) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && systemDefaultPointer != null) {
                 view.pointerIcon = systemDefaultPointer
             }
         }

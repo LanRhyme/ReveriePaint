@@ -501,7 +501,7 @@ internal fun FilterAdjustControls(
                         label = "饱和度",
                         value = st.sat,
                         valueRange = 0f..2f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.sat),
+                        valueText = String.format(Locale.US, "%.1f", st.sat),
                         gradient = Brush.horizontalGradient(listOf(Color(0xFF888888), Color(0xFFFF4444))),
                         onValue = { st.sat = it; sendPreview() }
                     )
@@ -509,7 +509,7 @@ internal fun FilterAdjustControls(
                         label = "明度",
                         value = st.bright,
                         valueRange = 0f..2f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.bright),
+                        valueText = String.format(Locale.US, "%.1f", st.bright),
                         gradient = Brush.horizontalGradient(listOf(Color.Black, Color.White)),
                         onValue = { st.bright = it; sendPreview() }
                     )
@@ -517,7 +517,7 @@ internal fun FilterAdjustControls(
                         label = "对比度",
                         value = st.contrast,
                         valueRange = 0f..2f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.contrast),
+                        valueText = String.format(Locale.US, "%.1f", st.contrast),
                         onValue = { st.contrast = it; sendPreview() }
                     )
                 }
@@ -577,7 +577,7 @@ internal fun FilterAdjustControls(
                         label = "锐化强度",
                         value = st.sharpenAmt,
                         valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.sharpenAmt),
+                        valueText = String.format(Locale.US, "%.1f", st.sharpenAmt),
                         onValue = { st.sharpenAmt = it; sendPreview() }
                     )
                 }
@@ -627,7 +627,7 @@ internal fun FilterAdjustControls(
                         label = "中间调灰度 (Gamma)",
                         value = st.levelGamma,
                         valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.getDefault(), "%.2f", st.levelGamma),
+                        valueText = String.format(Locale.US, "%.2f", st.levelGamma),
                         onValue = { st.levelGamma = it; sendPreview() }
                     )
                 }
@@ -687,7 +687,7 @@ internal fun FilterAdjustControls(
                         label = "辉光发光强度",
                         value = st.bloomIntensity,
                         valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.bloomIntensity),
+                        valueText = String.format(Locale.US, "%.1f", st.bloomIntensity),
                         onValue = { st.bloomIntensity = it; sendPreview() }
                     )
                 }
@@ -778,14 +778,14 @@ internal fun FilterAdjustControls(
                         label = "曝光值 (EV)",
                         value = st.exposureVal,
                         valueRange = -3.0f..3.0f,
-                        valueText = String.format(Locale.getDefault(), "%+.1f EV", st.exposureVal),
+                        valueText = String.format(Locale.US, "%+.1f EV", st.exposureVal),
                         onValue = { st.exposureVal = it; sendPreview() }
                     )
                     FilterSliderRow(
                         label = "伽马校正",
                         value = st.exposureGamma,
                         valueRange = 0.2f..3.0f,
-                        valueText = String.format(Locale.getDefault(), "%.2f", st.exposureGamma),
+                        valueText = String.format(Locale.US, "%.2f", st.exposureGamma),
                         onValue = { st.exposureGamma = it; sendPreview() }
                     )
                 }
@@ -794,7 +794,7 @@ internal fun FilterAdjustControls(
                         label = "荧光发光强度",
                         value = st.edgeGlowStrength,
                         valueRange = 0.5f..5.0f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.edgeGlowStrength),
+                        valueText = String.format(Locale.US, "%.1f", st.edgeGlowStrength),
                         onValue = { st.edgeGlowStrength = it; sendPreview() }
                     )
                     FilterSliderRow(
@@ -884,7 +884,7 @@ internal fun FilterAdjustControls(
                         label = "边缘灵敏度",
                         value = st.sobelStrength,
                         valueRange = 0.5f..10.0f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.sobelStrength),
+                        valueText = String.format(Locale.US, "%.1f", st.sobelStrength),
                         onValue = { st.sobelStrength = it; sendPreview() }
                     )
                     Row(
@@ -917,7 +917,7 @@ internal fun FilterAdjustControls(
                         label = "浮雕深度",
                         value = st.embossDepth,
                         valueRange = 0.5f..10.0f,
-                        valueText = String.format(Locale.getDefault(), "%.1f", st.embossDepth),
+                        valueText = String.format(Locale.US, "%.1f", st.embossDepth),
                         onValue = { st.embossDepth = it; sendPreview() }
                     )
                     FilterSliderRow(
