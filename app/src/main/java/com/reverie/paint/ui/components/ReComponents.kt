@@ -627,7 +627,7 @@ fun ReVerticalSlider(
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 val capsuleRadius = (trackWidth / 2).dp
-                val capsuleScale = if (isDragging) 1.06f else 1f
+                val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
 
                 // Track Background & Outlined Border
                 Box(
@@ -635,8 +635,8 @@ fun ReVerticalSlider(
                         .width(trackWidth.dp)
                         .fillMaxHeight()
                         .graphicsLayer {
-                            scaleX = capsuleScale
-                            scaleY = 1f + (capsuleScale - 1f) * 0.4f
+                            scaleX = capsuleGrow
+                            scaleY = 1f + (capsuleGrow - 1f) * 0.4f
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
@@ -653,10 +653,22 @@ fun ReVerticalSlider(
                     )
                 }
 
-                // Dynamic Indicator Line (Rendered via graphicsLayer translation for 0-layout 120fps smoothness)
-                val indicatorHeight = if (isDragging) 6.dp else 3.dp
-                val indicatorWidth = if (isDragging) (trackWidth + 4).dp else trackWidth.dp
-                val indicatorAlpha = if (isDragging) 0.85f else 1.0f
+                // Dynamic Indicator Line (Spring animations restored + 0-layout graphicsLayer translation)
+                val indicatorHeight by animateDpAsState(
+                    targetValue = if (isDragging) 6.dp else 3.dp,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_h"
+                )
+                val indicatorWidth by animateDpAsState(
+                    targetValue = if (isDragging) (trackWidth + 4).dp else trackWidth.dp,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_w"
+                )
+                val indicatorAlpha by animateFloatAsState(
+                    targetValue = if (isDragging) 0.85f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "ind_alpha"
+                )
 
                 val travelPx = with(density) { (trackHeight - 4).dp.toPx() }
 
@@ -678,14 +690,13 @@ fun ReVerticalSlider(
                         .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
                 )
 
-                // Live floating tooltip (Non-focusable lightweight Popup escaping 36dp container clip)
+                // Live floating tooltip (Fixed cleanly at Center-Start of the slider, no jumping/jittering)
                 if (isDragging) {
-                    val tooltipOffsetPx = with(density) { (trackWidth + 14).dp.roundToPx() }
-                    val yOffsetPx = -(localFraction.coerceIn(0f, 1f) * travelPx).roundToInt()
+                    val tooltipOffsetPx = with(density) { (trackWidth + 18).dp.roundToPx() }
                     val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
                     Popup(
-                        alignment = Alignment.BottomStart,
-                        offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, yOffsetPx),
+                        alignment = Alignment.CenterStart,
+                        offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, 0),
                         properties = androidx.compose.ui.window.PopupProperties(
                             focusable = false,
                             dismissOnBackPress = false,
