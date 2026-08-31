@@ -112,6 +112,7 @@ fun ReferenceWindow(
             .shadow(14.dp, windowShape)
             .systemHoverIcon(context)
             .clip(windowShape)
+            .background(Morandi.panel.copy(alpha = opacity))
             .then(
                 if (vm.blurBackground && hazeState != null) {
                     Modifier.hazeChild(
@@ -119,7 +120,7 @@ fun ReferenceWindow(
                         style = Glass.popupStyle(opacity),
                     )
                 } else {
-                    Modifier.background(Morandi.panel.copy(alpha = opacity))
+                    Modifier
                 }
             )
             .glassBorder(windowShape)

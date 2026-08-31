@@ -119,6 +119,7 @@ fun ToolRail(
                     .width(36.dp)
                     .weight(1f, fill = false)
                     .clip(upperShape)
+                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
                     .then(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
@@ -126,7 +127,7 @@ fun ToolRail(
                                 style = Glass.barStyle(opacity.toFloat()),
                             )
                         } else {
-                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                            Modifier
                         }
                     )
                     .padding(vertical = 4.dp)
@@ -213,6 +214,7 @@ fun ToolRail(
                 modifier = Modifier
                     .width(36.dp)
                     .clip(lowerShape)
+                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
                     .then(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
@@ -220,7 +222,7 @@ fun ToolRail(
                                 style = Glass.barStyle(opacity.toFloat()),
                             )
                         } else {
-                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
+                            Modifier
                         }
                     )
                     .padding(top = 4.dp, bottom = 8.dp),

@@ -55,6 +55,7 @@ fun TopBar(
             modifier
                 .pointerHoverIcon(com.reverie.paint.ui.theme.systemDefaultPointerIcon(context), overrideDescendants = true)
                 .clip(shape)
+                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
@@ -62,7 +63,7 @@ fun TopBar(
                             style = Glass.barStyle(opacity),
                         )
                     } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                        Modifier
                     }
                 )
                 .padding(horizontal = 4.dp, vertical = 2.dp),

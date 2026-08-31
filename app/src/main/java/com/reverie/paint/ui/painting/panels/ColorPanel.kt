@@ -185,6 +185,7 @@ fun ColorPanel(
                 .width(280.dp)
                 .shadow(16.dp, panelShape)
                 .clip(panelShape)
+                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
@@ -192,7 +193,7 @@ fun ColorPanel(
                             style = Glass.popupStyle(opacity),
                         )
                     } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                        Modifier
                     }
                 )
                 .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)

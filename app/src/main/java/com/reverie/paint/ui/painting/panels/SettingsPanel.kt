@@ -95,6 +95,7 @@ fun SettingsPanel(
                 .padding(top = 44.dp, end = 8.dp)
                 .width(280.dp)
                 .clip(panelShape)
+                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
@@ -102,7 +103,7 @@ fun SettingsPanel(
                             style = Glass.barStyle(opacity),
                         )
                     } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                        Modifier
                     }
                 )
                 .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)

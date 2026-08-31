@@ -250,6 +250,7 @@ fun SliderFineTunePopup(
                     .width(224.dp)
                     .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(RoundedCornerShape(18.dp))
+                    .background(colors.panel.copy(alpha = popupAlpha))
                     .then(
                         if (vm?.blurBackground == true && hazeState != null) {
                             Modifier.hazeChild(
@@ -257,7 +258,7 @@ fun SliderFineTunePopup(
                                 style = Glass.popupStyle(popupAlpha),
                             )
                         } else {
-                            Modifier.background(colors.panel.copy(alpha = popupAlpha))
+                            Modifier
                         }
                     )
                     .glassBorder(RoundedCornerShape(18.dp))

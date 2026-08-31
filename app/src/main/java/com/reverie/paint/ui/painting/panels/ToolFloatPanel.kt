@@ -85,17 +85,15 @@ fun ToolFloatPanel(
                 .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.2f))
                 .systemHoverIcon(context)
                 .clip(capsuleShape)
+                .background(Morandi.panel.copy(alpha = vm?.popupPanelOpacity ?: 0.94f))
                 .then(
-                    run {
-                        val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-                        if (vm?.blurBackground == true && hazeState != null) {
-                            Modifier.hazeChild(
-                                state = hazeState,
-                                style = Glass.popupStyle(popupAlpha),
-                            )
-                        } else {
-                            Modifier.background(Morandi.panel.copy(alpha = popupAlpha))
-                        }
+                    if (vm?.blurBackground == true && hazeState != null) {
+                        Modifier.hazeChild(
+                            state = hazeState,
+                            style = Glass.popupStyle(vm.popupPanelOpacity),
+                        )
+                    } else {
+                        Modifier
                     }
                 )
                 .glassBorder(capsuleShape)

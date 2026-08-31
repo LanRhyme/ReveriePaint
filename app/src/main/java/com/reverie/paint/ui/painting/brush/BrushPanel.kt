@@ -207,6 +207,7 @@ fun BrushPanel(
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
                 .clip(panelShape)
+                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
@@ -214,7 +215,7 @@ fun BrushPanel(
                             style = Glass.barStyle(opacity),
                         )
                     } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
+                        Modifier
                     }
                 )
                 .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
