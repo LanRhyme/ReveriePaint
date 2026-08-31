@@ -708,30 +708,30 @@ internal fun PaintViewModel.applyWarpMeshTransform(
 }
 
 internal fun PaintViewModel.undo() {
-    if (ReverieCoreBridge.canUndo()) {
-        if (recorder.recording) {
-            recorder.toolOp(T_UNDO) { }
-        }
-        showActionToast("撤销", R.drawable.ic_undo)
-        runCore(after = {
-            notifyLayerChanged(forceThumbs = false, immediateRender = true)
-            refreshSelection()
-        }) {
+    showActionToast("撤销", R.drawable.ic_undo)
+    runCore(after = {
+        notifyLayerChanged(forceThumbs = false, immediateRender = true)
+        refreshSelection()
+    }) {
+        if (ReverieCoreBridge.canUndo()) {
+            if (recorder.recording) {
+                recorder.toolOp(T_UNDO) { }
+            }
             ReverieCoreBridge.undo()
         }
     }
 }
 
 internal fun PaintViewModel.redo() {
-    if (ReverieCoreBridge.canRedo()) {
-        if (recorder.recording) {
-            recorder.toolOp(T_REDO) { }
-        }
-        showActionToast("恢复", R.drawable.ic_redo)
-        runCore(after = {
-            notifyLayerChanged(forceThumbs = false, immediateRender = true)
-            refreshSelection()
-        }) {
+    showActionToast("恢复", R.drawable.ic_redo)
+    runCore(after = {
+        notifyLayerChanged(forceThumbs = false, immediateRender = true)
+        refreshSelection()
+    }) {
+        if (ReverieCoreBridge.canRedo()) {
+            if (recorder.recording) {
+                recorder.toolOp(T_REDO) { }
+            }
             ReverieCoreBridge.redo()
         }
     }

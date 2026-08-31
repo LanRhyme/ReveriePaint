@@ -125,6 +125,7 @@ class ReplaySession(
     internal var currentMs = 0L
     internal var pendingStep: Runnable? = null
     internal var lastProgressWallMs = 0L
+    internal var lastStepWallMs = 0L
 
     /** Monotonic token of the current playback chain. pause/seek/stop bump
      *  it so a step that was already running on the render thread (and is
@@ -198,6 +199,7 @@ class ReplaySession(
 /** Toggle play/resume; restarts from the beginning when finished. */
 internal fun PaintViewModel.playReplay() {
     val s = replaySession ?: return
+    s.lastStepWallMs = android.os.SystemClock.elapsedRealtime()
     if (s.progress >= 1f) {
         seekReplay(0f)
         s.isPlaying = true
@@ -212,6 +214,7 @@ internal fun PaintViewModel.pauseReplay() {
     val s = replaySession ?: return
     s.stepGen++ // invalidate the in-flight step chain
     s.isPlaying = false
+    s.lastStepWallMs = 0L
     s.pendingStep?.let { renderHandler?.removeCallbacks(it) }
     s.pendingStep = null
 }
@@ -301,39 +304,37 @@ private fun PaintViewModel.replayStepLocked(
     s.pendingStep = null
     if (gen != s.stepGen || !s.isPlaying) return
     val r = s.reader
-    // Micro-delay events (layer/tool ops that happened back-to-back while
-    // painting) are dispatched in-line within one handler message instead of
-    // one postDelayed(>=1ms) per event - a recording of tens of thousands of
-    // such events otherwise had a fixed multi-ten-second floor even at 8x.
-    while (true) {
-        if (!s.isPlaying) return
-        if (r.remaining() <= 0) {
-            finishReplayLocked(s)
-            return
-        }
+    val now = android.os.SystemClock.elapsedRealtime()
+    val wallDt = if (s.lastStepWallMs == 0L) 16L else (now - s.lastStepWallMs).coerceIn(1L, 100L)
+    s.lastStepWallMs = now
+
+    val stepSimMs = (wallDt * s.speed).toLong().coerceAtLeast(1L)
+    val targetMs = if (s.totalMs > 0) (s.currentMs + stepSimMs).coerceAtMost(s.totalMs) else Long.MAX_VALUE
+
+    var hasEvents = false
+    while (r.remaining() > 0 && (s.totalMs == 0L || s.currentMs < targetMs)) {
         val type = r.u8()
         val dt = r.varint()
         s.currentMs += dt
-        dispatchReplayLocked(type, r)
-        if (r.remaining() <= 0) {
-            finishReplayLocked(s)
-            return
-        }
-        // Replay pacing follows the recorded inter-event timing directly
-        // (live sampling is ~8ms), so playback duration matches the real
-        // drawing time; smooth on-screen growth is preserved by the 16ms
-        // render throttle in scheduleRender.
-        val d = (dt / s.speed).toLong().coerceIn(1L, 500L)
-        if (type != STROKE_MOVE && d < 8L) {
-            continue // batch the next micro-delay event into this message
-        }
-        updateReplayProgress(s)
-        val h = renderHandler ?: return
-        val next = Runnable { replayStepLocked(s, gen) }
-        s.pendingStep = next
-        h.postDelayed(next, d)
+        dispatchReplayLocked(type, r, render = false)
+        hasEvents = true
+        if (s.totalMs == 0L) break
+    }
+
+    if (r.remaining() <= 0) {
+        finishReplayLocked(s)
         return
     }
+
+    if (hasEvents) {
+        scheduleRender(immediate = true)
+    }
+
+    updateReplayProgress(s)
+    val h = renderHandler ?: return
+    val next = Runnable { replayStepLocked(s, gen) }
+    s.pendingStep = next
+    h.postDelayed(next, 16L)
 }
 
 private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
@@ -342,6 +343,7 @@ private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
     s.isPlaying = false
     s.progress = 1f
     s.elapsedMs = s.totalMs
+    s.lastStepWallMs = 0L
     // A recording truncated mid-stroke (process death while painting) leaves
     // the stroke transaction open on the layer; closing it here is a no-op
     // when the last event already ended the stroke cleanly
@@ -355,13 +357,9 @@ private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
 }
 
 private fun PaintViewModel.updateReplayProgress(s: ReplaySession) {
-    val now = android.os.SystemClock.elapsedRealtime()
-    if (now - s.lastProgressWallMs >= 32) {
-        s.lastProgressWallMs = now
-        s.elapsedMs = s.currentMs
-        s.progress =
-            if (s.totalMs > 0) (s.currentMs.toFloat() / s.totalMs).coerceIn(0f, 1f) else 1f
-    }
+    s.elapsedMs = s.currentMs
+    s.progress =
+        if (s.totalMs > 0) (s.currentMs.toFloat() / s.totalMs).coerceIn(0f, 1f) else 1f
 }
 
 /** Runs inside a runCore op (render thread, before any replay dispatch). */
@@ -385,6 +383,8 @@ internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
         renderW = -1
         renderH = -1
         setRenderViewport(coreW, coreH)
+        ReverieCoreBridge.setUndoCaptureEnabled(true)
+        ReverieCoreBridge.clearUndoHistory()
         // Paint the initial frame right away so the canvas isn't stale
         // while the first stroke event is still queued
         scheduleRender(immediate = true)
@@ -413,6 +413,7 @@ private fun PaintViewModel.seekLocked(
     s.elapsedMs = target
     s.progress = fraction
     s.lastProgressWallMs = android.os.SystemClock.elapsedRealtime()
+    s.lastStepWallMs = android.os.SystemClock.elapsedRealtime()
     scheduleRender(immediate = true)
 }
 

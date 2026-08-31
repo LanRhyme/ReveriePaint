@@ -729,8 +729,6 @@ internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
         session = ReplaySession.load(java.io.File(p.filePath), File(appContext.filesDir, "replay_tmp"))
         if (session != null) {
             resetReplayDocLocked(session!!)
-            // Replay applies strokes/ops directly - no undo history growth
-            ReverieCoreBridge.setUndoCaptureEnabled(false)
         }
     }
 }
