@@ -460,6 +460,25 @@ internal fun SettingsTabPage(
                         )
                     }
 
+                    Spacer(Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text("双指快速内捏复位画布", color = Morandi.text, fontSize = 13.sp)
+                            Text("双指快速向内收拢捏合时自动平滑居中并满屏复位", color = Morandi.subText, fontSize = 11.sp)
+                        }
+                        ReSwitch(
+                            checked = vm.gestureQuickPinchFit,
+                            onChecked = { vm.updateGestureQuickPinchFit(it) },
+                        )
+                    }
+
                     Spacer(Modifier.height(10.dp))
                     Box(
                         modifier = Modifier

@@ -722,6 +722,7 @@ class PaintViewModel : ViewModel() {
     var gestureTwoFingerUndo by mutableStateOf(true)
     var gestureThreeFingerRedo by mutableStateOf(true)
     var gesturePinchTransform by mutableStateOf(true)
+    var gestureQuickPinchFit by mutableStateOf(true)
 
     fun updateGestureTwoFingerUndo(enable: Boolean) {
         gestureTwoFingerUndo = enable
@@ -752,6 +753,17 @@ class PaintViewModel : ViewModel() {
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("gesturePinchTransform", enable)
+                .apply()
+        }
+    }
+
+    fun updateGestureQuickPinchFit(enable: Boolean) {
+        gestureQuickPinchFit = enable
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("gestureQuickPinchFit", enable)
                 .apply()
         }
     }
@@ -1189,6 +1201,7 @@ class PaintViewModel : ViewModel() {
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
+            gestureQuickPinchFit = prefs.getBoolean("gestureQuickPinchFit", true)
             longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
             eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
             eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)

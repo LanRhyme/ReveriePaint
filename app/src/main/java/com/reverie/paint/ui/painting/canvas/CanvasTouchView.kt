@@ -177,6 +177,32 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // 画布平滑复位动画 (Procreate Smooth Reset Animation)
+    private var fitAnimator: android.animation.ValueAnimator? = null
+
+    private fun animateFitCanvas() {
+        fitAnimator?.cancel()
+        val startZoom = canvasZoom
+        val startRot = canvasRotation
+        val startPanX = canvasPanX
+        val startPanY = canvasPanY
+
+        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 240L
+            interpolator = android.view.animation.DecelerateInterpolator(1.8f)
+            addUpdateListener { anim ->
+                val f = anim.animatedFraction
+                canvasZoom = startZoom + (1f - startZoom) * f
+                canvasRotation = startRot + (0f - startRot) * f
+                canvasPanX = startPanX + (0f - startPanX) * f
+                canvasPanY = startPanY + (0f - startPanY) * f
+                onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+            }
+        }
+        fitAnimator = animator
+        animator.start()
+    }
+
     // 长按吸色状态机 (按住不动延迟取色；移动立即画线；调出吸色后可随意移动取色)
     private var isPendingLongPress = false
     private var pendingDownDocPos = Offset.Zero
@@ -802,19 +828,17 @@ class CanvasTouchView(context: Context) : View(context) {
                     val durationMs = nowMs - touchDownTimeMs
                     isInteracting = false
 
-                    // Procreate Quick-Pinch to Fit Canvas
-                    val isQuickPinchFit = maxTouchPointers == 2 &&
-                        initialDistance > 80f * density &&
-                        prevDistance < initialDistance * 0.60f &&
-                        durationMs < 280L
+                    // Procreate Quick-Pinch to Fit Canvas (高门槛防误触 + 平滑复位动画)
+                    val isQuickPinchFit = v.gestureQuickPinchFit &&
+                        maxTouchPointers == 2 &&
+                        durationMs in 60L..250L &&
+                        initialDistance > 130f * density &&
+                        prevDistance < initialDistance * 0.45f &&
+                        (initialDistance - prevDistance) / durationMs > 0.60f * density
 
                     if (isQuickPinchFit) {
-                        canvasZoom = 1f
-                        canvasRotation = 0f
-                        canvasPanX = 0f
-                        canvasPanY = 0f
-                        onTransform?.invoke(1f, 0f, 0f, 0f)
-                        v.showActionToast("画布已快速满屏复位", R.drawable.ic_refresh)
+                        animateFitCanvas()
+                        v.showActionToast("画布已平滑满屏复位", R.drawable.ic_refresh)
                     } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
                         v.undo()
                     } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 380L) {
