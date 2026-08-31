@@ -758,27 +758,19 @@ class CanvasTouchView(context: Context) : View(context) {
                     val durationMs = nowMs - touchDownTimeMs
                     isInteracting = false
                     if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L) {
-                        val undoRunnable = Runnable {
-                            v.undo()
-                            isTransformActive = false
-                            isPinchMotion = false
-                            maxTouchPointers = 0
-                            lastPos0 = Offset.Zero
-                            lastPos1 = Offset.Zero
-                        }
-                        pendingUndoRunnable = undoRunnable
-                        postDelayed(undoRunnable, 90)
+                        v.undo()
+                        isTransformActive = false
+                        isPinchMotion = false
+                        maxTouchPointers = 0
+                        lastPos0 = Offset.Zero
+                        lastPos1 = Offset.Zero
                     } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 360L) {
-                        val redoRunnable = Runnable {
-                            v.redo()
-                            isTransformActive = false
-                            isPinchMotion = false
-                            maxTouchPointers = 0
-                            lastPos0 = Offset.Zero
-                            lastPos1 = Offset.Zero
-                        }
-                        pendingUndoRunnable = redoRunnable
-                        postDelayed(redoRunnable, 90)
+                        v.redo()
+                        isTransformActive = false
+                        isPinchMotion = false
+                        maxTouchPointers = 0
+                        lastPos0 = Offset.Zero
+                        lastPos1 = Offset.Zero
                     } else {
                         isTransformActive = false
                         isPinchMotion = false

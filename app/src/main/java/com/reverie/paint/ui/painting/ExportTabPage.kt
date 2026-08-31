@@ -99,6 +99,13 @@ internal fun ExportTabPage(
                 isLayered = false
             ),
             ExportFormatItem(
+                format = "WEBP",
+                name = "WebP 现代图像",
+                description = "新一代网络图像格式，支持高压缩率与无损透明",
+                tag = "高效网络",
+                isLayered = false
+            ),
+            ExportFormatItem(
                 format = "PSD",
                 name = "Photoshop 分层",
                 description = "完整保留各图层、混合模式与剪裁属性",
@@ -278,7 +285,7 @@ internal fun ExportTabPage(
             )
         }
 
-        if (selectedFormat == "PNG" || selectedFormat == "JPEG") {
+        if (selectedFormat == "PNG" || selectedFormat == "JPEG" || selectedFormat == "WEBP") {
             val galleryInteraction = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
@@ -348,6 +355,7 @@ internal fun ExportTabPage(
                                 val mime = when (ext) {
                                     "png" -> "image/png"
                                     "jpg", "jpeg" -> "image/jpeg"
+                                    "webp" -> "image/webp"
                                     "psd" -> "image/vnd.adobe.photoshop"
                                     "tiff", "tif" -> "image/tiff"
                                     "kra" -> "application/x-krita"

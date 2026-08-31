@@ -138,6 +138,16 @@ class MainActivity : ComponentActivity() {
         return super.dispatchGenericMotionEvent(ev)
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val vm = currentViewModel
+        if (vm != null && vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
+            if (vm.handleNativeKeyEvent(event)) {
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onStop() {
         super.onStop()
         // 当软件切入后台时，自动触发后台保存

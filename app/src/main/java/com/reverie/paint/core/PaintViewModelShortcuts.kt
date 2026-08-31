@@ -278,6 +278,91 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
     return false
 }
 
+/**
+ * Android Native KeyEvent Dispatcher (for physical hardware keyboard connected to device)
+ */
+internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): Boolean {
+    if (currentPage != Page.PAINTING) return false
+    if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+
+    val isCtrl = event.isCtrlPressed
+    val isShift = event.isShiftPressed
+    val isAlt = event.isAltPressed
+    val keyCode = event.keyCode
+
+    if (isCtrl && !isShift && keyCode == android.view.KeyEvent.KEYCODE_Z) {
+        undo()
+        return true
+    }
+    if ((isCtrl && isShift && keyCode == android.view.KeyEvent.KEYCODE_Z) ||
+        (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_Y)) {
+        redo()
+        return true
+    }
+    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_S) {
+        saveProject(docName)
+        return true
+    }
+    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_D) {
+        clearSelectionAction()
+        return true
+    }
+    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_J) {
+        copyLayer(currentLayerIndex)
+        return true
+    }
+    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_E) {
+        mergeDown(currentLayerIndex)
+        return true
+    }
+    if (!isCtrl && !isShift && !isAlt) {
+        when (keyCode) {
+            android.view.KeyEvent.KEYCODE_B -> {
+                applyTool("brush")
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_E -> {
+                applyTool("eraser")
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_S -> {
+                applyTool("smudge")
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_I -> {
+                applyTool("picker")
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_G -> {
+                applyTool("fill")
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_X -> {
+                val c1 = brushColor
+                val c2 = brushSecondaryColor
+                updateBrushColor(c2)
+                updateBrushSecondaryColor(c1)
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_LEFT_BRACKET -> {
+                val newSize = (brushSize / 1.25).coerceAtLeast(1.0)
+                updateBrushSize(newSize)
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_RIGHT_BRACKET -> {
+                val newSize = (brushSize * 1.25).coerceAtMost(500.0)
+                updateBrushSize(newSize)
+                return true
+            }
+            android.view.KeyEvent.KEYCODE_PAGE_DOWN -> {
+                if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
+                return true
+            }
+        }
+    }
+    return false
+}
+
 private fun PaintViewModel.executeShortcutAction(id: String) {
     when (id) {
         "tool_brush" -> applyTool("brush")

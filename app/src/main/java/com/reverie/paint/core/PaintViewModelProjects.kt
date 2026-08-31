@@ -515,6 +515,29 @@ internal fun PaintViewModel.exportDocument(
                     ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson, recorder.serialize())
                 }
 
+                "webp" -> {
+                    val tempPng = java.io.File(appContext.cacheDir, "temp_webp.png")
+                    if (ReverieCoreBridge.savePng(tempPng.absolutePath)) {
+                        val bmp = android.graphics.BitmapFactory.decodeFile(tempPng.absolutePath)
+                        if (bmp != null) {
+                            targetFile.outputStream().use { out ->
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.WEBP, 100, out)
+                                }
+                            }
+                            tempPng.delete()
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+
                 "tiff", "tif" -> {
                     // Export TIFF via bitmap compression or lossless PNG container fallback
                     val tempPng = java.io.File(appContext.cacheDir, "temp_tiff.png")
@@ -548,7 +571,7 @@ internal fun PaintViewModel.exportDocument(
 }
 
 /**
- * Export PNG/JPEG image directly to Android MediaStore System Gallery
+ * Export PNG/JPEG/WEBP image directly to Android MediaStore System Gallery
  */
 internal fun PaintViewModel.exportImageToGallery(
     format: String,
@@ -557,8 +580,17 @@ internal fun PaintViewModel.exportImageToGallery(
 ) {
     val fmt = format.lowercase()
     val isJpg = fmt == "jpg" || fmt == "jpeg"
-    val mimeType = if (isJpg) "image/jpeg" else "image/png"
-    val ext = if (isJpg) "jpg" else "png"
+    val isWebp = fmt == "webp"
+    val mimeType = when {
+        isJpg -> "image/jpeg"
+        isWebp -> "image/webp"
+        else -> "image/png"
+    }
+    val ext = when {
+        isJpg -> "jpg"
+        isWebp -> "webp"
+        else -> "png"
+    }
     val fileName = "${docName}_${System.currentTimeMillis()}.$ext"
 
     val tempFile = java.io.File(appContext.cacheDir, fileName)
