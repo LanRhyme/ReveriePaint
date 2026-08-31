@@ -747,31 +747,64 @@ fun ReSlider(
                 .clip(RoundedCornerShape((height / 2).dp))
                 .background(colors.panelHi)
                 .pointerInput(Unit) {
-                    // 单一手势源：按下即定位，拖动持续跟随（避免 tap/drag 双检测器
-                    // 互相取消导致 interacting 提前复位）
+                    // 支持与纵向滚动容器（LazyColumn/verticalScroll）完美协作的手势识别器：
+                    // 1. 触摸按下不立即修改数值，防页面滚动时手指落点误触改值
+                    // 2. 纵向位移优先判定为容器滚动，主动放弃并让渡事件
+                    // 3. 横向位移超过 touchSlop 且占优时，才消费事件并开始拖动滑块
+                    // 4. 原地轻点（Tap）直接定位并触发 onRelease
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        interacting = true
                         val w0 = size.width.toFloat()
-                        if (w0 > 0f) onValue((down.position.x / w0).coerceIn(0f, 1f))
-                        var dragged = false
+                        if (w0 <= 0f) return@awaitEachGesture
+
+                        val touchSlop = viewConfiguration.touchSlop
+                        var isDragging = false
+                        var isScrollingVertically = false
+
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            val dxTotal = abs(change.position.x - down.position.x)
-                            if (!dragged && dxTotal > viewConfiguration.touchSlop) dragged = true
-                            if (dragged) {
-                                change.consume()
-                                val w = size.width.toFloat()
-                                if (w > 0f) {
-                                    onValue((change.position.x / w).coerceIn(0f, 1f))
-                                    // 拖动步进触感
+                            if (!change.pressed) {
+                                // 手指抬起 (Up)
+                                if (!isScrollingVertically) {
+                                    if (!isDragging) {
+                                        // 原地点击滑块
+                                        val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                        onValue(tapVal)
+                                    }
+                                    onRelease?.invoke()
+                                }
+                                break
+                            }
+
+                            if (isScrollingVertically) {
+                                // 判定为列表滚动，不拦截、不改值
+                                break
+                            }
+
+                            val dx = change.position.x - down.position.x
+                            val dy = change.position.y - down.position.y
+                            val absDx = kotlin.math.abs(dx)
+                            val absDy = kotlin.math.abs(dy)
+
+                            if (!isDragging) {
+                                if (absDy > touchSlop && absDy > absDx) {
+                                    // 纵向滚动优先，退出手势让渡给外层可滚动容器
+                                    isScrollingVertically = true
+                                    break
+                                } else if (absDx > touchSlop && absDx >= absDy) {
+                                    // 横向拖拽生效
+                                    isDragging = true
+                                    interacting = true
                                 }
                             }
+
+                            if (isDragging) {
+                                change.consume()
+                                val curVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                onValue(curVal)
+                            }
                         }
-                        if (!dragged) onRelease?.invoke()
-                        else onRelease?.invoke()
                         interacting = false
                     }
                 },
