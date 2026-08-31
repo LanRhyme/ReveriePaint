@@ -1728,6 +1728,11 @@ class PaintViewModel : ViewModel() {
 
     internal var bufferMissing: Array<android.graphics.Rect?> = arrayOfNulls(3)
 
+    // Reusable canvas, rect and dirty array for zero-allocation back-buffer synchronization
+    private val syncCanvas = android.graphics.Canvas()
+    private val renderWrittenRect = android.graphics.Rect()
+    private val renderDirty = IntArray(4)
+
     internal var lastRenderIdx = -1
 
     // The buffer most recently handed to the main thread for display; still
@@ -2041,8 +2046,7 @@ class PaintViewModel : ViewModel() {
         // while it was displayed (its missing union is non-null)
         val forceFull = reallocated || bufferMissing[idx] != null
         val buf = target ?: return
-        val dirty = IntArray(4)
-        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull, dirty)
+        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull, renderDirty)
         if (!ok) {
             // Skipped because the async projection recomposite is still
             // running (non-blocking render): retry shortly so the frame
@@ -2055,9 +2059,13 @@ class PaintViewModel : ViewModel() {
         }
         if (ok) {
             bufferMissing[idx] = null
-            if (dirty[2] > 0 && dirty[3] > 0) {
-                val written =
-                    android.graphics.Rect(dirty[0], dirty[1], dirty[0] + dirty[2], dirty[1] + dirty[3])
+            if (renderDirty[2] > 0 && renderDirty[3] > 0) {
+                renderWrittenRect.set(
+                    renderDirty[0],
+                    renderDirty[1],
+                    renderDirty[0] + renderDirty[2],
+                    renderDirty[1] + renderDirty[3]
+                )
                 // Keep every OTHER buffer in sync: non-displayed ones get the
                 // region blitted straight from the just-rendered buffer (it is
                 // fully up to date), displayed/pending ones just accumulate
@@ -2067,20 +2075,24 @@ class PaintViewModel : ViewModel() {
                     val other = displayBuffers[j] ?: continue
                     if (other === displayed || other === pendingDisplay) continue
                     val miss = bufferMissing[j]
+                    syncCanvas.setBitmap(other)
                     if (miss == null) {
                         // Up to date except for this render's region
-                        android.graphics.Canvas(other).drawBitmap(buf, written, written, null)
+                        syncCanvas.drawBitmap(buf, renderWrittenRect, renderWrittenRect, null)
                     } else {
-                        miss.union(written)
-                        android.graphics.Canvas(other).drawBitmap(buf, miss, miss, null)
+                        miss.union(renderWrittenRect)
+                        syncCanvas.drawBitmap(buf, miss, miss, null)
                         bufferMissing[j] = null
                     }
                 }
                 for (j in displayBuffers.indices) {
                     val other = displayBuffers[j] ?: continue
                     if (other === displayed || other === pendingDisplay) {
-                        bufferMissing[j]?.union(written) ?: run {
-                            bufferMissing[j] = android.graphics.Rect(written)
+                        val m = bufferMissing[j]
+                        if (m != null) {
+                            m.union(renderWrittenRect)
+                        } else {
+                            bufferMissing[j] = android.graphics.Rect(renderWrittenRect)
                         }
                     }
                 }

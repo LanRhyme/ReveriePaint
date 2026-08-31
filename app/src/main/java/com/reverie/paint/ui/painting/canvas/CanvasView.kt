@@ -21,8 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
@@ -86,8 +84,6 @@ fun CanvasView(
     var viewH by remember { mutableStateOf(1) }
     val viewportReported by remember { mutableStateOf(false) }
     val bmp = vm.displayBitmap
-    val rev = vm.displayRevision
-    val imageBitmap = remember(bmp, rev) { bmp?.asImageBitmap() }
 
     // Live selection preview path (updated while dragging a selection tool)
     val liveSelectionPath = remember { mutableStateOf<androidx.compose.ui.graphics.Path?>(null) }
@@ -256,7 +252,6 @@ fun CanvasView(
                 }.background(Morandi.canvasBg),
     ) {
         CanvasOverlay(
-            imageBitmap = imageBitmap,
             vm = vm,
             zoom = zoom,
             rotation = rotation,

@@ -53,7 +53,6 @@ import kotlin.math.sin
  */
 @Composable
 internal fun CanvasOverlay(
-    imageBitmap: androidx.compose.ui.graphics.ImageBitmap?,
     vm: PaintViewModel,
     // Transform states are read INSIDE the draw lambda only: gesture writes
     // then invalidate just this canvas redraw instead of recomposing the
@@ -96,7 +95,6 @@ internal fun CanvasOverlay(
         Canvas(Modifier.fillMaxSize()) {
             val rev = vm.displayRevision
             val bmp = vm.displayBitmap ?: return@Canvas
-            val image = imageBitmap ?: bmp.asImageBitmap()
             val imgW = bmp.width.toFloat()
             val imgH = bmp.height.toFloat()
             if (imgW <= 0f || imgH <= 0f) return@Canvas
@@ -144,10 +142,10 @@ internal fun CanvasOverlay(
                             android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
                         gridPaint.strokeWidth = 1f / scale
                         gridPaint.style = android.graphics.Paint.Style.STROKE
-                        for (gx in 0..image.width) {
+                        for (gx in 0..bmp.width) {
                             nativeCanvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, gridPaint)
                         }
-                        for (gy in 0..image.height) {
+                        for (gy in 0..bmp.height) {
                             nativeCanvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, gridPaint)
                         }
                     }
@@ -156,8 +154,8 @@ internal fun CanvasOverlay(
                 // Draw transform preview
                 val previewBmp = vm.transformPreviewBitmap
                 if ((tool == Tool.TRANSFORM || tool == Tool.MOVE) && tfState.active && previewBmp != null) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.DISTORT) {
                         // 3x3 Mesh Grid (9 cells) Piecewise Quad Warping on GPU
                         val nativeCanvas = drawContext.canvas.nativeCanvas
@@ -167,10 +165,10 @@ internal fun CanvasOverlay(
 
                         for (r in 0..2) {
                             for (c in 0..2) {
-                                val sLeft = (b.left + b.width * (c / 3f)) * scX - image.width / 2f
-                                val sRight = (b.left + b.width * ((c + 1) / 3f)) * scX - image.width / 2f
-                                val sTop = (b.top + b.height * (r / 3f)) * scY - image.height / 2f
-                                val sBottom = (b.top + b.height * ((r + 1) / 3f)) * scY - image.height / 2f
+                                val sLeft = (b.left + b.width * (c / 3f)) * scX - bmp.width / 2f
+                                val sRight = (b.left + b.width * ((c + 1) / 3f)) * scX - bmp.width / 2f
+                                val sTop = (b.top + b.height * (r / 3f)) * scY - bmp.height / 2f
+                                val sBottom = (b.top + b.height * ((r + 1) / 3f)) * scY - bmp.height / 2f
 
                                 val srcQuad = floatArrayOf(
                                     sLeft, sTop,
@@ -185,10 +183,10 @@ internal fun CanvasOverlay(
                                 val pBL = tfState.meshPoints[(r + 1) * 4 + c]
 
                                 val dstQuad = floatArrayOf(
-                                    pTL.x * scX - image.width / 2f, pTL.y * scY - image.height / 2f,
-                                    pTR.x * scX - image.width / 2f, pTR.y * scY - image.height / 2f,
-                                    pBR.x * scX - image.width / 2f, pBR.y * scY - image.height / 2f,
-                                    pBL.x * scX - image.width / 2f, pBL.y * scY - image.height / 2f,
+                                    pTL.x * scX - bmp.width / 2f, pTL.y * scY - bmp.height / 2f,
+                                    pTR.x * scX - bmp.width / 2f, pTR.y * scY - bmp.height / 2f,
+                                    pBR.x * scX - bmp.width / 2f, pBR.y * scY - bmp.height / 2f,
+                                    pBL.x * scX - bmp.width / 2f, pBL.y * scY - bmp.height / 2f,
                                 )
 
                                 val m = android.graphics.Matrix()
@@ -221,20 +219,20 @@ internal fun CanvasOverlay(
                         val aBmp = previewBmp.asAndroidBitmap()
                         val b = tfState.bounds
                         val src = floatArrayOf(
-                            b.left * scX - image.width / 2f, b.top * scY - image.height / 2f,
-                            b.right * scX - image.width / 2f, b.top * scY - image.height / 2f,
-                            b.right * scX - image.width / 2f, b.bottom * scY - image.height / 2f,
-                            b.left * scX - image.width / 2f, b.bottom * scY - image.height / 2f,
+                            b.left * scX - bmp.width / 2f, b.top * scY - bmp.height / 2f,
+                            b.right * scX - bmp.width / 2f, b.top * scY - bmp.height / 2f,
+                            b.right * scX - bmp.width / 2f, b.bottom * scY - bmp.height / 2f,
+                            b.left * scX - bmp.width / 2f, b.bottom * scY - bmp.height / 2f,
                         )
                         val c0 = tfState.quadCorners[0]
                         val c1 = tfState.quadCorners[1]
                         val c2 = tfState.quadCorners[2]
                         val c3 = tfState.quadCorners[3]
                         val dst = floatArrayOf(
-                            c0.x * scX - image.width / 2f, c0.y * scY - image.height / 2f,
-                            c1.x * scX - image.width / 2f, c1.y * scY - image.height / 2f,
-                            c2.x * scX - image.width / 2f, c2.y * scY - image.height / 2f,
-                            c3.x * scX - image.width / 2f, c3.y * scY - image.height / 2f,
+                            c0.x * scX - bmp.width / 2f, c0.y * scY - bmp.height / 2f,
+                            c1.x * scX - bmp.width / 2f, c1.y * scY - bmp.height / 2f,
+                            c2.x * scX - bmp.width / 2f, c2.y * scY - bmp.height / 2f,
+                            c3.x * scX - bmp.width / 2f, c3.y * scY - bmp.height / 2f,
                         )
                         val m = android.graphics.Matrix()
                         if (m.setPolyToPoly(src, 0, dst, 0, 4)) {
@@ -248,10 +246,10 @@ internal fun CanvasOverlay(
                                 b.bottom.toInt().coerceIn(0, aBmp.height)
                             )
                             val dstRect = android.graphics.RectF(
-                                b.left * scX - image.width / 2f,
-                                b.top * scY - image.height / 2f,
-                                b.right * scX - image.width / 2f,
-                                b.bottom * scY - image.height / 2f
+                                b.left * scX - bmp.width / 2f,
+                                b.top * scY - bmp.height / 2f,
+                                b.right * scX - bmp.width / 2f,
+                                b.bottom * scY - bmp.height / 2f
                             )
                             nativeCanvas.drawBitmap(aBmp, srcRect, dstRect, p)
                             nativeCanvas.restore()
@@ -261,14 +259,14 @@ internal fun CanvasOverlay(
                         val c = tfState.bounds.center
                         val b = tfState.bounds
                         withTransform({
-                            translate(c.x * scX - image.width / 2f + tfState.tx * scX, c.y * scY - image.height / 2f + tfState.ty * scY)
+                            translate(c.x * scX - bmp.width / 2f + tfState.tx * scX, c.y * scY - bmp.height / 2f + tfState.ty * scY)
                             rotate(tfState.rotation, pivot = Offset.Zero)
                             scale(tfState.scaleX, tfState.scaleY, pivot = Offset.Zero)
-                            translate(-c.x * scX + image.width / 2f, -c.y * scY + image.height / 2f)
+                            translate(-c.x * scX + bmp.width / 2f, -c.y * scY + bmp.height / 2f)
                         }) {
                             val srcOffset = androidx.compose.ui.unit.IntOffset(b.left.toInt().coerceIn(0, previewBmp.width), b.top.toInt().coerceIn(0, previewBmp.height))
                             val srcSize = androidx.compose.ui.unit.IntSize(b.width.toInt().coerceAtLeast(1), b.height.toInt().coerceAtLeast(1))
-                            val dstOffset = androidx.compose.ui.unit.IntOffset((b.left * scX - image.width / 2f).toInt(), (b.top * scY - image.height / 2f).toInt())
+                            val dstOffset = androidx.compose.ui.unit.IntOffset((b.left * scX - bmp.width / 2f).toInt(), (b.top * scY - bmp.height / 2f).toInt())
                             val dstSize = androidx.compose.ui.unit.IntSize((b.width * scX).toInt().coerceAtLeast(1), (b.height * scY).toInt().coerceAtLeast(1))
                             drawImage(
                                 image = previewBmp,
@@ -285,29 +283,29 @@ internal fun CanvasOverlay(
                 // Magic-wand tap flash: instant feedback ring in document
                 // space (scaled into bitmap space like the preview path)
                 wandFlash.value?.let { wf ->
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     drawCircle(
                         color = Color.White.copy(alpha = 0.85f),
                         radius = 6.dp.toPx(),
-                        center = Offset(wf.x * scX - image.width / 2f, wf.y * scY - image.height / 2f),
+                        center = Offset(wf.x * scX - bmp.width / 2f, wf.y * scY - bmp.height / 2f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()),
                     )
                 }
 
                 // Point-click shape preview (polygon/polyline/select)
                 if (polyPoints.isNotEmpty() && (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON)) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     val pth = androidx.compose.ui.graphics.Path()
                     pth.moveTo(
-                        polyPoints[0].x * scX - image.width / 2f,
-                        polyPoints[0].y * scY - image.height / 2f,
+                        polyPoints[0].x * scX - bmp.width / 2f,
+                        polyPoints[0].y * scY - bmp.height / 2f,
                     )
                     for (i in 1 until polyPoints.size) {
                         pth.lineTo(
-                            polyPoints[i].x * scX - image.width / 2f,
-                            polyPoints[i].y * scY - image.height / 2f,
+                            polyPoints[i].x * scX - bmp.width / 2f,
+                            polyPoints[i].y * scY - bmp.height / 2f,
                         )
                     }
                     if (tool == Tool.POLYGON) {
@@ -322,19 +320,19 @@ internal fun CanvasOverlay(
                         drawCircle(
                             color = Color.White,
                             radius = 3.dp.toPx(),
-                            center = Offset(pt.x * scX - image.width / 2f, pt.y * scY - image.height / 2f),
+                            center = Offset(pt.x * scX - bmp.width / 2f, pt.y * scY - bmp.height / 2f),
                         )
                     }
                 }
 
                 // Measure tool: white line + distance/angle text
                 if (tool == Tool.MEASURE && measureStart.value != null && measureEnd.value != null) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     val s = measureStart.value!!
                     val e = measureEnd.value!!
-                    val p1 = Offset(s.x * scX - image.width / 2f, s.y * scY - image.height / 2f)
-                    val p2 = Offset(e.x * scX - image.width / 2f, e.y * scY - image.height / 2f)
+                    val p1 = Offset(s.x * scX - bmp.width / 2f, s.y * scY - bmp.height / 2f)
+                    val p2 = Offset(e.x * scX - bmp.width / 2f, e.y * scY - bmp.height / 2f)
                     drawLine(Color.White, p1, p2, strokeWidth = 2.dp.toPx())
                     drawCircle(Color.White, radius = 3.dp.toPx(), center = p1)
                     drawCircle(Color.White, radius = 3.dp.toPx(), center = p2)
@@ -356,10 +354,10 @@ internal fun CanvasOverlay(
 
                 // Crop tool preview: dim the outside, white frame
                 cropRect?.let { cr ->
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
-                    val bx = { v: Float -> v * scX - image.width / 2f }
-                    val by2 = { v: Float -> v * scY - image.height / 2f }
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { v: Float -> v * scX - bmp.width / 2f }
+                    val by2 = { v: Float -> v * scY - bmp.height / 2f }
                     val hole =
                         androidx.compose.ui.geometry.Rect(
                             bx(cr.left),
@@ -389,9 +387,9 @@ internal fun CanvasOverlay(
 
                 // Transform tool rubber band (bitmap space, origin at the image centre)
                 if (tool == Tool.TRANSFORM && tfState.active) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
-                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
                     val handles = tfHandles(tfState).map { bx(it) }
                     val currentScale = zoom.value * fitScale
 
@@ -568,9 +566,9 @@ internal fun CanvasOverlay(
 
                 // Polygon / Polyline vertices preview
                 if (polyPoints.isNotEmpty()) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
-                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
                     val mappedPts = polyPoints.map { bx(it) }
                     val currentScale = zoom.value * fitScale
                     val polyPath = androidx.compose.ui.graphics.Path()
@@ -602,9 +600,9 @@ internal fun CanvasOverlay(
 
                 // Live shape drawing preview (line, rect, ellipse, gradient)
                 if (liveShapeStart.value != null && liveShapeEnd.value != null) {
-                    val scX = if (vm.docWidth > 0) image.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) image.height.toFloat() / vm.docHeight else 1f
-                    val bx = { p: Offset -> Offset(p.x * scX - image.width / 2f, p.y * scY - image.height / 2f) }
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
                     val s = bx(liveShapeStart.value!!)
                     val e = bx(liveShapeEnd.value!!)
                     val currentScale = zoom.value * fitScale
@@ -637,13 +635,13 @@ internal fun CanvasOverlay(
                         )
                     }
                     val bounds = androidx.compose.ui.geometry.Rect(
-                        -image.width / 2f, -image.height / 2f,
-                        image.width / 2f, image.height / 2f
+                        -bmp.width / 2f, -bmp.height / 2f,
+                        bmp.width / 2f, bmp.height / 2f
                     )
                     drawContext.canvas.saveLayer(bounds, paint)
                     drawImage(
                         image = selBmp,
-                        topLeft = Offset(-image.width / 2f, -image.height / 2f),
+                        topLeft = Offset(-bmp.width / 2f, -bmp.height / 2f),
                     )
                     drawContext.canvas.restore()
                 }

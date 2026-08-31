@@ -763,11 +763,24 @@ static inline void blitBgraToRgbaFast(const quint8 *src, int srcStride, quint8 *
         const uint8_t *s = src + y * srcStride;
         uint8_t *d = dst + y * dstStride;
         int x = 0;
+        // 4x parallel unrolled loop: 16 pixels (64 bytes) per iteration
+        for (; x <= width - 16; x += 16) {
+            uint8x16_t p0 = vld1q_u8(s + (x + 0) * 4);
+            uint8x16_t p1 = vld1q_u8(s + (x + 4) * 4);
+            uint8x16_t p2 = vld1q_u8(s + (x + 8) * 4);
+            uint8x16_t p3 = vld1q_u8(s + (x + 12) * 4);
+
+            vst1q_u8(d + (x + 0) * 4, vqtbl1q_u8(p0, mask));
+            vst1q_u8(d + (x + 4) * 4, vqtbl1q_u8(p1, mask));
+            vst1q_u8(d + (x + 8) * 4, vqtbl1q_u8(p2, mask));
+            vst1q_u8(d + (x + 12) * 4, vqtbl1q_u8(p3, mask));
+        }
+        // Single vector loop: 4 pixels (16 bytes) per iteration
         for (; x <= width - 4; x += 4) {
             uint8x16_t pix = vld1q_u8(s + x * 4);
-            uint8x16_t swp = vqtbl1q_u8(pix, mask);
-            vst1q_u8(d + x * 4, swp);
+            vst1q_u8(d + x * 4, vqtbl1q_u8(pix, mask));
         }
+        // Scalar tail handling: remaining 1-3 pixels
         for (; x < width; ++x) {
             uint8_t b = s[x * 4 + 0];
             uint8_t g = s[x * 4 + 1];
