@@ -323,9 +323,11 @@ class CanvasTouchView(context: Context) : View(context) {
         pickerScreenPos?.value = samplePos
         val docPos = screenToDoc(samplePos)
         val bmp = docBitmap
-        if (bmp != null) {
-            val ix = docPos.x.toInt()
-            val iy = docPos.y.toInt()
+        if (bmp != null && bmp.width > 0 && bmp.height > 0) {
+            val docW = if (v.docWidth > 0) v.docWidth else bmp.width
+            val docH = if (v.docHeight > 0) v.docHeight else bmp.height
+            val ix = (docPos.x * (bmp.width.toFloat() / docW)).toInt()
+            val iy = (docPos.y * (bmp.height.toFloat() / docH)).toInt()
             if (ix in 0 until bmp.width && iy in 0 until bmp.height) {
                 val pixel = bmp.getPixel(ix, iy)
                 pickerCurrentColor?.value = Color(pixel)
@@ -792,7 +794,16 @@ class CanvasTouchView(context: Context) : View(context) {
         val docPos = screenToDoc(screenPos)
         val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
         val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode && isDrawingTool
-        val isPenOnlyPan = v.penOnlyMode && isDrawingTool
+        val isPenOnlyPan = v.penOnlyMode && (
+            tool.group == ToolGroup.BRUSH ||
+            tool.group == ToolGroup.SELECTION ||
+            tool.group == ToolGroup.SHAPES ||
+            tool.group == ToolGroup.FILL ||
+            tool == Tool.LIQUIFY ||
+            tool == Tool.PICKER ||
+            tool == Tool.MEASURE ||
+            tool == Tool.TEXT
+        )
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {

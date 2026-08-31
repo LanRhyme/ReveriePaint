@@ -618,6 +618,32 @@ internal fun CanvasOverlay(
                             val r = androidx.compose.ui.geometry.Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
                             drawOval(Color.White, topLeft = r.topLeft, size = r.size, style = strokeStyle)
                         }
+                        Tool.SELECT_RECT -> {
+                            val r = androidx.compose.ui.geometry.Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
+                            drawRect(Morandi.accent.copy(alpha = 0.25f), topLeft = r.topLeft, size = r.size, style = androidx.compose.ui.graphics.drawscope.Fill)
+                            drawRect(
+                                Color.White,
+                                topLeft = r.topLeft,
+                                size = r.size,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 1.5.dp.toPx() / currentScale,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / currentScale, 6.dp.toPx() / currentScale))
+                                )
+                            )
+                        }
+                        Tool.SELECT_ELLIPSE -> {
+                            val r = androidx.compose.ui.geometry.Rect(minOf(s.x, e.x), minOf(s.y, e.y), maxOf(s.x, e.x), maxOf(s.y, e.y))
+                            drawOval(Morandi.accent.copy(alpha = 0.25f), topLeft = r.topLeft, size = r.size, style = androidx.compose.ui.graphics.drawscope.Fill)
+                            drawOval(
+                                Color.White,
+                                topLeft = r.topLeft,
+                                size = r.size,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 1.5.dp.toPx() / currentScale,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / currentScale, 6.dp.toPx() / currentScale))
+                                )
+                            )
+                        }
                         Tool.GRADIENT -> {
                             drawLine(Color.White, s, e, strokeWidth = 2.dp.toPx() / currentScale)
                             drawCircle(Color.White, radius = 5.dp.toPx() / currentScale, center = s)
