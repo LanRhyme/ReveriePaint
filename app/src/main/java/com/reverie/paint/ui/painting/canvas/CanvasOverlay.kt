@@ -626,8 +626,8 @@ internal fun CanvasOverlay(
                                 topLeft = r.topLeft,
                                 size = r.size,
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                    width = 1.5.dp.toPx() / currentScale,
-                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / currentScale, 6.dp.toPx() / currentScale))
+                                    width = 1.dp.toPx() / currentScale,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.5.dp.toPx() / currentScale, 3.5.dp.toPx() / currentScale))
                                 )
                             )
                         }
@@ -639,8 +639,8 @@ internal fun CanvasOverlay(
                                 topLeft = r.topLeft,
                                 size = r.size,
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                    width = 1.5.dp.toPx() / currentScale,
-                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx() / currentScale, 6.dp.toPx() / currentScale))
+                                    width = 1.dp.toPx() / currentScale,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(3.5.dp.toPx() / currentScale, 3.5.dp.toPx() / currentScale))
                                 )
                             )
                         }
@@ -674,8 +674,9 @@ internal fun CanvasOverlay(
 
                 liveSelectionPath.value?.let { livePath ->
                     val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
-                    val strokeW = 1.5.dp.toPx() / currentScale
-                    val dashInterval = 5.dp.toPx() / currentScale
+                    val strokeW = 0.9.dp.toPx() / currentScale
+                    val blackStrokeW = 1.2.dp.toPx() / currentScale
+                    val dashInterval = 3.5.dp.toPx() / currentScale
 
                     // 1. 半透明填充指示选区覆盖区域
                     drawPath(
@@ -684,12 +685,12 @@ internal fun CanvasOverlay(
                         style = androidx.compose.ui.graphics.drawscope.Fill
                     )
 
-                    // 2. 经典双色虚线蚂蚁线轮廓 (黑色底 + 白色错位虚线)
+                    // 2. 细腻双色虚线蚂蚁线轮廓 (黑色底 + 白色错位虚线)
                     drawPath(
                         path = livePath,
-                        color = Color.Black.copy(alpha = 0.8f),
+                        color = Color.Black.copy(alpha = 0.75f),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = strokeW + 0.8f / currentScale,
+                            width = blackStrokeW,
                             pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
                                 floatArrayOf(dashInterval, dashInterval),
                                 phase = 0f
