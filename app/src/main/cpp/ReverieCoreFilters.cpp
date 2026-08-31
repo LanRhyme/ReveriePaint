@@ -24,8 +24,9 @@ void ReverieCore::applyFilter(int index, int filterId)
     }
     // Krita-native undo: wrap the pixel filter in a transaction
     KisTransaction txn(kundo2_i18n("Filter"), dev);
-    QImage img(ext.size(), QImage::Format_ARGB32_Premultiplied);
-    dev->readBytes(img.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+    QImage origImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
+    dev->readBytes(origImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
+    QImage img = origImg;
     switch (filterId) {
     case 0: {  // grayscale (RGBA8888 byte order: R,G,B,A)
         for (int y = 0; y < img.height(); ++y) {
@@ -99,6 +100,9 @@ void ReverieCore::applyFilter(int index, int filterId)
     }
     default:
         return;
+    }
+    if (hasSelection()) {
+        blendWithSelectionMask(img, origImg, m_selection, ext.x(), ext.y(), ext.width(), ext.height());
     }
     dev->writeBytes(img.constBits(), ext.x(), ext.y(), ext.width(), ext.height());
     dev->setDirty(ext);

@@ -22,10 +22,15 @@ void ReverieCore::applyFilterPreview(int index, int filterType, double p1, doubl
 
     const int w = m_docWidth;
     const int h = m_docHeight;
-    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
+    QImage origImg(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_filterBackupDevice->readBytes(origImg.bits(), 0, 0, w, h);
+    QImage img = origImg;
 
     reverieApplyScalarKernel(img, filterType, p1, p2, p3, p4);
+
+    if (hasSelection()) {
+        blendWithSelectionMask(img, origImg, m_selection, 0, 0, w, h);
+    }
 
     dev->writeBytes(img.constBits(), 0, 0, w, h);
     dev->setDirty(QRect(0, 0, w, h));
@@ -44,10 +49,15 @@ void ReverieCore::applyCurvesLUTPreview(int index, const quint8 *lutR, const qui
 
     const int w = m_docWidth;
     const int h = m_docHeight;
-    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
+    QImage origImg(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_filterBackupDevice->readBytes(origImg.bits(), 0, 0, w, h);
+    QImage img = origImg;
 
     reverieApplyCurvesLutKernel(img, lutR, lutG, lutB);
+
+    if (hasSelection()) {
+        blendWithSelectionMask(img, origImg, m_selection, 0, 0, w, h);
+    }
 
     dev->writeBytes(img.constBits(), 0, 0, w, h);
     dev->setDirty(QRect(0, 0, w, h));
@@ -66,10 +76,15 @@ void ReverieCore::applyGradientMapPreview(int index, const quint32 *gradientLut2
 
     const int w = m_docWidth;
     const int h = m_docHeight;
-    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
-    m_filterBackupDevice->readBytes(img.bits(), 0, 0, w, h);
+    QImage origImg(w, h, QImage::Format_ARGB32_Premultiplied);
+    m_filterBackupDevice->readBytes(origImg.bits(), 0, 0, w, h);
+    QImage img = origImg;
 
     reverieApplyGradientMapKernel(img, reinterpret_cast<const qint32 *>(gradientLut256));
+
+    if (hasSelection()) {
+        blendWithSelectionMask(img, origImg, m_selection, 0, 0, w, h);
+    }
 
     dev->writeBytes(img.constBits(), 0, 0, w, h);
     dev->setDirty(QRect(0, 0, w, h));

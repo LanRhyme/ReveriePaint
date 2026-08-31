@@ -241,6 +241,41 @@ static inline QVector<quint8> readSelectionMaskBytes(const KisImageSP &image,
     return bytes;
 }
 
+// Blend destImg (filtered) with origImg (unfiltered) using selection pixel mask:
+// pixels outside selection remain origImg, pixels inside selection become destImg,
+// pixels with partial alpha (feathering/anti-aliasing) are linearly blended.
+static inline void blendWithSelectionMask(QImage &destImg, const QImage &origImg,
+                                          const KisSelectionSP &selection,
+                                          int x, int y, int w, int h)
+{
+    if (!selection) return;
+    KisPixelSelectionSP ps = selection->pixelSelection();
+    if (!ps) return;
+
+    QVector<quint8> maskBytes(static_cast<size_t>(w) * h, 0);
+    ps->readBytes(maskBytes.data(), x, y, w, h);
+
+    for (int row = 0; row < h; ++row) {
+        const quint8 *maskLine = maskBytes.constData() + row * w;
+        const quint8 *origLine = origImg.constScanLine(row);
+        quint8 *destLine = destImg.scanLine(row);
+        for (int col = 0; col < w; ++col) {
+            const quint8 m = maskLine[col];
+            if (m == 0) {
+                reinterpret_cast<quint32 *>(destLine)[col] = reinterpret_cast<const quint32 *>(origLine)[col];
+            } else if (m < 255) {
+                quint8 *fpx = destLine + col * 4;
+                const quint8 *opx = origLine + col * 4;
+                const int invM = 255 - m;
+                fpx[0] = quint8((fpx[0] * m + opx[0] * invM + 127) / 255);
+                fpx[1] = quint8((fpx[1] * m + opx[1] * invM + 127) / 255);
+                fpx[2] = quint8((fpx[2] * m + opx[2] * invM + 127) / 255);
+                fpx[3] = quint8((fpx[3] * m + opx[3] * invM + 127) / 255);
+            }
+        }
+    }
+}
+
 // Krita's KisLsUtils::growSelectionUniform / applyGaussianWithTransaction are
 // not exported from libkritaimage, but the filters they wrap are, so replicate
 // the exact same calls (the logic Krita's layer styles use).
