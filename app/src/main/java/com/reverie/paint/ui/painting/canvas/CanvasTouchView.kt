@@ -151,8 +151,31 @@ class CanvasTouchView(context: Context) : View(context) {
         lastPos1 = Offset.Zero
     }
 
-    // 防抖撤销任务
+    // 防抖撤销任务与 Procreate 风格连续撤销/重做
     private var pendingUndoRunnable: Runnable? = null
+    private var isContinuousUndoing = false
+
+    private val continuousUndoRunnable = object : Runnable {
+        override fun run() {
+            val v = vm ?: return
+            if (maxTouchPointers == 2 && !isPinchMotion && isInteracting) {
+                isContinuousUndoing = true
+                v.undo()
+                postDelayed(this, 110L)
+            }
+        }
+    }
+
+    private val continuousRedoRunnable = object : Runnable {
+        override fun run() {
+            val v = vm ?: return
+            if (maxTouchPointers >= 3 && !isPinchMotion && isInteracting) {
+                isContinuousUndoing = true
+                v.redo()
+                postDelayed(this, 110L)
+            }
+        }
+    }
 
     // 长按吸色状态机 (按住不动延迟取色；移动立即画线；调出吸色后可随意移动取色)
     private var isPendingLongPress = false
@@ -669,6 +692,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (!isTransformActive || (nowMs - lastTransformTimestamp) >= 150) {
                     isTransformActive = true
                     isPinchMotion = false
+                    isContinuousUndoing = false
                     prevCentroid = centroid
                     prevDistance = distance
                     prevAngle = angle
@@ -676,6 +700,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     initialDistance = distance
                     initialAngle = angle
                     touchDownTimeMs = nowMs
+
+                    removeCallbacks(continuousUndoRunnable)
+                    removeCallbacks(continuousRedoRunnable)
+                    if (numFingers == 2 && v.gestureTwoFingerUndo) {
+                        postDelayed(continuousUndoRunnable, 420L)
+                    } else if (numFingers >= 3 && v.gestureThreeFingerRedo) {
+                        postDelayed(continuousRedoRunnable, 420L)
+                    }
                 } else {
                     val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
                     if (distCentroidMoved > 80f * density) {
@@ -694,6 +726,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         val angleDiff = abs(normalizeAngle(angle - initialAngle))
                         if (totalMoved > 6f * density || abs(scaleRatio - 1f) > 0.02f || angleDiff > 2f) {
                             isPinchMotion = true
+                            removeCallbacks(continuousUndoRunnable)
+                            removeCallbacks(continuousRedoRunnable)
                         }
 
                         // 围绕双指中心 (prevCentroid) 几何旋转与缩放补偿，保证手指标定点完全不动
@@ -724,6 +758,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 lastTransformTimestamp = nowMs
             } else if (numFingers == 1 && isTransformActive) {
                 // 驱动碎片期（单指短暂存活）：持续补偿平移，零丢帧
+                removeCallbacks(continuousUndoRunnable)
+                removeCallbacks(continuousRedoRunnable)
                 val idx0 = fingerPointers[0]
                 val cur = Offset(event.getX(idx0), event.getY(idx0))
                 val dist0 = hypot(cur.x - lastPos0.x, cur.y - lastPos0.y)
@@ -756,32 +792,46 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_UP -> {
+                    removeCallbacks(continuousUndoRunnable)
+                    removeCallbacks(continuousRedoRunnable)
+                }
                 MotionEvent.ACTION_UP -> {
+                    removeCallbacks(continuousUndoRunnable)
+                    removeCallbacks(continuousRedoRunnable)
                     val durationMs = nowMs - touchDownTimeMs
                     isInteracting = false
-                    if (!isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 320L) {
+
+                    // Procreate Quick-Pinch to Fit Canvas
+                    val isQuickPinchFit = maxTouchPointers == 2 &&
+                        initialDistance > 80f * density &&
+                        prevDistance < initialDistance * 0.60f &&
+                        durationMs < 280L
+
+                    if (isQuickPinchFit) {
+                        canvasZoom = 1f
+                        canvasRotation = 0f
+                        canvasPanX = 0f
+                        canvasPanY = 0f
+                        onTransform?.invoke(1f, 0f, 0f, 0f)
+                        v.showActionToast("画布已快速满屏复位", R.drawable.ic_refresh)
+                    } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
                         v.undo()
-                        isTransformActive = false
-                        isPinchMotion = false
-                        maxTouchPointers = 0
-                        lastPos0 = Offset.Zero
-                        lastPos1 = Offset.Zero
-                    } else if (!isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 360L) {
+                    } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 380L) {
                         v.redo()
-                        isTransformActive = false
-                        isPinchMotion = false
-                        maxTouchPointers = 0
-                        lastPos0 = Offset.Zero
-                        lastPos1 = Offset.Zero
-                    } else {
-                        isTransformActive = false
-                        isPinchMotion = false
-                        maxTouchPointers = 0
-                        lastPos0 = Offset.Zero
-                        lastPos1 = Offset.Zero
                     }
+
+                    isContinuousUndoing = false
+                    isTransformActive = false
+                    isPinchMotion = false
+                    maxTouchPointers = 0
+                    lastPos0 = Offset.Zero
+                    lastPos1 = Offset.Zero
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    removeCallbacks(continuousUndoRunnable)
+                    removeCallbacks(continuousRedoRunnable)
+                    isContinuousUndoing = false
                     postDelayed(resetTransformRunnable, 150)
                 }
             }
