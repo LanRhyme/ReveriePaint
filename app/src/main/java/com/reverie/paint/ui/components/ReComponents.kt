@@ -509,7 +509,7 @@ fun ReVerticalSlider(
     label: String,
     fraction: Float,
     onFraction: (Float) -> Unit,
-    onRelease: (() -> Unit)? = null,
+    onRelease: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier,
     trackWidth: Int = 26,
     trackHeight: Int = 175,
@@ -606,11 +606,11 @@ fun ReVerticalSlider(
                                 },
                                 onDragEnd = {
                                     isDragging = false
-                                    onRelease?.invoke()
+                                    onRelease?.invoke(localFraction)
                                 },
                                 onDragCancel = {
                                     isDragging = false
-                                    onRelease?.invoke()
+                                    onRelease?.invoke(localFraction)
                                 }
                             ) { change, _ ->
                                 val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
@@ -627,7 +627,7 @@ fun ReVerticalSlider(
                 contentAlignment = Alignment.BottomCenter,
             ) {
                 val capsuleRadius = (trackWidth / 2).dp
-                val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
+                val capsuleScale = if (isDragging) 1.06f else 1f
 
                 // Track Background & Outlined Border
                 Box(
@@ -635,8 +635,8 @@ fun ReVerticalSlider(
                         .width(trackWidth.dp)
                         .fillMaxHeight()
                         .graphicsLayer {
-                            scaleX = capsuleGrow
-                            scaleY = 1f + (capsuleGrow - 1f) * 0.4f
+                            scaleX = capsuleScale
+                            scaleY = 1f + (capsuleScale - 1f) * 0.4f
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
@@ -654,21 +654,9 @@ fun ReVerticalSlider(
                 }
 
                 // Dynamic Indicator Line (Rendered via graphicsLayer translation for 0-layout 120fps smoothness)
-                val indicatorHeight by animateDpAsState(
-                    targetValue = if (isDragging) 6.dp else 3.dp,
-                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
-                    label = "ind_h"
-                )
-                val indicatorWidth by animateDpAsState(
-                    targetValue = if (isDragging) (trackWidth + 4).dp else trackWidth.dp,
-                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
-                    label = "ind_w"
-                )
-                val indicatorAlpha by animateFloatAsState(
-                    targetValue = if (isDragging) 0.85f else 1.0f,
-                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
-                    label = "ind_alpha"
-                )
+                val indicatorHeight = if (isDragging) 6.dp else 3.dp
+                val indicatorWidth = if (isDragging) (trackWidth + 4).dp else trackWidth.dp
+                val indicatorAlpha = if (isDragging) 0.85f else 1.0f
 
                 val travelPx = with(density) { (trackHeight - 4).dp.toPx() }
 
@@ -690,28 +678,35 @@ fun ReVerticalSlider(
                         .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
                 )
 
-                // Live floating tooltip next to track (In-tree Compose Box, avoids native window Popup overhead)
+                // Live floating tooltip (Non-focusable lightweight Popup escaping 36dp container clip)
                 if (isDragging) {
+                    val tooltipOffsetPx = with(density) { (trackWidth + 14).dp.roundToPx() }
+                    val yOffsetPx = -(localFraction.coerceIn(0f, 1f) * travelPx).roundToInt()
                     val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .offset(x = (trackWidth + 14).dp)
-                            .graphicsLayer {
-                                translationY = -(localFraction.coerceIn(0f, 1f) * travelPx)
-                            }
-                            .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panel.copy(alpha = popupAlpha))
-                            .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Text(
-                            valueText,
-                            color = colors.text,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
+                    Popup(
+                        alignment = Alignment.BottomStart,
+                        offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, yOffsetPx),
+                        properties = androidx.compose.ui.window.PopupProperties(
+                            focusable = false,
+                            dismissOnBackPress = false,
+                            dismissOnClickOutside = false,
                         )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panel.copy(alpha = popupAlpha))
+                                .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                valueText,
+                                color = colors.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }
