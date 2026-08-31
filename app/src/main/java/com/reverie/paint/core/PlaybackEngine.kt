@@ -220,7 +220,7 @@ internal fun PaintViewModel.pauseReplay() {
 }
 
 internal fun PaintViewModel.setReplaySpeed(v: Float) {
-    replaySession?.let { it.speed = v.coerceIn(0.5f, 8f) }
+    replaySession?.let { it.speed = v.coerceIn(0.1f, 128f) }
 }
 
 /** Scrub to a fraction (0..1) of the playback; resets and fast-forwards. */
