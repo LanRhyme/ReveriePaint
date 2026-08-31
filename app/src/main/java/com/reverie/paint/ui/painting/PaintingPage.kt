@@ -709,10 +709,10 @@ fun PaintingPage(
                 moreToolsOpen = !moreToolsOpen
             },
             brushSize = vm.brushSize,
-            onBrushSize = { vm.updateBrushSize(it) },
+            onBrushSize = { size, commit -> vm.updateBrushSize(size, commit) },
             popupOpacity = vm.popupPanelOpacity,
             brushOpacity = vm.brushOpacity,
-            onOpacity = { vm.updateBrushOpacity(it) },
+            onOpacity = { op, commit -> vm.updateBrushOpacity(op, commit) },
             brushColor = vm.brushColor,
             onOpenBrush = {
                 brushPanelOpen = true

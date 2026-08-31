@@ -76,11 +76,11 @@ fun ToolRail(
     moreToolsOpen: Boolean = false,
     onToggleMoreTools: () -> Unit = {},
     brushSize: Double,
-    onBrushSize: (Double) -> Unit,
+    onBrushSize: (Double, Boolean) -> Unit,
     opacity: Double,
     popupOpacity: Float = 1f,
     brushOpacity: Double,
-    onOpacity: (Double) -> Unit,
+    onOpacity: (Double, Boolean) -> Unit,
     brushColor: String,
     onOpenBrush: () -> Unit,
     onOpenColor: () -> Unit,
@@ -264,7 +264,7 @@ fun ToolRail(
                         vm = vm,
                         hazeState = hazeState,
                         flow = vm.brushFlow,
-                        onFlow = { vm.updateBrushFlow(it) },
+                        onFlow = { flow, commit -> vm.updateBrushFlow(flow, commit) },
                     )
                 } else {
                     OpacityGroup(
@@ -320,7 +320,7 @@ private fun BrushSizeGroup(
     vm: PaintViewModel,
     hazeState: HazeState? = null,
     brushSize: Double,
-    onBrushSize: (Double) -> Unit,
+    onBrushSize: (Double, Boolean) -> Unit,
 ) {
     val formattedValue = if (brushSize < 10.0) {
         String.format(java.util.Locale.US, "%.2f", brushSize)
@@ -335,7 +335,8 @@ private fun BrushSizeGroup(
         title = "笔刷大小",
         iconRes = R.drawable.ic_brush,
         fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
-        onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it.toDouble())) },
+        onFraction = { onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * it.toDouble()), false) },
+        onRelease = { onBrushSize(brushSize, true) },
         trackWidth = 26,
         trackHeight = 175,
         valueText = formattedValue,
@@ -347,16 +348,16 @@ private fun BrushSizeGroup(
                 else -> 5.0
             }
             val newSize = if (increase) (brushSize + step).coerceAtMost(500.0) else (brushSize - step).coerceAtLeast(1.0)
-            onBrushSize(newSize)
+            onBrushSize(newSize, true)
         },
         quickChips = listOf(
-            "2px" to { onBrushSize(2.0) },
-            "10px" to { onBrushSize(10.0) },
-            "40px" to { onBrushSize(40.0) },
-            "120px" to { onBrushSize(120.0) },
+            "2px" to { onBrushSize(2.0, true) },
+            "10px" to { onBrushSize(10.0, true) },
+            "40px" to { onBrushSize(40.0, true) },
+            "120px" to { onBrushSize(120.0, true) },
         ),
         presets = vm.brushSizePresets,
-        onSelectPreset = { onBrushSize(it) },
+        onSelectPreset = { onBrushSize(it, true) },
         onSavePreset = { idx -> vm.saveSizePreset(brushSize, idx) },
         onDeletePreset = { idx -> vm.removeSizePreset(idx) },
         formatPreset = { p ->
@@ -373,7 +374,7 @@ private fun OpacityGroup(
     vm: PaintViewModel,
     hazeState: HazeState? = null,
     opacity: Double,
-    onOpacity: (Double) -> Unit,
+    onOpacity: (Double, Boolean) -> Unit,
 ) {
     val pct = opacity * 100.0
     val formattedValue = if (pct < 10.0) {
@@ -387,23 +388,24 @@ private fun OpacityGroup(
         title = "不透明度",
         iconRes = R.drawable.ic_eye,
         fraction = opacity.toFloat(),
-        onFraction = { onOpacity(it.toDouble()) },
+        onFraction = { onOpacity(it.toDouble(), false) },
+        onRelease = { onOpacity(opacity, true) },
         trackWidth = 26,
         trackHeight = 175,
         valueText = formattedValue,
         onStep = { increase ->
             val step = 0.01
             val newOpacity = if (increase) (opacity + step).coerceAtMost(1.0) else (opacity - step).coerceAtLeast(0.01)
-            onOpacity(newOpacity)
+            onOpacity(newOpacity, true)
         },
         quickChips = listOf(
-            "25%" to { onOpacity(0.25) },
-            "50%" to { onOpacity(0.50) },
-            "75%" to { onOpacity(0.75) },
-            "100%" to { onOpacity(1.00) },
+            "25%" to { onOpacity(0.25, true) },
+            "50%" to { onOpacity(0.50, true) },
+            "75%" to { onOpacity(0.75, true) },
+            "100%" to { onOpacity(1.00, true) },
         ),
         presets = vm.brushOpacityPresets,
-        onSelectPreset = { onOpacity(it) },
+        onSelectPreset = { onOpacity(it, true) },
         onSavePreset = { idx -> vm.saveOpacityPreset(opacity, idx) },
         onDeletePreset = { idx -> vm.removeOpacityPreset(idx) },
         formatPreset = { p -> "${(p * 100).roundToInt()}%" },
@@ -418,7 +420,7 @@ private fun FlowGroup(
     vm: PaintViewModel,
     hazeState: HazeState? = null,
     flow: Double,
-    onFlow: (Double) -> Unit,
+    onFlow: (Double, Boolean) -> Unit,
 ) {
     val pct = flow * 100.0
     val formattedValue = if (pct < 10.0) {
@@ -432,23 +434,24 @@ private fun FlowGroup(
         title = "画笔流量",
         iconRes = R.drawable.ic_gradient,
         fraction = flow.toFloat(),
-        onFraction = { onFlow(it.toDouble()) },
+        onFraction = { onFlow(it.toDouble(), false) },
+        onRelease = { onFlow(flow, true) },
         trackWidth = 26,
         trackHeight = 175,
         valueText = formattedValue,
         onStep = { increase ->
             val step = 0.01
             val newFlow = if (increase) (flow + step).coerceAtMost(1.0) else (flow - step).coerceAtLeast(0.01)
-            onFlow(newFlow)
+            onFlow(newFlow, true)
         },
         quickChips = listOf(
-            "25%" to { onFlow(0.25) },
-            "50%" to { onFlow(0.50) },
-            "75%" to { onFlow(0.75) },
-            "100%" to { onFlow(1.00) },
+            "25%" to { onFlow(0.25, true) },
+            "50%" to { onFlow(0.50, true) },
+            "75%" to { onFlow(0.75, true) },
+            "100%" to { onFlow(1.00, true) },
         ),
         presets = vm.brushFlowPresets,
-        onSelectPreset = { onFlow(it) },
+        onSelectPreset = { onFlow(it, true) },
         onSavePreset = { idx -> vm.saveFlowPreset(flow, idx) },
         onDeletePreset = { idx -> vm.removeFlowPreset(idx) },
         formatPreset = { p -> "${(p * 100).roundToInt()}%" },

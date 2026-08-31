@@ -190,10 +190,12 @@ import kotlinx.coroutines.launch
         return true
     }
 
-    internal fun PaintViewModel.updateBrushFlow(v: Double) {
+    internal fun PaintViewModel.updateBrushFlow(v: Double, commit: Boolean = true) {
         brushFlow = v
-        saveBrushParam()
-        rememberToolParamSnapshot()
+        if (commit) {
+            saveBrushParam()
+            rememberToolParamSnapshot()
+        }
         runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
     }
 
@@ -979,10 +981,12 @@ import kotlinx.coroutines.launch
         persistBrushPanelState()
     }
 
-    internal fun PaintViewModel.updateBrushSize(v: Double) {
+    internal fun PaintViewModel.updateBrushSize(v: Double, commit: Boolean = true) {
         brushSize = v
-        saveBrushParam()
-        rememberToolParamSnapshot()
+        if (commit) {
+            saveBrushParam()
+            rememberToolParamSnapshot()
+        }
         runCore(render = false) { ReverieCoreBridge.setBrushSize(v) }
     }
 
@@ -1009,10 +1013,12 @@ import kotlinx.coroutines.launch
         updateBrushSecondaryColor(temp)
     }
 
-    internal fun PaintViewModel.updateBrushOpacity(v: Double) {
+    internal fun PaintViewModel.updateBrushOpacity(v: Double, commit: Boolean = true) {
         brushOpacity = v
-        saveBrushParam()
-        rememberToolParamSnapshot()
+        if (commit) {
+            saveBrushParam()
+            rememberToolParamSnapshot()
+        }
         runCore(render = false) { ReverieCoreBridge.setBrushOpacity(v) }
     }
 

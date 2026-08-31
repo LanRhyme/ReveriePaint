@@ -509,6 +509,7 @@ fun ReVerticalSlider(
     label: String,
     fraction: Float,
     onFraction: (Float) -> Unit,
+    onRelease: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     trackWidth: Int = 26,
     trackHeight: Int = 175,
@@ -553,7 +554,7 @@ fun ReVerticalSlider(
             modifier = Modifier.height(trackHeight.dp),
             contentAlignment = Alignment.BottomCenter,
         ) {
-            // Fine-tune & Preset Popup
+            // Fine-tune & Preset Popup (Click-to-open detailed popover)
             if (showPopup && onStep != null) {
                 SliderFineTunePopup(
                     title = title,
@@ -603,8 +604,14 @@ fun ReVerticalSlider(
                                     isDragging = true
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 },
-                                onDragEnd = { isDragging = false },
-                                onDragCancel = { isDragging = false }
+                                onDragEnd = {
+                                    isDragging = false
+                                    onRelease?.invoke()
+                                },
+                                onDragCancel = {
+                                    isDragging = false
+                                    onRelease?.invoke()
+                                }
                             ) { change, _ ->
                                 val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
                                 localFraction = value
@@ -619,32 +626,6 @@ fun ReVerticalSlider(
                         },
                 contentAlignment = Alignment.BottomCenter,
             ) {
-                // Live Tooltip while dragging
-                if (isDragging) {
-                    val tooltipOffsetPx = with(density) { (trackWidth + 20).dp.roundToPx() }
-                    val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-                    Popup(
-                        alignment = Alignment.CenterStart,
-                        offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, 0)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.panel.copy(alpha = popupAlpha))
-                                .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                valueText,
-                                color = colors.text,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                }
-
                 val capsuleRadius = (trackWidth / 2).dp
                 val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
 
@@ -662,7 +643,7 @@ fun ReVerticalSlider(
                         .background(colors.panel.copy(alpha = 0.55f))
                         .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
                 ) {
-                    // Active progress fill level (FLAT TOP, seamless with indicator bar!)
+                    // Active progress fill level
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -672,7 +653,7 @@ fun ReVerticalSlider(
                     )
                 }
 
-                // Dynamic Indicator Line: Spans full width, floats clearly ON TOP without being clipped!
+                // Dynamic Indicator Line (Rendered via graphicsLayer translation for 0-layout 120fps smoothness)
                 val indicatorHeight by animateDpAsState(
                     targetValue = if (isDragging) 6.dp else 3.dp,
                     animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
@@ -689,10 +670,14 @@ fun ReVerticalSlider(
                     label = "ind_alpha"
                 )
 
+                val travelPx = with(density) { (trackHeight - 4).dp.toPx() }
+
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = (localFraction.coerceIn(0f, 1f) * (trackHeight - 4)).dp)
+                        .graphicsLayer {
+                            translationY = -(localFraction.coerceIn(0f, 1f) * travelPx)
+                        }
                         .width(indicatorWidth)
                         .height(indicatorHeight)
                         .shadow(
@@ -704,6 +689,31 @@ fun ReVerticalSlider(
                         .background(colors.accent.copy(alpha = indicatorAlpha))
                         .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
                 )
+
+                // Live floating tooltip next to track (In-tree Compose Box, avoids native window Popup overhead)
+                if (isDragging) {
+                    val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .offset(x = (trackWidth + 14).dp)
+                            .graphicsLayer {
+                                translationY = -(localFraction.coerceIn(0f, 1f) * travelPx)
+                            }
+                            .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panel.copy(alpha = popupAlpha))
+                            .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            valueText,
+                            color = colors.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
         }
     }
