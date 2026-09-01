@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
+import com.reverie.paint.model.RecordingEvents.CONTEXT_FADE
 import com.reverie.paint.model.RecordingEvents.FILTER
 import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
@@ -27,6 +28,7 @@ import com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER
 import com.reverie.paint.model.RecordingEvents.L_BLEND
 import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_H
 import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_V
+import com.reverie.paint.model.RecordingEvents.L_FILL_LAYER
 import com.reverie.paint.model.RecordingEvents.L_CLEAR
 import com.reverie.paint.model.RecordingEvents.L_CLIPPED
 import com.reverie.paint.model.RecordingEvents.L_COLOR_LABEL
@@ -61,12 +63,14 @@ import com.reverie.paint.model.RecordingEvents.STROKE_START
 import com.reverie.paint.model.RecordingEvents.TOOL_OP
 import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS
+import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS_V2
 import com.reverie.paint.model.RecordingEvents.T_CONTRACT
 import com.reverie.paint.model.RecordingEvents.T_CROP
 import com.reverie.paint.model.RecordingEvents.T_EXPAND
 import com.reverie.paint.model.RecordingEvents.T_FEATHER
 import com.reverie.paint.model.RecordingEvents.T_FILL
 import com.reverie.paint.model.RecordingEvents.T_FILL_V2
+import com.reverie.paint.model.RecordingEvents.T_FILL_V3
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
 import com.reverie.paint.model.RecordingEvents.T_REDO
@@ -86,12 +90,14 @@ import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
 import com.reverie.paint.model.RecordingEvents.T_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
+import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL_CANVAS
 import com.reverie.paint.model.RecordingEvents.T_SELECT_MODE
 import com.reverie.paint.model.RecordingEvents.T_SELECT_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_SHAPE
 import com.reverie.paint.model.RecordingEvents.T_SHAPE
 import com.reverie.paint.model.RecordingEvents.T_SHAPE_STROKE_WIDTH
 import com.reverie.paint.model.RecordingEvents.T_SIMILAR
+import com.reverie.paint.model.RecordingEvents.T_SIMILAR_V2
 import com.reverie.paint.model.RecordingEvents.T_SMOOTH
 import com.reverie.paint.model.RecordingEvents.T_TEXT
 import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
@@ -354,7 +360,7 @@ private fun PaintViewModel.updateReplayProgress(s: ReplaySession) {
 /** Runs inside a runCore op (render thread, before any replay dispatch). */
 internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
     val snap = s.snapshotFile
-    val ok =
+    var ok =
         if (snap != null && snap.exists()) {
             if (snap.extension.equals("png", ignoreCase = true)) {
                 ReverieCoreBridge.loadPng(snap.absolutePath)
@@ -362,8 +368,12 @@ internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
                 ReverieCoreBridge.loadRevp(snap.absolutePath)
             }
         } else {
-            ReverieCoreBridge.newDocument(s.docW, s.docH)
+            false
         }
+    if (!ok) {
+        // 无快照, 或快照损坏/落盘失败: 兜底空白画布, 避免回放画在残留的旧文档上
+        ok = ReverieCoreBridge.newDocument(s.docW, s.docH)
+    }
     if (ok) {
         coreW = ReverieCoreBridge.docWidth()
         coreH = ReverieCoreBridge.docHeight()
@@ -484,6 +494,10 @@ private fun PaintViewModel.dispatchReplayLocked(
             ReverieCoreBridge.setBrushAirbrush(airbrushEnabled, airbrushRate.toDouble())
         }
 
+        CONTEXT_FADE -> {
+            ReverieCoreBridge.setBrushFade(r.f32().toDouble())
+        }
+
         LAYER_OP -> {
             dispatchLayerOpLocked(r.u8(), r.u16(), r.str())
         }
@@ -519,10 +533,13 @@ private fun PaintViewModel.applyReplayContextLocked(c: com.reverie.paint.model.R
     if (c.preset >= 0) {
         ReverieCoreBridge.loadBrushPreset(c.preset)
         sendPresetEraserFlagLocked(c.preset)
-        ReverieCoreBridge.setBrushSize(c.size.toDouble())
-        ReverieCoreBridge.setBrushOpacity(c.opacity.toDouble())
-        ReverieCoreBridge.setBrushFlow(c.flow.toDouble())
     }
+    // size/opacity/flow 由 CONTEXT 事件无条件携带 (录制时的实时值), 必须在
+    // loadBrushPreset 之后应用——预设加载会重置它们; preset=-1 (无预设会话)
+    // 时旧版直接跳过导致回放丢失这三个参数
+    ReverieCoreBridge.setBrushSize(c.size.toDouble())
+    ReverieCoreBridge.setBrushOpacity(c.opacity.toDouble())
+    ReverieCoreBridge.setBrushFlow(c.flow.toDouble())
     ReverieCoreBridge.setBrushCompositeOp(c.compositeOp)
     ReverieCoreBridge.setBrushColor(c.color)
     ReverieCoreBridge.setCurrentLayer(c.layer)
@@ -533,6 +550,8 @@ private fun PaintViewModel.dispatchLayerOpLocked(
     i: Int,
     arg: String,
 ) {
+    // 0xFFFF sentinel = emit 时的 index -1 (如"刚建好的当前层")
+    val i = if (i == 0xFFFF) -1 else i
     when (op) {
         L_ADD -> {
             ReverieCoreBridge.addLayer("")
@@ -636,6 +655,10 @@ private fun PaintViewModel.dispatchLayerOpLocked(
 
         L_CANVAS_FLIP_V -> {
             ReverieCoreBridge.flipCanvasVertical()
+        }
+
+        L_FILL_LAYER -> {
+            ReverieCoreBridge.fillLayer(i)
         }
 
         L_STAMP -> {
@@ -746,6 +769,16 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val y = r.f32().toInt()
             val tol = r.u16()
             val sampleMerged = r.u8() != 0
+            ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged)
+        }
+
+        T_FILL_V3 -> {
+            val x = r.f32().toInt()
+            val y = r.f32().toInt()
+            val tol = r.u16()
+            val sampleMerged = r.u8() != 0
+            val color = r.str()
+            ReverieCoreBridge.setBrushColor(color)
             ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged)
         }
 
@@ -909,12 +942,28 @@ private fun PaintViewModel.dispatchToolOpLocked(
             ReverieCoreBridge.selectContiguousAt(x, y, tol)
         }
 
+        T_CONTIGUOUS_V2 -> {
+            val x = r.f32().toInt()
+            val y = r.f32().toInt()
+            val tol = r.u16()
+            selectionTolerance = tol
+            ReverieCoreBridge.selectContiguousAt(x, y, tol, r.u8() != 0)
+        }
+
         T_SIMILAR -> {
             val x = r.f32().toInt()
             val y = r.f32().toInt()
             val tol = r.u16()
             selectionTolerance = tol
             ReverieCoreBridge.selectSimilarAt(x, y, tol)
+        }
+
+        T_SIMILAR_V2 -> {
+            val x = r.f32().toInt()
+            val y = r.f32().toInt()
+            val tol = r.u16()
+            selectionTolerance = tol
+            ReverieCoreBridge.selectSimilarAt(x, y, tol, r.u8() != 0)
         }
 
         T_CLEAR_SELECTION -> {
@@ -924,6 +973,10 @@ private fun PaintViewModel.dispatchToolOpLocked(
         T_SELECT_ALL -> {
             val layer = r.u16()
             ReverieCoreBridge.selectionFromLayer(layer)
+        }
+
+        T_SELECT_ALL_CANVAS -> {
+            ReverieCoreBridge.selectAll()
         }
 
         T_INVERT_SELECTION -> {

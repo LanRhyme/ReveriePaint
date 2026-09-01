@@ -33,6 +33,12 @@ internal fun PaintViewModel.applyFilter(
     filterType: Int,
 ) {
     if (indices.isEmpty()) return
+    if (recorder.recording) {
+        // L_APPLY_FILTER 回放端即 applyFilter(i, type), 逐层发事件与批量引擎调用等效
+        for (i in indices) {
+            recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER, i, filterType.toString())
+        }
+    }
     isModified = true
     onPaintingActivity()
     runCore(after = ::notifyLayerChanged) {

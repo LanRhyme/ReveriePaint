@@ -20,11 +20,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
-import com.reverie.paint.model.RecordingEvents.T_FILL_V2
+import com.reverie.paint.model.RecordingEvents.T_FILL_V3
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
 import com.reverie.paint.model.RecordingEvents.T_REDO
 import com.reverie.paint.model.RecordingEvents.T_UNDO
-import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS
+import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS_V2
 import com.reverie.paint.model.RecordingEvents.T_CONTRACT
 import com.reverie.paint.model.RecordingEvents.T_CROP
 import com.reverie.paint.model.RecordingEvents.T_EXPAND
@@ -46,12 +46,13 @@ import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT_LAYERS
 import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
 import com.reverie.paint.model.RecordingEvents.T_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
+import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL_CANVAS
 import com.reverie.paint.model.RecordingEvents.T_SELECT_MODE
 import com.reverie.paint.model.RecordingEvents.T_SELECT_POLYGON
 import com.reverie.paint.model.RecordingEvents.T_SELECT_SHAPE
 import com.reverie.paint.model.RecordingEvents.T_SHAPE
 import com.reverie.paint.model.RecordingEvents.T_SHAPE_STROKE_WIDTH
-import com.reverie.paint.model.RecordingEvents.T_SIMILAR
+import com.reverie.paint.model.RecordingEvents.T_SIMILAR_V2
 import com.reverie.paint.model.RecordingEvents.T_SMOOTH
 import com.reverie.paint.model.RecordingEvents.T_TEXT
 import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
@@ -183,6 +184,7 @@ internal fun PaintViewModel.touchStart(
             airbrushEnabled = brushAirbrush,
             airbrushRate = brushAirbrushRate,
         )
+        recorder.captureBrushFade(brushFade)
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
     val mode =
@@ -292,6 +294,9 @@ internal fun PaintViewModel.touchCancel() {
 }
 
 internal fun PaintViewModel.applyTool(toolId: String) {
+    if (toolId != currentToolId) {
+        lastToolId = currentToolId
+    }
     val mode =
         when (toolId) {
             "brush" -> 0
@@ -381,11 +386,12 @@ internal fun PaintViewModel.gradientFill(
 ) {
     if (recorder.recording) {
         recorder.toolOp(T_GRADIENT_V2) {
-            it.u8(type)
+            // 字段顺序须与回放分发/注释约定一致: 4×f32 坐标在前, type 在后
             it.f32(x1.toFloat())
             it.f32(y1.toFloat())
             it.f32(x2.toFloat())
             it.f32(y2.toFloat())
+            it.u8(type)
             it.u8(repeat.coerceIn(0, 255))
             it.u8(if (reverse) 1 else 0)
         }
@@ -983,6 +989,21 @@ internal fun PaintViewModel.selectAllAction() {
     }
 }
 
+/** 全选整个画布矩形 (区别于 [selectAllAction] 的按图层 alpha 选区)。 */
+internal fun PaintViewModel.selectAllCanvasAction() {
+    if (recorder.recording) {
+        recorder.toolOp(T_SELECT_ALL_CANVAS)
+    }
+    var ov: android.graphics.Bitmap? = null
+    runCore(render = false, after = {
+        selectionOverlayBitmap = ov
+        hasSelection = ov != null
+    }) {
+        ReverieCoreBridge.selectAll()
+        ov = buildSelectionOverlayLocked()
+    }
+}
+
 internal fun PaintViewModel.invertSelectionAction() {
     if (recorder.recording) {
         recorder.toolOp(T_INVERT_SELECTION)
@@ -1158,6 +1179,9 @@ internal fun PaintViewModel.updateGradientReverse(value: Boolean) {
 internal fun PaintViewModel.updateShapeStrokeWidth(value: Double) {
     shapeStrokeWidth = value
     saveToolOptions()
+    if (recorder.recording) {
+        recorder.toolOp(T_SHAPE_STROKE_WIDTH) { it.f32(value.toFloat()) }
+    }
     runCore(render = false) { ReverieCoreBridge.setShapeStrokeWidth(value) }
 }
 
@@ -1232,10 +1256,11 @@ internal fun PaintViewModel.selectContiguous(
     val tol = selectionTolerance
     val sampleMerged = selectionSampleLayers == 1
     if (recorder.recording) {
-        recorder.toolOp(T_CONTIGUOUS) {
+        recorder.toolOp(T_CONTIGUOUS_V2) {
             it.f32(x.toFloat())
             it.f32(y.toFloat())
             it.u16(tol.coerceIn(0, 65535))
+            it.u8(if (sampleMerged) 1 else 0)
         }
     }
     var ov: android.graphics.Bitmap? = null
@@ -1260,10 +1285,11 @@ internal fun PaintViewModel.selectSimilar(
     val tol = selectionTolerance
     val sampleMerged = selectionSampleLayers == 1
     if (recorder.recording) {
-        recorder.toolOp(T_SIMILAR) {
+        recorder.toolOp(T_SIMILAR_V2) {
             it.f32(x.toFloat())
             it.f32(y.toFloat())
             it.u16(tol.coerceIn(0, 65535))
+            it.u8(if (sampleMerged) 1 else 0)
         }
     }
     var ov: android.graphics.Bitmap? = null
@@ -1351,11 +1377,14 @@ internal fun PaintViewModel.floodFill(
     sampleMerged: Boolean = fillSampleLayers == 1,
 ) {
     if (recorder.recording) {
-        recorder.toolOp(T_FILL_V2) {
+        // V3 携带填充色: 引擎用自身 m_brushColor 填充, 回放若不带色会漂到
+        // 上一个 CONTEXT 的颜色
+        recorder.toolOp(T_FILL_V3) {
             it.f32(x)
             it.f32(y)
             it.u16(tolerance.coerceIn(0, 65535))
             it.u8(if (sampleMerged) 1 else 0)
+            it.str(brushColor)
         }
     }
     runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged) }

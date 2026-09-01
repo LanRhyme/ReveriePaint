@@ -46,6 +46,7 @@ object RecordingEvents {
     // tweaks between strokes are captured without hooking every setter)
     const val CONTEXT = 0x10
     const val CONTEXT_EXT = 0x11 // follows a CONTEXT; extended brush params (softness/spacing/.../smudge/airbrush)
+    const val CONTEXT_FADE = 0x12 // follows a CONTEXT; f32 fade (渐隐), diff-based, additive new-type event
 
     // Layer structural operations (payload: op u8, index u16, arg string)
     const val LAYER_OP = 0x20
@@ -97,6 +98,7 @@ object RecordingEvents {
     const val L_ADD_MASK_TYPE = 35 // index=父层号; arg="maskType" (0透明度/1滤镜/2变换/3选区)
     const val L_CANVAS_FLIP_H = 36 // 画布整体翻转 (全部图层绕文档中心镜像)
     const val L_CANVAS_FLIP_V = 37
+    const val L_FILL_LAYER = 38 // index=层号; 用当前前景色填充整层 (选区感知)
 
     // ---- Tool op codes (TOOL_OP; payload layout is op-specific) ----
     const val T_SHAPE = 0 // kind u8, x1..y2 f32, filled u8
@@ -137,6 +139,11 @@ object RecordingEvents {
     const val T_GRADIENT_V2 = 35 // x1..y2 f32, type u8, repeat u8, reverse u8
     const val T_UNDO = 36 // - (no payload; replay calls native undo on the rebuilt stack)
     const val T_REDO = 37 // -
+    const val T_SELECT_ALL_CANVAS = 38 // - 全选整个画布 (T_SELECT_ALL 实为按图层 alpha 选区)
+    // V2/V3 变体: 不改既有 payload 布局 (旧录制回放兼容), 追加字段随新码携带
+    const val T_CONTIGUOUS_V2 = 39 // x/y f32, tolerance u16, sampleMerged u8
+    const val T_SIMILAR_V2 = 40 // x/y f32, tolerance u16, sampleMerged u8
+    const val T_FILL_V3 = 41 // x/y f32, tolerance u16, sampleMerged u8, color str
 }
 
 /** Growable byte sink with little-endian primitive writers. */

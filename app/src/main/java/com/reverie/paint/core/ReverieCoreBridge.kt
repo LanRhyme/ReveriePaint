@@ -583,6 +583,8 @@ object ReverieCoreBridge {
 
     external fun flipCanvasVertical()
 
+    external fun fillLayer(index: Int)
+
     external fun stampVisibleLayers(): Int
 
     external fun moveLayer(

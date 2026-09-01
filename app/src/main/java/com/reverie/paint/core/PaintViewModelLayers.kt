@@ -205,6 +205,14 @@ internal fun PaintViewModel.addGroupLayer() {
             for (idx in selected) {
                 val actualIdx = if (idx >= newGroupIndex) idx + 1 else idx
                 if (actualIdx != groupIdx && actualIdx > 0) {
+                    if (recorder.recording) {
+                        // 组员移入必须入事件流, 否则回放只建空组、后续 index 全错位
+                        recorder.layerOp(
+                            com.reverie.paint.model.RecordingEvents.L_MOVE_TO_GROUP,
+                            actualIdx,
+                            groupIdx.toString(),
+                        )
+                    }
                     ReverieCoreBridge.moveLayerToGroup(actualIdx, groupIdx)
                 }
             }
@@ -363,6 +371,16 @@ internal fun PaintViewModel.flipCanvasVertical() {
     }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.flipCanvasVertical()
+    }
+}
+
+/** 用当前前景色填充整层 (区别于 floodFill 的角点连通区填充)。 */
+internal fun PaintViewModel.fillLayerForeground(i: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FILL_LAYER, i)
+    }
+    runCore(after = ::notifyLayerChanged) {
+        ReverieCoreBridge.fillLayer(i)
     }
 }
 
@@ -639,6 +657,10 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
 }
 
 internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
+    if (recorder.recording) {
+        // 与 stampVisibleLayers 包装一致: 盖印可见层作为滤镜底图层
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
+    }
     runCore(after = {
         notifyLayerChanged()
         val cur = currentLayerIndex

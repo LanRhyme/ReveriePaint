@@ -7,6 +7,7 @@ package com.reverie.paint.core
 import com.reverie.paint.model.RecordingBuffer
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
+import com.reverie.paint.model.RecordingEvents.CONTEXT_FADE
 import com.reverie.paint.model.RecordingEvents.FILTER
 import com.reverie.paint.model.RecordingEvents.FILTER_LUT
 import com.reverie.paint.model.RecordingEvents.LAYER_OP
@@ -79,6 +80,7 @@ class PaintRecorder {
     private var lastSize = Double.NaN
     private var lastOpacity = Double.NaN
     private var lastFlow = Double.NaN
+    private var lastFade = Double.NaN
     private var lastCompositeOp: String? = null
     private var lastColor: String? = null
     private var lastLayer = -2
@@ -111,6 +113,7 @@ class PaintRecorder {
         lastSize = Double.NaN
         lastOpacity = Double.NaN
         lastFlow = Double.NaN
+        lastFade = Double.NaN
         lastCompositeOp = null
         lastColor = null
         lastLayer = -2
@@ -186,6 +189,7 @@ class PaintRecorder {
         var prior: ByteArray? = null
         var priorCount = 0
         var priorMs = 0L
+        var snapBytesLocked: ByteArray? = null
         synchronized(ioLock) {
             val buf = buffer ?: run {
                 android.util.Log.d("ReverieRec", "serialize: no session")
@@ -207,18 +211,18 @@ class PaintRecorder {
             durationMs =
                 ((lastEventMs - sessionStartMs).coerceAtLeast(0L)).toInt().coerceAtMost(Int.MAX_VALUE)
             snap = snapshotFile
-        }
-        val snapBytes =
-            if (snap != null) {
+            // 快照字节必须在锁内读完: endSession (goHome/onCleared) 可并发
+            // 删除快照文件, 锁外 readBytes 会拿到空 blob (有事件流无快照,
+            // 回放直接画在空白底上)
+            snapBytesLocked =
                 try {
-                    snap.readBytes()
+                    snap?.readBytes()
                 } catch (e: Exception) {
                     android.util.Log.e("ReveriePaint", "recording snapshot read failed", e)
                     null
                 }
-            } else {
-                null
-            }
+        }
+        val snapBytes = snapBytesLocked
         val used = snapshotBytes ?: return null
         snapshotBytes = null
         // Merge: prior event stream first, session events appended. dt is a
@@ -343,13 +347,23 @@ class PaintRecorder {
         }
     }
 
+    /** Diff-based brush fade capture; emits a CONTEXT_FADE event only on change. */
+    fun captureBrushFade(fade: Double) {
+        if (fade == lastFade) return
+        lastFade = fade
+        emit(CONTEXT_FADE) {
+            it.f32(fade.toFloat())
+        }
+    }
+
     fun layerOp(
         op: Int,
         i: Int = 0,
         arg: String = "",
     ) = emit(LAYER_OP) {
         it.u8(op)
-        it.u16(i.coerceIn(0, 65535))
+        // -1 (如"刚建好的当前层") 用 0xFFFF sentinel 编码, 回放端还原为 -1
+        it.u16(if (i < 0) 0xFFFF else i.coerceIn(0, 0xFFFE))
         it.str(arg)
     }
 
