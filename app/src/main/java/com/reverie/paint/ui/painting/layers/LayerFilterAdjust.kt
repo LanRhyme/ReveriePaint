@@ -126,16 +126,17 @@ import kotlin.math.roundToInt
 @Composable
 internal fun FilterAdjustPage(
     vm: PaintViewModel,
-    index: Int,
+    indices: List<Int>,
     filterId: Int,
     filterName: String,
     onBack: () -> Unit,
     onDone: () -> Unit,
 ) {
+    val index = indices.firstOrNull() ?: vm.currentLayerIndex
     val st = remember { FilterAdjustState() }
 
     // 调整层模式: 不走像素预览三步 (与 merger 重算互踩), 滑条节流直推层配置
-    val isAdj = index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
+    val isAdj = indices.size == 1 && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
     val savedJson = remember(isAdj) { if (isAdj) vm.snapshotAdjustmentConfig(index) else "" }
     var lastPushMs by remember { mutableStateOf(0L) }
 
@@ -175,7 +176,7 @@ internal fun FilterAdjustPage(
             finalG[i] = lutG[mVal]
             finalB[i] = lutB[mVal]
         }
-        vm.applyCurvesLUTPreview(index, finalR, finalG, finalB)
+        vm.applyCurvesLUTPreview(indices, finalR, finalG, finalB)
     }
 
     fun sendGradientMapPreview() {
@@ -185,7 +186,7 @@ internal fun FilterAdjustPage(
             vm.previewAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
             return
         }
-        vm.applyGradientMapPreview(index, lut)
+        vm.applyGradientMapPreview(indices, lut)
     }
 
     fun sendPreview() {
@@ -207,7 +208,7 @@ internal fun FilterAdjustPage(
                         ap?.p1 ?: 0.0, ap?.p2 ?: 0.0, ap?.p3 ?: 0.0, ap?.p4 ?: 0.0,
                     )
                 } else {
-                    dispatchFilterPreview(vm, index, filterId, st)
+                    dispatchFilterPreview(vm, indices, filterId, st)
                 }
             }
         }
@@ -219,7 +220,7 @@ internal fun FilterAdjustPage(
             // 创建流已带初始参数; 进入面板把面板当前值再对齐一次 (不落像素)
             sendPreview()
         } else {
-            vm.beginFilterPreview(index)
+            vm.beginFilterPreview(indices)
             sendPreview()
         }
     }
@@ -237,8 +238,9 @@ internal fun FilterAdjustPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            val displayTitle = if (indices.size > 1) "$filterName (${indices.size}个图层)" else filterName
             Text(
-                text = filterName,
+                text = displayTitle,
                 color = Morandi.text,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -264,7 +266,7 @@ internal fun FilterAdjustPage(
                                     vm.toggleLayerVisible(index)
                                 }
                             } else {
-                                if (st.isPreview) sendPreview() else vm.cancelFilter(index)
+                                if (st.isPreview) sendPreview() else vm.cancelFilter(indices)
                             }
                         },
                     contentAlignment = Alignment.Center
@@ -334,7 +336,7 @@ internal fun FilterAdjustPage(
                                 // 回滚到进入面板时的配置快照
                                 vm.restoreAdjustmentConfig(index, savedJson)
                             } else {
-                                vm.cancelFilter(index)
+                                vm.cancelFilter(indices)
                             }
                             onBack()
                         },
@@ -356,7 +358,7 @@ internal fun FilterAdjustPage(
                         .background(Morandi.accent)
                         .noRippleClickable {
                             // 调整图层: 参数写入层配置(非破坏), 不落像素盖印
-                            val isAdjNow = index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
+                            val isAdjNow = isAdj && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
                             if (isAdjNow) {
                                 when (filterId) {
                                     13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
@@ -373,7 +375,7 @@ internal fun FilterAdjustPage(
                                     }
                                 }
                             } else {
-                                vm.commitFilter(index, filterName)
+                                vm.commitFilter(indices, filterName)
                             }
                             onDone()
                         },

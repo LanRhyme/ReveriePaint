@@ -563,17 +563,6 @@ internal fun PaintViewModel.cancelSoloIfSwitchingLayer() {
     soloLayer(soloed.index)
 }
 
-internal fun PaintViewModel.applyFilter(
-    i: Int,
-    filterId: Int,
-) {
-    if (recorder.recording) {
-        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER, i, filterId.toString())
-    }
-    runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.applyFilter(i, filterId)
-    }
-}
 
 internal fun PaintViewModel.selectionFromLayer(i: Int) {
     if (recorder.recording) {

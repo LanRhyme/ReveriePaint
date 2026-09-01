@@ -140,7 +140,7 @@ data class FilterCategoryDef(
 @Composable
 internal fun FiltersPage(
     vm: PaintViewModel,
-    index: Int,
+    indices: List<Int>,
     onBack: () -> Unit,
     onSelectFilter: (Int, String) -> Unit,
 ) {
@@ -256,8 +256,9 @@ internal fun FiltersPage(
                     modifier = Modifier.size(18.dp),
                 )
             }
+            val titleText = selectedCategory?.name ?: if (indices.size > 1) "滤镜库 (${indices.size}个图层)" else "滤镜库"
             Text(
-                text = selectedCategory?.name ?: "滤镜库",
+                text = titleText,
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,

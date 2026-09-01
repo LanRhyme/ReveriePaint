@@ -645,6 +645,11 @@ object ReverieCoreBridge {
         filterId: Int,
     )
 
+    external fun applyFilterMulti(
+        indices: IntArray,
+        filterId: Int,
+    )
+
     external fun addLayerWithType(
         name: String,
         type: Int,
@@ -652,9 +657,19 @@ object ReverieCoreBridge {
     ): Boolean
 
     external fun beginFilterPreview(index: Int)
+    external fun beginFilterPreviewMulti(indices: IntArray)
 
     external fun applyFilterPreview(
         index: Int,
+        filterType: Int,
+        p1: Double,
+        p2: Double,
+        p3: Double,
+        p4: Double,
+    )
+
+    external fun applyFilterPreviewMulti(
+        indices: IntArray,
         filterType: Int,
         p1: Double,
         p2: Double,
@@ -669,8 +684,20 @@ object ReverieCoreBridge {
         lutB: ByteArray,
     )
 
+    external fun applyCurvesLUTPreviewMulti(
+        indices: IntArray,
+        lutR: ByteArray,
+        lutG: ByteArray,
+        lutB: ByteArray,
+    )
+
     external fun applyGradientMapPreview(
         index: Int,
+        gradientLut: IntArray,
+    )
+
+    external fun applyGradientMapPreviewMulti(
+        indices: IntArray,
         gradientLut: IntArray,
     )
 
@@ -679,7 +706,13 @@ object ReverieCoreBridge {
         filterName: String,
     )
 
+    external fun commitFilterMulti(
+        indices: IntArray,
+        filterName: String,
+    )
+
     external fun cancelFilter(index: Int)
+    external fun cancelFilterMulti(indices: IntArray)
 
     external fun selectionFromLayer(index: Int): Boolean
 

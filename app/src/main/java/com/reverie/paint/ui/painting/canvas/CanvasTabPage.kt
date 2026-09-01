@@ -66,13 +66,13 @@ import com.reverie.paint.ui.painting.panels.SettingInfoRow
 @Composable
 internal fun CanvasTabPage(
     vm: PaintViewModel,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onOpenFilters: ((List<Int>) -> Unit)? = null,
 ) {
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var saveAsName by remember { mutableStateOf(vm.docName) }
     var showNewCanvasDialog by remember { mutableStateOf(false) }
     var showCanvasResizeDialog by remember { mutableStateOf(false) }
-    var showImageAdjustDialog by remember { mutableStateOf(false) }
     var showProfileDialog by remember { mutableStateOf(false) }
 
     var newW by remember { mutableStateOf("1080") }
@@ -313,82 +313,7 @@ internal fun CanvasTabPage(
         }
     }
 
-    // Custom Styled Dialog: Image Adjust
-    if (showImageAdjustDialog) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { showImageAdjustDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "图像滤镜与调整",
-                        color = Morandi.text,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "对当前活动图层应用快捷效果",
-                        color = Morandi.subText,
-                        fontSize = 12.sp
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val filters = listOf(
-                            "黑白滤镜" to 0,
-                            "反相颜色" to 1,
-                            "轻微模糊" to 2,
-                            "画面锐化" to 3
-                        )
-                        filters.forEach { (lbl, fid) ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(42.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Morandi.panelHi)
-                                    .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        vm.applyFilter(vm.currentLayerIndex, fid)
-                                        android.widget.Toast.makeText(context, "已应用 $lbl", android.widget.Toast.LENGTH_SHORT).show()
-                                        showImageAdjustDialog = false
-                                        onClose()
-                                    }
-                                    .padding(horizontal = 14.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(lbl, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_chevron),
-                                        contentDescription = null,
-                                        tint = Morandi.subText,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(16.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        ReTextButton("关闭", { showImageAdjustDialog = false }, textColor = Morandi.subText)
-                    }
-                }
-            }
-        }
-    }
+
 
     // Custom Styled Dialog: Color Profile
     if (showProfileDialog) {
@@ -503,8 +428,9 @@ internal fun CanvasTabPage(
                 resizeH = vm.docHeight.toString()
                 showCanvasResizeDialog = true
             }, modifier = Modifier.weight(1f))
-            ReMenuItem(R.drawable.ic_image_adjust, "图像调整", {
-                showImageAdjustDialog = true
+            ReMenuItem(R.drawable.ic_image_adjust, "滤镜", {
+                onClose()
+                onOpenFilters?.invoke(vm.editTargetLayers())
             }, modifier = Modifier.weight(1f))
             ReMenuItem(R.drawable.ic_flip_horizontal, "水平翻转", {
                 vm.flipLayerHorizontal(vm.currentLayerIndex)

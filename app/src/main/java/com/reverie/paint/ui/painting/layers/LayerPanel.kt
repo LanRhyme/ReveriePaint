@@ -141,14 +141,20 @@ private sealed interface LayerView {
     ) : LayerView
 
     data class Filters(
-        val index: Int,
-    ) : LayerView
+        val indices: kotlin.collections.List<Int>,
+    ) : LayerView {
+        constructor(index: Int) : this(kotlin.collections.listOf(index))
+        val index: Int get() = indices.firstOrNull() ?: 0
+    }
 
     data class FilterAdjust(
-        val index: Int,
+        val indices: kotlin.collections.List<Int>,
         val filterId: Int,
         val filterName: String,
-    ) : LayerView
+    ) : LayerView {
+        constructor(index: Int, filterId: Int, filterName: String) : this(kotlin.collections.listOf(index), filterId, filterName)
+        val index: Int get() = indices.firstOrNull() ?: 0
+    }
 
     /** 创建流: 先选滤镜再建层 (避免全零参数建层即污染画布)。 */
     data object FiltersCreate : LayerView
@@ -174,8 +180,17 @@ fun LayerPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 0.95f,
     hazeState: HazeState? = null,
+    initialTargetFilters: List<Int>? = null,
 ) {
-    var view by remember { mutableStateOf<LayerView>(LayerView.List) }
+    var view by remember(initialTargetFilters) {
+        mutableStateOf<LayerView>(
+            if (initialTargetFilters != null && initialTargetFilters.isNotEmpty()) {
+                LayerView.Filters(initialTargetFilters)
+            } else {
+                LayerView.List
+            }
+        )
+    }
     var renameRequest by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -277,10 +292,16 @@ fun LayerPanel(
                     is LayerView.Filters -> {
                         FiltersPage(
                             vm = vm,
-                            index = v.index,
-                            onBack = { view = LayerView.Detail(v.index) },
+                            indices = v.indices,
+                            onBack = {
+                                if (v.indices.size == 1) {
+                                    view = LayerView.Detail(v.index)
+                                } else {
+                                    view = LayerView.List
+                                }
+                            },
                             onSelectFilter = { filterId, filterName ->
-                                view = LayerView.FilterAdjust(v.index, filterId, filterName)
+                                view = LayerView.FilterAdjust(v.indices, filterId, filterName)
                             }
                         )
                     }
@@ -288,10 +309,10 @@ fun LayerPanel(
                     is LayerView.FilterAdjust -> {
                         FilterAdjustPage(
                             vm = vm,
-                            index = v.index,
+                            indices = v.indices,
                             filterId = v.filterId,
                             filterName = v.filterName,
-                            onBack = { view = LayerView.Filters(v.index) },
+                            onBack = { view = LayerView.Filters(v.indices) },
                             onDone = { view = LayerView.List }
                         )
                     }

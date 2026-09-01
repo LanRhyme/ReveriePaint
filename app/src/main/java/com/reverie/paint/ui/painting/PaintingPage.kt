@@ -197,10 +197,13 @@ fun PaintingPage(
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
+    var targetFilterLayers by remember { mutableStateOf<List<Int>?>(null) }
     LaunchedEffect(layerPanelOpen) {
         vm.layerPanelOpen = layerPanelOpen
         if (layerPanelOpen) {
             vm.refreshLayerThumbs(force = true)
+        } else {
+            targetFilterLayers = null
         }
     }
     var settingsPanelOpen by remember { mutableStateOf(false) }
@@ -1201,9 +1204,13 @@ fun PaintingPage(
         ) {
             LayerPanel(
                 vm = vm,
-                onClose = { layerPanelOpen = false },
+                onClose = {
+                    layerPanelOpen = false
+                    targetFilterLayers = null
+                },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
+                initialTargetFilters = targetFilterLayers,
             )
         }
         AnimatedVisibility(
@@ -1217,6 +1224,11 @@ fun PaintingPage(
                 onClose = { settingsPanelOpen = false },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
+                onOpenFilters = { targetIndices ->
+                    settingsPanelOpen = false
+                    targetFilterLayers = targetIndices
+                    layerPanelOpen = true
+                },
             )
         }
         AnimatedVisibility(

@@ -637,8 +637,6 @@ internal fun LayerDetailPage(
                 OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
-                OpItem(R.drawable.ic_clip, "添加透明度蒙版") { vm.addMaskToLayer(index, 0) }
-                OpItem(R.drawable.ic_sliders, "添加滤镜蒙版") { vm.addMaskToLayer(index, 1) }
                 OpItem(R.drawable.ic_fill, "栅格化为普通图层") { vm.rasterizeLayer(index) }
                 OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
             }

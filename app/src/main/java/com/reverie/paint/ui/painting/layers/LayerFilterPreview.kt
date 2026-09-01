@@ -283,12 +283,21 @@ internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams?
  */
 internal fun dispatchFilterPreview(
     vm: PaintViewModel,
-    index: Int,
+    indices: List<Int>,
     filterId: Int,
     st: FilterAdjustState,
 ) {
     val params = adjustParamsOf(st, filterId) ?: return
-    vm.applyFilterPreview(index, params.type, params.p1, params.p2, params.p3, params.p4)
+    vm.applyFilterPreview(indices, params.type, params.p1, params.p2, params.p3, params.p4)
+}
+
+internal fun dispatchFilterPreview(
+    vm: PaintViewModel,
+    index: Int,
+    filterId: Int,
+    st: FilterAdjustState,
+) {
+    dispatchFilterPreview(vm, listOf(index), filterId, st)
 }
 
 

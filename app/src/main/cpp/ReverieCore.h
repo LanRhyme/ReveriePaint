@@ -168,14 +168,21 @@ public:
     bool moveLayerDown(int index);
     bool moveLayerOut(int index);
 
-    // Filters (interactive preview & commit)
+    // Filters (interactive preview & commit, single & multi-layer)
     void applyFilter(int index, int filterId);
+    void applyFilterMulti(const QVector<int> &indices, int filterId);
     void beginFilterPreview(int index);
+    void beginFilterPreviewMulti(const QVector<int> &indices);
     void applyFilterPreview(int index, int filterType, double p1, double p2, double p3, double p4);
+    void applyFilterPreviewMulti(const QVector<int> &indices, int filterType, double p1, double p2, double p3, double p4);
     void applyCurvesLUTPreview(int index, const quint8 *lutR, const quint8 *lutG, const quint8 *lutB);
+    void applyCurvesLUTPreviewMulti(const QVector<int> &indices, const quint8 *lutR, const quint8 *lutG, const quint8 *lutB);
     void applyGradientMapPreview(int index, const quint32 *gradientLut256);
+    void applyGradientMapPreviewMulti(const QVector<int> &indices, const quint32 *gradientLut256);
     void commitFilter(int index, const QString &filterName);
+    void commitFilterMulti(const QVector<int> &indices, const QString &filterName);
     void cancelFilter(int index);
+    void cancelFilterMulti(const QVector<int> &indices);
 
     // Selection: build a pixel selection from the layer's alpha channel and
     // constrain painting to it (KisSelection, Krita mechanism)
@@ -676,10 +683,19 @@ private:
     // 纯色填充层配置组装 (ReverieCoreGenerators.cpp)
     static KisFilterConfigurationSP reverieMakeSolidColorConfig(quint32 rgba);
 
-// Filter backup device for non-destructive live preview
-    KisPaintDeviceSP m_filterBackupDevice;
-    int m_filterBackupIndex = -1;
-    QRect m_filterBackupExt;
+    // Filter backup devices for non-destructive live preview (single & multi-layer)
+    struct FilterBackupEntry {
+        int index;
+        KisPaintDeviceSP device;
+        QRect ext;
+    };
+    QVector<FilterBackupEntry> m_filterBackups;
+    KisPaintDeviceSP findFilterBackup(int index) const;
+
+    // Reusable buffers for zero-allocation filter preview
+    QVector<quint8> m_filterWorkBuffer;
+    QVector<quint8> m_filterOrigBuffer;
+    void ensureFilterBuffers(int width, int height);
 
     // Wrap a command push through the image's undo adapter and clear redo
     void pushUndoCommand(KUndo2Command *cmd);

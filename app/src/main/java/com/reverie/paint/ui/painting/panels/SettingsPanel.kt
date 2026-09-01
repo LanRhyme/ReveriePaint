@@ -76,6 +76,7 @@ fun SettingsPanel(
     modifier: Modifier = Modifier,
     opacity: Float = 1.0f,
     hazeState: HazeState? = null,
+    onOpenFilters: ((List<Int>) -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var currentTab by remember { mutableStateOf(SettingsTab.CANVAS) }
@@ -152,7 +153,7 @@ fun SettingsPanel(
                 label = "SettingsTabTransition"
             ) { tab ->
                 when (tab) {
-                    SettingsTab.CANVAS -> CanvasTabPage(vm = vm, onClose = onClose)
+                    SettingsTab.CANVAS -> CanvasTabPage(vm = vm, onClose = onClose, onOpenFilters = onOpenFilters)
                     SettingsTab.EXPORT -> ExportTabPage(vm = vm, onClose = onClose)
                     SettingsTab.SETTINGS -> SettingsTabPage(vm = vm, onClose = onClose)
                 }
