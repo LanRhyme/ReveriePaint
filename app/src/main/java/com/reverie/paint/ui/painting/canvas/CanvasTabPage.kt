@@ -433,11 +433,11 @@ internal fun CanvasTabPage(
                 onOpenFilters?.invoke(vm.editTargetLayers())
             }, modifier = Modifier.weight(1f))
             ReMenuItem(R.drawable.ic_flip_horizontal, "水平翻转", {
-                vm.flipLayerHorizontal(vm.currentLayerIndex)
+                vm.flipCanvasHorizontal()
                 onClose()
             }, modifier = Modifier.weight(1f))
             ReMenuItem(R.drawable.ic_flip_vertical, "垂直翻转", {
-                vm.flipLayerVertical(vm.currentLayerIndex)
+                vm.flipCanvasVertical()
                 onClose()
             }, modifier = Modifier.weight(1f))
         }

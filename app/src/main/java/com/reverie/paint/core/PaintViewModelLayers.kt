@@ -348,6 +348,24 @@ internal fun PaintViewModel.flipLayerVertical(i: Int) {
     }
 }
 
+internal fun PaintViewModel.flipCanvasHorizontal() {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_H)
+    }
+    runCore(after = ::notifyLayerChanged) {
+        ReverieCoreBridge.flipCanvasHorizontal()
+    }
+}
+
+internal fun PaintViewModel.flipCanvasVertical() {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_V)
+    }
+    runCore(after = ::notifyLayerChanged) {
+        ReverieCoreBridge.flipCanvasVertical()
+    }
+}
+
 internal fun PaintViewModel.stampVisibleLayers() {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)

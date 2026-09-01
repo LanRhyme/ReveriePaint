@@ -25,6 +25,8 @@ import com.reverie.paint.model.RecordingEvents.L_ADD_MASK_TYPE
 import com.reverie.paint.model.RecordingEvents.L_ADJ_CONFIG
 import com.reverie.paint.model.RecordingEvents.L_APPLY_FILTER
 import com.reverie.paint.model.RecordingEvents.L_BLEND
+import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_H
+import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_V
 import com.reverie.paint.model.RecordingEvents.L_CLEAR
 import com.reverie.paint.model.RecordingEvents.L_CLIPPED
 import com.reverie.paint.model.RecordingEvents.L_COLOR_LABEL
@@ -148,20 +150,7 @@ class ReplaySession(
             projectFile: File,
             tempDir: File,
         ): ReplaySession? {
-            var data: ByteArray? = null
-            try {
-                val zip = java.util.zip.ZipFile(projectFile)
-                try {
-                    val entry = zip.getEntry("recording") ?: return null
-                    data = zip.getInputStream(entry).use { it.readBytes() }
-                } finally {
-                    zip.close()
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("ReveriePaint", "replay entry read failed", e)
-                return null
-            }
-            val parsed = PaintRecorder.parse(data!!) ?: return null
+            val parsed = PaintRecorder.readRecordingEntry(projectFile) ?: return null
             var temp: File? = null
             if (parsed.snapshot != null) {
                 try {
@@ -639,6 +628,14 @@ private fun PaintViewModel.dispatchLayerOpLocked(
 
         L_FLIP_V -> {
             ReverieCoreBridge.flipLayerVertical(i)
+        }
+
+        L_CANVAS_FLIP_H -> {
+            ReverieCoreBridge.flipCanvasHorizontal()
+        }
+
+        L_CANVAS_FLIP_V -> {
+            ReverieCoreBridge.flipCanvasVertical()
         }
 
         L_STAMP -> {

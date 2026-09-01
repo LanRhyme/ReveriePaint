@@ -49,6 +49,14 @@ class PaintRecorder {
     private var lastEventMs = 0L
     private var sessionStartMs = 0L
 
+    // Chained history from the loaded project's own recording (see
+    // beginSession): prepended to the event stream on serialize() so playback
+    // reproduces strokes drawn in earlier sessions too, instead of baking
+    // them into the static snapshot.
+    private var priorEvents: ByteArray? = null
+    private var priorEventCount = 0
+    private var priorTotalMs = 0L
+
     /** Written on the render thread (beginSession), read on the main
      *  thread (touch hooks and op hooks) - must be volatile for
      *  cross-thread visibility, otherwise strokes could silently miss
@@ -77,12 +85,17 @@ class PaintRecorder {
 
     /** Start a recording session. [snapshotSource] is the document file the
      *  session started from (copied to [snapshotTempDir]); null for a blank
-     *  new canvas. A previous session is discarded first. */
+     *  new canvas. [prior] is the recording parsed from the loaded project
+     *  file: its events are chained in front of this session's stream and its
+     *  embedded snapshot (NOT the raw project file, which would double-bake
+     *  the prior strokes) becomes this session's snapshot. A previous session
+     *  is discarded first. */
     fun beginSession(
         w: Int,
         h: Int,
         snapshotSource: File?,
         snapshotTempDir: File,
+        prior: ParsedRecording? = null,
     ) {
         endSession()
         buffer = RecordingBuffer()
@@ -92,7 +105,7 @@ class PaintRecorder {
         eventCount = 0
         lastEventMs = android.os.SystemClock.elapsedRealtime()
         sessionStartMs = lastEventMs
-        android.util.Log.d("ReverieRec", "beginSession w=$w h=$h snap=${snapshotSource != null}")
+        android.util.Log.d("ReverieRec", "beginSession w=$w h=$h snap=${snapshotSource != null} prior=${prior != null}")
         lastToolMode = -2
         lastPreset = -2
         lastSize = Double.NaN
@@ -102,7 +115,33 @@ class PaintRecorder {
         lastColor = null
         lastLayer = -2
         snapshotFile = null
-        if (snapshotSource != null && snapshotSource.exists() && snapshotSource.length() > 0) {
+        if (prior != null) {
+            synchronized(ioLock) {
+                priorEvents = prior.events.takeIf { it.isNotEmpty() }
+                priorEventCount = prior.eventCount
+                priorTotalMs = prior.totalMs
+            }
+            val snap = prior.snapshot
+            if (snap != null && snap.isNotEmpty()) {
+                try {
+                    snapshotTempDir.mkdirs()
+                    // Keep the extension consistent with the source format so
+                    // replay picks the right loader (png vs revp)
+                    val isPng =
+                        snap.size >= 8 &&
+                            snap[0] == 0x89.toByte() &&
+                            snap[1] == 'P'.code.toByte() &&
+                            snap[2] == 'N'.code.toByte() &&
+                            snap[3] == 'G'.code.toByte()
+                    val target = File(snapshotTempDir, if (isPng) "initial.png" else "initial.revp")
+                    target.writeBytes(snap)
+                    snapshotFile = target
+                } catch (e: Exception) {
+                    android.util.Log.e("ReveriePaint", "recording prior snapshot write failed", e)
+                    snapshotFile = null
+                }
+            }
+        } else if (snapshotSource != null && snapshotSource.exists() && snapshotSource.length() > 0) {
             try {
                 snapshotTempDir.mkdirs()
                 val ext = snapshotSource.extension
@@ -125,12 +164,17 @@ class PaintRecorder {
             buffer = null
             eventCount = 0
             snapshotBytes = null
+            priorEvents = null
+            priorEventCount = 0
+            priorTotalMs = 0L
         }
         snapshotFile?.delete()
         snapshotFile = null
     }
 
     /** Serialize the session into the "recording" blob; null if empty.
+     *  The prior session's events (chained at beginSession) are merged in
+     *  front, so the saved blob always replays the full drawing history.
      *  Thread-safety: emit() writes the buffer on the main thread while this
      *  runs on the render thread (autosave); ioLock guards the shared state
      *  snapshot so a concurrent stroke can't tear the serialized stream. */
@@ -139,13 +183,19 @@ class PaintRecorder {
         val count: Int
         val durationMs: Int
         val snap: java.io.File?
+        var prior: ByteArray? = null
+        var priorCount = 0
+        var priorMs = 0L
         synchronized(ioLock) {
             val buf = buffer ?: run {
                 android.util.Log.d("ReverieRec", "serialize: no session")
                 return null
             }
             count = eventCount
-            if (count == 0) {
+            prior = priorEvents
+            priorCount = priorEventCount
+            priorMs = priorTotalMs
+            if (count == 0 && (prior == null || prior!!.isEmpty())) {
                 android.util.Log.d("ReverieRec", "serialize: zero events")
                 return null
             }
@@ -171,16 +221,35 @@ class PaintRecorder {
             }
         val used = snapshotBytes ?: return null
         snapshotBytes = null
-        val out = RecordingBuffer(64 + used.size + (snapBytes?.size ?: 0))
+        // Merge: prior event stream first, session events appended. dt is a
+        // relative increment per event, so plain stream concatenation keeps
+        // the timeline monotonic (the first session event carries the pause
+        // since this session started).
+        val merged: ByteArray
+        val totalCount: Int
+        val totalMs: Int
+        val p = prior
+        if (p != null && p.isNotEmpty()) {
+            merged = ByteArray(p.size + used.size)
+            System.arraycopy(p, 0, merged, 0, p.size)
+            System.arraycopy(used, 0, merged, p.size, used.size)
+            totalCount = priorCount + count
+            totalMs = (priorMs + durationMs).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        } else {
+            merged = used
+            totalCount = count
+            totalMs = durationMs
+        }
+        val out = RecordingBuffer(64 + merged.size + (snapBytes?.size ?: 0))
         out.writeBytes(MAGIC.toByteArray(Charsets.US_ASCII))
         out.u16(VERSION)
         out.u16(sessionW)
         out.u16(sessionH)
         out.u8(if (snapBytes != null) 1 else 0)
-        out.u32(count)
-        out.u32(durationMs)
-        out.u32(used.size)
-        out.writeBytes(used, 0, used.size)
+        out.u32(totalCount)
+        out.u32(totalMs)
+        out.u32(merged.size)
+        out.writeBytes(merged, 0, merged.size)
         if (snapBytes != null) {
             out.u64(snapBytes.size.toLong())
             out.writeBytes(snapBytes)
@@ -386,6 +455,21 @@ class PaintRecorder {
                 ParsedRecording(events, w, h, snapshot, eventCount, totalMs)
             } catch (e: Exception) {
                 android.util.Log.e("ReveriePaint", "recording parse failed", e)
+                null
+            }
+        }
+
+        /** Read and parse the "recording" entry of a .revp ZIP container;
+         *  null when absent, not a ZIP, or corrupt. */
+        fun readRecordingEntry(file: File): ParsedRecording? {
+            if (!file.exists() || file.length() == 0L) return null
+            return try {
+                java.util.zip.ZipFile(file).use { zip ->
+                    val entry = zip.getEntry("recording") ?: return null
+                    zip.getInputStream(entry).use { parse(it.readBytes()) }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "recording entry read failed", e)
                 null
             }
         }

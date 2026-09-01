@@ -225,7 +225,16 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 renderH = coreH
                 displayBufferInvalid = true
                 ReverieCoreBridge.setBrushColor(brushColor)
-                recorder.beginSession(coreW, coreH, file, recSessionDir())
+                // Chain the project's own recording so new strokes extend the
+                // existing history instead of replaying on top of a baked
+                // static image (snapshot = the recording's initial document).
+                val priorRec =
+                    if (file.extension.equals("revp", ignoreCase = true)) {
+                        PaintRecorder.readRecordingEntry(file)
+                    } else {
+                        null
+                    }
+                recorder.beginSession(coreW, coreH, file, recSessionDir(), priorRec)
                 android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, nativeLayers=${ReverieCoreBridge.layerCount()}")
             } else {
                 android.util.Log.e("RP_IO", "loadProject OP FAILED for ${file.absolutePath}")

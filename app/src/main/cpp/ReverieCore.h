@@ -94,6 +94,10 @@ public:
     void setLayerClipped(int index, bool clipped);
     void flipLayerHorizontal(int index);
     void flipLayerVertical(int index);
+    // Canvas flip: mirror every paintable layer (incl. background/locked and
+    // masks) around the document centre as one undo step
+    void flipCanvasHorizontal();
+    void flipCanvasVertical();
     bool mergeDown(int index);   // composite onto the layer below, remove self
     bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
     bool moveLayerAbove(int fromIndex, int aboveIndex);   // move layer above the given layer (exact sibling semantics)
@@ -634,6 +638,7 @@ private:
     QRect m_dirtyRect;
     QByteArray m_subRegionBuffer;
     void markBlendChanged(int index);  // blend-only change: targeted thumb invalidation
+    void flipCanvasCommon(bool horizontal); // flipCanvasHorizontal/Vertical shared body
 
     void markDirty() {
         markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));

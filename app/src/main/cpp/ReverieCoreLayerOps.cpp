@@ -47,6 +47,93 @@ void ReverieCore::flipLayerVertical(int index)
     }
 }
 
+// Mirror one device around the document centre (canvas flip): read the
+// content block, mirror its pixels, and rewrite it at the mirrored
+// placement. Works for any pixel size (RGBA8 paint layers and ALPHA8 mask
+// devices alike) — unlike flipDevice, which assumes 4 bytes per pixel.
+static void flipCanvasDevice(KisPaintDeviceSP dev, bool horizontal, int docW, int docH)
+{
+    const QRect ext = dev->exactBounds();
+    if (ext.isEmpty()) {
+        return;
+    }
+    const int ps = int(dev->pixelSize());
+    if (ps <= 0) {
+        return;
+    }
+    const int w = ext.width();
+    const int h = ext.height();
+    const qint64 rowBytes = qint64(w) * ps;
+    QByteArray src(rowBytes * h, Qt::Uninitialized);
+    dev->readBytes(reinterpret_cast<quint8 *>(src.data()), ext.x(), ext.y(), w, h);
+    const int nx = docW - ext.x() - w;
+    const int ny = docH - ext.y() - h;
+    if (nx != ext.x() || ny != ext.y()) {
+        dev->clear(ext);
+    }
+    QByteArray dst(rowBytes * h, Qt::Uninitialized);
+    const quint8 *s = reinterpret_cast<const quint8 *>(src.constData());
+    quint8 *d = reinterpret_cast<quint8 *>(dst.data());
+    for (int y = 0; y < h; ++y) {
+        const int sy = horizontal ? y : h - 1 - y;
+        const quint8 *srow = s + qint64(sy) * rowBytes;
+        for (int x = 0; x < w; ++x) {
+            const int sx = horizontal ? w - 1 - x : x;
+            memcpy(d + (qint64(y) * w + x) * ps, srow + qint64(sx) * ps, size_t(ps));
+        }
+    }
+    dev->writeBytes(d, nx, ny, w, h);
+    dev->setDirty(ext.united(QRect(nx, ny, w, h)));
+}
+
+// Shared body of flipCanvasHorizontal/flipCanvasVertical: one composite undo
+// step wrapping per-device transactions over every paintable layer entry
+// (groups have no device; background/locked layers must flip with the canvas).
+void ReverieCore::flipCanvasCommon(bool horizontal)
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    const int docW = image->width();
+    const int docH = image->height();
+    const KUndo2MagicString magic =
+        horizontal ? kundo2_i18n("Flip Canvas H") : kundo2_i18n("Flip Canvas V");
+    QVector<KUndo2Command *> children;
+    for (const LayerEntry &e : m_layers) {
+        if (e.isGroup) {
+            continue;
+        }
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) {
+            continue;
+        }
+        KisTransaction *txn = new KisTransaction(magic, dev, nullptr, -1, nullptr);
+        flipCanvasDevice(dev, horizontal, docW, docH);
+        children << txn->endAndTake();
+        delete txn;
+    }
+    if (children.isEmpty()) {
+        return;
+    }
+    markDirty();
+    if (m_document) {
+        pushUndoCommand(new ReverieCompositeCommand(magic, children));
+    } else {
+        qDeleteAll(children);
+    }
+}
+
+void ReverieCore::flipCanvasHorizontal()
+{
+    flipCanvasCommon(true);
+}
+
+void ReverieCore::flipCanvasVertical()
+{
+    flipCanvasCommon(false);
+}
+
 bool ReverieCore::mergeDown(int index)
 {
     if (index <= 0 || index >= m_layers.size()) {
