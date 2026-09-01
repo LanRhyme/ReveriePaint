@@ -134,6 +134,43 @@ void ReverieCore::flipCanvasVertical()
     flipCanvasCommon(false);
 }
 
+// Fill an entire layer with the current foreground colour (honours the active
+// selection, like every other fill path). Corner flood-fill from (1,1) only
+// covers the region connected to the top-left pixel, which is NOT the
+// "fill this layer" semantic the layer-detail panel promises.
+void ReverieCore::fillLayer(int index)
+{
+    if (!isLayerEditable(index)) {
+        return;
+    }
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
+    }
+    KisTransaction txn(kundo2_i18n("Fill Layer"), dev);
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) qColor = Qt::black;
+    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    KoColor koColor(qColor, image->colorSpace());
+    const QRect docRect(0, 0, int(image->width()), int(image->height()));
+    KisFillPainter painter(dev);
+    painter.setPaintColor(koColor);
+    painter.setOpacityF(m_brushOpacity);
+    painter.setCompositeOpId(COMPOSITE_OVER);
+    if (m_selection) {
+        painter.setSelection(m_selection);
+    }
+    painter.paintRect(docRect);
+    dev->setDirty(docRect);
+    markDirty();
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
+}
+
 bool ReverieCore::mergeDown(int index)
 {
     if (index <= 0 || index >= m_layers.size()) {

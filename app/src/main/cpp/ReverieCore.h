@@ -98,6 +98,8 @@ public:
     // masks) around the document centre as one undo step
     void flipCanvasHorizontal();
     void flipCanvasVertical();
+    // Fill the whole layer with the current foreground colour (selection-aware)
+    void fillLayer(int index);
     bool mergeDown(int index);   // composite onto the layer below, remove self
     bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
     bool moveLayerAbove(int fromIndex, int aboveIndex);   // move layer above the given layer (exact sibling semantics)

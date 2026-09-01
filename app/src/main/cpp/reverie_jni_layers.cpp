@@ -228,6 +228,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_flipCanvasVertical(JNIEnv *, jobje
     core()->flipCanvasVertical();
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_fillLayer(JNIEnv *, jobject, jint index)
+{
+    core()->fillLayer(index);
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayer(JNIEnv *, jobject, jint from, jint to)
 {
