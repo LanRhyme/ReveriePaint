@@ -143,9 +143,8 @@ internal fun FiltersPage(
     indices: List<Int>,
     onBack: () -> Unit,
     onSelectFilter: (Int, String) -> Unit,
+    initialCategoryId: String? = null,
 ) {
-    var selectedCategory by remember { mutableStateOf<FilterCategoryDef?>(null) }
-
     val categories = remember {
         listOf(
             FilterCategoryDef(
@@ -226,6 +225,11 @@ internal fun FiltersPage(
                 )
             ),
         )
+    }
+
+    // 快捷键 (filter_hsv/curves/blur/sharpen) 预选分类; 用户仍可返回重选
+    var selectedCategory by remember(initialCategoryId) {
+        mutableStateOf(initialCategoryId?.let { id -> categories.firstOrNull { it.id == id } })
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {

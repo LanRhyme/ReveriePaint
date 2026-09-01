@@ -213,10 +213,44 @@ internal fun SelectionFloatPanel(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.width(220.dp).padding(vertical = 4.dp),
                 ) {
-                    ToolFloatSlider(label = "羽化", valueText = "8px", range = 0f..32f, value = 8f, onValue = { vm.featherSelection(it.toInt()) })
-                    ToolFloatSlider(label = "扩展", valueText = "16px", range = 0f..64f, value = 16f, onValue = { vm.expandSelection(it.toInt()) })
-                    ToolFloatSlider(label = "收缩", valueText = "8px", range = 0f..64f, value = 8f, onValue = { vm.contractSelection(it.toInt()) })
-                    ToolFloatSlider(label = "平滑", valueText = "4px", range = 1f..16f, value = 4f, onValue = { vm.smoothSelection(it.toInt()) })
+                    // 拖动只更新本地显示, 松手才执行一次引擎操作——onValue 在
+                    // 拖动中连续回调, 直接接引擎操作会叠加执行 (羽化越拖越糊)
+                    var featherR by remember { mutableFloatStateOf(8f) }
+                    var expandR by remember { mutableFloatStateOf(16f) }
+                    var contractR by remember { mutableFloatStateOf(8f) }
+                    var smoothR by remember { mutableFloatStateOf(4f) }
+                    ToolFloatSlider(
+                        label = "羽化",
+                        valueText = "${featherR.toInt()}px",
+                        range = 0f..32f,
+                        value = featherR,
+                        onValue = { featherR = it },
+                        onRelease = { vm.featherSelection(featherR.toInt()) },
+                    )
+                    ToolFloatSlider(
+                        label = "扩展",
+                        valueText = "${expandR.toInt()}px",
+                        range = 0f..64f,
+                        value = expandR,
+                        onValue = { expandR = it },
+                        onRelease = { vm.expandSelection(expandR.toInt()) },
+                    )
+                    ToolFloatSlider(
+                        label = "收缩",
+                        valueText = "${contractR.toInt()}px",
+                        range = 0f..64f,
+                        value = contractR,
+                        onValue = { contractR = it },
+                        onRelease = { vm.contractSelection(contractR.toInt()) },
+                    )
+                    ToolFloatSlider(
+                        label = "平滑",
+                        valueText = "${smoothR.toInt()}px",
+                        range = 1f..16f,
+                        value = smoothR,
+                        onValue = { smoothR = it },
+                        onRelease = { vm.smoothSelection(smoothR.toInt()) },
+                    )
                 }
             }
 
@@ -228,7 +262,7 @@ internal fun SelectionFloatPanel(
                 SelectionActionItem(
                     iconRes = R.drawable.ic_layers,
                     label = "全选",
-                    onClick = { vm.selectAllAction() },
+                    onClick = { vm.selectAllCanvasAction() },
                 )
                 SelectionActionItem(
                     iconRes = R.drawable.ic_refresh,

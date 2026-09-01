@@ -181,6 +181,7 @@ fun LayerPanel(
     opacity: Float = 0.95f,
     hazeState: HazeState? = null,
     initialTargetFilters: List<Int>? = null,
+    initialFilterCategoryId: String? = null,
 ) {
     var view by remember(initialTargetFilters) {
         mutableStateOf<LayerView>(
@@ -293,6 +294,7 @@ fun LayerPanel(
                         FiltersPage(
                             vm = vm,
                             indices = v.indices,
+                            initialCategoryId = initialFilterCategoryId,
                             onBack = {
                                 if (v.indices.size == 1) {
                                     view = LayerView.Detail(v.index)

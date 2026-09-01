@@ -208,6 +208,37 @@ fun PaintingPage(
     }
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
+    // 快捷键打开滤镜页时预选的滤镜分类 id (LayerPanel → FiltersPage)
+    var filterCategoryHint by remember { mutableStateOf<String?>(null) }
+
+    // 快捷键触发的视口/面板命令 (VM 不持有视口状态, 只发一次性命令 token)
+    LaunchedEffect(vm.uiCommandTick) {
+        val cmd = vm.pendingUiCommand ?: return@LaunchedEffect
+        when (cmd) {
+            "zoom_in" -> {
+                zoom = (zoom * 1.2f).coerceAtMost(16f)
+                flashIndicator()
+            }
+            "zoom_out" -> {
+                zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
+                flashIndicator()
+            }
+            "rotate_cw" -> {
+                rotation = (rotation + 90f) % 360f
+                flashIndicator()
+            }
+            "open_color" -> colorPanelOpen = true
+            else -> {
+                if (cmd.startsWith("open_filter:")) {
+                    settingsPanelOpen = false
+                    targetFilterLayers = vm.editTargetLayers()
+                    filterCategoryHint = cmd.removePrefix("open_filter:")
+                    layerPanelOpen = true
+                }
+            }
+        }
+        vm.consumeUiCommand()
+    }
 
     // 当前工具: 直接从 ViewModel 派生, 保证重启恢复与引擎内自动切换
     // (如选橡皮擦分组预设反向触发 applyTool) 时 UI 高亮始终一致
@@ -1211,6 +1242,7 @@ fun PaintingPage(
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
                 initialTargetFilters = targetFilterLayers,
+                initialFilterCategoryId = filterCategoryHint,
             )
         }
         AnimatedVisibility(

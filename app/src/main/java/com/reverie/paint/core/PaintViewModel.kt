@@ -227,6 +227,14 @@ class PaintViewModel : ViewModel() {
     var brushRotation by mutableDoubleStateOf(0.0)
     var brushCompositeOp by mutableStateOf("normal")
 
+    // 上一次使用的工具 (toggle_last_tool 快捷键用)
+    var lastToolId by mutableStateOf("brush")
+    // One-shot UI 命令: 视口缩放/旋转与面板开关状态在 PaintingPage 本地,
+    // VM 只发命令 token, UI 侧 LaunchedEffect 消费 (见 PaintingPage)。
+    // 不能 private set —— 同包扩展函数 (requestUiCommand) 需要写入
+    var uiCommandTick by mutableIntStateOf(0)
+    var pendingUiCommand by mutableStateOf<String?>(null)
+
     // Extended brush studio properties
     var brushAntiAliasing by mutableIntStateOf(1) // 0: 无, 1: 正常, 2: 强化, 3: 分级
     var brushTipShape by mutableIntStateOf(0) // 0: 圆形笔触, 1: 方形笔触

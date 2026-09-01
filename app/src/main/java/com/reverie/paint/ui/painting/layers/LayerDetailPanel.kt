@@ -350,8 +350,9 @@ internal fun LayerDetailPage(
                     initialColor = Morandi.accent,
                     onColorSelected = { col ->
                         val hex = String.format("#%02X%02X%02X", (col.red * 255).toInt(), (col.green * 255).toInt(), (col.blue * 255).toInt())
-                        vm.brushColor = hex
-                        vm.floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
+                        // 必须走 updateBrushColor 同步引擎侧颜色, 裸赋值只改 UI 镜像会填上一次的旧色
+                        vm.updateBrushColor(hex)
+                        vm.fillLayerForeground(index)
                     },
                     onDismiss = { showFillColorPicker = false },
                 )
@@ -604,7 +605,7 @@ internal fun LayerDetailPage(
             Column {
                 OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
                 OpItem(R.drawable.ic_fill, "填充当前前景色") {
-                    vm.floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
+                    vm.fillLayerForeground(index)
                 }
                 OpItem(R.drawable.ic_erase, "清除图层") { vm.clearLayer(index) }
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }

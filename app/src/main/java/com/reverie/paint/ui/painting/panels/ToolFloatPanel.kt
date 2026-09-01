@@ -211,6 +211,7 @@ fun ToolFloatSlider(
     range: ClosedFloatingPointRange<Float>,
     value: Float,
     onValue: (Float) -> Unit,
+    onRelease: (() -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -220,6 +221,7 @@ fun ToolFloatSlider(
         com.reverie.paint.ui.components.ReSlider(
             value = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f),
             onValue = { frac -> onValue(range.start + frac * (range.endInclusive - range.start)) },
+            onRelease = onRelease,
             modifier = Modifier.weight(1f),
         )
         Text(valueText, color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)

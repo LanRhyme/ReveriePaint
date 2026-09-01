@@ -363,6 +363,16 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
     return false
 }
 
+/** 发一次性 UI 命令给 PaintingPage 消费 (视口/面板动作 UI 层才做得到)。 */
+internal fun PaintViewModel.requestUiCommand(cmd: String) {
+    pendingUiCommand = cmd
+    uiCommandTick++
+}
+
+internal fun PaintViewModel.consumeUiCommand() {
+    pendingUiCommand = null
+}
+
 private fun PaintViewModel.executeShortcutAction(id: String) {
     when (id) {
         "tool_brush" -> applyTool("brush")
@@ -415,5 +425,20 @@ private fun PaintViewModel.executeShortcutAction(id: String) {
         "layer_duplicate" -> copyLayer(currentLayerIndex)
         "layer_merge_down" -> mergeDown(currentLayerIndex)
         "layer_toggle_vis" -> toggleLayerVisible(currentLayerIndex)
+        "zoom_in" -> requestUiCommand("zoom_in")
+        "zoom_out" -> requestUiCommand("zoom_out")
+        "rotate_canvas" -> requestUiCommand("rotate_cw")
+        "flip_canvas" -> flipCanvasHorizontal()
+        "toggle_last_tool" -> {
+            val t = lastToolId
+            if (t != currentToolId) applyTool(t)
+        }
+        "tool_color" -> requestUiCommand("open_color")
+        // 打开滤镜页并预选对应分类 (color 含 HSV/曲线, blur 含高斯模糊,
+        // enhance 含锐化); 具体滤镜项仍需用户点选
+        "filter_hsv" -> requestUiCommand("open_filter:color")
+        "filter_curves" -> requestUiCommand("open_filter:color")
+        "filter_blur" -> requestUiCommand("open_filter:blur")
+        "filter_sharpen" -> requestUiCommand("open_filter:enhance")
     }
 }
