@@ -32,10 +32,9 @@ import java.util.zip.ZipFile
 import kotlin.math.roundToInt
 
 /** Max stroke samples buffered between render-thread drains. Sized for a
- *  240Hz stylus under a worst-case ~60ms render stall (~15 samples) with
- *  generous headroom; beyond capacity new appends are skipped and the stroke
- *  self-heals on the next sample (positions are absolute). */
-private const val STROKE_BATCH_CAPACITY = 32
+ *  240Hz stylus under heavy multi-frame stalls with generous headroom (256 samples);
+ *  preallocated once, zero allocation on hot path. */
+private const val STROKE_BATCH_CAPACITY = 256
 
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
 private const val STROKE_START_KICK_MS = 24L

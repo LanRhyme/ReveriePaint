@@ -451,6 +451,12 @@ object ReverieCoreBridge {
         recordingBlob: ByteArray? = null,
     ): Boolean
 
+    external fun saveRevpAsync(
+        path: String,
+        extraMetaJson: String = "",
+        recordingBlob: ByteArray? = null,
+    ): Boolean
+
     external fun loadRevp(path: String): Boolean
 
     external fun saveKra(path: String): Boolean

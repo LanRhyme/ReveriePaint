@@ -111,6 +111,101 @@ bool ReverieCore::exportPsd(const QString &path)
     return true;
 }
 
+#include <thread>
+#include <atomic>
+
+namespace {
+
+bool writeRevpStore(const QString &path,
+                    const QJsonObject &meta,
+                    const QString &layersXml,
+                    const QImage &comp,
+                    const QVector<QPair<int, QImage>> &layerImages,
+                    const QByteArray &recordingBlob)
+{
+    const QString tmpPath = path + ".tmp";
+    QScopedPointer<KoStore> store(KoStore::createStore(tmpPath, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
+    if (!store || store->bad()) {
+        return false;
+    }
+
+    // 1. Meta / Manifest JSON
+    if (store->open("meta.json")) {
+        QJsonDocument doc(meta);
+        QByteArray data = doc.toJson(QJsonDocument::Indented);
+        store->write(data);
+        store->close();
+    }
+
+    // layers.xml
+    if (!layersXml.isEmpty()) {
+        if (store->open("layers.xml")) {
+            store->write(layersXml.toUtf8());
+            store->close();
+        }
+    }
+
+    // 2. Merged Preview thumbnail
+    if (!comp.isNull()) {
+        if (store->open("preview.png")) {
+            QByteArray pngBytes;
+            QBuffer buf(&pngBytes);
+            buf.open(QIODevice::WriteOnly);
+            comp.save(&buf, "PNG");
+            store->write(pngBytes);
+            store->close();
+        }
+        if (store->open("thumbnail.png")) {
+            QByteArray thumbBytes;
+            QBuffer tbuf(&thumbBytes);
+            tbuf.open(QIODevice::WriteOnly);
+            const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            thumb.save(&tbuf, "PNG");
+            store->write(thumbBytes);
+            store->close();
+        }
+    }
+
+    // 3. Layer images
+    for (const auto &pair : layerImages) {
+        const int idx = pair.first;
+        const QImage &layerImg = pair.second;
+        const QString layerFileName = QString("layer_%1.png").arg(idx, 3, 10, QChar('0'));
+        if (store->open(layerFileName)) {
+            QByteArray lBytes;
+            QBuffer lBuf(&lBytes);
+            lBuf.open(QIODevice::WriteOnly);
+            layerImg.save(&lBuf, "PNG");
+            store->write(lBytes);
+            store->close();
+        }
+    }
+
+    // 4. Recording
+    if (!recordingBlob.isEmpty()) {
+        if (store->open("recording")) {
+            store->write(recordingBlob);
+            store->close();
+        }
+    }
+
+    store.reset(); // flushes and closes zip
+
+    QFile::remove(path);
+    if (!QFile::rename(tmpPath, path)) {
+        QFile::remove(path);
+        QFile::copy(tmpPath, path);
+        QFile::remove(tmpPath);
+    }
+
+    QFile f(path);
+    return f.exists() && f.size() > 0;
+}
+
+static std::atomic<bool> s_savingRevpAsync{false};
+
+} // namespace
+
 bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, const QByteArray &recordingBlob)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -119,11 +214,6 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     }
 
     syncLayersFromImage();
-
-    QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
-    if (!store || store->bad()) {
-        return false;
-    }
 
     // 1. Meta / Manifest JSON
     QJsonObject meta;
@@ -170,45 +260,12 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     }
     meta["layers"] = layersArray;
 
-    // Write meta.json
-    if (store->open("meta.json")) {
-        QJsonDocument doc(meta);
-        QByteArray data = doc.toJson(QJsonDocument::Indented);
-        store->write(data);
-        store->close();
-    }
+    QString xml;
+    writeLayersXml(&xml);
 
-    // 兼容 KRA 语义的图层树元数据 (加载端重建非破坏节点树用)
-    if (store->open("layers.xml")) {
-        QString xml;
-        writeLayersXml(&xml);
-        store->write(xml.toUtf8());
-        store->close();
-    }
-
-    // 2. Merged Preview thumbnail
     const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
-    if (!comp.isNull()) {
-        if (store->open("preview.png")) {
-            QByteArray pngBytes;
-            QBuffer buf(&pngBytes);
-            buf.open(QIODevice::WriteOnly);
-            comp.save(&buf, "PNG");
-            store->write(pngBytes);
-            store->close();
-        }
-        if (store->open("thumbnail.png")) {
-            QByteArray thumbBytes;
-            QBuffer tbuf(&thumbBytes);
-            tbuf.open(QIODevice::WriteOnly);
-            const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            thumb.save(&tbuf, "PNG");
-            store->write(thumbBytes);
-            store->close();
-        }
-    }
 
-    // 3. Save each layer as PNG tile / image
+    QVector<QPair<int, QImage>> layerImages;
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
         if (e.isGroup) continue;
@@ -220,32 +277,100 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
             layerImg = QImage(image->width(), image->height(), QImage::Format_ARGB32_Premultiplied);
             layerImg.fill(Qt::transparent);
         }
+        layerImages.append(qMakePair(i, layerImg));
+    }
 
-        const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
-        if (store->open(layerFileName)) {
-            QByteArray lBytes;
-            QBuffer lBuf(&lBytes);
-            lBuf.open(QIODevice::WriteOnly);
-            layerImg.save(&lBuf, "PNG");
-            store->write(lBytes);
-            store->close();
+    return writeRevpStore(path, meta, xml, comp, layerImages, recordingBlob);
+}
+
+bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJson, const QByteArray &recordingBlob)
+{
+    if (s_savingRevpAsync.load()) {
+        qDebug() << "saveRevpAsync: previous async save still running, skip";
+        return false;
+    }
+
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return false;
+    }
+
+    syncLayersFromImage();
+
+    // 1. Meta / Manifest JSON
+    QJsonObject meta;
+    meta["version"] = 1;
+    meta["appName"] = "ReveriePaint";
+    meta["width"] = image->width();
+    meta["height"] = image->height();
+    meta["colorMode"] = "RGB";
+    meta["colorDepth"] = 8;
+    meta["xRes"] = image->xRes();
+    meta["yRes"] = image->yRes();
+    meta["createdTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    meta["modifiedTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    if (!extraMetaJson.isEmpty()) {
+        QJsonDocument extraDoc = QJsonDocument::fromJson(extraMetaJson.toUtf8());
+        if (extraDoc.isObject()) {
+            QJsonObject extraObj = extraDoc.object();
+            for (auto it = extraObj.begin(); it != extraObj.end(); ++it) {
+                meta[it.key()] = it.value();
+            }
         }
     }
 
-    // Recording entry: the replay event stream, written directly by the
-    // store so no post-save ZIP repackage is needed (streamed, no copy)
-    if (!recordingBlob.isEmpty()) {
-        if (store->open("recording")) {
-            store->write(recordingBlob);
-            store->close();
+    QJsonArray layersArray;
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        QJsonObject layerObj;
+        layerObj["index"] = i;
+        layerObj["name"] = e.name;
+        layerObj["visible"] = e.visible;
+        layerObj["opacity"] = layerOpacity(i);
+        layerObj["blendMode"] = layerBlendMode(i);
+        layerObj["locked"] = e.locked;
+        layerObj["alphaLocked"] = e.alphaLocked;
+        layerObj["clipped"] = e.clipped;
+        layerObj["isGroup"] = e.isGroup;
+        layerObj["depth"] = e.depth;
+        layerObj["colorLabel"] = e.colorLabel;
+        layerObj["background"] = e.background;
+        layersArray.append(layerObj);
+    }
+    meta["layers"] = layersArray;
+
+    QString xml;
+    writeLayersXml(&xml);
+
+    // Deep detached copies of images captured in ~8ms on caller thread
+    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr).copy();
+
+    QVector<QPair<int, QImage>> layerImages;
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+
+        QImage layerImg = dev->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+        if (layerImg.isNull()) {
+            layerImg = QImage(image->width(), image->height(), QImage::Format_ARGB32_Premultiplied);
+            layerImg.fill(Qt::transparent);
+        } else {
+            layerImg = layerImg.copy();
         }
+        layerImages.append(qMakePair(i, layerImg));
     }
 
-    // Finalize the archive by destroying the KoStore instance, which flushes central directory
-    store.reset();
+    s_savingRevpAsync.store(true);
+    std::thread([path, meta, xml, comp, layerImages, recordingBlob]() {
+        const bool ok = writeRevpStore(path, meta, xml, comp, layerImages, recordingBlob);
+        s_savingRevpAsync.store(false);
+        qDebug() << "saveRevpAsync finished, result=" << ok << "path=" << path;
+    }).detach();
 
-    QFile f(path);
-    return f.exists() && f.size() > 0;
+    return true;
 }
 
 static QByteArray readAllStoreBytes(KoStore *store)

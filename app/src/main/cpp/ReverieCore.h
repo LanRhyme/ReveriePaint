@@ -428,10 +428,9 @@ public:
     bool exportPsd(const QString &path);
     // 兼容 KRA 语义的图层树元数据 (定义于 ReverieCoreLayerIO.cpp)
     void writeLayersXml(QString *out);
-    // 定义于 ReverieCoreLayerIO.cpp: 解析 layers.xml 重建非破坏节点树;
-    // 成功返回 true 并经 bgVisible 输出背景层可见性; 失败由调用方回退平铺路径。
     static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible);
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
+    bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
     bool loadRevp(const QString &path);
     bool saveKra(const QString &path);
 

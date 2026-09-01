@@ -139,12 +139,9 @@ internal fun PaintViewModel.autoSaveProject() {
             }
             """.trimIndent()
         val recBlob = recorder.serialize()
-        android.util.Log.d("RP_IO", "autoSaveRevp blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
-        val saved = ReverieCoreBridge.saveRevp(autoSaveFile.absolutePath, extraJson, recBlob)
-        android.util.Log.d("RP_IO", "autoSaveRevp result=$saved, file exists=${autoSaveFile.exists()}, length=${autoSaveFile.length()}")
-        if (!saved && !(autoSaveFile.exists() && autoSaveFile.length() > 0)) {
-            android.util.Log.w("RP_IO", "autoSaveRevp failed, no artifact")
-        }
+        android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
+        val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
+        android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
     }
 }
 
