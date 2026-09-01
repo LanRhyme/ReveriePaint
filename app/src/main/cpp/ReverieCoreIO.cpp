@@ -797,19 +797,18 @@ bool ReverieCore::loadPng(const QString &path)
 
 bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride)
 {
-    if (!m_document || index < 0 || index >= m_layers.size()) {
+    if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0) {
         return false;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) {
         return false;
     }
-    const QRect ext = dev->exactBounds();
+    const QRect ext = dev->extent();
 
-    // Thumbnail cache: while the layer's content generation and exact
-    // bounds are unchanged (and the requested size matches), re-blit the
-    // tiny cached thumb instead of converting the whole layer to QImage
-    // and smooth-scaling it on every panel refresh.
+    // Thumbnail cache: while the layer's content generation and extent
+    // are unchanged (and the requested size matches), re-blit the
+    // tiny cached thumb instead of regenerating it.
     ThumbCache &cache = m_thumbCache[m_layers[index].node];
     if (cache.imgGen == cache.gen && cache.bounds == ext && cache.img.size() == QSize(w, h)) {
         const int copyH = qMin(h, cache.img.height());
@@ -820,22 +819,14 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
         return true;
     }
 
-    QImage out;
-    if (ext.isEmpty()) {
-        out = QImage(w, h, QImage::Format_RGBA8888);
-        out.fill(Qt::transparent);
-    } else {
-        QImage full = dev->convertToQImage(nullptr, ext.x(), ext.y(), ext.width(), ext.height());
-        if (full.isNull()) {
-            return false;
-        }
-        out = QImage(w, h, QImage::Format_RGBA8888);
-        out.fill(Qt::transparent);
-        const QImage scaled =
-            full.scaled(w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        if (!scaled.isNull()) {
+    QImage out(w, h, QImage::Format_RGBA8888);
+    out.fill(Qt::transparent);
+
+    if (!ext.isEmpty()) {
+        const QImage thumb = dev->createThumbnail(w, h, Qt::KeepAspectRatio, KisThumbnailBoundsMode::Coarse);
+        if (!thumb.isNull()) {
             QPainter p(&out);
-            p.drawImage(QPointF((w - scaled.width()) / 2.0, (h - scaled.height()) / 2.0), scaled);
+            p.drawImage(QPointF((w - thumb.width()) / 2.0, (h - thumb.height()) / 2.0), thumb);
             p.end();
         }
     }

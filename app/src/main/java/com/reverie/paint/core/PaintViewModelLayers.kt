@@ -49,17 +49,16 @@ internal fun PaintViewModel.thumbFor(
 private var thumbRefreshJob: Job? = null
 
 /** Thumbnail refresh debounce: thumbs are only visible in the layer panel,
- *  which is never open while actively painting, so a refresh a few seconds
- *  after the pen lifts is plenty. The old 400ms window re-rendered the
- *  active layer's full-device thumbnail during brief pauses between rapid
- *  strokes - a visible hitch (full-layer convertToQImage + smooth scale on
- *  the render thread). Structural changes (add/remove/undo) still refresh
- *  immediately via [force]. */
-private const val THUMB_REFRESH_DEBOUNCE_MS = 3_000L
+ *  which is never open while actively painting, so we skip refreshes when
+ *  the panel is closed, and render on-demand when the panel opens. */
+private const val THUMB_REFRESH_DEBOUNCE_MS = 1_000L
 
 /** (Re)generate layer thumbnails on the render thread. Debounced; triggers
  *  inside the window keep postponing the refresh until the user pauses. */
 internal fun PaintViewModel.refreshLayerThumbs(force: Boolean = false) {
+    if (!force && !layerPanelOpen) {
+        return
+    }
     val now = System.nanoTime()
     if (!force && now - lastThumbRefreshNs < THUMB_REFRESH_DEBOUNCE_MS * 1_000_000L) {
         thumbRefreshJob?.cancel()
@@ -67,7 +66,9 @@ internal fun PaintViewModel.refreshLayerThumbs(force: Boolean = false) {
             viewModelScope.launch {
                 delay(THUMB_REFRESH_DEBOUNCE_MS)
                 lastThumbRefreshNs = System.nanoTime()
-                doRefreshLayerThumbs()
+                if (layerPanelOpen) {
+                    doRefreshLayerThumbs()
+                }
             }
         return
     }

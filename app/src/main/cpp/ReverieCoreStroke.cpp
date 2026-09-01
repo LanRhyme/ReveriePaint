@@ -138,7 +138,7 @@ void ReverieCore::touchStrokeEnd()
         const QRect canvasBounds(0, 0, m_document->width(), m_document->height());
         KisPaintDeviceSP dev = pl ? pl->paintDevice() : currentPaintDevice();
         if (dev) {
-            const QRect ext = dev->exactBounds();
+            const QRect ext = dev->extent();
             if (!ext.isEmpty() && !canvasBounds.contains(ext)) {
                 dev->crop(canvasBounds);
             }

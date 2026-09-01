@@ -197,6 +197,12 @@ fun PaintingPage(
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(layerPanelOpen) {
+        vm.layerPanelOpen = layerPanelOpen
+        if (layerPanelOpen) {
+            vm.refreshLayerThumbs(force = true)
+        }
+    }
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
 
