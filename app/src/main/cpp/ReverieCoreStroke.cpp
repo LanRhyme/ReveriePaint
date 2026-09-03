@@ -103,6 +103,7 @@ void ReverieCore::touchStrokeEnd()
         KisPaintDeviceSP tempTarget = pl->temporaryTarget();
         const QRect ext = tempTarget->exactBounds();
         pl->setTemporaryTarget(nullptr);
+        pl->setTemporaryChannelFlags(QBitArray());
         if (!ext.isEmpty()) {
             if (m_document && m_undoCaptureEnabled) {
                 delete m_strokeTxn;
@@ -122,9 +123,7 @@ void ReverieCore::touchStrokeEnd()
             if (m_selection) {
                 gc.setSelection(m_selection);
             }
-            if (pl->alphaLocked()) {
-                gc.setChannelFlags(pl->channelLockFlags());
-            }
+            gc.setChannelFlags(pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());
             gc.bitBlt(ext.topLeft(), tempTarget, ext);
             gc.end();
             pl->paintDevice()->setDirty(ext);
@@ -322,9 +321,7 @@ bool ReverieCore::flushStrokeBatch()
             pl->setTemporaryCompositeOp(effectiveOp);
             pl->setTemporaryOpacity(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
             pl->setTemporarySelection(m_selection);
-            if (pl->alphaLocked()) {
-                pl->setTemporaryChannelFlags(pl->channelLockFlags());
-            }
+            pl->setTemporaryChannelFlags(pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());
         }
         target = pl->temporaryTarget();
     } else {
@@ -388,9 +385,7 @@ bool ReverieCore::flushStrokeBatch()
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
         }
-        if (pl && pl->alphaLocked()) {
-            m_strokePainter->setChannelFlags(pl->channelLockFlags());
-        }
+        m_strokePainter->setChannelFlags(pl && pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());
         // Real Krita brush engine: construct the brush op once per stroke
         // and drive its async dab pipeline synchronously (the fake executor
         // runs the rendering jobs inline, exactly like Krita's own tests).
@@ -703,6 +698,10 @@ void ReverieCore::pushUndoCommand(KUndo2Command *cmd)
     // Replay mode: ops apply normally but must not grow undo history
     // (hundreds of replay commands would otherwise eat tile-snapshot memory)
     if (!m_undoCaptureEnabled) {
+        delete cmd;
+        return;
+    }
+    if (!m_document->undoAdapter()) {
         delete cmd;
         return;
     }

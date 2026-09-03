@@ -194,6 +194,8 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     painter.setHeight(image->height());
     painter.setCareForSelection(true);
     painter.setUseCompositing(true);
+    painter.setOpacitySpread(100);
+    painter.setAntiAlias(true);
     painter.setFillThreshold(tolerance);
     if (m_selection) {
         painter.setSelection(m_selection);
@@ -203,19 +205,16 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
         : nullptr;
     if (pl && pl->alphaLocked()) {
         painter.setChannelFlags(pl->channelLockFlags());
+    } else {
+        painter.setChannelFlags(QBitArray());
     }
     
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) qColor = Qt::black;
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
     KoColor koColor(qColor, image->colorSpace());
     painter.setPaintColor(koColor);
     painter.setOpacityF(m_brushOpacity);
-    if (m_brushPreset && m_brushPreset->settings()) {
-        painter.setCompositeOpId(m_brushPreset->settings()->effectivePaintOpCompositeOp());
-    } else {
-        painter.setCompositeOpId(COMPOSITE_OVER);
-    }
+    painter.setCompositeOpId(COMPOSITE_OVER);
 
     // fillColor will flood fill starting from x, y sampling from srcDevice
     painter.fillColor(x, y, srcDevice);

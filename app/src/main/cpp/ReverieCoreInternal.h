@@ -140,6 +140,39 @@ private:
     QVector<KUndo2Command *> m_children;
 };
 
+class ReverieFilterCommitCommand : public KUndo2Command
+{
+public:
+    ReverieFilterCommitCommand(KisPaintDeviceSP dev, KisPaintDeviceSP backup, const QRect &rect)
+        : KUndo2Command(), m_dev(dev), m_backup(backup), m_rect(rect)
+    {
+        if (dev) {
+            m_filtered = new KisPaintDevice(dev->colorSpace());
+            KisPainter::copyAreaOptimized(m_rect.topLeft(), m_dev, m_filtered, m_rect);
+        }
+    }
+    void redo() override
+    {
+        if (m_dev && m_filtered) {
+            KisPainter::copyAreaOptimized(m_rect.topLeft(), m_filtered, m_dev, m_rect);
+            m_dev->setDirty(m_rect);
+        }
+    }
+    void undo() override
+    {
+        if (m_dev && m_backup) {
+            KisPainter::copyAreaOptimized(m_rect.topLeft(), m_backup, m_dev, m_rect);
+            m_dev->setDirty(m_rect);
+        }
+    }
+
+private:
+    KisPaintDeviceSP m_dev;
+    KisPaintDeviceSP m_backup;
+    KisPaintDeviceSP m_filtered;
+    QRect m_rect;
+};
+
 class ReverieNodeVisibleCommand : public KUndo2Command
 {public:
     ReverieNodeVisibleCommand(KisNodeSP node, bool visible,

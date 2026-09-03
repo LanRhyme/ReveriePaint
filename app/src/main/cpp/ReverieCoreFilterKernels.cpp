@@ -14,6 +14,8 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
 {
     const int w = img.width();
     const int h = img.height();
+    if (w <= 0 || h <= 0) return;
+    img.bits();
     switch (filterType) {
     case 0: { // HSBC: Hue (-180..180), Sat (0..2), Bright (0..2), Contrast (0..2)
         const double hShift = p1;
@@ -1157,6 +1159,8 @@ void reverieApplyCurvesLutKernel(QImage &img, const quint8 *lutR256, const quint
 {
     const int w = img.width();
     const int h = img.height();
+    if (w <= 0 || h <= 0) return;
+    img.bits();
     filterParallelFor(0, h, [&](int startY, int endY) {
         for (int y = startY; y < endY; ++y) {
             quint8 *line = img.scanLine(y);
@@ -1175,6 +1179,8 @@ void reverieApplyGradientMapKernel(QImage &img, const qint32 *gradientLut256)
 {
     const int w = img.width();
     const int h = img.height();
+    if (w <= 0 || h <= 0) return;
+    img.bits();
     const quint32 *gradientLut = reinterpret_cast<const quint32 *>(gradientLut256);
     filterParallelFor(0, h, [&](int startY, int endY) {
         for (int y = startY; y < endY; ++y) {

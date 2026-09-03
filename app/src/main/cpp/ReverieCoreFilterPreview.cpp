@@ -29,10 +29,12 @@ void ReverieCore::applyFilterPreviewMulti(const QVector<int> &indices, int filte
     }
     const int w = m_docWidth;
     const int h = m_docHeight;
+    if (w <= 0 || h <= 0) return;
     ensureFilterBuffers(w, h);
 
     quint8 *workBytes = m_filterWorkBuffer.data();
     quint8 *origBytes = m_filterOrigBuffer.data();
+    if (!workBytes || !origBytes) return;
 
     for (int index : indices) {
         if (!isLayerEditable(index)) continue;
@@ -43,8 +45,8 @@ void ReverieCore::applyFilterPreviewMulti(const QVector<int> &indices, int filte
         backup->readBytes(origBytes, 0, 0, w, h);
         memcpy(workBytes, origBytes, static_cast<size_t>(w) * h * 4);
 
-        QImage img(workBytes, w, h, QImage::Format_ARGB32_Premultiplied);
-        const QImage origImg(origBytes, w, h, QImage::Format_ARGB32_Premultiplied);
+        QImage img(workBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
+        const QImage origImg(origBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
 
         reverieApplyScalarKernel(img, filterType, p1, p2, p3, p4);
 
@@ -72,10 +74,12 @@ void ReverieCore::applyCurvesLUTPreviewMulti(const QVector<int> &indices, const 
     }
     const int w = m_docWidth;
     const int h = m_docHeight;
+    if (w <= 0 || h <= 0) return;
     ensureFilterBuffers(w, h);
 
     quint8 *workBytes = m_filterWorkBuffer.data();
     quint8 *origBytes = m_filterOrigBuffer.data();
+    if (!workBytes || !origBytes) return;
 
     for (int index : indices) {
         if (!isLayerEditable(index)) continue;
@@ -86,8 +90,8 @@ void ReverieCore::applyCurvesLUTPreviewMulti(const QVector<int> &indices, const 
         backup->readBytes(origBytes, 0, 0, w, h);
         memcpy(workBytes, origBytes, static_cast<size_t>(w) * h * 4);
 
-        QImage img(workBytes, w, h, QImage::Format_ARGB32_Premultiplied);
-        const QImage origImg(origBytes, w, h, QImage::Format_ARGB32_Premultiplied);
+        QImage img(workBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
+        const QImage origImg(origBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
 
         reverieApplyCurvesLutKernel(img, lutR, lutG, lutB);
 
@@ -115,10 +119,12 @@ void ReverieCore::applyGradientMapPreviewMulti(const QVector<int> &indices, cons
     }
     const int w = m_docWidth;
     const int h = m_docHeight;
+    if (w <= 0 || h <= 0) return;
     ensureFilterBuffers(w, h);
 
     quint8 *workBytes = m_filterWorkBuffer.data();
     quint8 *origBytes = m_filterOrigBuffer.data();
+    if (!workBytes || !origBytes) return;
 
     for (int index : indices) {
         if (!isLayerEditable(index)) continue;
@@ -129,8 +135,8 @@ void ReverieCore::applyGradientMapPreviewMulti(const QVector<int> &indices, cons
         backup->readBytes(origBytes, 0, 0, w, h);
         memcpy(workBytes, origBytes, static_cast<size_t>(w) * h * 4);
 
-        QImage img(workBytes, w, h, QImage::Format_ARGB32_Premultiplied);
-        const QImage origImg(origBytes, w, h, QImage::Format_ARGB32_Premultiplied);
+        QImage img(workBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
+        const QImage origImg(origBytes, w, h, w * 4, QImage::Format_ARGB32_Premultiplied);
 
         reverieApplyGradientMapKernel(img, reinterpret_cast<const qint32 *>(gradientLut256));
 

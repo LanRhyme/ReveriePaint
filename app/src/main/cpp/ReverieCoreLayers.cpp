@@ -421,6 +421,12 @@ void ReverieCore::setLayerAlphaLocked(int index, bool locked)
     if (pl) {
         pl->setAlphaLocked(locked);
         m_layers[index].alphaLocked = locked;
+        if (!locked) {
+            pl->setTemporaryChannelFlags(QBitArray());
+            if (m_strokePainter && index == m_currentLayer) {
+                m_strokePainter->setChannelFlags(QBitArray());
+            }
+        }
     }
 }
 
