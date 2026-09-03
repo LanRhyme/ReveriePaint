@@ -20,9 +20,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import com.reverie.paint.R
 import com.reverie.paint.core.*
-import com.reverie.paint.model.Tool
-import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -224,6 +224,141 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+
+
+    // ---- 触控预测 (Hermite Motion Predictor) ----
+    private var histPos0 = Offset.Zero
+    private var histPos1 = Offset.Zero
+    private var histTime0 = 0L
+    private var histTime1 = 0L
+
+    private fun updateMotionPrediction(screenPos: Offset, nowMs: Long): Offset {
+        val v = vm
+        if (v?.motionPredictorEnabled != true) return screenPos
+        if (histTime0 == 0L) {
+            histPos0 = screenPos
+            histTime0 = nowMs
+            return screenPos
+        }
+        val dt = (nowMs - histTime0).coerceIn(1L, 50L)
+        histPos1 = histPos0
+        histTime1 = histTime0
+        histPos0 = screenPos
+        histTime0 = nowMs
+
+        val vx = (histPos0.x - histPos1.x) / dt.toFloat()
+        val vy = (histPos0.y - histPos1.y) / dt.toFloat()
+        val predDt = 14f // 预测前推约 14ms (1~2 帧)
+        val maxDist = 24f * density
+        val predDx = (vx * predDt).coerceIn(-maxDist, maxDist)
+        val predDy = (vy * predDt).coerceIn(-maxDist, maxDist)
+        return Offset(screenPos.x + predDx, screenPos.y + predDy)
+    }
+
+    // ---- 对称与透视绘图辅助 (Drawing Assist) ----
+    private val mirroredBranches = mutableListOf<MutableList<Point2D>>()
+    private val mirroredDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
+        val v = vm ?: return emptyList()
+        val guide = v.drawingGuide
+        if (guide.mode != GuideMode.SYMMETRY) return emptyList()
+        val cx = v.docWidth * guide.symmetryCenterX
+        val cy = v.docHeight * guide.symmetryCenterY
+        return when (guide.symmetryType) {
+            SymmetryType.VERTICAL -> listOf(Point2D(2f * cx - docPt.x, docPt.y))
+            SymmetryType.HORIZONTAL -> listOf(Point2D(docPt.x, 2f * cy - docPt.y))
+            SymmetryType.QUADRANT -> listOf(
+                Point2D(2f * cx - docPt.x, docPt.y),
+                Point2D(docPt.x, 2f * cy - docPt.y),
+                Point2D(2f * cx - docPt.x, 2f * cy - docPt.y),
+            )
+            SymmetryType.RADIAL -> {
+                val dx = docPt.x - cx
+                val dy = docPt.y - cy
+                val r = hypot(dx, dy)
+                val baseAngle = atan2(dy, dx)
+                val branches = ArrayList<Point2D>(7)
+                for (k in 1..7) {
+                    val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
+                    branches.add(Point2D(cx + r * cos(ang), cy + r * sin(ang)))
+                }
+                branches
+            }
+        }
+    }
+
+    private fun applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
+        val v = vm ?: return currentPt
+        val guide = v.drawingGuide
+        if (!guide.assistedDrawing) return currentPt
+        return when (guide.mode) {
+            GuideMode.GRID_2D -> {
+                val dx = abs(currentPt.x - firstPt.x)
+                val dy = abs(currentPt.y - firstPt.y)
+                if (dx > dy) Offset(currentPt.x, firstPt.y) else Offset(firstPt.x, currentPt.y)
+            }
+            GuideMode.ISOMETRIC -> {
+                val dx = currentPt.x - firstPt.x
+                val dy = currentPt.y - firstPt.y
+                val dist = hypot(dx, dy)
+                if (dist < 4f) return currentPt
+                val angDeg = (atan2(dy, dx) * 180f / PI.toFloat() + 360f) % 360f
+                val isoAngles = floatArrayOf(30f, 90f, 150f, 210f, 270f, 330f)
+                val nearest = isoAngles.minByOrNull { abs((angDeg - it + 540f) % 360f - 180f) } ?: angDeg
+                val rad = nearest * PI.toFloat() / 180f
+                Offset(firstPt.x + dist * cos(rad), firstPt.y + dist * sin(rad))
+            }
+            GuideMode.PERSPECTIVE -> {
+                val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
+                    listOf(Point2D(v.docWidth * 0.5f, vm?.docHeight?.toFloat()?.times(0.35f) ?: 350f))
+                } else guide.perspectiveVanishingPoints
+
+                val dx = currentPt.x - firstPt.x
+                val dy = currentPt.y - firstPt.y
+                val dist = hypot(dx, dy)
+                if (dist < 4f) return currentPt
+
+                // Candidate 1: horizontal horizon line
+                var bestCandidate = Offset(currentPt.x, firstPt.y)
+                var minError = abs(dy)
+
+                // Candidate 2: vertical wall line (for 3-point perspective)
+                val vertError = abs(dx)
+                if (vertError < minError) {
+                    minError = vertError
+                    bestCandidate = Offset(firstPt.x, currentPt.y)
+                }
+
+                // Candidate rays to each vanishing point
+                for (vp in vps) {
+                    val vRayX = vp.x - firstPt.x
+                    val vRayY = vp.y - firstPt.y
+                    val vLen = hypot(vRayX, vRayY)
+                    if (vLen > 0.001f) {
+                        val nx = vRayX / vLen
+                        val ny = vRayY / vLen
+                        val dot = dx * nx + dy * ny
+                        val err = abs(dx * (-ny) + dy * nx)
+                        if (err < minError) {
+                            minError = err
+                            bestCandidate = Offset(firstPt.x + nx * dot, firstPt.y + ny * dot)
+                        }
+                    }
+                }
+                bestCandidate
+            }
+            else -> currentPt
+        }
+    }
+
+    private var draggingGuideHandleIndex = -1 // -1: none, 100: symmetry center, 0..N: VP index
+
+
     private val systemNullPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_NULL)
     } else null
@@ -359,6 +494,32 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvas.drawLine(pos.x, pos.y - len, pos.x, pos.y + len, crosshairPaintWhite)
                 }
             }
+
+            // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支)
+            if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+                val docPt = screenToDoc(pos)
+                val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
+                for (symPt in symPts) {
+                    val symScreen = docToScreen(Offset(symPt.x, symPt.y))
+                    canvas.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                    canvas.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen, cursorPaintWhite)
+                }
+            }
+
+            // 绘画中实时镜像笔迹绘制 (120Hz 零延迟 GPU Canvas 渲染)
+            if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirroredBranches.isNotEmpty()) {
+                try {
+                    mirroredDrawPaint.color = android.graphics.Color.parseColor(v.brushColor)
+                    mirroredDrawPaint.strokeWidth = (v.brushSize.toFloat() * scale).coerceAtLeast(1.5f)
+                    for (branch in mirroredBranches) {
+                        for (i in 1 until branch.size) {
+                            val p1 = docToScreen(Offset(branch[i - 1].x, branch[i - 1].y))
+                            val p2 = docToScreen(Offset(branch[i].x, branch[i].y))
+                            canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -401,6 +562,28 @@ class CanvasTouchView(context: Context) : View(context) {
             bmpH,
             vm?.docWidth ?: bmpW,
             vm?.docHeight ?: bmpH
+        )
+    }
+
+    private fun docToScreen(docPos: Offset): Offset {
+        val bmp = docBitmap
+        val bmpW = bmp?.width ?: vm?.docWidth ?: 1
+        val bmpH = bmp?.height ?: vm?.docHeight ?: 1
+        val dw = vm?.docWidth ?: bmpW
+        val dh = vm?.docHeight ?: bmpH
+        return imageToWidget(
+            docPos,
+            viewW,
+            viewH,
+            canvasPanX,
+            canvasPanY,
+            canvasZoom,
+            canvasFitScale,
+            canvasRotation,
+            bmpW,
+            bmpH,
+            dw,
+            dh,
         )
     }
 
@@ -890,6 +1073,47 @@ class CanvasTouchView(context: Context) : View(context) {
                 removeCallbacks(longPressRunnable)
                 longPressToken++
 
+                // Check if user is touching a Drawing Guide handle (Perspective Vanishing Point or Symmetry Center/Line)
+                val guide = v.drawingGuide
+                if (guide.mode == GuideMode.PERSPECTIVE) {
+                    val vps = guide.perspectiveVanishingPoints
+                    var hitVp = -1
+                    for (i in vps.indices) {
+                        val vpScreen = docToScreen(Offset(vps[i].x, vps[i].y))
+                        if (hypot(screenPos.x - vpScreen.x, screenPos.y - vpScreen.y) < 48f * density) {
+                            hitVp = i
+                            break
+                        }
+                    }
+                    if (hitVp != -1) {
+                        draggingGuideHandleIndex = hitVp
+                        isPendingLongPress = false
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                } else if (guide.mode == GuideMode.SYMMETRY) {
+                    val cx = v.docWidth * guide.symmetryCenterX
+                    val cy = v.docHeight * guide.symmetryCenterY
+                    val symScreen = docToScreen(Offset(cx, cy))
+                    if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 48f * density) {
+                        draggingGuideHandleIndex = 100
+                        isPendingLongPress = false
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                    if (guide.symmetryType == SymmetryType.VERTICAL && abs(screenPos.x - symScreen.x) < 32f * density) {
+                        draggingGuideHandleIndex = 100
+                        isPendingLongPress = false
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    } else if (guide.symmetryType == SymmetryType.HORIZONTAL && abs(screenPos.y - symScreen.y) < 32f * density) {
+                        draggingGuideHandleIndex = 100
+                        isPendingLongPress = false
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        return true
+                    }
+                }
+
                 if (canEyedrop) {
                     isPendingLongPress = true
                     activeLongPressToken = longPressToken
@@ -919,6 +1143,23 @@ class CanvasTouchView(context: Context) : View(context) {
                 val deltaX = screenPos.x - previousSinglePos.x
                 val deltaY = screenPos.y - previousSinglePos.y
                 previousSinglePos = screenPos
+
+                if (draggingGuideHandleIndex != -1) {
+                    val g = v.drawingGuide
+                    if (draggingGuideHandleIndex == 100) {
+                        val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                        val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                        v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
+                        invalidate()
+                        return true
+                    } else if (draggingGuideHandleIndex in 0 until g.perspectiveVanishingPoints.size) {
+                        val pts = g.perspectiveVanishingPoints.toMutableList()
+                        pts[draggingGuideHandleIndex] = Point2D(docPos.x, docPos.y)
+                        v.drawingGuide = g.copy(perspectiveVanishingPoints = pts)
+                        invalidate()
+                        return true
+                    }
+                }
 
                 if (isLongPressPickerActive) {
                     sampleColorAtScreenPos(screenPos)
@@ -959,6 +1200,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 removeCallbacks(longPressRunnable)
                 longPressToken++
                 isInteracting = false
+
+                if (draggingGuideHandleIndex != -1) {
+                    draggingGuideHandleIndex = -1
+                    return true
+                }
 
                 if (isLongPressPickerActive) {
                     val curCol = pickerCurrentColor?.value
@@ -1006,7 +1252,7 @@ class CanvasTouchView(context: Context) : View(context) {
             v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
             return
         }
-        if (activeLayer?.locked == true && isDrawingTool) {
+        if (activeLayer?.locked == true && (isDrawingTool || tool == Tool.LIQUIFY)) {
             v.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
             return
         }
@@ -1014,8 +1260,15 @@ class CanvasTouchView(context: Context) : View(context) {
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 smoothedPressure = pressure
-                v.touchStart(docPos.x, docPos.y, pressure.toDouble())
-                strokeStarted = true
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+
+                mirroredBranches.clear()
+                val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
+                for (symPt in symPts) {
+                    val branch = mutableListOf<Point2D>()
+                    branch.add(symPt)
+                    mirroredBranches.add(branch)
+                }
             }
             Tool.LIQUIFY -> {
                 liquifyPrevPos = docPos
@@ -1136,19 +1389,49 @@ class CanvasTouchView(context: Context) : View(context) {
     private fun handleToolMove(event: MotionEvent, pointerIndex: Int, docPos: Offset, pressure: Float, isStylus: Boolean) {
         val v = vm ?: return
 
+        if (draggingGuideHandleIndex == 100) {
+            val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+            val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+            v.drawingGuide = v.drawingGuide.copy(symmetryCenterX = newX, symmetryCenterY = newY)
+            invalidate()
+            return
+        } else if (draggingGuideHandleIndex in 0 until v.drawingGuide.perspectiveVanishingPoints.size) {
+            val pts = v.drawingGuide.perspectiveVanishingPoints.toMutableList()
+            pts[draggingGuideHandleIndex] = Point2D(docPos.x, docPos.y)
+            v.drawingGuide = v.drawingGuide.copy(perspectiveVanishingPoints = pts)
+            invalidate()
+            return
+        }
+
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 if (!strokeStarted) {
-                    v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
-                    strokeStarted = true
+                    // First MOVE may arrive when DOWN was rejected (locked
+                    // layer switched mid-gesture): retry the guarded start;
+                    // still refused → swallow the gesture (no phantom move).
+                    strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
                 }
+                if (!strokeStarted) return
+
+                val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
+
                 for (i in 0 until event.historySize) {
                     val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
                     val hDoc = screenToDoc(hScreen)
+                    val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
                     val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
-                    v.touchMove(hDoc.x, hDoc.y, hP.toDouble())
+                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble())
+                    val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
+                    for (idx in symPts.indices) {
+                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(symPts[idx])
+                    }
                 }
-                v.touchMove(docPos.x, docPos.y, pressure.toDouble())
+
+                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
+                val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
+                for (idx in symPts.indices) {
+                    if (idx < mirroredBranches.size) mirroredBranches[idx].add(symPts[idx])
+                }
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
@@ -1288,8 +1571,71 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    private fun bakeSymmetricBranch(branch: List<Point2D>) {
+        val v = vm ?: return
+        if (branch.size < 2) return
+
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var maxY = Float.MIN_VALUE
+        for (pt in branch) {
+            if (pt.x < minX) minX = pt.x
+            if (pt.x > maxX) maxX = pt.x
+            if (pt.y < minY) minY = pt.y
+            if (pt.y > maxY) maxY = pt.y
+        }
+
+        val strokeW = (v.brushSize.toFloat()).coerceAtLeast(1f)
+        val pad = strokeW + 16f
+        val left = (minX - pad).toInt().coerceIn(0, maxOf(0, v.docWidth - 1))
+        val top = (minY - pad).toInt().coerceIn(0, maxOf(0, v.docHeight - 1))
+        val right = (maxX + pad).toInt().coerceIn(left + 1, v.docWidth)
+        val bottom = (maxY + pad).toInt().coerceIn(top + 1, v.docHeight)
+        val bw = right - left
+        val bh = bottom - top
+        if (bw <= 0 || bh <= 0) return
+
+        val bmp = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+            this.strokeWidth = strokeW
+            val parsedColor = try {
+                android.graphics.Color.parseColor(v.brushColor)
+            } catch (_: Throwable) {
+                android.graphics.Color.BLACK
+            }
+            color = parsedColor
+            alpha = (v.brushOpacity * 255).toInt().coerceIn(0, 255)
+        }
+
+        val path = android.graphics.Path()
+        path.moveTo(branch[0].x - left, branch[0].y - top)
+        for (i in 1 until branch.size) {
+            val prev = branch[i - 1]
+            val cur = branch[i]
+            val midX = (prev.x + cur.x) / 2f - left
+            val midY = (prev.y + cur.y) / 2f - top
+            path.quadTo(prev.x - left, prev.y - top, midX, midY)
+        }
+        path.lineTo(branch.last().x - left, branch.last().y - top)
+        canvas.drawPath(path, paint)
+
+        v.runCore {
+            ReverieCoreBridge.stampBitmap(left, top, bmp)
+        }
+    }
+
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
         val v = vm ?: return
+
+        if (draggingGuideHandleIndex != -1) {
+            draggingGuideHandleIndex = -1
+            return
+        }
 
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
@@ -1298,9 +1644,17 @@ class CanvasTouchView(context: Context) : View(context) {
                         v.touchCancel()
                     } else {
                         v.touchEnd()
+                        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+                            for (branch in mirroredBranches) {
+                                if (branch.size >= 2) {
+                                    bakeSymmetricBranch(branch)
+                                }
+                            }
+                        }
                     }
                     strokeStarted = false
                 }
+                mirroredBranches.clear()
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {

@@ -308,6 +308,8 @@ fun toolIcon(tool: Tool): Int =
         Tool.SELECT_SIMILAR -> R.drawable.ic_eye
         Tool.PATH -> R.drawable.ic_copy
         Tool.REFERENCE -> R.drawable.ic_reference
+        Tool.SYMMETRY -> R.drawable.ic_flip_horizontal
+        Tool.PERSPECTIVE -> R.drawable.ic_grid
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's

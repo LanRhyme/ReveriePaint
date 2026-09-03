@@ -805,16 +805,23 @@ internal fun PaintViewModel.loadBrushPresets() {
     val list = ArrayList<BrushPresetInfo>()
     runCore(after = {
         android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
-        brushPresets = list.toList()
-        if (brushPresets.isNotEmpty()) {
+        // Re-apply the persisted user order (same policy as reloadBrushPresets)
+        val rank = brushOrder.withIndex().associate { it.value to it.index }
+        val ordered =
+            if (rank.isEmpty()) list.toList()
+            else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
+        brushPresets = ordered
+        if (ordered.isNotEmpty()) {
             val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
             val savedToolState = toolBrushStates[savedToolId]
+            // Saved preset indices are NATIVE-table indices; validate by item
+            // presence, not list position (the list order may differ).
             val targetIndex =
-                if (savedToolState != null && savedToolState.presetIndex in brushPresets.indices) {
+                if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
                     savedToolState.presetIndex
                 } else {
                     val savedPresetIdx = prefs().getInt("last_brush_preset_index", 0)
-                    if (savedPresetIdx in brushPresets.indices) savedPresetIdx else 0
+                    if (ordered.any { it.index == savedPresetIdx }) savedPresetIdx else ordered[0].index
                 }
             applyTool(savedToolId)
             selectBrushPreset(targetIndex)

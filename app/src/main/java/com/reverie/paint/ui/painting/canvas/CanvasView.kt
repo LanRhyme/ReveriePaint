@@ -373,3 +373,30 @@ fun widgetToImage(
     // coordinates (1080x1920 etc.), while the render viewport is downscaled
     return Offset(bx * (docW.toFloat() / bmpW), by * (docH.toFloat() / bmpH))
 }
+
+/** Convert document coordinates into workspace/screen coordinates using the forward view transform. */
+fun imageToWidget(
+    p: Offset,
+    canvasW: Int,
+    canvasH: Int,
+    panX: Float,
+    panY: Float,
+    zoom: Float,
+    fitScale: Float,
+    rotation: Float,
+    bmpW: Int,
+    bmpH: Int,
+    docW: Int,
+    docH: Int,
+): Offset {
+    val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+    val bx = p.x * (bmpW.toFloat() / maxOf(1, docW)) - bmpW / 2f
+    val by = p.y * (bmpH.toFloat() / maxOf(1, docH)) - bmpH / 2f
+    val radians = Math.toRadians(rotation.toDouble())
+    val cosR = cos(radians).toFloat()
+    val sinR = sin(radians).toFloat()
+    val rotX = (bx * scale) * cosR - (by * scale) * sinR
+    val rotY = (bx * scale) * sinR + (by * scale) * cosR
+    return Offset(rotX + canvasW / 2f + panX, rotY + canvasH / 2f + panY)
+}
+

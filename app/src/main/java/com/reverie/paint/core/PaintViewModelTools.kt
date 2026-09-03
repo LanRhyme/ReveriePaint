@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
+import com.reverie.paint.model.*
 import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_FILL_V3
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
@@ -123,7 +124,7 @@ internal fun PaintViewModel.touchStart(
     x: Float,
     y: Float,
     pressure: Double = 1.0,
-) {
+): Boolean {
     onPaintingActivity()
     smoothedStrokeX = x
     smoothedStrokeY = y
@@ -140,11 +141,15 @@ internal fun PaintViewModel.touchStart(
     val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
     if (curLayer?.name?.contains("滤镜") == true) {
         showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
-        return
+        return false
     }
     if (curLayer?.isGroup == true) {
         showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
-        return
+        return false
+    }
+    if (curLayer?.locked == true) {
+        showActionToast("图层已锁定，无法编辑", com.reverie.paint.R.drawable.ic_lock)
+        return false
     }
     if (recorder.recording) {
         // Diff-based brush/tool/layer context capture: emitted only when the
@@ -209,6 +214,7 @@ internal fun PaintViewModel.touchStart(
     // queued (FIFO keeps the first tick behind touchStrokeStart). Hold-still
     // ticks ARE recorded as same-point STROKE_MOVE samples for replay.
     startAirbrushIfNeeded(x, y, effPressure)
+    return true
 }
 
 internal fun PaintViewModel.touchMove(
@@ -329,7 +335,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                     com.reverie.paint.model.Tool.SMUDGE -> "混合"
                     else -> "全部"
                 }
-            var defaultIdx = brushPresets.indexOfFirst { it.group == cat }
+            var defaultIdx = brushPresets.firstOrNull { it.group == cat }?.index ?: -1
             // 分类为空时保持 -1 ("未选预设"), 不回退到预设 0 —— 否则橡皮擦/混合
             // 会继承 b)_Basic-1 画笔的全部数值。引擎侧沿用已加载预设, 由
             // m_toolMode 决定擦除语义。
@@ -348,12 +354,13 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         // as "no selection" instead of letting selectBrushPreset fail late.
         // (Clamping at use-time, not load-time: loadBrushParams runs before
         // brushPresets is built.)
-        if (state.presetIndex in brushPresets.indices) {
+        if (brushPresets.any { it.index == state.presetIndex }) {
             if (state.presetIndex != brushPresetIndex) {
                 selectBrushPreset(state.presetIndex)
             } else {
                 // Force refresh Krita param for this specific tool even if it's the same index
-                val saved = brushParams[brushPresets.getOrNull(state.presetIndex)?.name]
+                val saved =
+                    brushParams[brushPresets.firstOrNull { it.index == state.presetIndex }?.name]
                 if (saved != null) {
                     brushSize = saved.size
                     brushOpacity = saved.opacity
@@ -1334,6 +1341,35 @@ internal fun PaintViewModel.drawText(
     text: String,
     fontSize: Double,
 ) {
+    if (text.isBlank()) return
+    val lines = text.split("\n")
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = fontSize.toFloat()
+        val parsedColor = try {
+            android.graphics.Color.parseColor(brushColor)
+        } catch (_: Throwable) {
+            android.graphics.Color.BLACK
+        }
+        color = parsedColor
+        alpha = (brushOpacity * 255).toInt().coerceIn(0, 255)
+    }
+
+    val fm = paint.fontMetrics
+    val lineHeight = fm.bottom - fm.top
+    val maxWidth = lines.maxOfOrNull { paint.measureText(it) } ?: 100f
+    val totalHeight = lineHeight * lines.size
+
+    val bmpW = kotlin.math.ceil(maxWidth).toInt().coerceAtLeast(1) + 16
+    val bmpH = kotlin.math.ceil(totalHeight).toInt().coerceAtLeast(1) + 16
+    val textBmp = android.graphics.Bitmap.createBitmap(bmpW, bmpH, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(textBmp)
+
+    var currentY = -fm.top + 8f
+    for (line in lines) {
+        canvas.drawText(line, 8f, currentY, paint)
+        currentY += lineHeight
+    }
+
     if (recorder.recording) {
         recorder.toolOp(T_TEXT) {
             it.f32(x)
@@ -1342,8 +1378,9 @@ internal fun PaintViewModel.drawText(
             it.str(text)
         }
     }
+
     runCore {
-        ReverieCoreBridge.drawText(x.toInt(), y.toInt(), text, fontSize)
+        ReverieCoreBridge.stampBitmap(x.toInt(), y.toInt(), textBmp)
     }
 }
 
@@ -1389,3 +1426,28 @@ internal fun PaintViewModel.floodFill(
     }
     runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged) }
 }
+
+internal fun PaintViewModel.commitQuickShape() {
+    activeQuickShape = null
+    isQuickShapeEditing = false
+}
+
+internal fun PaintViewModel.cancelQuickShape() {
+    activeQuickShape = null
+    isQuickShapeEditing = false
+}
+
+internal fun PaintViewModel.updateDrawingGuide(config: DrawingGuideConfig) {
+    drawingGuide = config
+}
+
+internal fun PaintViewModel.commitTypographyToCanvas() {
+    val cfg = typographyConfig
+    if (cfg.text.isBlank()) {
+        isTypographyEditing = false
+        return
+    }
+    drawText(cfg.posX, cfg.posY, cfg.text, cfg.fontSize.toDouble())
+    isTypographyEditing = false
+}
+

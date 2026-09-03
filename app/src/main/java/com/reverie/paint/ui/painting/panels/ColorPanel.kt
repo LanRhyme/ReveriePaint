@@ -770,13 +770,28 @@ private fun PalettesPage(
                 input?.close()
                 if (bitmap != null) {
                     vm.importPaletteFromBitmap(bitmap, "图片色卡")
-                    Toast.makeText(context, "已从图片导入色卡", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "已智能提取 30 色莫兰迪感知色卡", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
             }
         }
     }
+
+    // Camera Capture Launcher for instant real-world palette extraction
+    val takeCameraPreviewLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        if (bitmap != null) {
+            try {
+                vm.importPaletteFromBitmap(bitmap, "拍摄色卡")
+                Toast.makeText(context, "已智能提取 30 色实景感知色卡", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "拍摄色卡提取失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
 
     Column(
         modifier = Modifier
@@ -854,7 +869,7 @@ private fun PalettesPage(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("从图片导入色卡", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text("从图片提取色卡", color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_bookmark_plus),
@@ -868,6 +883,23 @@ private fun PalettesPage(
                         onClick = {
                             showTopPlusMenu = false
                             importPaletteImageLauncher.launch("image/*")
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("从相机拍摄色卡", color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_image_adjust),
+                                contentDescription = null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(36.dp),
+                        onClick = {
+                            showTopPlusMenu = false
+                            takeCameraPreviewLauncher.launch(null)
                         }
                     )
                 }

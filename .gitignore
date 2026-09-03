@@ -11,3 +11,4 @@ app/src/main/jniLibs/
 
 # buildNative 模式中间产物 (build_native.sh 生成)
 app/src/main/jniLibsNativeEmpty/
+.kotlin/

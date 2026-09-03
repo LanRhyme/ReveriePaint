@@ -38,51 +38,74 @@ void ReverieCore::cropCanvas(int x, int y, int w, int h)
 
 void ReverieCore::drawText(int x, int y, const QString &text, qreal fontSize)
 {
+    // Qt headless font engine is unavailable on Android; text is rendered via Android Canvas and stamped using stampBitmap.
+    Q_UNUSED(x);
+    Q_UNUSED(y);
+    Q_UNUSED(text);
+    Q_UNUSED(fontSize);
+}
+
+void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixels)
+{
     KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image || text.isEmpty()) {
+    if (!image || !rgbaPixels || bw <= 0 || bh <= 0) {
         return;
     }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
     }
-    // Krita-native undo: wrap the text draw in a transaction
-    KisTransaction txn(kundo2_i18n("Text"), device);
+
+    KisTransaction txn(kundo2_i18n("Stamp"), device);
     const int w = image->width();
     const int h = image->height();
-
-    QFont font;
-    font.setPointSizeF(fontSize);
-    QFontMetrics fm(font);
-    const QRect bounds = fm.boundingRect(text).adjusted(-8, -8, 8, 8);
-    const QRect region = bounds.translated(x, y).intersected(QRect(0, 0, w, h));
+    const QRect stampRect(x, y, bw, bh);
+    const QRect docRect(0, 0, w, h);
+    const QRect region = stampRect.intersected(docRect);
     if (region.isEmpty()) {
         return;
     }
 
-    QImage layerImg(region.size(), QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(region.width()) * region.height() * 4);
-        device->readBytes(bytes.data(), region.x(), region.y(), region.width(), region.height());
-        memcpy(layerImg.bits(), bytes.constData(), size_t(region.width()) * region.height() * 4);
+    const int rw = region.width();
+    const int rh = region.height();
+    QVector<quint8> dst(size_t(rw) * rh * 4);
+    device->readBytes(dst.data(), region.x(), region.y(), rw, rh);
+
+    const quint8 *src = static_cast<const quint8 *>(rgbaPixels);
+    for (int row = 0; row < rh; ++row) {
+        const int srcRow = (region.y() - y) + row;
+        const int srcColStart = region.x() - x;
+        const quint8 *srcLine = src + (size_t(srcRow) * bw + srcColStart) * 4;
+        quint8 *dstLine = dst.data() + (size_t(row) * rw) * 4;
+        for (int col = 0; col < rw; ++col) {
+            const quint8 sa = srcLine[col * 4 + 3];
+            if (sa == 0) continue;
+            if (sa == 255) {
+                dstLine[col * 4 + 0] = srcLine[col * 4 + 0];
+                dstLine[col * 4 + 1] = srcLine[col * 4 + 1];
+                dstLine[col * 4 + 2] = srcLine[col * 4 + 2];
+                dstLine[col * 4 + 3] = 255;
+            } else {
+                const quint8 sr = srcLine[col * 4 + 0];
+                const quint8 sg = srcLine[col * 4 + 1];
+                const quint8 sb = srcLine[col * 4 + 2];
+                const quint8 da = dstLine[col * 4 + 3];
+                const quint8 dr = dstLine[col * 4 + 0];
+                const quint8 dg = dstLine[col * 4 + 1];
+                const quint8 db = dstLine[col * 4 + 2];
+
+                const int outA = sa + da - (sa * da) / 255;
+                if (outA > 0) {
+                    dstLine[col * 4 + 0] = static_cast<quint8>((sr * sa + dr * da * (255 - sa) / 255) / outA);
+                    dstLine[col * 4 + 1] = static_cast<quint8>((sg * sa + dg * da * (255 - sa) / 255) / outA);
+                    dstLine[col * 4 + 2] = static_cast<quint8>((sb * sa + db * da * (255 - sa) / 255) / outA);
+                    dstLine[col * 4 + 3] = static_cast<quint8>(outA);
+                }
+            }
+        }
     }
 
-    QColor qColor(m_brushColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
-    }
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-
-    QPainter painter(&layerImg);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.setFont(font);
-    painter.setPen(qColor);
-    painter.drawText(QPoint(x - region.x(), y - region.y()), text);
-    painter.end();
-
-    device->writeBytes(layerImg.constBits(), region.x(), region.y(),
-                       region.width(), region.height());
+    device->writeBytes(dst.constData(), region.x(), region.y(), rw, rh);
     device->setDirty();
     markDirty();
     txn.commit(image->undoAdapter());

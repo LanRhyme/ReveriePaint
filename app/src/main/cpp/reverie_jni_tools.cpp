@@ -242,12 +242,28 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyBrushSize(JNIEnv *, jobj
     core()->setLiquifyBrushSize(size);
 }
 
-JNIEXPORT void JNICALL
+extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_drawText(JNIEnv *env, jobject, jint x, jint y, jstring text, jdouble fontSize)
 {
     const char *c = env->GetStringUTFChars(text, nullptr);
     core()->drawText(x, y, QString::fromUtf8(c), fontSize);
     env->ReleaseStringUTFChars(text, c);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_stampBitmap(
+    JNIEnv *env, jobject, jint x, jint y, jobject bitmap)
+{
+    if (!bitmap) return;
+    AndroidBitmapInfo info;
+    void *pixels = nullptr;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) < 0 ||
+        info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        AndroidBitmap_lockPixels(env, bitmap, &pixels) < 0) {
+        return;
+    }
+    core()->stampBitmap(x, y, (int)info.width, (int)info.height, pixels);
+    AndroidBitmap_unlockPixels(env, bitmap);
 }
 
 extern "C" JNIEXPORT void JNICALL

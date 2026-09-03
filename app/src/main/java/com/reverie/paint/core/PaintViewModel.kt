@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.reverie.paint.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -357,6 +358,8 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.Tool.LASSO,
             com.reverie.paint.model.Tool.TRANSFORM,
             com.reverie.paint.model.Tool.PICKER,
+            com.reverie.paint.model.Tool.SYMMETRY,
+            com.reverie.paint.model.Tool.PERSPECTIVE,
             com.reverie.paint.model.Tool.REFERENCE,
         )
     )
@@ -576,7 +579,20 @@ class PaintViewModel : ViewModel() {
     var brushCursorMode by mutableIntStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
     var eraserCursorMode by mutableIntStateOf(3)
     var cursorStyleMode by mutableIntStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
-    var quickShapeEnabled by mutableStateOf(true) // 驻停线条成形
+    var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形 (已禁用)
+    var activeQuickShape by mutableStateOf<QuickShapeResult?>(null)
+    var isQuickShapeEditing by mutableStateOf(false)
+
+    // 触控预测与输入延迟优化
+    var motionPredictorEnabled by mutableStateOf(true)
+
+    // 绘图辅助与参考线状态 (Symmetry, Perspective, Grid)
+    var drawingGuide by mutableStateOf(DrawingGuideConfig())
+
+    // 画布内富文本排版状态 (In-place Typography)
+    var typographyConfig by mutableStateOf(TypographyConfig())
+    var isTypographyEditing by mutableStateOf(false)
+
     var pressureCurvePreset by mutableIntStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
         listOf(
@@ -871,14 +887,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun updateQuickShapeEnabled(enable: Boolean) {
-        quickShapeEnabled = enable
-        if (::appContext.isInitialized) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("quickShapeEnabled", enable)
-                .apply()
-        }
+        quickShapeEnabled = false
     }
 
     fun updatePressureCurvePreset(preset: Int) {
@@ -1215,7 +1224,7 @@ class PaintViewModel : ViewModel() {
             brushCursorMode = prefs.getInt("brushCursorMode", 0)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 0)
-            quickShapeEnabled = prefs.getBoolean("quickShapeEnabled", true)
+            quickShapeEnabled = false
             val savedPreset = prefs.getInt("pressureCurvePreset", 0)
             updatePressureCurvePreset(savedPreset)
             // Restore a user-drawn custom curve (preset 4) over the preset defaults
@@ -1498,29 +1507,22 @@ class PaintViewModel : ViewModel() {
     }
 
     fun importPaletteFromBitmap(bmp: android.graphics.Bitmap, name: String) {
-        val scaled = if (bmp.width > 100 || bmp.height > 100) {
-            android.graphics.Bitmap.createScaledBitmap(bmp, 80, 80, true)
+        val scaled = if (bmp.width > 240 || bmp.height > 240) {
+            val ratio = minOf(240f / bmp.width, 240f / bmp.height)
+            android.graphics.Bitmap.createScaledBitmap(
+                bmp,
+                (bmp.width * ratio).toInt().coerceAtLeast(1),
+                (bmp.height * ratio).toInt().coerceAtLeast(1),
+                true
+            )
         } else bmp
         val w = scaled.width
         val h = scaled.height
         val pixels = IntArray(w * h)
         scaled.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val colorCounts = mutableMapOf<Int, Int>()
-        for (p in pixels) {
-            val a = (p shr 24) and 0xFF
-            if (a < 64) continue
-            val qr = ((p shr 16) and 0xFF) / 16 * 16
-            val qg = ((p shr 8) and 0xFF) / 16 * 16
-            val qb = (p and 0xFF) / 16 * 16
-            val key = (qr shl 16) or (qg shl 8) or qb
-            colorCounts[key] = (colorCounts[key] ?: 0) + 1
-        }
-        val sorted = colorCounts.entries.sortedByDescending { it.value }.map {
-            String.format("#%06X", it.key and 0xFFFFFF)
-        }.take(16)
-
-        createNewPalette(name.ifBlank { "图片导入色卡" }, sorted)
+        val extracted = ColorQuantizer.extractPalette(pixels, targetCount = 30)
+        createNewPalette(name.ifBlank { "智能提取色卡" }, extracted)
     }
 
     fun updateColorModel(model: String) {

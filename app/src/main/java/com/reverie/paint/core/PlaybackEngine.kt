@@ -74,6 +74,7 @@ import com.reverie.paint.model.RecordingEvents.T_FILL_V3
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT
 import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
 import com.reverie.paint.model.RecordingEvents.T_REDO
+import com.reverie.paint.model.RecordingEvents.T_PRESET_SELECT
 import com.reverie.paint.model.RecordingEvents.T_UNDO
 import com.reverie.paint.model.RecordingEvents.T_INVERT_SELECTION
 import com.reverie.paint.model.RecordingEvents.T_LASSO
@@ -251,10 +252,27 @@ internal fun PaintViewModel.exitReplay() {
  *  preset resets the native override to "unknown", which would fall back to
  *  name heuristics for custom-named eraser presets). */
 private fun PaintViewModel.sendPresetEraserFlagLocked(presetIndex: Int) {
-    val p = brushPresets.getOrNull(presetIndex) ?: return
+    // Native-table index (BrushPresetInfo.index), not list position.
+    val p = brushPresets.firstOrNull { it.index == presetIndex } ?: return
     val isEraser =
         p.group == "橡皮擦" || p.name.startsWith("a)") || p.name.contains("Eraser", ignoreCase = true)
     ReverieCoreBridge.setPresetIsEraser(isEraser)
+}
+
+/** Replay a recorded preset switch: resolve by recorded preset NAME first so
+ *  sessions that mutated the preset table mid-way (add/remove/rename shifts
+ *  native indexes) still land on the right brush; fall back to the recorded
+ *  native index when the name no longer exists. Known limitation: strokes
+ *  drawn between a mid-session table mutation and the next explicit preset
+ *  switch replay against the pre-mutation index (CONTEXT) until the
+ *  T_PRESET_SELECT emitted by reloadBrushPresets corrects course. */
+private fun PaintViewModel.replayPresetSelectLocked(idx: Int, name: String) {
+    val byName = if (name.isNotEmpty()) brushPresets.firstOrNull { it.name == name } else null
+    val target = byName?.index ?: idx
+    if (target < 0) return
+    if (ReverieCoreBridge.loadBrushPreset(target)) {
+        sendPresetEraserFlagLocked(target)
+    }
 }
 
 internal fun PaintViewModel.restoreBrushStateFromUi() {
@@ -802,6 +820,12 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_REDO -> {
             ReverieCoreBridge.redo()
+        }
+
+        T_PRESET_SELECT -> {
+            val idx = r.u16()
+            val name = r.str()
+            replayPresetSelectLocked(if (idx == 0xFFFF) -1 else idx, name)
         }
 
         T_TEXT -> {

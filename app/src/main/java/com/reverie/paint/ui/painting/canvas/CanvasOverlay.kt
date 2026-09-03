@@ -34,9 +34,10 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.core.*
-import com.reverie.paint.model.Tool
+import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
+import kotlin.math.PI
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -709,6 +710,113 @@ internal fun CanvasOverlay(
                         )
                     )
                 }
+
+                // ---- 绘图辅助与参考线渲染 (Drawing Guides & Symmetry) ----
+                val guide = vm.drawingGuide
+                if (guide.mode != GuideMode.OFF) {
+                    val guideCol = parseColor(guide.colorHex).copy(alpha = guide.opacity)
+                    val gStroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx() / (zoom.value * fitScale))
+                    val docW = bmp.width.toFloat()
+                    val docH = bmp.height.toFloat()
+                    val halfW = docW / 2f
+                    val halfH = docH / 2f
+
+                    when (guide.mode) {
+                        GuideMode.GRID_2D -> {
+                            val step = (guide.gridSize * (bmp.width.toFloat() / maxOf(1, vm.docWidth))).coerceAtLeast(16f)
+                            var gx = -halfW + (step - (-halfW % step))
+                            while (gx < halfW) {
+                                drawLine(guideCol, Offset(gx, -halfH), Offset(gx, halfH), strokeWidth = gStroke.width)
+                                gx += step
+                            }
+                            var gy = -halfH + (step - (-halfH % step))
+                            while (gy < halfH) {
+                                drawLine(guideCol, Offset(-halfW, gy), Offset(halfW, gy), strokeWidth = gStroke.width)
+                                gy += step
+                            }
+                        }
+                        GuideMode.ISOMETRIC -> {
+                            val step = (guide.gridSize * (bmp.width.toFloat() / maxOf(1, vm.docWidth))).coerceAtLeast(24f)
+                            val tan30 = 0.57735f
+                            var gx = -halfW
+                            while (gx < halfW) {
+                                drawLine(guideCol, Offset(gx, -halfH), Offset(gx, halfH), strokeWidth = gStroke.width)
+                                gx += step
+                            }
+                            var offset = -halfH - halfW * tan30
+                            while (offset < halfH + halfW * tan30) {
+                                drawLine(guideCol, Offset(-halfW, offset - halfW * tan30), Offset(halfW, offset + halfW * tan30), strokeWidth = gStroke.width)
+                                drawLine(guideCol, Offset(-halfW, offset + halfW * tan30), Offset(halfW, offset - halfW * tan30), strokeWidth = gStroke.width)
+                                offset += step
+                            }
+                        }
+                        GuideMode.PERSPECTIVE -> {
+                            val pts = if (guide.perspectiveVanishingPoints.isEmpty()) {
+                                listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
+                            } else guide.perspectiveVanishingPoints
+
+                            val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                            val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+
+                            // Horizon line
+                            if (pts.size >= 2) {
+                                val vp0 = Offset(pts[0].x * scX - halfW, pts[0].y * scY - halfH)
+                                val vp1 = Offset(pts[1].x * scX - halfW, pts[1].y * scY - halfH)
+                                drawLine(Morandi.accent.copy(alpha = 0.8f), vp0, vp1, strokeWidth = gStroke.width * 1.5f)
+                            } else if (pts.size == 1) {
+                                val vpy = pts[0].y * scY - halfH
+                                drawLine(Morandi.accent.copy(alpha = 0.5f), Offset(-halfW, vpy), Offset(halfW, vpy), strokeWidth = gStroke.width)
+                            }
+
+                            for (vp in pts) {
+                                val vpx = vp.x * scX - halfW
+                                val vpy = vp.y * scY - halfH
+                                val vpOffset = Offset(vpx, vpy)
+                                val rayCount = 18
+                                for (ri in 0 until rayCount) {
+                                    val angle = (ri.toFloat() / rayCount) * 2f * PI.toFloat()
+                                    val rayLen = maxOf(docW, docH) * 2.5f
+                                    drawLine(guideCol, vpOffset, vpOffset + Offset(cos(angle) * rayLen, sin(angle) * rayLen), strokeWidth = gStroke.width)
+                                }
+                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                                drawCircle(Color.White, radius = 3.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                            }
+                        }
+                        GuideMode.SYMMETRY -> {
+                            val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                            val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+                            val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
+                            val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
+                            val symCol = Morandi.accent.copy(alpha = 0.85f)
+                            val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.5.dp.toPx() / (zoom.value * fitScale),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+                            )
+                            when (guide.symmetryType) {
+                                SymmetryType.VERTICAL -> {
+                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                }
+                                SymmetryType.HORIZONTAL -> {
+                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                }
+                                SymmetryType.QUADRANT -> {
+                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                }
+                                SymmetryType.RADIAL -> {
+                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    val dMax = maxOf(docW, docH)
+                                    drawLine(symCol, Offset(cx - dMax, cy - dMax), Offset(cx + dMax, cy + dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    drawLine(symCol, Offset(cx - dMax, cy + dMax), Offset(cx + dMax, cy - dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                }
+                            }
+                            drawCircle(Morandi.accent, radius = 5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                        }
+                        else -> Unit
+                    }
+                }
+
             }
 
             // Draw PaintWorld-style Color Loupe when picker is active

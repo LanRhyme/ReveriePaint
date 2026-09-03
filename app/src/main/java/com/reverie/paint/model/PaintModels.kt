@@ -64,6 +64,8 @@ enum class Tool(
     MEASURE("measure", "测量", ToolGroup.OTHER),
     PATH("path", "路径", ToolGroup.SHAPES),
     REFERENCE("reference", "参考", ToolGroup.VIEW),
+    SYMMETRY("symmetry", "对称", ToolGroup.OTHER),
+    PERSPECTIVE("perspective", "透视", ToolGroup.OTHER),
     ;
 
     companion object {

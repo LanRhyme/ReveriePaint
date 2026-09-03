@@ -322,6 +322,9 @@ public:
     // Draw text at (x, y) with the current brush color/size
     void drawText(int x, int y, const QString &text, qreal fontSize);
 
+    // Stamp an RGBA8888 bitmap onto current layer with source-over alpha blending
+    void stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixels);
+
     // Lasso region ops: fill or clear the polygon defined by points
     void lassoFill(const QVector<QPoint> &points);
     void lassoClear(const QVector<QPoint> &points);

@@ -517,7 +517,7 @@ fun BrushPanel(
     }
     if (renamePresetName != null) {
         val rn = renamePresetName!!
-        val pIdx = vm.brushPresets.indexOfFirst { it.name == rn }
+        val pIdx = vm.brushPresets.firstOrNull { it.name == rn }?.index ?: -1
         RenameBrushPresetDialog(
             initialName = rn,
             onDismiss = { renamePresetName = null },
@@ -954,7 +954,7 @@ fun BrushPropertyPage(
     onBack: () -> Unit,
     onOpenStudio: () -> Unit = {},
 ) {
-    val preset = vm.brushPresets.getOrNull(presetIndex)
+    val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
     var showBlendModes by remember { mutableStateOf(false) }
 
     val blendModeList = listOf(

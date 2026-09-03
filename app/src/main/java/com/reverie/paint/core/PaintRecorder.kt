@@ -451,6 +451,23 @@ class PaintRecorder {
         it.f32(airbrushRate.toFloat())
     }
 
+    /** Force the next captureContext() to emit a full CONTEXT (all sentinels
+     *  reset). Used after a preset switch: replaying the preset load resets
+     *  native params, so the following stroke must re-send size/opacity/flow
+     *  even when the context didn't "change" from the recorder's view. */
+    fun resetContextDiff() {
+        synchronized(ioLock) {
+            lastToolMode = -2
+            lastPreset = -2
+            lastSize = Double.NaN
+            lastOpacity = Double.NaN
+            lastFlow = Double.NaN
+            lastCompositeOp = null
+            lastColor = null
+            lastLayer = -2
+        }
+    }
+
     companion object {        /** Parse a recording blob; null on any error. */
         fun parse(data: ByteArray): ParsedRecording? {
             val r = RecordingReader(data)

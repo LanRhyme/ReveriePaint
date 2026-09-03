@@ -162,12 +162,13 @@ internal fun StylusSettingsSubPage(
 
         Spacer(Modifier.height(8.dp))
 
-        // 5. 驻停线条成形
+        // 5. 驻停线条成形 (已禁用)
         SettingSwitchRow(
             title = "驻停线条成形",
-            summary = "绘制完成笔尖停顿时自动成形为几何线条或圆弧",
-            checked = vm.quickShapeEnabled,
-            onCheckedChange = { vm.updateQuickShapeEnabled(it) }
+            summary = "功能重构中，暂未开放",
+            checked = false,
+            enabled = false,
+            onCheckedChange = { }
         )
 
         Spacer(Modifier.height(20.dp))

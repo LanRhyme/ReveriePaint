@@ -174,7 +174,7 @@ fun BrushStudioPage(
     BackHandler { onBack() }
 
     val context = LocalContext.current
-    val preset = vm.brushPresets.getOrNull(presetIndex)
+    val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
     var selectedTab by remember { mutableStateOf(StudioTab.TIP) }
     var showMenu by remember { mutableStateOf(false) }
     var showNewBrushDialog by remember { mutableStateOf(false) }
@@ -314,9 +314,8 @@ fun BrushStudioPage(
 
                 // Duplicate action
                 ReIconButton(R.drawable.ic_copy, "复制笔刷", {
-                    if (presetIndex in vm.brushPresets.indices) {
+                    if (vm.brushPresets.any { it.index == presetIndex }) {
                         vm.duplicateBrushPreset(presetIndex)
-                        Toast.makeText(context, "已创建副本", Toast.LENGTH_SHORT).show()
                     }
                 }, tint = textSub, iconSize = 18.dp)
 
@@ -543,9 +542,8 @@ fun BrushStudioPage(
                                         textMain = textMain,
                                         textSub = textSub,
                                         onDuplicate = {
-                                            if (presetIndex in vm.brushPresets.indices) {
+                                            if (vm.brushPresets.any { it.index == presetIndex }) {
                                                 vm.duplicateBrushPreset(presetIndex)
-                                                Toast.makeText(context, "已创建副本", Toast.LENGTH_SHORT).show()
                                             }
                                         },
                                         onRename = { showRenameDialog = true },

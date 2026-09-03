@@ -66,8 +66,8 @@ static void flipCanvasDevice(KisPaintDeviceSP dev, bool horizontal, int docW, in
     const qint64 rowBytes = qint64(w) * ps;
     QByteArray src(rowBytes * h, Qt::Uninitialized);
     dev->readBytes(reinterpret_cast<quint8 *>(src.data()), ext.x(), ext.y(), w, h);
-    const int nx = docW - ext.x() - w;
-    const int ny = docH - ext.y() - h;
+    const int nx = horizontal ? (docW - ext.x() - w) : ext.x();
+    const int ny = horizontal ? ext.y() : (docH - ext.y() - h);
     if (nx != ext.x() || ny != ext.y()) {
         dev->clear(ext);
     }

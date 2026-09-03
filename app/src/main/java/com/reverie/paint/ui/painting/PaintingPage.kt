@@ -123,6 +123,7 @@ import com.reverie.paint.ui.painting.panels.ToolFloatChip
 import com.reverie.paint.ui.painting.panels.ToolFloatPanel
 import com.reverie.paint.ui.painting.panels.ToolRail
 import com.reverie.paint.ui.painting.panels.TransformPanel
+import com.reverie.paint.ui.painting.panels.*
 
 private class FillDiffusionWave(
     val id: Long,
@@ -208,6 +209,7 @@ fun PaintingPage(
     }
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
+    var drawingGuidePanelOpen by remember { mutableStateOf(false) }
     // 快捷键打开滤镜页时预选的滤镜分类 id (LayerPanel → FiltersPage)
     var filterCategoryHint by remember { mutableStateOf<String?>(null) }
 
@@ -488,7 +490,9 @@ fun PaintingPage(
                         indicatorTick++
                     }
                 },
-                onTextRequested = { x, y -> textDialogPos = x to y },
+                onTextRequested = { x, y ->
+                    textDialogPos = x to y
+                },
                 tool = tool,
                 tfState = tfState,
                 polyPoints = polyPoints,
@@ -501,7 +505,8 @@ fun PaintingPage(
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
                 overlayPanelsOpen = brushPanelOpen || layerPanelOpen ||
-                    colorPanelOpen || settingsPanelOpen || moreToolsOpen,
+                    colorPanelOpen || settingsPanelOpen || moreToolsOpen ||
+                    drawingGuidePanelOpen,
             )
 
             // Diffusion Animation Canvas Overlay
@@ -676,6 +681,15 @@ fun PaintingPage(
                 brushPanelOpen = false
                 colorPanelOpen = false
                 moreToolsOpen = false
+                drawingGuidePanelOpen = false
+            },
+            onGuides = {
+                drawingGuidePanelOpen = !drawingGuidePanelOpen
+                settingsPanelOpen = false
+                layerPanelOpen = false
+                brushPanelOpen = false
+                colorPanelOpen = false
+                moreToolsOpen = false
             },
         )
 
@@ -728,16 +742,30 @@ fun PaintingPage(
             opacity = vm.uiOpacity.toDouble(),
             tool = tool,
             onTool = {
-                if (it == Tool.REFERENCE) {
-                    vm.referenceWindowOpen = !vm.referenceWindowOpen
-                    moreToolsOpen = false
-                } else {
-                    vm.applyTool(it.id)
-                    // Auto-open the floating selection panel for selection tools
-                    if (it in selectionTools) {
-                        selectionPanelOpen = true
+                when (it) {
+                    Tool.REFERENCE -> {
+                        vm.referenceWindowOpen = !vm.referenceWindowOpen
+                        moreToolsOpen = false
                     }
-                    moreToolsOpen = false
+                    Tool.SYMMETRY -> {
+                        vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
+                        drawingGuidePanelOpen = true
+                        vm.applyTool(Tool.BRUSH.id)
+                        moreToolsOpen = false
+                    }
+                    Tool.PERSPECTIVE -> {
+                        vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
+                        drawingGuidePanelOpen = true
+                        vm.applyTool(Tool.BRUSH.id)
+                        moreToolsOpen = false
+                    }
+                    else -> {
+                        vm.applyTool(it.id)
+                        if (it in selectionTools) {
+                            selectionPanelOpen = true
+                        }
+                        moreToolsOpen = false
+                    }
                 }
             },
             moreToolsOpen = moreToolsOpen,
@@ -1302,15 +1330,30 @@ fun PaintingPage(
                 vm = vm,
                 tool = tool,
                 onTool = {
-                    if (it == Tool.REFERENCE) {
-                        vm.referenceWindowOpen = !vm.referenceWindowOpen
-                        moreToolsOpen = false
-                    } else {
-                        vm.applyTool(it.id)
-                        if (it in selectionTools) {
-                            selectionPanelOpen = true
+                    when (it) {
+                        Tool.REFERENCE -> {
+                            vm.referenceWindowOpen = !vm.referenceWindowOpen
+                            moreToolsOpen = false
                         }
-                        moreToolsOpen = false
+                        Tool.SYMMETRY -> {
+                            vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
+                            drawingGuidePanelOpen = true
+                            vm.applyTool(Tool.BRUSH.id)
+                            moreToolsOpen = false
+                        }
+                        Tool.PERSPECTIVE -> {
+                            vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
+                            drawingGuidePanelOpen = true
+                            vm.applyTool(Tool.BRUSH.id)
+                            moreToolsOpen = false
+                        }
+                        else -> {
+                            vm.applyTool(it.id)
+                            if (it in selectionTools) {
+                                selectionPanelOpen = true
+                            }
+                            moreToolsOpen = false
+                        }
                     }
                 },
                 onOpenBrush = {
@@ -1402,13 +1445,24 @@ fun PaintingPage(
             }
         }
 
-        // Text tool input dialog
+
+
+        // Drawing Guides & Assist panel
+        if (drawingGuidePanelOpen) {
+            DrawingGuidePanel(
+                vm = vm,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 12.dp),
+                onDismiss = { drawingGuidePanelOpen = false },
+                hazeState = hazeState,
+            )
+        }
+
+        // Text tool (Krita style modal dialog)
         textDialogPos?.let { (tx, ty) ->
-            TextInputDialog(
+            com.reverie.paint.ui.dialog.KritaTextToolDialog(
+                brushColorHex = vm.brushColor,
                 onConfirm = { txt, fontSize ->
-                    if (txt.isNotBlank()) {
-                        vm.drawText(tx, ty, txt, fontSize)
-                    }
+                    vm.drawText(tx, ty, txt, fontSize)
                     textDialogPos = null
                 },
                 onDismiss = { textDialogPos = null },

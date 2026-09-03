@@ -139,6 +139,7 @@ object RecordingEvents {
     const val T_GRADIENT_V2 = 35 // x1..y2 f32, type u8, repeat u8, reverse u8
     const val T_UNDO = 36 // - (no payload; replay calls native undo on the rebuilt stack)
     const val T_REDO = 37 // -
+    const val T_PRESET_SELECT = 42 // native idx u16 (0xFFFF sentinel if <0), preset name str
     const val T_SELECT_ALL_CANVAS = 38 // - 全选整个画布 (T_SELECT_ALL 实为按图层 alpha 选区)
     // V2/V3 变体: 不改既有 payload 布局 (旧录制回放兼容), 追加字段随新码携带
     const val T_CONTIGUOUS_V2 = 39 // x/y f32, tolerance u16, sampleMerged u8

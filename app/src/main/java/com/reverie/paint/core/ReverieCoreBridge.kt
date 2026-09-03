@@ -423,6 +423,12 @@ object ReverieCoreBridge {
         fontSize: Double,
     )
 
+    external fun stampBitmap(
+        x: Int,
+        y: Int,
+        bitmap: android.graphics.Bitmap,
+    )
+
     external fun setShapeStrokeWidth(w: Double)
 
     external fun setShapeFilled(f: Boolean)

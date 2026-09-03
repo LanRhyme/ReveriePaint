@@ -439,7 +439,7 @@ import kotlinx.coroutines.launch
     }
 
     internal fun PaintViewModel.saveBrushParam() {
-        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        val name = brushPresets.firstOrNull { it.index == brushPresetIndex }?.name ?: return
         brushParams[name] = BrushParams(
             size = brushSize,
             opacity = brushOpacity,
@@ -785,10 +785,26 @@ import kotlinx.coroutines.launch
     }
 
     internal fun PaintViewModel.selectBrushPreset(index: Int) {
-        val preset = brushPresets.getOrNull(index)
+        // brushPresetIndex and every native API are indexed by the NATIVE
+        // preset table (filename-sorted). Resolve by BrushPresetInfo.index,
+        // never by list position: the Compose list may be reordered by the
+        // user's brushOrder and diverge from native indices.
+        val preset = brushPresets.firstOrNull { it.index == index }
         val isBuiltIn = preset?.isBuiltIn == true
         val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
-        
+
+        if (preset != null && recorder.recording) {
+            // Replay resolves the preset by NAME (the native table may be
+            // rebuilt mid-session by BrushStudio mutations), and the context
+            // diff reset forces the next stroke to re-send the full parameter
+            // context (preset load resets native params during replay).
+            recorder.toolOp(com.reverie.paint.model.RecordingEvents.T_PRESET_SELECT) {
+                it.u16(if (index < 0) 0xFFFF else index.coerceIn(0, 0xFFFE))
+                it.str(preset.name)
+            }
+            recorder.resetContextDiff()
+        }
+
         // Krita-style decoupling: presets never force a tool change except
         // the one-way convenience of jumping to the eraser tool when an
         // eraser-group preset is picked elsewhere. The eraser tool may adopt
@@ -924,7 +940,7 @@ import kotlinx.coroutines.launch
         if (t != com.reverie.paint.model.Tool.BRUSH && t != com.reverie.paint.model.Tool.ERASER &&
             t != com.reverie.paint.model.Tool.SMUDGE
         ) return
-        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        val name = brushPresets.firstOrNull { it.index == brushPresetIndex }?.name ?: return
         updateCurrentToolBrushState { st ->
             st.copy(
                 paramMemory = st.paramMemory.toMutableMap().apply {
@@ -941,7 +957,7 @@ import kotlinx.coroutines.launch
         if (t != com.reverie.paint.model.Tool.BRUSH && t != com.reverie.paint.model.Tool.ERASER &&
             t != com.reverie.paint.model.Tool.SMUDGE
         ) return
-        val name = brushPresets.getOrNull(brushPresetIndex)?.name ?: return
+        val name = brushPresets.firstOrNull { it.index == brushPresetIndex }?.name ?: return
         val mem = toolBrushStates[t.id]?.paramMemory?.get(name) ?: return
         if (mem.size < 3) return
         // 损坏数据防护: 每个值做 isFinite() 检查, 非有限值跳过该值, 防 NaN 流入引擎
@@ -1029,15 +1045,20 @@ import kotlinx.coroutines.launch
         val builtInNames = appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()
         val list = ArrayList<BrushPresetInfo>()
         runCore(after = {
-            brushPresets = list.toList()
-            if (brushPresets.isNotEmpty()) {
-                val targetIndex = if (selectName != null) {
-                    val idx = brushPresets.indexOfFirst { it.name == selectName }
-                    if (idx >= 0) idx else 0
-                } else {
-                    brushPresetIndex.coerceIn(0, brushPresets.size - 1)
-                }
-                selectBrushPreset(targetIndex)
+            // Every reload re-assigns native indices, so keep the selection
+            // by NAME; re-apply the persisted user order (reorderBrush only
+            // stores it — the native table stays filename-sorted). Names not
+            // present in brushOrder keep their native order, appended after.
+            val keepName = selectName
+                ?: brushPresets.firstOrNull { it.index == brushPresetIndex }?.name
+            val rank = brushOrder.withIndex().associate { it.value to it.index }
+            val ordered =
+                if (rank.isEmpty()) list.toList()
+                else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
+            brushPresets = ordered
+            if (ordered.isNotEmpty()) {
+                val target = keepName?.let { n -> ordered.firstOrNull { it.name == n } }
+                selectBrushPreset(target?.index ?: ordered[0].index)
             }
         }) {
             ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
@@ -1060,7 +1081,8 @@ import kotlinx.coroutines.launch
 
     /** 复制指定笔刷 (复制出的笔刷不受内置作者锁定及不可删除限制) */
     internal fun PaintViewModel.duplicateBrushPreset(presetIndex: Int, newName: String? = null): Boolean {
-        val src = brushPresets.getOrNull(presetIndex) ?: return false
+        // Native-table index (BrushPresetInfo.index), not list position.
+        val src = brushPresets.firstOrNull { it.index == presetIndex } ?: return false
         val cleanName = newName?.trim()?.ifEmpty { null } ?: "${src.name} 副本"
         val dir = File(appContext.filesDir, "paintoppresets")
         val srcFile = File(dir, "${src.name}.kpp")
@@ -1085,7 +1107,8 @@ import kotlinx.coroutines.launch
 
     /** 删除指定笔刷 (内置笔刷不可删除) */
     internal fun PaintViewModel.deleteBrushPreset(presetIndex: Int): Boolean {
-        val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        // Native-table index (BrushPresetInfo.index), not list position.
+        val preset = brushPresets.firstOrNull { it.index == presetIndex } ?: return false
         if (preset.isBuiltIn) {
             return false // 内置笔刷禁止删除
         }
@@ -1123,12 +1146,9 @@ import kotlinx.coroutines.launch
         if (!dir.exists()) dir.mkdirs()
         
         // 默认基准预设选择 b)_Basic-1
-        val base = if (basePresetIndex in brushPresets.indices) {
-            brushPresets[basePresetIndex]
-        } else {
-            brushPresets.firstOrNull { it.name == "b)_Basic-1" || it.name.contains("Basic-1") }
-                ?: brushPresets.firstOrNull()
-        }
+        val base = brushPresets.firstOrNull { it.index == basePresetIndex }
+            ?: brushPresets.firstOrNull { it.name == "b)_Basic-1" || it.name.contains("Basic-1") }
+            ?: brushPresets.firstOrNull()
         val baseFile = base?.let { File(dir, "${it.name}.kpp") }
         val targetFile = File(dir, "$cleanName.kpp")
         if (baseFile != null && baseFile.exists()) {
@@ -1236,7 +1256,8 @@ import kotlinx.coroutines.launch
 
     /** 重命名笔刷 (内置笔刷固定禁止重命名) */
     internal fun PaintViewModel.renameBrushPreset(presetIndex: Int, newName: String): Boolean {
-        val preset = brushPresets.getOrNull(presetIndex) ?: return false
+        // Native-table index (BrushPresetInfo.index), not list position.
+        val preset = brushPresets.firstOrNull { it.index == presetIndex } ?: return false
         if (preset.isBuiltIn) {
             return false // 内置笔刷固定名称，禁止修改
         }

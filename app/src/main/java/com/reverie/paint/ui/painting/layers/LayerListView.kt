@@ -321,6 +321,7 @@ internal fun LayerListView(
     var showNewLayerMenu by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        val haptic = LocalHapticFeedback.current
         val selLayer = vm.layers.getOrNull(selectedIndex)
         val isBg = selLayer?.isBackground ?: true
 
@@ -466,7 +467,53 @@ internal fun LayerListView(
                 Modifier
                     .fillMaxWidth()
                     .height(listH)
-                    .onGloballyPositioned { listTop = it.boundsInRoot().top },
+                    .onGloballyPositioned { listTop = it.boundsInRoot().top }
+                    .pointerInput(displayList) {
+                        awaitPointerEventScope {
+                            var pinchStartDist = 0f
+                            var pinchRow1 = -1
+                            var pinchRow2 = -1
+                            var pinchTriggered = false
+                            var lastMergeTime = 0L
+
+                            while (true) {
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                val pressedChanges = event.changes.filter { it.pressed }
+                                val now = System.currentTimeMillis()
+
+                                if (pressedChanges.size == 2) {
+                                    val p1 = pressedChanges[0]
+                                    val p2 = pressedChanges[1]
+                                    val dist = kotlin.math.abs(p1.position.y - p2.position.y)
+
+                                    if (pinchStartDist == 0f) {
+                                        pinchStartDist = dist
+                                        pinchRow1 = ((p1.position.y) / rowPx).toInt().coerceIn(0, displayList.size - 1)
+                                        pinchRow2 = ((p2.position.y) / rowPx).toInt().coerceIn(0, displayList.size - 1)
+                                    } else if (!pinchTriggered && (now - lastMergeTime > 1200L) && (pinchStartDist - dist > 48.dp.toPx())) {
+                                        val topVisual = minOf(pinchRow1, pinchRow2)
+                                        val bottomVisual = maxOf(pinchRow1, pinchRow2)
+                                        if (topVisual < bottomVisual && topVisual in displayList.indices) {
+                                            val upperLayer = displayList[topVisual]
+                                            val isBg = upperLayer.index == 0 || upperLayer.name == "背景"
+                                            if (!isBg) {
+                                                pinchTriggered = true
+                                                lastMergeTime = now
+                                                p1.consume()
+                                                p2.consume()
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                vm.mergeDown(upperLayer.index)
+                                                vm.showActionToast("双指捏合：已向下合并图层", com.reverie.paint.R.drawable.ic_merge_down)
+                                            }
+                                        }
+                                    }
+                                } else if (pressedChanges.isEmpty()) {
+                                    pinchStartDist = 0f
+                                    pinchTriggered = false
+                                }
+                            }
+                        }
+                    },
         ) {
             LazyColumn(
                 modifier =
