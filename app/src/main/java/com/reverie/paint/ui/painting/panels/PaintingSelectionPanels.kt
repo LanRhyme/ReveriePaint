@@ -194,8 +194,8 @@ internal fun SelectionFloatPanel(
                         ToolFloatSlider(
                             label = "容差",
                             valueText = "${vm.selectionTolerance}",
-                            range = 0f..255f,
-                            value = vm.selectionTolerance.toFloat(),
+                            range = 1f..100f,
+                            value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
                             onValue = { vm.updateSelectionTolerance(it.toInt()) },
                         )
                     }
@@ -207,12 +207,21 @@ internal fun SelectionFloatPanel(
                 }
             }
 
-            // Expandable Modifiers Drawer (羽化, 扩展, 收缩, 平滑)
+            // Expandable Modifiers Drawer (空隙, 羽化, 扩展, 收缩, 平滑)
             androidx.compose.animation.AnimatedVisibility(visible = propsOpen) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.width(220.dp).padding(vertical = 4.dp),
                 ) {
+                    if (tool == Tool.MAGICWAND) {
+                        ToolFloatSlider(
+                            label = "空隙",
+                            valueText = "${vm.selectionCloseGap}px",
+                            range = 0f..16f,
+                            value = vm.selectionCloseGap.toFloat().coerceIn(0f, 16f),
+                            onValue = { vm.updateSelectionCloseGap(it.toInt()) },
+                        )
+                    }
                     // 拖动只更新本地显示, 松手才执行一次引擎操作——onValue 在
                     // 拖动中连续回调, 直接接引擎操作会叠加执行 (羽化越拖越糊)
                     var featherR by remember { mutableFloatStateOf(8f) }

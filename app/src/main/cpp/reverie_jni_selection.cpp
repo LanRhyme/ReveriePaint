@@ -41,9 +41,11 @@ Java_com_reverie_paint_core_ReverieCoreBridge_selectPolygon(JNIEnv *env, jobject
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_selectContiguousAt(JNIEnv *, jobject, jint x, jint y, jint tolerance, jboolean sampleMerged)
+Java_com_reverie_paint_core_ReverieCoreBridge_selectContiguousAt(
+    JNIEnv *, jobject, jint x, jint y, jint tolerance, jboolean sampleMerged,
+    jint expand, jint feather, jint closeGap)
 {
-    core()->selectContiguousAt(x, y, tolerance, sampleMerged);
+    core()->selectContiguousAt(x, y, tolerance, sampleMerged, expand, feather, closeGap);
 }
 
 JNIEXPORT void JNICALL

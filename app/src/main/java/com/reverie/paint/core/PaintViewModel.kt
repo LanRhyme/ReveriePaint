@@ -611,8 +611,11 @@ class PaintViewModel : ViewModel() {
         internal set
 
     // Tool options states (persisted)
-    var fillTolerance by mutableIntStateOf(24)
-    var fillSampleLayers by mutableIntStateOf(0) // 0: 当前图层, 1: 全部图层
+    var fillTolerance by mutableIntStateOf(16)
+    var fillSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
+    var fillExpand by mutableIntStateOf(0) // 拓展 (-16..32 px)
+    var fillFeather by mutableIntStateOf(0) // 羽化 (0..32 px)
+    var fillCloseGap by mutableIntStateOf(4) // 闭合空隙 (0..16 px)
     var fillOpacity by mutableDoubleStateOf(1.0)
     var fillCompositeOp by mutableStateOf("normal")
 
@@ -628,6 +631,8 @@ class PaintViewModel : ViewModel() {
     var selectionTolerance by mutableIntStateOf(24)
     var selectionSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
     var selectionFeatherRadius by mutableIntStateOf(0)
+    var selectionCloseGap by mutableIntStateOf(4) // 闭合空隙 (0..16 px)
+    var selectionExpand by mutableIntStateOf(0) // 拓展 (-16..32 px)
 
     var pickerSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
 

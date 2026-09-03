@@ -34,6 +34,11 @@ jobs:
             echo "AIFADIAN_USER_ID=$AIFADIAN_USER_ID" >> local.properties
           fi
 
+      - name: Copy Native Libraries
+        run: |
+          chmod +x scripts/copy_jni_libs.sh
+          ./scripts/copy_jni_libs.sh
+
       - name: Build Android Debug APK
         run: ./gradlew assembleDebug
 

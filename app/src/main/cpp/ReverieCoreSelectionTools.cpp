@@ -99,7 +99,7 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
 // Build a selection from a boolean mask (BFS / global scan results).
 // Install a new selection from a mask, honouring the current merge mode
 
-void ReverieCore::selectContiguousAt(int x, int y, int tolerance, bool sampleMerged)
+void ReverieCore::selectContiguousAt(int x, int y, int tolerance, bool sampleMerged, int expand, int feather, int closeGap)
 {
     KisImageSP image = m_document;
     if (!image) {
@@ -107,129 +107,40 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance, bool sampleMer
     }
     const int iw = image->width();
     const int ih = image->height();
-    const KisSelectionSP oldSel = m_selection;
-    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
     if (x < 0 || y < 0 || x >= iw || y >= ih) {
         return;
     }
-    // Match against the visible composite (projection) or current layer
-    KisPaintDeviceSP device = sampleMerged ? image->projection() : currentPaintDevice();
-    if (!device) return;
-    QElapsedTimer wt;
-    wt.start();
-    image->waitForDone();
-    // Tile-chunk projection read: KisPaintDevice is internally tiled
-    // (256x256 tiles) and Krita's fill jobs read at tile granularity too.
-    // Reading the projection in 256-row chunks is one readBytes call per
-    // chunk (8 calls on 1080x1920) instead of per row (1920 calls), which
-    // dominated the magic-wand cost on full-document selections
-    const qint64 tWaitMs = wt.elapsed();
-    QVector<quint8> bytes(size_t(iw) * ih * 4, 0);
-    const int chunkH = 256;
-    QVector<quint8> chunkReady(size_t((ih + chunkH - 1) / chunkH), 0);
-    auto ensureChunk = [&](int ry) {
-        if (ry < 0 || ry >= ih) {
-            return;
-        }
-        const int b = ry / chunkH;
-        if (chunkReady[size_t(b)]) {
-            return;
-        }
-        chunkReady[size_t(b)] = 1;
-        const int ty = b * chunkH;
-        const int h = qMin(chunkH, ih - ty);
-        device->readBytes(bytes.data() + size_t(ty) * iw * 4, 0, ty, iw, h);
-    };
-    ensureChunk(y);
-    const qint64 tReadMs = wt.elapsed();
-    const int tolSq = tolerance * tolerance;
 
-    // Direct byte access (readBytes is B,G,R,A for the RGB8 space): avoids
-    // per-pixel qRgba/colorDistance call overhead on the BFS
-    const int sR = bytes[size_t(y * iw + x) * 4 + 2];
-    const int sG = bytes[size_t(y * iw + x) * 4 + 1];
-    const int sB = bytes[size_t(y * iw + x) * 4];
+    KisPaintDeviceSP targetDevice = currentPaintDevice();
+    if (!targetDevice) return;
+    KisPaintDeviceSP sourceDevice = sampleMerged ? image->projection() : targetDevice;
 
-    // Scanline flood fill with color tolerance (Krita's contiguous
-    // selection): process whole contiguous row segments per visit instead of
-    // per-pixel 4-direction expansion - dramatically fewer comparisons on
-    // uniform regions (e.g. a wand tap on a white background selects the
-    // entire document in ~one pass per row)
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+
+    const int clampedTol = qBound(1, tolerance, 100);
+
+    KisPixelSelectionSP newPixelSel = new KisPixelSelection(new KisSelectionDefaultBounds(targetDevice));
+    KisFillPainter fillPainter(targetDevice);
+    fillPainter.setWidth(iw);
+    fillPainter.setHeight(ih);
+    fillPainter.setFillThreshold(clampedTol);
+    fillPainter.setOpacitySpread(100);
+    fillPainter.setAntiAlias(true);
+    fillPainter.setFeather(qBound(0, feather, 32));
+    fillPainter.setCloseGap(qBound(0, closeGap, 32));
+    fillPainter.setSizemod(qBound(-32, expand, 64));
+    fillPainter.setUseCompositing(true);
+
+    fillPainter.createFloodSelection(newPixelSel, x, y, sourceDevice,
+        (m_selection ? m_selection->pixelSelection() : KisPixelSelectionSP()));
+
     QVector<quint8> mask(size_t(iw) * ih, 0);
-    const int start = y * iw + x;
-    mask[start] = 255;
-    size_t visited = 1;
-    const qint64 tFillStart = wt.elapsed();
-    RPC_LOG("RPC wandT wait=%ldms read=%ldms", long(tWaitMs), long(tFillStart - tReadMs));
-    auto rowMatch = [&](int ry, int rx) -> bool {
-        const int o = (ry * iw + rx) * 4;
-        const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-        return dr * dr + dg * dg + db * db <= tolSq;
-    };
-    QVector<QPoint> segStack;
-    segStack.reserve(1024);
-    segStack.append(QPoint(x, y));
-    while (!segStack.isEmpty()) {
-        const QPoint seg = segStack.takeLast();
-        const int sy = seg.y();
-        ensureChunk(sy);
-        int xl = seg.x();
-        while (xl > 0 && !mask[size_t(sy) * iw + xl - 1] && rowMatch(sy, xl - 1)) {
-            --xl;
-        }
-        int xr = seg.x();
-        while (xr + 1 < iw && !mask[size_t(sy) * iw + xr + 1] && rowMatch(sy, xr + 1)) {
-            ++xr;
-        }
-        for (int i = xl; i <= xr; ++i) {
-            const size_t idx = size_t(sy) * iw + i;
-            if (!mask[idx]) {
-                mask[idx] = 255;
-                ++visited;
-            }
-        }
-        // Expand up/down: push the left edge of each unvisited matching
-        // segment overlapping [xl, xr] (segments may extend beyond xr)
-        for (int d = -1; d <= 1; d += 2) {
-            const int ny = sy + d;
-            if (ny < 0 || ny >= ih) {
-                continue;
-            }
-            ensureChunk(ny);
-            int i = xl;
-            while (i <= xr) {
-                while (i <= xr &&
-                       (mask[size_t(ny) * iw + i] || !rowMatch(ny, i))) {
-                    ++i;
-                }
-                if (i > xr) {
-                    break;
-                }
-                int sx = i;
-                while (sx > 0 &&
-                       !mask[size_t(ny) * iw + sx - 1] &&
-                       rowMatch(ny, sx - 1)) {
-                    --sx;
-                }
-                segStack.append(QPoint(sx, ny));
-                while (i < iw && !mask[size_t(ny) * iw + i] && rowMatch(ny, i)) {
-                    ++i;
-                }
-            }
-        }
-    }
-    const qint64 tFillMs = wt.elapsed();
-    if (visited == size_t(iw) * ih) {
-        this->setSelection(selectionFromMask(image, mask, true));
-        pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
-        markDirty();
-        RPC_LOG("RPC wandT fill=%ldms fullSel", long(tFillMs));
-        return;
-    }
+    newPixelSel->readBytes(mask.data(), 0, 0, iw, ih);
+
     setSelectionFromMask(this, image, mask, int(m_selectionMode));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
-    RPC_LOG("RPC wandT fill=%ldms visited=%d", long(tFillMs), (int)visited);
 }
 
 void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged)

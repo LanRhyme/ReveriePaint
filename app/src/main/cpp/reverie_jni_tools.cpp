@@ -188,9 +188,11 @@ Java_com_reverie_paint_core_ReverieCoreBridge_cropCanvas(JNIEnv *, jobject, jint
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_floodFillAt(JNIEnv *, jobject, jint x, jint y, jint tolerance, jboolean sampleMerged)
+Java_com_reverie_paint_core_ReverieCoreBridge_floodFillAt(
+    JNIEnv *, jobject, jint x, jint y, jint tolerance, jboolean sampleMerged,
+    jint expand, jint feather, jint closeGap)
 {
-    core()->floodFillAt(x, y, tolerance, sampleMerged);
+    core()->floodFillAt(x, y, tolerance, sampleMerged, expand, feather, closeGap);
 }
 
 JNIEXPORT jstring JNICALL

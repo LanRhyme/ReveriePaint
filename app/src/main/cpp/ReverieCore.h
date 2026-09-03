@@ -266,7 +266,7 @@ public:
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
-    void floodFillAt(int x, int y, int tolerance = 24, bool sampleMerged = false);
+    void floodFillAt(int x, int y, int tolerance = 16, bool sampleMerged = true, int expand = 0, int feather = 0, int closeGap = 4);
 
     // Draw a shape: 0=line, 1=rect, 2=ellipse between two points
     void drawShape(int kind, int x1, int y1, int x2, int y2, bool filled = false);
@@ -283,7 +283,7 @@ public:
     // Magnetic lasso: edge-snapping path from 'from' to 'to' (Krita's
     // KisMagneticWorker logic, self-contained A* over a Sobel edge map)
     QVector<QPoint> magneticLasso(const QPoint &from, const QPoint &to, int radius);
-    void selectContiguousAt(int x, int y, int tolerance = 24, bool sampleMerged = true);
+    void selectContiguousAt(int x, int y, int tolerance = 24, bool sampleMerged = true, int expand = 0, int feather = 0, int closeGap = 4);
     void selectSimilarAt(int x, int y, int tolerance = 24, bool sampleMerged = true);
     void moveLayerContent(int dx, int dy);
     // Krita transform tool: apply scale/shear/rotation/translate around the

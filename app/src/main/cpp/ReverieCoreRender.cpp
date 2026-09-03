@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <android/log.h>
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 {
@@ -178,7 +179,7 @@ bool ReverieCore::renderPendingDirty() const
     return m_document && !m_dirtyRect.isNull();
 }
 
-void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
+void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, int expand, int feather, int closeGap)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
@@ -186,6 +187,18 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
     KisPaintDeviceSP srcDevice = sampleMerged ? image->projection() : targetDevice;
+
+    const int clampedTol = qBound(1, tolerance, 100);
+
+    KoColor seedCol = srcDevice->pixel(QPoint(x, y));
+    QColor qSeed;
+    seedCol.toQColor(&qSeed);
+    QRect beforeBounds = targetDevice->exactBounds();
+    __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
+        "floodFillAt START: pt=(%d, %d), tol=%d, exp=%d, fth=%d, gap=%d, merged=%d, seedRGBA=(%d,%d,%d,%d), targetBefore=(%d,%d,%d,%d)",
+        x, y, clampedTol, expand, feather, closeGap, sampleMerged ? 1 : 0,
+        qSeed.red(), qSeed.green(), qSeed.blue(), qSeed.alpha(),
+        beforeBounds.x(), beforeBounds.y(), beforeBounds.width(), beforeBounds.height());
 
     KisTransaction txn(kundo2_i18n("Fill"), targetDevice);
     
@@ -196,7 +209,10 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     painter.setUseCompositing(true);
     painter.setOpacitySpread(100);
     painter.setAntiAlias(true);
-    painter.setFillThreshold(tolerance);
+    painter.setFillThreshold(clampedTol);
+    painter.setSizemod(qBound(-32, expand, 64));
+    painter.setFeather(qBound(0, feather, 32));
+    painter.setCloseGap(qBound(0, closeGap, 32));
     if (m_selection) {
         painter.setSelection(m_selection);
     }
@@ -224,6 +240,11 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
+
+    QRect afterBounds = targetDevice->exactBounds();
+    __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
+        "floodFillAt END: targetAfter=(%d,%d,%d,%d)",
+        afterBounds.x(), afterBounds.y(), afterBounds.width(), afterBounds.height());
 }
 
 

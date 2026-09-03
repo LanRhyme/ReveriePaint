@@ -223,7 +223,10 @@ object ReverieCoreBridge {
         x: Int,
         y: Int,
         tolerance: Int,
-        sampleMerged: Boolean = false,
+        sampleMerged: Boolean = true,
+        expand: Int = 0,
+        feather: Int = 0,
+        closeGap: Int = 4,
     )
 
     external fun setBrushSize(size: Double)
@@ -395,6 +398,9 @@ object ReverieCoreBridge {
         y: Int,
         tolerance: Int,
         sampleMerged: Boolean = true,
+        expand: Int = 0,
+        feather: Int = 0,
+        closeGap: Int = 4,
     )
 
     external fun selectSimilarAt(

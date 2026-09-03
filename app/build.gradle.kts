@@ -112,6 +112,20 @@ android {
     }
 }
 
+if (usePrebuiltJni) {
+    val copyPrebuiltJniLibs by tasks.registering(Copy::class) {
+        from(rootProject.file("third_party/android-native-libs"))
+        into(file("src/main/jniLibs/arm64-v8a"))
+        include("*.so")
+    }
+
+    tasks.matching {
+        it.name.contains("NativeLibs") || it.name.contains("JniLibFolders")
+    }.configureEach {
+        dependsOn(copyPrebuiltJniLibs)
+    }
+}
+
 dependencies {
     implementation(files("libs/Qt6Android.jar"))
     implementation(platform("androidx.compose:compose-bom:2026.05.00"))

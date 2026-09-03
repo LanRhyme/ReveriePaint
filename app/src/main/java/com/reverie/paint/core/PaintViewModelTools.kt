@@ -1149,7 +1149,7 @@ internal fun PaintViewModel.lassoSelect(points: List<Pair<Int, Int>>) {
 // Magic-wand / similar-color tolerance (0-255, default 24 like Krita)
 
 internal fun PaintViewModel.updateSelectionTolerance(value: Int) {
-    selectionTolerance = value.coerceIn(0, 255)
+    selectionTolerance = value.coerceIn(1, 100)
     saveToolOptions()
 }
 
@@ -1158,13 +1158,38 @@ internal fun PaintViewModel.updateSelectionSampleLayers(value: Int) {
     saveToolOptions()
 }
 
+internal fun PaintViewModel.updateSelectionCloseGap(value: Int) {
+    selectionCloseGap = value.coerceIn(0, 32)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateSelectionExpand(value: Int) {
+    selectionExpand = value.coerceIn(-32, 64)
+    saveToolOptions()
+}
+
 internal fun PaintViewModel.updateFillTolerance(value: Int) {
-    fillTolerance = value.coerceIn(0, 255)
+    fillTolerance = value.coerceIn(1, 100)
     saveToolOptions()
 }
 
 internal fun PaintViewModel.updateFillSampleLayers(value: Int) {
     fillSampleLayers = value
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateFillExpand(value: Int) {
+    fillExpand = value.coerceIn(-32, 64)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateFillFeather(value: Int) {
+    fillFeather = value.coerceIn(0, 32)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateFillCloseGap(value: Int) {
+    fillCloseGap = value.coerceIn(0, 32)
     saveToolOptions()
 }
 
@@ -1214,6 +1239,9 @@ internal fun PaintViewModel.saveToolOptions() {
         val o = org.json.JSONObject()
         o.put("fill_tol", fillTolerance)
         o.put("fill_sample", fillSampleLayers)
+        o.put("fill_expand", fillExpand)
+        o.put("fill_feather", fillFeather)
+        o.put("fill_close_gap", fillCloseGap)
         o.put("fill_op", fillOpacity)
         o.put("fill_cop", fillCompositeOp)
         o.put("grad_type", gradientType)
@@ -1226,6 +1254,8 @@ internal fun PaintViewModel.saveToolOptions() {
         o.put("sel_tol", selectionTolerance)
         o.put("sel_sample", selectionSampleLayers)
         o.put("sel_feather", selectionFeatherRadius)
+        o.put("sel_close_gap", selectionCloseGap)
+        o.put("sel_expand", selectionExpand)
         o.put("picker_sample", pickerSampleLayers)
         prefs().edit().putString("tool_options", o.toString()).apply()
     } catch (_: Exception) {
@@ -1236,8 +1266,11 @@ internal fun PaintViewModel.loadToolOptions() {
     try {
         val raw = prefs().getString("tool_options", null) ?: return
         val o = org.json.JSONObject(raw)
-        fillTolerance = o.optInt("fill_tol", 24)
-        fillSampleLayers = o.optInt("fill_sample", 0)
+        fillTolerance = o.optInt("fill_tol", 16)
+        fillSampleLayers = o.optInt("fill_sample", 1)
+        fillExpand = o.optInt("fill_expand", 0)
+        fillFeather = o.optInt("fill_feather", 0)
+        fillCloseGap = o.optInt("fill_close_gap", 4)
         fillOpacity = o.optDouble("fill_op", 1.0)
         fillCompositeOp = o.optString("fill_cop", "normal")
         gradientType = o.optInt("grad_type", 0)
@@ -1250,6 +1283,8 @@ internal fun PaintViewModel.loadToolOptions() {
         selectionTolerance = o.optInt("sel_tol", 24)
         selectionSampleLayers = o.optInt("sel_sample", 1)
         selectionFeatherRadius = o.optInt("sel_feather", 0)
+        selectionCloseGap = o.optInt("sel_close_gap", 4)
+        selectionExpand = o.optInt("sel_expand", 0)
         pickerSampleLayers = o.optInt("picker_sample", 1)
         pickerCurrentLayerOnly = pickerSampleLayers == 0
     } catch (_: Exception) {
@@ -1259,14 +1294,17 @@ internal fun PaintViewModel.loadToolOptions() {
 internal fun PaintViewModel.selectContiguous(
     x: Int,
     y: Int,
+    tolerance: Int = selectionTolerance,
+    sampleMerged: Boolean = selectionSampleLayers == 1,
+    expand: Int = selectionExpand,
+    feather: Int = selectionFeatherRadius,
+    closeGap: Int = selectionCloseGap,
 ) {
-    val tol = selectionTolerance
-    val sampleMerged = selectionSampleLayers == 1
     if (recorder.recording) {
         recorder.toolOp(T_CONTIGUOUS_V2) {
             it.f32(x.toFloat())
             it.f32(y.toFloat())
-            it.u16(tol.coerceIn(0, 65535))
+            it.u16(tolerance.coerceIn(0, 65535))
             it.u8(if (sampleMerged) 1 else 0)
         }
     }
@@ -1280,7 +1318,7 @@ internal fun PaintViewModel.selectContiguous(
         selectionOverlayBitmap = ov
         hasSelection = ov != null
     }) {
-        ReverieCoreBridge.selectContiguousAt(x, y, tol, sampleMerged)
+        ReverieCoreBridge.selectContiguousAt(x, y, tolerance, sampleMerged, expand, feather, closeGap)
         ov = buildSelectionOverlayLocked()
     }
 }
@@ -1412,6 +1450,9 @@ internal fun PaintViewModel.floodFill(
     y: Float,
     tolerance: Int = fillTolerance,
     sampleMerged: Boolean = fillSampleLayers == 1,
+    expand: Int = fillExpand,
+    feather: Int = fillFeather,
+    closeGap: Int = fillCloseGap,
 ) {
     if (recorder.recording) {
         // V3 携带填充色: 引擎用自身 m_brushColor 填充, 回放若不带色会漂到
@@ -1424,7 +1465,7 @@ internal fun PaintViewModel.floodFill(
             it.str(brushColor)
         }
     }
-    runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged) }
+    runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged, expand, feather, closeGap) }
 }
 
 internal fun PaintViewModel.commitQuickShape() {
