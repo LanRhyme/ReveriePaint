@@ -64,6 +64,10 @@ internal fun PaintViewModel.saveProject(
                 if (autoSaveFile.exists()) {
                     autoSaveFile.delete()
                 }
+                val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
+                if (autoSaveTmp.exists()) {
+                    autoSaveTmp.delete()
+                }
             } else {
                 android.util.Log.w("RP_IO", "saveProject target file not found or empty, retaining autosave draft")
             }
@@ -152,6 +156,10 @@ internal fun PaintViewModel.discardAndExit() {
     if (autoSaveFile.exists()) {
         autoSaveFile.delete()
     }
+    val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
+    if (autoSaveTmp.exists()) {
+        autoSaveTmp.delete()
+    }
     if (currentProjectFile != null && currentProjectFile!!.contains(".autosave")) {
         val f = File(currentProjectFile!!)
         if (f.exists()) f.delete()
@@ -174,8 +182,17 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     // Navigate to painting page first, then show loading overlay while reading native file
     currentPage = Page.PAINTING
     isBlockingLoading = true
-    blockingLoadingMessage = "正在载入画布..."
     val isRecovered = p.isAutoSaved || p.filePath.contains(".autosave")
+    docName = p.name
+    lastAutoSaveTimeMs = 0L
+    val masterFile = File(projectDir(), "${p.name}.revp")
+    currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+        masterFile.absolutePath
+    } else if (!isRecovered) {
+        p.filePath
+    } else {
+        null
+    }
 
     runCore(
         after = {
@@ -314,6 +331,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
     var colorModeStr = "RGB 8位"
     var previewPath = ""
     var hasRec = false
+    var masterPath = ""
 
     val ext = f.extension.lowercase()
     if (ext == "revp" || ext == "kra") {
@@ -331,6 +349,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     elapsed = json.optLong("elapsedSeconds", 0L)
                     colorModeStr = json.optString("colorMode", "RGB 8位")
                     layerCount = json.optJSONArray("layers")?.length() ?: 1
+                    masterPath = json.optString("masterFilePath", "")
                 }
                 val prevEntry = zip.getEntry("thumbnail.png") ?: zip.getEntry("preview.png")
                 if (prevEntry != null) {
@@ -376,6 +395,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
             isFolder = false,
             hasRecording = hasRec,
             isAutoSaved = isAutoSaveFile,
+            masterFilePath = masterPath,
         ).also { p ->
             projectMetaCache[f.absolutePath] = ProjectMetaCacheEntry(f.lastModified(), f.length(), p)
         }
@@ -463,7 +483,12 @@ internal fun PaintViewModel.refreshProjects() {
     for (autoFile in autoFiles) {
         val parsedAuto = parseProjectFromFile(autoFile)
         val autoProject = parsedAuto.copy(isAutoSaved = true)
-        val existingIdx = list.indexOfFirst { !it.isFolder && it.name == autoProject.name }
+        val existingIdx = if (autoProject.masterFilePath.isNotBlank()) {
+            list.indexOfFirst { !it.isFolder && it.filePath == autoProject.masterFilePath }
+        } else {
+            val candidateMaster = File(rootDir, "${autoProject.name}.revp").absolutePath
+            list.indexOfFirst { !it.isFolder && it.filePath == candidateMaster }
+        }
         if (existingIdx != -1) {
             val existing = list[existingIdx]
             if (autoFile.lastModified() >= existing.lastModified) {
@@ -642,6 +667,12 @@ internal fun PaintViewModel.exportImageToGallery(
 internal fun PaintViewModel.goHome() {
     recorder.endSession()
     stopPaintingTimer()
+    currentProjectFile = null
+    docName = ""
+    isModified = false
+    initialStrokeCount = 0
+    totalStrokes = 0
+    lastAutoSaveTimeMs = 0L
     currentPage = Page.HOME
     refreshProjects()
 }
@@ -652,14 +683,34 @@ internal fun PaintViewModel.goCreate() {
 }
 
 internal fun PaintViewModel.generateNextProjectName(): String {
+    val existingNames = mutableSetOf<String>()
     val root = projectDir()
-    val existingFiles = (root.listFiles() ?: emptyArray()).map { it.nameWithoutExtension.lowercase() }.toSet()
+    root.walkTopDown().filter { it.isFile }.forEach { f ->
+        existingNames.add(f.nameWithoutExtension.lowercase())
+    }
+    val autoDir = autoSaveDir()
+    autoDir.walkTopDown().filter { it.isFile }.forEach { f ->
+        val cleanName = if (f.nameWithoutExtension.endsWith(".autosave")) {
+            f.nameWithoutExtension.removeSuffix(".autosave")
+        } else {
+            f.nameWithoutExtension
+        }
+        existingNames.add(cleanName.lowercase())
+    }
+    projects.forEach { p ->
+        existingNames.add(p.name.lowercase())
+        p.items.forEach { sub -> existingNames.add(sub.name.lowercase()) }
+    }
+    if (docName.isNotBlank()) {
+        existingNames.add(docName.lowercase())
+    }
+
     var index = 1
-    var candidate = "未命名作品"
-    if (!existingFiles.contains(candidate.lowercase())) {
+    val candidate = "未命名作品"
+    if (!existingNames.contains(candidate.lowercase())) {
         return candidate
     }
-    while (existingFiles.contains("未命名作品 $index".lowercase())) {
+    while (existingNames.contains("未命名作品 $index".lowercase())) {
         index++
     }
     return "未命名作品 $index"
@@ -672,6 +723,9 @@ internal fun PaintViewModel.startPainting(
 ) {
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     currentProjectFile = null // Reset so new artwork won't overwrite previous project file
+    docName = actualName
+    isModified = false
+    lastAutoSaveTimeMs = 0L
     totalStrokes = 0
     elapsedSeconds = 0L
     canvasCreatedTime = System.currentTimeMillis()

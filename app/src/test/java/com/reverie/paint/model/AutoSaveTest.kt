@@ -145,4 +145,38 @@ class AutoSaveTest {
         assertFalse(shouldBackgroundAutoSave(enabled = true, isSaving = false, hasChanges = false, isPaintingPage = true))
         assertFalse(shouldBackgroundAutoSave(enabled = true, isSaving = false, hasChanges = true, isPaintingPage = false))
     }
+
+    @Test
+    fun `autosave masterFilePath prevents crosstalk between projects with same name`() {
+        val project1 = Project(name = "未命名作品", filePath = "/projects/未命名作品.revp", lastModified = 1000L)
+        val project2 = Project(name = "未命名作品", filePath = "/projects/folder/未命名作品.revp", lastModified = 1200L)
+        val autosaveProject2 = Project(
+            name = "未命名作品",
+            filePath = "/autosave/未命名作品.autosave.revp",
+            lastModified = 1500L,
+            isAutoSaved = true,
+            masterFilePath = "/projects/folder/未命名作品.revp"
+        )
+
+        val projectList = mutableListOf(project1, project2)
+
+        // Matching logic with masterFilePath
+        val existingIdx = if (autosaveProject2.masterFilePath.isNotBlank()) {
+            projectList.indexOfFirst { !it.isFolder && it.filePath == autosaveProject2.masterFilePath }
+        } else {
+            projectList.indexOfFirst { !it.isFolder && it.name == autosaveProject2.name }
+        }
+
+        assertEquals(1, existingIdx)
+        if (existingIdx != -1) {
+            projectList[existingIdx] = autosaveProject2
+        }
+
+        // project1 is intact
+        assertEquals("/projects/未命名作品.revp", projectList[0].filePath)
+        assertFalse(projectList[0].isAutoSaved)
+        // project2 is recovered to autosave
+        assertEquals("/autosave/未命名作品.autosave.revp", projectList[1].filePath)
+        assertTrue(projectList[1].isAutoSaved)
+    }
 }

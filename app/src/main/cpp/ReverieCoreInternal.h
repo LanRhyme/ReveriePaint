@@ -248,7 +248,9 @@ static inline void blendWithSelectionMask(QImage &destImg, const QImage &origImg
                                           const KisSelectionSP &selection,
                                           int x, int y, int w, int h)
 {
-    if (!selection) return;
+    if (!selection || w <= 0 || h <= 0) return;
+    if (destImg.isNull() || origImg.isNull()) return;
+    if (destImg.width() < w || destImg.height() < h || origImg.width() < w || origImg.height() < h) return;
     KisPixelSelectionSP ps = selection->pixelSelection();
     if (!ps) return;
 

@@ -35,6 +35,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // so m_undoStore must be reset to nullptr to prevent dangling pointer access.
     m_document.clear();
     m_undoStore = nullptr;
+    m_selection = KisSelectionSP();
 
     // Reset the display pipeline: a new document (possibly same size as the
     // previous one) must not inherit stale display pixels or skip the first

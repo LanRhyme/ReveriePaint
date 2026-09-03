@@ -39,7 +39,7 @@ bool ReverieCore::selectionFromLayer(int index)
 
 bool ReverieCore::hasSelection() const
 {
-    return m_selection && !m_selection->selectedRect().isEmpty() && !m_selection->selectedExactRect().isEmpty();
+    return m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty() && !m_selection->selectedExactRect().isEmpty();
 }
 
 void ReverieCore::clearSelection()
@@ -270,9 +270,14 @@ QVector<quint32> ReverieCore::selectionOverlayScaled(int vw, int vh) const
         const size_t dstOff = size_t(y) * vw;
         for (int x = 0; x < vw; ++x) {
             const int srcX = qMin(iw - 1, int(x * stepX));
-            if (chunk[size_t(rowOff) + srcX] != 0) {
-                out[dstOff + x] = 0xFFFFFFFFu;
+            const quint8 val = chunk[size_t(rowOff) + srcX];
+            if (val != 0) {
                 any = true;
+            }
+            // Procreate / 画世界 style: unselected area gets mask, selected area is clear/transparent
+            const quint8 unselectedAlpha = 255 - val;
+            if (unselectedAlpha != 0) {
+                out[dstOff + x] = (static_cast<quint32>(unselectedAlpha) << 24) | 0x00FFFFFFu;
             }
         }
     }

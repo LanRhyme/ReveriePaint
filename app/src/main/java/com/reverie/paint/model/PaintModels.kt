@@ -99,6 +99,8 @@ data class Project(
     val hasRecording: Boolean = false,
     /** Whether this project is an auto-saved recovery draft (自动保存草稿 / 异常退出恢复). */
     val isAutoSaved: Boolean = false,
+    /** Associated master project file path if this is an autosave draft */
+    val masterFilePath: String = "",
 )
 
 /** A canvas size preset for the create page */

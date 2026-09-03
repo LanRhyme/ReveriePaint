@@ -190,9 +190,19 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     KisTransaction txn(kundo2_i18n("Fill"), targetDevice);
     
     KisFillPainter painter(targetDevice);
+    painter.setWidth(image->width());
+    painter.setHeight(image->height());
+    painter.setCareForSelection(true);
+    painter.setUseCompositing(true);
     painter.setFillThreshold(tolerance);
     if (m_selection) {
         painter.setSelection(m_selection);
+    }
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->alphaLocked()) {
+        painter.setChannelFlags(pl->channelLockFlags());
     }
     
     QColor qColor(m_brushColor);
@@ -211,6 +221,7 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged)
     painter.fillColor(x, y, srcDevice);
 
     targetDevice->setDirty();
+    recompositeProjection();
     markDirty();
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
@@ -259,6 +270,12 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
     if (m_selection) {
         painter.setSelection(m_selection);
     }
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->alphaLocked()) {
+        painter.setChannelFlags(pl->channelLockFlags());
+    }
     
     const int layerIndex = qBound(0, m_currentLayer, (int)m_layers.size() - 1);
     if (m_brushPreset) {
@@ -306,6 +323,12 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     
     if (m_selection) {
         painter.setSelection(m_selection);
+    }
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->alphaLocked()) {
+        painter.setChannelFlags(pl->channelLockFlags());
     }
     
     const int layerIndex = qBound(0, m_currentLayer, (int)m_layers.size() - 1);
@@ -407,6 +430,12 @@ void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type, int rep
     KisPainter painter(device);
     if (m_selection) {
         painter.setSelection(m_selection);
+    }
+    KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
+        ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
+        : nullptr;
+    if (pl && pl->alphaLocked()) {
+        painter.setChannelFlags(pl->channelLockFlags());
     }
     painter.setOpacityF(m_brushOpacity);
     painter.setCompositeOpId(COMPOSITE_OVER);

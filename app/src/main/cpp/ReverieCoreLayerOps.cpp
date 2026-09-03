@@ -164,6 +164,10 @@ void ReverieCore::fillLayer(int index)
     if (m_selection) {
         painter.setSelection(m_selection);
     }
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[index].node);
+    if (pl && pl->alphaLocked()) {
+        painter.setChannelFlags(pl->channelLockFlags());
+    }
     painter.paintRect(docRect);
     dev->setDirty(docRect);
     markDirty();

@@ -122,6 +122,9 @@ void ReverieCore::touchStrokeEnd()
             if (m_selection) {
                 gc.setSelection(m_selection);
             }
+            if (pl->alphaLocked()) {
+                gc.setChannelFlags(pl->channelLockFlags());
+            }
             gc.bitBlt(ext.topLeft(), tempTarget, ext);
             gc.end();
             pl->paintDevice()->setDirty(ext);
@@ -319,6 +322,9 @@ bool ReverieCore::flushStrokeBatch()
             pl->setTemporaryCompositeOp(effectiveOp);
             pl->setTemporaryOpacity(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
             pl->setTemporarySelection(m_selection);
+            if (pl->alphaLocked()) {
+                pl->setTemporaryChannelFlags(pl->channelLockFlags());
+            }
         }
         target = pl->temporaryTarget();
     } else {
@@ -381,6 +387,9 @@ bool ReverieCore::flushStrokeBatch()
         // Constrain the whole stroke to the active selection (if any)
         if (m_selection) {
             m_strokePainter->setSelection(m_selection);
+        }
+        if (pl && pl->alphaLocked()) {
+            m_strokePainter->setChannelFlags(pl->channelLockFlags());
         }
         // Real Krita brush engine: construct the brush op once per stroke
         // and drive its async dab pipeline synchronously (the fake executor

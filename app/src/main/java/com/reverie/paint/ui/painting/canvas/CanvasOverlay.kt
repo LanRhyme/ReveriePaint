@@ -657,8 +657,9 @@ internal fun CanvasOverlay(
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null) {
                     val paint = androidx.compose.ui.graphics.Paint().apply {
+                        // Procreate / 画世界风格：选区内无遮盖原色不变，未选中的外部盖一层半透明深灰蒙版
                         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
-                            Morandi.accent.copy(alpha = 0.35f)
+                            Color(0x77141416)
                         )
                     }
                     val bounds = androidx.compose.ui.geometry.Rect(
