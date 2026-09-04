@@ -304,7 +304,6 @@ fun toolIcon(tool: Tool): Int =
         Tool.CROP -> R.drawable.ic_crop
         Tool.MEASURE -> R.drawable.ic_canvas_resize
         Tool.TRANSFORM -> R.drawable.ic_move
-        Tool.SELECT_MAGNETIC -> R.drawable.ic_lock
         Tool.SELECT_SIMILAR -> R.drawable.ic_eye
         Tool.PATH -> R.drawable.ic_copy
         Tool.REFERENCE -> R.drawable.ic_reference

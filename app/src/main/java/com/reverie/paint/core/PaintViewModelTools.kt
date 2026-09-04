@@ -1109,29 +1109,7 @@ internal fun PaintViewModel.invertSelectionAction() {
     }
 }
 
-// Magnetic lasso: edge-snapping path from (fx,fy) to (tx,ty), runs on the
-// render thread, result delivered via onPath on the main thread
-internal fun PaintViewModel.magneticLassoAsync(
-    fx: Int,
-    fy: Int,
-    tx: Int,
-    ty: Int,
-    radius: Int = 24,
-    onPath: (List<Pair<Int, Int>>) -> Unit,
-) {
-    var arr: IntArray? = null
-    runCore(render = false, after = {
-        if (arr != null) {
-            val pts = ArrayList<Pair<Int, Int>>(arr!!.size / 2)
-            for (i in arr!!.indices step 2) {
-                pts.add(arr!![i] to arr!![i + 1])
-            }
-            onPath(pts)
-        }
-    }) {
-        arr = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
-    }
-}
+
 
 /** Live lasso preview: fill the current polygon into the overlay while
  *  the finger moves (throttled from CanvasView), without committing.
@@ -1155,35 +1133,7 @@ internal fun PaintViewModel.previewLasso(points: List<Pair<Int, Int>>) {
     }
 }
 
-/** Synchronous magnetic-lasso segment: blocks the calling (main) thread
- *  until the render thread computes the edge-snapped path (bounded wait),
- *  so the preview path is continuous and the committed selection always
- *  matches what the user saw - Krita's KisToolSelectMagnetic computes each
- *  segment synchronously as the pointer moves. */
-internal fun PaintViewModel.magneticLassoSync(
-    fx: Int,
-    fy: Int,
-    tx: Int,
-    ty: Int,
-    radius: Int = 40,
-): List<Pair<Int, Int>>? {
-    var result: IntArray? = null
-    val latch = java.util.concurrent.CountDownLatch(1)
-    runCore(render = false, after = { latch.countDown() }) {
-        result = ReverieCoreBridge.magneticLasso(fx, fy, tx, ty, radius)
-    }
-    try {
-        latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
-    } catch (_: InterruptedException) {
-        return null
-    }
-    val arr = result ?: return null
-    val pts = ArrayList<Pair<Int, Int>>(arr.size / 2)
-    for (i in arr.indices step 2) {
-        pts.add(arr[i] to arr[i + 1])
-    }
-    return pts
-}
+
 
 /** Synchronous final lasso preview: on release, refresh the overlay to
  *  the exact final path BEFORE the committed selection lands, so the

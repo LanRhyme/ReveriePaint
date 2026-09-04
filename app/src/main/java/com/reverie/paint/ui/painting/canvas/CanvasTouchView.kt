@@ -128,10 +128,7 @@ class CanvasTouchView(context: Context) : View(context) {
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
 
-    // 磁性套索与多次操作套索状态
-    private val magneticPoints = mutableListOf<Offset>()
-    private var lastMagneticDocPos = Offset.Zero
-    private var isMagneticQuerying = false
+    // 多次操作套索状态
     private var lastLassoTapTimeMs = 0L
     private var lastLassoTapDocPos = Offset.Zero
     private var justFinishedLassoInDown = false
@@ -1338,12 +1335,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 liveShapeStart?.value = docPos
                 liveShapeEnd?.value = docPos
             }
-            Tool.SELECT_MAGNETIC -> {
-                magneticPoints.clear()
-                magneticPoints.add(docPos)
-                lastMagneticDocPos = docPos
-                isMagneticQuerying = false
-            }
             Tool.LASSO -> {
                 val subMode = v.lassoSubMode
                 if (subMode == LassoSubMode.FREEHAND) {
@@ -1525,26 +1516,6 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
                 shapeEndDocPos = docPos
                 liveShapeEnd?.value = docPos
-            }
-            Tool.SELECT_MAGNETIC -> {
-                val dist = hypot(docPos.x - lastMagneticDocPos.x, docPos.y - lastMagneticDocPos.y)
-                if (dist >= 14f && !isMagneticQuerying) {
-                    isMagneticQuerying = true
-                    val fx = lastMagneticDocPos.x.toInt()
-                    val fy = lastMagneticDocPos.y.toInt()
-                    val tx = docPos.x.toInt()
-                    val ty = docPos.y.toInt()
-                    lastMagneticDocPos = docPos
-                    v.magneticLassoAsync(fx, fy, tx, ty, radius = 32) { seg ->
-                        isMagneticQuerying = false
-                        if (seg.isNotEmpty()) {
-                            for (pt in seg) {
-                                magneticPoints.add(Offset(pt.first.toFloat(), pt.second.toFloat()))
-                            }
-                            updateLiveSelectionPathFromPoints(magneticPoints, closed = false)
-                        }
-                    }
-                }
             }
             Tool.LASSO -> {
                 if (justFinishedLassoInDown) return
@@ -1767,14 +1738,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 liveShapeStart?.value = null
                 liveShapeEnd?.value = null
                 v.selectShape(1, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
-            }
-            Tool.SELECT_MAGNETIC -> {
-                liveSelectionPath?.value = null
-                if (magneticPoints.size >= 3) {
-                    val pts = magneticPoints.map { it.x.toInt() to it.y.toInt() }
-                    v.lassoSelect(pts)
-                }
-                magneticPoints.clear()
             }
             Tool.LASSO -> {
                 val subMode = v.lassoSubMode

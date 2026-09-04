@@ -390,14 +390,6 @@ object ReverieCoreBridge {
         count: Int,
     )
 
-    external fun magneticLasso(
-        fx: Int,
-        fy: Int,
-        tx: Int,
-        ty: Int,
-        radius: Int,
-    ): IntArray
-
     external fun selectContiguousAt(
         x: Int,
         y: Int,

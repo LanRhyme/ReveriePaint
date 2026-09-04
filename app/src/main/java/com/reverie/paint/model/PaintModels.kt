@@ -49,7 +49,6 @@ enum class Tool(
     SELECT_POLYGON("select_polygon", "多边形选择", ToolGroup.SELECTION),
     LASSO("lasso", "套索选择", ToolGroup.SELECTION),
     MAGICWAND("magicwand", "连续选择", ToolGroup.SELECTION),
-    SELECT_MAGNETIC("select_magnetic", "磁性套索", ToolGroup.SELECTION),
     SELECT_SIMILAR("select_similar", "相似色选择", ToolGroup.SELECTION),
 
     // Transform tools

@@ -256,7 +256,6 @@ fun PaintingPage(
             Tool.SELECT_RECT,
             Tool.SELECT_ELLIPSE,
             Tool.SELECT_POLYGON,
-            Tool.SELECT_MAGNETIC,
             Tool.LASSO,
             Tool.MAGICWAND,
             Tool.SELECT_SIMILAR,

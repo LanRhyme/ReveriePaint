@@ -45,7 +45,6 @@ class PaintModelsTest {
             Tool.SELECT_POLYGON,
             Tool.LASSO,
             Tool.MAGICWAND,
-            Tool.SELECT_MAGNETIC,
             Tool.SELECT_SIMILAR
         )
         selTools.forEach { tool ->

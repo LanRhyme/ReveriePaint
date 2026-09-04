@@ -159,9 +159,9 @@ fun CanvasView(
                 Tool.SELECT_RECT,
                 Tool.SELECT_ELLIPSE,
                 Tool.SELECT_POLYGON,
-                Tool.SELECT_MAGNETIC,
                 Tool.LASSO,
                 Tool.MAGICWAND,
+                Tool.SELECT_SIMILAR,
             )
         if (tool !in selTools || vm.selectionOverlayBitmap != null) {
             liveSelectionPath.value = null
