@@ -10,6 +10,7 @@
   <img src="https://img.shields.io/badge/Arch-arm64--v8a-7C8F9E?style=flat-square" alt="Architecture">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-8D9E8F?style=flat-square" alt="License"></a>
   <a href="https://afdian.com/a/LanRhyme"><img src="https://img.shields.io/badge/Afdian-@LanRhyme-946ce6?style=flat-square" alt="Afdian"></a>
+  <img src="https://img.shields.io/badge/QQ%E7%BE%A4-729283213-12B7F5?style=flat-square" alt="QQ Group">
 </p>
 
 基于 Krita 核心引擎打造的 Android 原生现代数字绘画应用
@@ -82,3 +83,10 @@
 - **应用本体**: 基于 [GPL-3.0 License](LICENSE) 开源
 - **图像引擎**: 绘画与图像处理内核复用 [Krita](https://invent.kde.org/graphics/krita) (GPL-3.0)
 - **图标素材**: UI 图标采用 [Tabler Icons](https://tabler.io/icons) (MIT)
+
+---
+
+## 社区与交流
+
+- **QQ 交流群**: 729283213
+- **问题反馈**: 欢迎通过 [GitHub Issues](https://github.com/LanRhyme/ReveriePaint/issues) 提交反馈与功能建议
