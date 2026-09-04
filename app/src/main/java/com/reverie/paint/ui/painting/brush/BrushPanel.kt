@@ -98,12 +98,12 @@ fun BrushPanel(
 ) {
     val context = LocalContext.current
     val rawCategories = remember(vm.brushPresets, vm.customBrushGroups) {
-        listOf("全部", "★ 常用", "🕒 最近") +
-            vm.brushPresets.map { it.group }.filter { it.isNotBlank() && it !in listOf("全部", "★ 常用", "🕒 最近") }.distinct() +
-            vm.customBrushGroups.filter { g -> g !in listOf("全部", "★ 常用", "🕒 最近") && vm.brushPresets.none { it.group == g } }
+        listOf("全部", "常用", "最近") +
+            vm.brushPresets.map { it.group }.filter { it.isNotBlank() && it !in listOf("全部", "常用", "最近") }.distinct() +
+            vm.customBrushGroups.filter { g -> g !in listOf("全部", "常用", "最近") && vm.brushPresets.none { it.group == g } }
     }
     val categories = remember(rawCategories, vm.categoryOrder) {
-        val pinned = listOf("全部", "★ 常用", "🕒 最近")
+        val pinned = listOf("全部", "常用", "最近")
         val restRaw = rawCategories.filter { !pinned.contains(it) }
         if (vm.categoryOrder.isEmpty()) {
             (pinned + restRaw).distinct()
@@ -280,6 +280,11 @@ fun BrushPanel(
                                 ) {
                                     items(categories) { cat ->
                                         val sel = cat == selectedCategory
+                                        val iconRes = when (cat) {
+                                            "常用" -> R.drawable.ic_star
+                                            "最近" -> R.drawable.ic_clock
+                                            else -> null
+                                        }
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -294,12 +299,27 @@ fun BrushPanel(
                                                 ),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
-                                            Text(
-                                                text = cat,
-                                                color = if (sel) Morandi.accent else Morandi.subText,
-                                                fontSize = 13.sp,
-                                                modifier = Modifier.padding(start = 12.dp)
-                                            )
+                                            Row(
+                                                modifier = Modifier.padding(start = 12.dp, end = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (iconRes != null) {
+                                                    Icon(
+                                                        painter = painterResource(iconRes),
+                                                        contentDescription = null,
+                                                        tint = if (sel) Morandi.accent else Morandi.subText,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                }
+                                                Text(
+                                                    text = cat,
+                                                    color = if (sel) Morandi.accent else Morandi.subText,
+                                                    fontSize = 13.sp,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -313,8 +333,8 @@ fun BrushPanel(
                                     val filtered = remember(selectedCategory, vm.brushPresets, vm.favoriteBrushNames, vm.recentBrushNames) {
                                         when (selectedCategory) {
                                             "全部" -> vm.brushPresets
-                                            "★ 常用" -> vm.brushPresets.filter { vm.isFavoriteBrush(it.name) }
-                                            "🕒 最近" -> vm.recentBrushNames.mapNotNull { name ->
+                                            "常用" -> vm.brushPresets.filter { vm.isFavoriteBrush(it.name) }
+                                            "最近" -> vm.recentBrushNames.mapNotNull { name ->
                                                 vm.brushPresets.firstOrNull { it.name == name }
                                             }
                                             else -> vm.brushPresets.filter { it.group == selectedCategory }
@@ -368,8 +388,8 @@ fun BrushPanel(
                                                 Icon(
                                                     painter = painterResource(
                                                         when (selectedCategory) {
-                                                            "★ 常用" -> R.drawable.ic_star
-                                                            "🕒 最近" -> R.drawable.ic_clock
+                                                            "常用" -> R.drawable.ic_star
+                                                            "最近" -> R.drawable.ic_clock
                                                             else -> R.drawable.ic_brush
                                                         }
                                                     ),
@@ -380,8 +400,8 @@ fun BrushPanel(
                                                 Spacer(Modifier.height(8.dp))
                                                 Text(
                                                     when (selectedCategory) {
-                                                        "★ 常用" -> "暂无常用笔刷"
-                                                        "🕒 最近" -> "暂无最近使用记录"
+                                                        "常用" -> "暂无常用笔刷"
+                                                        "最近" -> "暂无最近使用记录"
                                                         else -> "该分类暂无笔刷"
                                                     },
                                                     color = Morandi.subText,
@@ -390,8 +410,8 @@ fun BrushPanel(
                                                 Spacer(Modifier.height(2.dp))
                                                 Text(
                                                     when (selectedCategory) {
-                                                        "★ 常用" -> "点击笔刷星标即可加入常用"
-                                                        "🕒 最近" -> "使用笔刷后将自动记录"
+                                                        "常用" -> "点击笔刷星标即可加入常用"
+                                                        "最近" -> "使用笔刷后将自动记录"
                                                         else -> "点击下方加号添加笔刷"
                                                     },
                                                     color = Morandi.subText.copy(alpha = 0.6f),
@@ -401,18 +421,17 @@ fun BrushPanel(
                                         }
                                     } else if (vm.brushPanelGridView) {
                                         LazyVerticalGrid(
-                                            columns = GridCells.Fixed(2),
+                                            columns = GridCells.Fixed(3),
                                             state = presetGridScrollState,
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .weight(1f)
-                                                .padding(horizontal = 10.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                .padding(horizontal = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             items(filtered, key = { it.name }) { preset ->
                                                 val isSelected = preset.index == vm.brushPresetIndex
-                                                val isFav = vm.isFavoriteBrush(preset.name)
                                                 val cellBg by animateColorAsState(
                                                     targetValue = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panel.copy(alpha = 0.5f),
                                                     animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
@@ -433,12 +452,12 @@ fun BrushPanel(
                                                     modifier = Modifier
                                                         .animateItem()
                                                         .fillMaxWidth()
-                                                        .clip(RoundedCornerShape(10.dp))
+                                                        .clip(RoundedCornerShape(8.dp))
                                                         .background(cellBg)
                                                         .border(
                                                             width = if (isSelected) 1.5.dp else 0.dp,
                                                             color = cellBorderColor,
-                                                            shape = RoundedCornerShape(10.dp)
+                                                            shape = RoundedCornerShape(8.dp)
                                                         )
                                                         .combinedClickable(
                                                             onClick = {
@@ -449,14 +468,14 @@ fun BrushPanel(
                                                                 reorderPresetName = preset.name
                                                             },
                                                         )
-                                                        .padding(6.dp),
+                                                        .padding(4.dp),
                                                     horizontalAlignment = Alignment.CenterHorizontally
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
                                                             .aspectRatio(1f)
-                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clip(RoundedCornerShape(6.dp))
                                                             .background(Morandi.panelHi),
                                                         contentAlignment = Alignment.Center
                                                     ) {
@@ -471,37 +490,19 @@ fun BrushPanel(
                                                                         scaleX = thumbScale
                                                                         scaleY = thumbScale
                                                                     }
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                            )
-                                                        }
-                                                        // Star badge in top-right
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .align(Alignment.TopEnd)
-                                                                .padding(3.dp)
-                                                                .size(24.dp)
-                                                                .clip(CircleShape)
-                                                                .background(Morandi.panel.copy(alpha = if (isFav) 0.85f else 0.45f))
-                                                                .clickable { vm.toggleFavoriteBrush(preset.name) },
-                                                            contentAlignment = Alignment.Center
-                                                        ) {
-                                                            Icon(
-                                                                painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
-                                                                contentDescription = if (isFav) "取消常用" else "加入常用",
-                                                                tint = if (isFav) Morandi.accent else Color.White.copy(alpha = 0.75f),
-                                                                modifier = Modifier.size(13.dp)
+                                                                    .clip(RoundedCornerShape(6.dp))
                                                             )
                                                         }
                                                     }
-                                                    Spacer(Modifier.height(4.dp))
+                                                    Spacer(Modifier.height(3.dp))
                                                     Text(
                                                         preset.name,
                                                         color = if (isSelected) Morandi.text else Morandi.subText,
-                                                        fontSize = 11.sp,
+                                                        fontSize = 10.sp,
                                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                                         maxLines = 1,
                                                         overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                                        modifier = Modifier.padding(horizontal = 1.dp)
                                                     )
                                                 }
                                             }
@@ -730,7 +731,7 @@ fun BrushPanel(
     // ---- dialogs -----------------------------------------------------
     if (showNewBrushDialog) {
         NewBrushPresetDialog(
-            groups = categories.filter { it !in listOf("全部", "★ 常用", "🕒 最近") },
+            groups = categories.filter { it !in listOf("全部", "常用", "最近") },
             onDismiss = { showNewBrushDialog = false },
             onCreate = { name, group ->
                 vm.createNewBrushPreset(name = name, group = group)
@@ -754,7 +755,7 @@ fun BrushPanel(
     }
     if (showNewGroupDialog) {
         NewBrushGroupDialog(
-            existing = categories.filter { it !in listOf("全部", "★ 常用", "🕒 最近") },
+            existing = categories.filter { it !in listOf("全部", "常用", "最近") },
             onDismiss = { showNewGroupDialog = false },
             onCreate = { name ->
                 if (vm.createBrushGroup(name)) {
@@ -766,7 +767,7 @@ fun BrushPanel(
     }
     if (categoryMenuTarget != null) {
         val cat = categoryMenuTarget!!
-        val isSpecialPinned = cat in setOf("全部", "★ 常用", "🕒 最近")
+        val isSpecialPinned = cat in setOf("全部", "常用", "最近")
         val isBuiltIn = isSpecialPinned || vm.isBuiltInGroup(cat)
         val catIdx = categories.indexOf(cat)
         CategoryMenuDialog(
@@ -843,7 +844,7 @@ fun BrushPanel(
     if (movePresetName != null) {
         MoveBrushGroupDialog(
             presetName = movePresetName!!,
-            groups = categories.filter { it !in listOf("全部", "★ 常用", "🕒 最近") },
+            groups = categories.filter { it !in listOf("全部", "常用", "最近") },
             onDismiss = { movePresetName = null },
             onMove = { g ->
                 vm.moveBrushToGroup(movePresetName!!, g)
@@ -978,7 +979,7 @@ private fun ReorderBrushMenu(
         text = {
             Column(Modifier.fillMaxWidth()) {
                 val menuItems = mutableListOf(
-                    (if (isFavorite) "取消常用 (★)" else "加入常用 (★)") to onToggleFavorite,
+                    (if (isFavorite) "取消常用" else "加入常用") to onToggleFavorite,
                     "复制笔刷" to onDuplicate,
                 )
                 if (!isBuiltIn) {
