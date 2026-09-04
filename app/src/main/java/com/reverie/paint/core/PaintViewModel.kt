@@ -297,12 +297,12 @@ class PaintViewModel : ViewModel() {
     // Brush panel persistence state
     var brushPanelSelectedCategory by mutableStateOf("全部")
     var brushPanelDetailIndex by mutableStateOf<Int?>(null)
-    var brushCategoryScrollIndex by mutableStateOf(0)
-    var brushCategoryScrollOffset by mutableStateOf(0)
-    var brushPresetScrollIndex by mutableStateOf(0)
-    var brushPresetScrollOffset by mutableStateOf(0)
-    var categoryPresetScrollMap by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
-    var brushPropertyScrollValue by mutableStateOf(0)
+    var brushCategoryScrollIndex: Int = 0
+    var brushCategoryScrollOffset: Int = 0
+    var brushPresetScrollIndex: Int = 0
+    var brushPresetScrollOffset: Int = 0
+    var categoryPresetScrollMap: Map<String, Pair<Int, Int>> = emptyMap()
+    var brushPropertyScrollValue: Int = 0
     var brushPanelGridView by mutableStateOf(false)
     var favoriteBrushNames by mutableStateOf<Set<String>>(emptySet())
     var recentBrushNames by mutableStateOf<List<String>>(emptyList())
@@ -350,7 +350,7 @@ class PaintViewModel : ViewModel() {
         return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)
     }
 
-    fun saveCategoryPresetScroll(cat: String, index: Int, offset: Int) {
+    fun saveCategoryPresetScroll(cat: String, index: Int, offset: Int, persist: Boolean = false) {
         brushPresetScrollIndex = index
         brushPresetScrollOffset = offset
         categoryPresetScrollMap = categoryPresetScrollMap.toMutableMap().apply {
@@ -363,7 +363,9 @@ class PaintViewModel : ViewModel() {
                 put(t.id, state.copy(presetScrollIndex = index, presetScrollOffset = offset))
             }
         }
-        persistBrushPanelState()
+        if (persist) {
+            persistBrushPanelState()
+        }
     }
 
     data class ToolBrushState(
@@ -379,7 +381,7 @@ class PaintViewModel : ViewModel() {
         val paramMemory: Map<String, List<Double>> = emptyMap(),
     )
 
-    var toolBrushStates by mutableStateOf<Map<String, ToolBrushState>>(emptyMap())
+    var toolBrushStates: Map<String, ToolBrushState> = emptyMap()
         internal set
 
     var pinnedTools by mutableStateOf<List<com.reverie.paint.model.Tool>>(

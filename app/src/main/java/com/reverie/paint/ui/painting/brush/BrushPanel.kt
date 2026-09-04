@@ -24,7 +24,8 @@ import androidx.compose.ui.res.painterResource
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.Image
@@ -59,9 +60,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -125,8 +123,6 @@ fun BrushPanel(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var movePresetName by remember { mutableStateOf<String?>(null) }
     var reorderPresetName by remember { mutableStateOf<String?>(null) }
-    var draggingPresetName by remember { mutableStateOf<String?>(null) }
-    var dragAccumulatedY by remember { mutableStateOf(0f) }
 
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -159,34 +155,52 @@ fun BrushPanel(
         initialFirstVisibleItemScrollOffset = initialPresetScroll.second
     )
 
-    // Continuously sync scroll positions in real time so state is never lost on sudden dismiss
-    LaunchedEffect(categoryScrollState) {
-        androidx.compose.runtime.snapshotFlow {
-            categoryScrollState.firstVisibleItemIndex to categoryScrollState.firstVisibleItemScrollOffset
-        }.collect { (idx, offset) ->
-            vm.brushCategoryScrollIndex = idx
-            vm.brushCategoryScrollOffset = offset
+    // Preload thumbnails in background to eliminate UI thread decoding during scroll
+    LaunchedEffect(vm.brushPresets) {
+        withContext(Dispatchers.IO) {
+            vm.brushPresets.forEach { preset ->
+                BrushThumbCache.preload(preset.name, preset.thumbBytes)
+            }
         }
+    }
+
+    // Sync scroll positions when scrolling is idle, avoiding continuous work while scrolling
+    LaunchedEffect(categoryScrollState) {
+        androidx.compose.runtime.snapshotFlow { categoryScrollState.isScrollInProgress }
+            .collect { inProgress ->
+                if (!inProgress) {
+                    vm.brushCategoryScrollIndex = categoryScrollState.firstVisibleItemIndex
+                    vm.brushCategoryScrollOffset = categoryScrollState.firstVisibleItemScrollOffset
+                }
+            }
     }
 
     LaunchedEffect(presetScrollState, selectedCategory) {
-        androidx.compose.runtime.snapshotFlow {
-            presetScrollState.firstVisibleItemIndex to presetScrollState.firstVisibleItemScrollOffset
-        }.collect { (idx, offset) ->
-            if (!vm.brushPanelGridView) {
-                vm.saveCategoryPresetScroll(selectedCategory, idx, offset)
+        androidx.compose.runtime.snapshotFlow { presetScrollState.isScrollInProgress }
+            .collect { inProgress ->
+                if (!inProgress && !vm.brushPanelGridView) {
+                    vm.saveCategoryPresetScroll(
+                        selectedCategory,
+                        presetScrollState.firstVisibleItemIndex,
+                        presetScrollState.firstVisibleItemScrollOffset,
+                        persist = false
+                    )
+                }
             }
-        }
     }
 
     LaunchedEffect(presetGridScrollState, selectedCategory) {
-        androidx.compose.runtime.snapshotFlow {
-            presetGridScrollState.firstVisibleItemIndex to presetGridScrollState.firstVisibleItemScrollOffset
-        }.collect { (idx, offset) ->
-            if (vm.brushPanelGridView) {
-                vm.saveCategoryPresetScroll(selectedCategory, idx, offset)
+        androidx.compose.runtime.snapshotFlow { presetGridScrollState.isScrollInProgress }
+            .collect { inProgress ->
+                if (!inProgress && vm.brushPanelGridView) {
+                    vm.saveCategoryPresetScroll(
+                        selectedCategory,
+                        presetGridScrollState.firstVisibleItemIndex,
+                        presetGridScrollState.firstVisibleItemScrollOffset,
+                        persist = false
+                    )
+                }
             }
-        }
     }
 
     // Restore category-specific scroll offset when switching category
@@ -215,7 +229,8 @@ fun BrushPanel(
             vm.saveCategoryPresetScroll(
                 selectedCategory,
                 curIdx,
-                curOffset
+                curOffset,
+                persist = true
             )
             vm.brushPanelDetailIndex = (view as? BrushView.Detail)?.index
             vm.persistBrushPanelState()
@@ -279,7 +294,7 @@ fun BrushPanel(
                                         .fillMaxHeight()
                                         .background(Morandi.panel.copy(alpha = opacity))
                                 ) {
-                                    items(categories) { cat ->
+                                    items(categories, key = { it }) { cat ->
                                         val sel = cat == selectedCategory
                                         val iconRes = when (cat) {
                                             "常用" -> R.drawable.ic_star
@@ -440,90 +455,20 @@ fun BrushPanel(
                                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                                 ) {
-                                                    items(filtered, key = { it.name }) { preset ->
+                                                    items(filtered, key = { it.name }, contentType = { "preset_grid" }) { preset ->
                                                         val isSelected = preset.index == vm.brushPresetIndex
-                                                        val cellBg by animateColorAsState(
-                                                            targetValue = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panel.copy(alpha = 0.5f),
-                                                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
-                                                            label = "brushGridBg",
+                                                        PresetGridCard(
+                                                            preset = preset,
+                                                            isSelected = isSelected,
+                                                            onClick = {
+                                                                if (isSelected) view = BrushView.Detail(preset.index)
+                                                                else vm.selectBrushPreset(preset.index)
+                                                            },
+                                                            onLongClick = {
+                                                                reorderPresetName = preset.name
+                                                            },
+                                                            modifier = Modifier.animateItem()
                                                         )
-                                                        val cellBorderColor by animateColorAsState(
-                                                            targetValue = if (isSelected) Morandi.accent else Color.Transparent,
-                                                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
-                                                            label = "brushGridBorder",
-                                                        )
-                                                        val thumbScale by animateFloatAsState(
-                                                            targetValue = if (isSelected) 1.04f else 1f,
-                                                            animationSpec = spring(dampingRatio = 0.55f, stiffness = 400f),
-                                                            label = "brushGridPop",
-                                                        )
-
-                                                        Column(
-                                                            modifier = Modifier
-                                                                .animateItem()
-                                                                .fillMaxWidth()
-                                                                .clip(RoundedCornerShape(8.dp))
-                                                                .background(cellBg)
-                                                                .border(
-                                                                    width = if (isSelected) 1.5.dp else 0.dp,
-                                                                    color = cellBorderColor,
-                                                                    shape = RoundedCornerShape(8.dp)
-                                                                )
-                                                                .combinedClickable(
-                                                                    onClick = {
-                                                                        if (isSelected) view = BrushView.Detail(preset.index)
-                                                                        else vm.selectBrushPreset(preset.index)
-                                                                    },
-                                                                    onLongClick = {
-                                                                        reorderPresetName = preset.name
-                                                                    },
-                                                                )
-                                                                .padding(4.dp),
-                                                            horizontalAlignment = Alignment.CenterHorizontally
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .aspectRatio(1f)
-                                                                    .clip(RoundedCornerShape(6.dp))
-                                                                    .background(Morandi.panelHi),
-                                                                contentAlignment = Alignment.Center
-                                                            ) {
-                                                                val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
-                                                                if (bmp != null) {
-                                                                  Image(
-                                                                    bitmap =
-                                                                        bmp.asImageBitmap(),
-                                                                    contentDescription =
-                                                                        preset.name,
-                                                                    modifier =
-                                                                        Modifier
-                                                                            .fillMaxSize()
-                                                                            .graphicsLayer {
-                                                                              scaleX =
-                                                                                  thumbScale
-                                                                              scaleY =
-                                                                                  thumbScale
-                                                                            }
-                                                                            .clip(
-                                                                                RoundedCornerShape(
-                                                                                    6.dp
-                                                                                )
-                                                                            ),
-                                                                  )
-                                                                }
-                                                            }
-                                                            Spacer(Modifier.height(3.dp))
-                                                            Text(
-                                                                preset.name,
-                                                                color = if (isSelected) Morandi.text else Morandi.subText,
-                                                                fontSize = 10.sp,
-                                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                                                maxLines = 1,
-                                                                overflow = TextOverflow.Ellipsis,
-                                                                modifier = Modifier.padding(horizontal = 1.dp)
-                                                            )
-                                                        }
                                                     }
                                                 }
                                             } else {
@@ -534,147 +479,25 @@ fun BrushPanel(
                                                         .padding(horizontal = 12.dp),
                                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
-                                                    items(filtered, key = { it.name }) { preset ->
+                                                    items(filtered, key = { it.name }, contentType = { "preset_list" }) { preset ->
                                                         val isSelected = preset.index == vm.brushPresetIndex
-                                                        val isDragging = draggingPresetName == preset.name
                                                         val isFav = vm.isFavoriteBrush(preset.name)
-                                                        val cellBg by animateColorAsState(
-                                                            targetValue = when {
-                                                                isDragging -> Morandi.panelHi
-                                                                isSelected -> Morandi.accent.copy(alpha = 0.10f)
-                                                                else -> Morandi.panel.copy(alpha = 0.5f)
+                                                        PresetListRow(
+                                                            preset = preset,
+                                                            isSelected = isSelected,
+                                                            isFav = isFav,
+                                                            onClick = {
+                                                                if (isSelected) view = BrushView.Detail(preset.index)
+                                                                else vm.selectBrushPreset(preset.index)
                                                             },
-                                                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
-                                                            label = "brushCellBg",
+                                                            onLongClick = {
+                                                                reorderPresetName = preset.name
+                                                            },
+                                                            onToggleFav = {
+                                                                vm.toggleFavoriteBrush(preset.name)
+                                                            },
+                                                            modifier = Modifier.animateItem()
                                                         )
-                                                        val cellBorderColor by animateColorAsState(
-                                                            targetValue = if (isDragging || isSelected) Morandi.accent else Color.Transparent,
-                                                            animationSpec = spring(dampingRatio = 0.9f, stiffness = 500f),
-                                                            label = "brushCellBorder",
-                                                        )
-                                                        val thumbScale by animateFloatAsState(
-                                                            targetValue = if (isSelected) 1.06f else 1f,
-                                                            animationSpec = spring(dampingRatio = 0.55f, stiffness = 400f),
-                                                            label = "brushThumbPop",
-                                                        )
-                                                        Row(
-                                                            modifier = Modifier
-                                                                .animateItem()
-                                                                .fillMaxWidth()
-                                                                .height(52.dp)
-                                                                .graphicsLayer {
-                                                                    if (isDragging) {
-                                                                        translationY = dragAccumulatedY
-                                                                        shadowElevation = 16f
-                                                                        scaleX = 1.03f
-                                                                        scaleY = 1.03f
-                                                                    }
-                                                                }
-                                                                .zIndex(if (isDragging) 10f else 0f)
-                                                                .clip(RoundedCornerShape(10.dp))
-                                                                .background(cellBg)
-                                                                .border(
-                                                                    width = if (isDragging || isSelected) 1.dp else 0.dp,
-                                                                    color = cellBorderColor,
-                                                                    shape = RoundedCornerShape(10.dp)
-                                                                )
-                                                                .pointerInput(preset.name) {
-                                                                    detectDragGesturesAfterLongPress(
-                                                                        onDragStart = {
-                                                                            draggingPresetName = preset.name
-                                                                            dragAccumulatedY = 0f
-                                                                        },
-                                                                        onDragEnd = {
-                                                                            draggingPresetName = null
-                                                                            dragAccumulatedY = 0f
-                                                                        },
-                                                                        onDragCancel = {
-                                                                            draggingPresetName = null
-                                                                            dragAccumulatedY = 0f
-                                                                        },
-                                                                        onDrag = { change, dragAmount ->
-                                                                            change.consume()
-                                                                            dragAccumulatedY += dragAmount.y
-                                                                            val threshold = 110f
-                                                                            if (dragAccumulatedY > threshold) {
-                                                                                val curIdx = vm.brushPresets.indexOfFirst { it.name == preset.name }
-                                                                                if (curIdx >= 0 && curIdx < vm.brushPresets.size - 1) {
-                                                                                    vm.reorderBrushPresets(curIdx, curIdx + 1)
-                                                                                    dragAccumulatedY -= threshold
-                                                                                }
-                                                                            } else if (dragAccumulatedY < -threshold) {
-                                                                                val curIdx = vm.brushPresets.indexOfFirst { it.name == preset.name }
-                                                                                if (curIdx > 0) {
-                                                                                    vm.reorderBrushPresets(curIdx, curIdx - 1)
-                                                                                    dragAccumulatedY += threshold
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    )
-                                                                }
-                                                                .combinedClickable(
-                                                                    onClick = {
-                                                                        if (isSelected) view = BrushView.Detail(preset.index)
-                                                                        else vm.selectBrushPreset(preset.index)
-                                                                    },
-                                                                    onLongClick = {
-                                                                        reorderPresetName = preset.name
-                                                                    },
-                                                                )
-                                                                .padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                                                            verticalAlignment = Alignment.CenterVertically
-                                                        ) {
-                                                            val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
-                                                            if (bmp != null) {
-                                                                Image(
-                                                                    bitmap = bmp.asImageBitmap(),
-                                                                    contentDescription = preset.name,
-                                                                    modifier = Modifier
-                                                                        .size(38.dp)
-                                                                        .graphicsLayer {
-                                                                            scaleX = thumbScale
-                                                                            scaleY = thumbScale
-                                                                        }
-                                                                        .clip(RoundedCornerShape(7.dp))
-                                                                )
-                                                            } else {
-                                                                Box(
-                                                                    modifier = Modifier
-                                                                        .size(38.dp)
-                                                                        .clip(RoundedCornerShape(7.dp))
-                                                                        .background(Morandi.panelHi)
-                                                                )
-                                                            }
-                                                            Spacer(Modifier.width(10.dp))
-                                                            Column(Modifier.weight(1f)) {
-                                                                Text(
-                                                                    preset.name,
-                                                                    color = if (isSelected) Morandi.text else Morandi.subText,
-                                                                    fontSize = 12.sp,
-                                                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                                                    maxLines = 1,
-                                                                    overflow = TextOverflow.Ellipsis,
-                                                                )
-                                                                if (isSelected) {
-                                                                    Text("使用中 · 点按调属性", color = Morandi.subText, fontSize = 10.sp)
-                                                                }
-                                                            }
-                                                            // Star button
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(36.dp)
-                                                                    .clip(CircleShape)
-                                                                    .clickable { vm.toggleFavoriteBrush(preset.name) },
-                                                                contentAlignment = Alignment.Center
-                                                            ) {
-                                                                Icon(
-                                                                    painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
-                                                                    contentDescription = if (isFav) "取消常用" else "加入常用",
-                                                                    tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.35f),
-                                                                    modifier = Modifier.size(16.dp)
-                                                                )
-                                                            }
-                                                        }
                                                     }
                                                 }
                                             }
@@ -872,6 +695,162 @@ fun BrushPanel(
                 movePresetName = null
             },
         )
+    }
+}
+
+@Composable
+private fun PresetGridCard(
+    preset: BrushPresetInfo,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panel.copy(alpha = 0.5f)
+    val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cellBg)
+            .border(
+                width = if (isSelected) 1.5.dp else 0.dp,
+                color = cellBorderColor,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Morandi.panelHi),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = preset.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (isSelected) {
+                                Modifier.graphicsLayer {
+                                    scaleX = 1.04f
+                                    scaleY = 1.04f
+                                }
+                            } else Modifier
+                        )
+                        .clip(RoundedCornerShape(6.dp)),
+                )
+            }
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            preset.name,
+            color = if (isSelected) Morandi.text else Morandi.subText,
+            fontSize = 10.sp,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 1.dp)
+        )
+    }
+}
+
+@Composable
+private fun PresetListRow(
+    preset: BrushPresetInfo,
+    isSelected: Boolean,
+    isFav: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleFav: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.10f) else Morandi.panel.copy(alpha = 0.5f)
+    val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(cellBg)
+            .border(
+                width = if (isSelected) 1.dp else 0.dp,
+                color = cellBorderColor,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick,
+            )
+            .padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+        if (bmp != null) {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = preset.name,
+                modifier = Modifier
+                    .size(38.dp)
+                    .then(
+                        if (isSelected) {
+                            Modifier.graphicsLayer {
+                                scaleX = 1.06f
+                                scaleY = 1.06f
+                            }
+                        } else Modifier
+                    )
+                    .clip(RoundedCornerShape(7.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(Morandi.panelHi)
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                preset.name,
+                color = if (isSelected) Morandi.text else Morandi.subText,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (isSelected) {
+                Text("使用中 · 点按调属性", color = Morandi.subText, fontSize = 10.sp)
+            }
+        }
+        // Star button
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onToggleFav),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
+                contentDescription = if (isFav) "取消常用" else "加入常用",
+                tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.35f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 
