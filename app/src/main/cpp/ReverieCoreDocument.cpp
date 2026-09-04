@@ -35,6 +35,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // so m_undoStore must be reset to nullptr to prevent dangling pointer access.
     m_document.clear();
     m_undoStore = nullptr;
+    m_macroDepth = 0;
     m_selection = KisSelectionSP();
 
     // Reset the display pipeline: a new document (possibly same size as the
@@ -182,7 +183,7 @@ void ReverieCore::setBrushColorName(const QString &colorName)
 {
     QColor c(colorName);
     if (c.isValid()) {
-        m_brushColor = c;
+        setBrushColor(c);
     }
 }
 

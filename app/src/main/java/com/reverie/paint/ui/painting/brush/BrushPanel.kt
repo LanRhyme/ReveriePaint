@@ -398,7 +398,7 @@ fun BrushPanel(
                                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                val bmp = rememberBytes(preset.thumbBytes)
+                                                val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
                                                 if (bmp != null) {
                                                     Image(
                                                         bitmap = bmp.asImageBitmap(),
@@ -1153,7 +1153,7 @@ fun BrushPropertyPage(
 @Composable
 private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
     return androidx.compose.runtime.remember(bytes) {
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        BrushThumbCache.get(bytes.hashCode().toString(), bytes)
     }
 }
 

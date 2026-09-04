@@ -18,12 +18,15 @@
 #include <QRect>
 #include <QString>
 #include <QHash>
+#include <QMutex>
 
 #include <kis_types.h>
 #include <brushengine/kis_paintop.h>
 #include <KisResourcesInterface.h>
 #include <KisFakeRunnableStrokeJobsExecutor.h>
 
+class KisBrush;
+typedef QSharedPointer<KisBrush> KisBrushSP;
 class KisImage;
 class KisPaintLayer;
 class KisPainter;
@@ -355,8 +358,8 @@ public:
     qreal brushSize() const { return m_brushSize; }
     /** 当前预设 Size 压感曲线求值：pressure∈[0,1] → 尺寸比例∈[0,1]（光标环同源缩放） */
     float brushPressureFraction(float pressure);
-    void setBrushColor(const QColor &c) { m_brushColor = c; }
-    void setBrushSecondaryColor(const QColor &c) { m_brushSecondaryColor = c; }
+    void setBrushColor(const QColor &c);
+    void setBrushSecondaryColor(const QColor &c);
     void setBrushColorName(const QString &colorName);
     void setBrushOpacity(qreal opacity);
     qreal brushOpacity() const { return m_brushOpacity; }
@@ -375,6 +378,8 @@ public:
     bool canRedo() const { return m_redoCount > 0; }
     void undo();
     void redo();
+    void beginUndoMacro(const QString &text = QString());
+    void endUndoMacro();
     // Replay support: while undo capture is disabled, strokes and ops apply
     // normally but push no undo commands (no memory growth, no history),
     // and clearUndoHistory drops all recorded commands. The document image
@@ -388,6 +393,7 @@ public:
     // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
     // Returns true when a dot was painted.
     bool touchStrokeKickIdle();
+    bool flushStrokeBatch();
     void touchStrokeEnd();
     void touchStrokeCancel();
 
@@ -425,6 +431,8 @@ public:
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
     void setPresetIsEraser(bool eraser);
+    bool setBrushTipAsset(const QString &assetName);
+    bool hasPendingStrokeSamples() const { return m_strokeSamples.size() > m_strokeCarryCount; }
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
     // Rendering: fill the given RGBA buffer (w*h*4 bytes, stride w*4)
@@ -480,8 +488,6 @@ private:
     // refresh-walker + async-merger pair for exactly this case.
     // Returns true when a flush painted ink in this call.
     bool appendStrokeSample(const QPointF &imgPos, qreal pressure);
-    // Returns true when new ink was painted (dirty region produced).
-    bool flushStrokeBatch();
     void endStrokeBatch();
 
     struct StrokeSample {
@@ -557,15 +563,19 @@ private:
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;
     qreal m_brushFlow = 1.0;
+    qreal m_brushSpacing = 0.1;
+    QString m_brushTipAsset;
     ToolMode m_toolMode = ToolBrush;
 
     // Krita brush engine state
     KisPaintOpPresetSP m_brushPreset;
     KisResourcesInterfaceSP m_brushResources;
+    QHash<QString, KisBrushSP> m_loadedBrushes;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
     // Size 压感曲线缓存（预设切换时失效；光标环每帧查询用）
+    mutable QMutex m_sizeCurveMutex;
     const void *m_sizeCurveOwner = nullptr;   // settings 指针，变更即重解析
     QVector<QPointF> m_sizeCurveCache;        // 归一化控制点（空 = 无压感响应）
     bool m_sizeUseCurveCache = false;
@@ -681,6 +691,7 @@ private:
     // add/remove/move and layer attributes - not just brush strokes.
     KisSurrogateUndoStore *m_undoStore = nullptr;
     int m_redoCount = 0;   // redo depth tracked locally (store hides it)
+    int m_macroDepth = 0;  // nested macro transaction depth
     bool m_undoCaptureEnabled = true; // false during replay (no history growth)
     // Deferred stroke transaction: created at the first real flush (after
     // the stroke device exists), committed at stroke end, discarded on

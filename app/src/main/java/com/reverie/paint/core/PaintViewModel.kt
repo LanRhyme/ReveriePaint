@@ -311,6 +311,13 @@ class PaintViewModel : ViewModel() {
     internal var smoothedStrokeX = 0f
     internal var smoothedStrokeY = 0f
     internal var smoothedStrokePressure = 0.0
+    internal var lastStrokeTimeMs: Long = 0L
+    internal var lastStrokeX: Float = 0f
+    internal var lastStrokeY: Float = 0f
+    internal var lastStrokeDeltaX: Float = 0f
+    internal var lastStrokeDeltaY: Float = 0f
+    internal var strokeDistanceAccumulator: Float = 0f
+    internal var lastDynamicColor: String = ""
 
     fun getCategoryPresetScroll(cat: String): Pair<Int, Int> {
         return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)

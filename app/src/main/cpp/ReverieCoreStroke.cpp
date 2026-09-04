@@ -209,6 +209,12 @@ void ReverieCore::touchStrokeCancel()
             markDirty();
         }
     }
+    while (m_macroDepth > 0) {
+        if (m_document && m_document->undoAdapter()) {
+            m_document->undoAdapter()->endMacro();
+        }
+        m_macroDepth--;
+    }
     m_snapshotPending = false;
     m_strokeSamples.clear();
     m_strokeCarryCount = 0;
@@ -720,6 +726,23 @@ void ReverieCore::clearUndoHistory()
     }
     m_undoStore->clear();
     m_redoCount = 0;
+}
+
+void ReverieCore::beginUndoMacro(const QString &text)
+{
+    if (m_document && m_document->undoAdapter() && m_undoCaptureEnabled) {
+        QString macroName = text.isEmpty() ? QStringLiteral("Stroke") : text;
+        m_document->undoAdapter()->beginMacro(kundo2_i18n(macroName.toUtf8().constData()));
+        m_macroDepth++;
+    }
+}
+
+void ReverieCore::endUndoMacro()
+{
+    if (m_document && m_document->undoAdapter() && m_macroDepth > 0) {
+        m_document->undoAdapter()->endMacro();
+        m_macroDepth--;
+    }
 }
 
 bool ReverieCore::canUndo() const

@@ -256,7 +256,8 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
-    private val mirroredBranches = mutableListOf<MutableList<Point2D>>()
+    data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double)
+    private val mirroredBranches = mutableListOf<MutableList<SymStrokeSample>>()
     private val mirroredDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -1259,15 +1260,23 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
+                if (hasSymmetry) {
+                    v.runCore(render = false) {
+                        ReverieCoreBridge.beginUndoMacro("Symmetry Stroke")
+                    }
+                }
                 smoothedPressure = pressure
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
 
                 mirroredBranches.clear()
-                val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
-                for (symPt in symPts) {
-                    val branch = mutableListOf<Point2D>()
-                    branch.add(symPt)
-                    mirroredBranches.add(branch)
+                if (hasSymmetry) {
+                    val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
+                    for (symPt in symPts) {
+                        val branch = mutableListOf<SymStrokeSample>()
+                        branch.add(SymStrokeSample(symPt.x, symPt.y, pressure.toDouble()))
+                        mirroredBranches.add(branch)
+                    }
                 }
             }
             Tool.LIQUIFY -> {
@@ -1423,14 +1432,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble())
                     val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                     for (idx in symPts.indices) {
-                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(symPts[idx])
+                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
                     }
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
                 val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                 for (idx in symPts.indices) {
-                    if (idx < mirroredBranches.size) mirroredBranches[idx].add(symPts[idx])
+                    if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
                 }
             }
             Tool.LIQUIFY -> {
@@ -1571,62 +1580,17 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    private fun bakeSymmetricBranch(branch: List<Point2D>) {
+    private fun replaySymmetricBranch(branch: List<SymStrokeSample>) {
         val v = vm ?: return
         if (branch.size < 2) return
 
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
-        var maxY = Float.MIN_VALUE
-        for (pt in branch) {
-            if (pt.x < minX) minX = pt.x
-            if (pt.x > maxX) maxX = pt.x
-            if (pt.y < minY) minY = pt.y
-            if (pt.y > maxY) maxY = pt.y
-        }
-
-        val strokeW = (v.brushSize.toFloat()).coerceAtLeast(1f)
-        val pad = strokeW + 16f
-        val left = (minX - pad).toInt().coerceIn(0, maxOf(0, v.docWidth - 1))
-        val top = (minY - pad).toInt().coerceIn(0, maxOf(0, v.docHeight - 1))
-        val right = (maxX + pad).toInt().coerceIn(left + 1, v.docWidth)
-        val bottom = (maxY + pad).toInt().coerceIn(top + 1, v.docHeight)
-        val bw = right - left
-        val bh = bottom - top
-        if (bw <= 0 || bh <= 0) return
-
-        val bmp = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bmp)
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            style = android.graphics.Paint.Style.STROKE
-            strokeCap = android.graphics.Paint.Cap.ROUND
-            strokeJoin = android.graphics.Paint.Join.ROUND
-            this.strokeWidth = strokeW
-            val parsedColor = try {
-                android.graphics.Color.parseColor(v.brushColor)
-            } catch (_: Throwable) {
-                android.graphics.Color.BLACK
-            }
-            color = parsedColor
-            alpha = (v.brushOpacity * 255).toInt().coerceIn(0, 255)
-        }
-
-        val path = android.graphics.Path()
-        path.moveTo(branch[0].x - left, branch[0].y - top)
+        val start = branch[0]
+        v.touchStart(start.x, start.y, start.pressure)
         for (i in 1 until branch.size) {
-            val prev = branch[i - 1]
-            val cur = branch[i]
-            val midX = (prev.x + cur.x) / 2f - left
-            val midY = (prev.y + cur.y) / 2f - top
-            path.quadTo(prev.x - left, prev.y - top, midX, midY)
+            val pt = branch[i]
+            v.touchMove(pt.x, pt.y, pt.pressure)
         }
-        path.lineTo(branch.last().x - left, branch.last().y - top)
-        canvas.drawPath(path, paint)
-
-        v.runCore {
-            ReverieCoreBridge.stampBitmap(left, top, bmp)
-        }
+        v.touchEnd()
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
@@ -1639,16 +1603,26 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 if (strokeStarted) {
                     if (isCancel) {
                         v.touchCancel()
+                        if (hasSymmetry) {
+                            v.runCore(render = false) {
+                                ReverieCoreBridge.endUndoMacro()
+                            }
+                        }
                     } else {
                         v.touchEnd()
-                        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-                            for (branch in mirroredBranches) {
+                        if (hasSymmetry && mirroredBranches.isNotEmpty()) {
+                            val branchesToReplay = mirroredBranches.map { ArrayList(it) }
+                            for (branch in branchesToReplay) {
                                 if (branch.size >= 2) {
-                                    bakeSymmetricBranch(branch)
+                                    replaySymmetricBranch(branch)
                                 }
+                            }
+                            v.runCore(render = false) {
+                                ReverieCoreBridge.endUndoMacro()
                             }
                         }
                     }

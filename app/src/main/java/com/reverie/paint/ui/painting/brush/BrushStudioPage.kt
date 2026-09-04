@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -51,6 +53,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -220,7 +224,7 @@ fun BrushStudioPage(
                 filename = "",
                 name = "预设默认笔尖",
                 isCustom = false,
-                bitmap = preset?.thumbBytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) },
+                bitmap = preset?.thumbBytes?.let { BrushThumbCache.get(preset.name, it) },
             )
         )
         // 2. Custom User Tips in filesDir/brushes
@@ -1636,6 +1640,7 @@ private fun ScratchpadCanvas(
     onStrokeEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val brushColor = remember(vm.brushColor) {
         runCatching { Color(android.graphics.Color.parseColor(vm.brushColor)) }.getOrDefault(Color.White)
     }
@@ -1645,6 +1650,13 @@ private fun ScratchpadCanvas(
     val ratio = vm.brushRatio.toFloat().coerceIn(0.05f, 1f)
     val baseRadius = (vm.brushSize.toFloat().coerceIn(8f, 56f) / 2f)
     val isSquare = vm.brushTipShape == 1
+    val angle = (vm.brushAngle + vm.brushRotation).toFloat()
+    val tipBitmap = remember(context, vm.brushTipAsset) {
+        if (vm.brushTipAsset.isNotBlank()) {
+            BrushTipDecoder.loadTip(context, vm.brushTipAsset)
+        } else null
+    }
+    val tipImageBitmap = remember(tipBitmap) { tipBitmap?.asImageBitmap() }
 
     Canvas(
         modifier = modifier.pointerInput(Unit) {
@@ -1671,28 +1683,89 @@ private fun ScratchpadCanvas(
                 if (dist >= spacing || lastDab.x < 0) {
                     lastDab = curPos
                     val rad = baseRadius * (if (vm.brushPressureEnabled) (0.2f + 0.8f * pt.pressure * vm.brushPressureSize.toFloat()) else 1f)
-                    val dabAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pt.pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
+                    val baseAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pt.pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
+                    val texMod = if (vm.brushTextureEnabled) {
+                        0.8f + 0.4f * (((curPos.x.toInt() * 73 + curPos.y.toInt() * 37) and 0xFF) / 255f) * vm.brushTextureStrength.toFloat()
+                    } else 1f
+                    val dabAlpha = (baseAlpha * texMod).coerceIn(0.01f, 1f)
 
-                    if (isSquare) {
-                        drawRect(
-                            color = brushColor.copy(alpha = dabAlpha),
-                            topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
-                            size = Size(rad * 2f, rad * 2f * ratio),
-                        )
+                    if (tipImageBitmap != null) {
+                        val dabW = (rad * 2f).coerceAtLeast(2f)
+                        val dabH = (rad * 2f * ratio).coerceAtLeast(2f)
+                        if (angle != 0f) {
+                            withTransform({
+                                rotate(angle, curPos)
+                            }) {
+                                drawImage(
+                                    image = tipImageBitmap,
+                                    dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
+                                    dstSize = IntSize(dabW.toInt(), dabH.toInt()),
+                                    alpha = dabAlpha,
+                                    colorFilter = ColorFilter.tint(brushColor, BlendMode.SrcIn),
+                                )
+                            }
+                        } else {
+                            drawImage(
+                                image = tipImageBitmap,
+                                dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
+                                dstSize = IntSize(dabW.toInt(), dabH.toInt()),
+                                alpha = dabAlpha,
+                                colorFilter = ColorFilter.tint(brushColor, BlendMode.SrcIn),
+                            )
+                        }
+                    } else if (isSquare) {
+                        if (angle != 0f) {
+                            withTransform({
+                                rotate(angle, curPos)
+                            }) {
+                                drawRect(
+                                    color = brushColor.copy(alpha = dabAlpha),
+                                    topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
+                                    size = Size(rad * 2f, rad * 2f * ratio),
+                                )
+                            }
+                        } else {
+                            drawRect(
+                                color = brushColor.copy(alpha = dabAlpha),
+                                topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
+                                size = Size(rad * 2f, rad * 2f * ratio),
+                            )
+                        }
                     } else {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    brushColor.copy(alpha = dabAlpha),
-                                    brushColor.copy(alpha = dabAlpha * hardness),
-                                    brushColor.copy(alpha = 0f),
+                        if (ratio < 0.99f || angle != 0f) {
+                            withTransform({
+                                if (angle != 0f) rotate(angle, curPos)
+                                scale(scaleX = 1f, scaleY = ratio, pivot = curPos)
+                            }) {
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            brushColor.copy(alpha = dabAlpha),
+                                            brushColor.copy(alpha = dabAlpha * hardness),
+                                            brushColor.copy(alpha = 0f),
+                                        ),
+                                        center = curPos,
+                                        radius = rad.coerceAtLeast(1.5f),
+                                    ),
+                                    radius = rad.coerceAtLeast(1.5f),
+                                    center = curPos,
+                                )
+                            }
+                        } else {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        brushColor.copy(alpha = dabAlpha),
+                                        brushColor.copy(alpha = dabAlpha * hardness),
+                                        brushColor.copy(alpha = 0f),
+                                    ),
+                                    center = curPos,
+                                    radius = rad.coerceAtLeast(1.5f),
                                 ),
-                                center = curPos,
                                 radius = rad.coerceAtLeast(1.5f),
-                            ),
-                            radius = rad.coerceAtLeast(1.5f),
-                            center = curPos,
-                        )
+                                center = curPos,
+                            )
+                        }
                     }
                 }
             }

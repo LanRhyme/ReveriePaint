@@ -228,6 +228,24 @@ Java_com_reverie_paint_core_ReverieCoreBridge_clearUndoHistory(JNIEnv *, jobject
     core()->clearUndoHistory();
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_beginUndoMacro(JNIEnv *env, jobject, jstring text)
+{
+    QString qText;
+    if (text) {
+        const char *chars = env->GetStringUTFChars(text, nullptr);
+        qText = QString::fromUtf8(chars);
+        env->ReleaseStringUTFChars(text, chars);
+    }
+    core()->beginUndoMacro(qText);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_endUndoMacro(JNIEnv *, jobject)
+{
+    core()->endUndoMacro();
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_canUndo(JNIEnv *, jobject)
 {

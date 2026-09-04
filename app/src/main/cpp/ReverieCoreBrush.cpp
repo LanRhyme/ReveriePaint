@@ -14,6 +14,7 @@
 
 float ReverieCore::brushPressureFraction(float pressure)
 {
+    QMutexLocker locker(&m_sizeCurveMutex);
     auto *settings = m_brushPreset ? m_brushPreset->settings().data() : nullptr;
     if (!settings) return 1.0f;
 
@@ -61,6 +62,23 @@ float ReverieCore::brushPressureFraction(float pressure)
         + (2.0 * p0.y() - 5.0 * p1.y() + 4.0 * p2.y() - p3.y()) * t2
         + (-p0.y() + 3.0 * p1.y() - 3.0 * p2.y() + p3.y()) * t3);
     return static_cast<float>(qBound(0.0, y, 1.0));
+}
+
+void ReverieCore::setBrushColor(const QColor &c)
+{
+    m_brushColor = c;
+    m_strokeColor = c;
+    if (m_strokePainter && m_document && m_document->colorSpace()) {
+        m_strokePainter->setPaintColor(KoColor(c, m_document->colorSpace()));
+    }
+}
+
+void ReverieCore::setBrushSecondaryColor(const QColor &c)
+{
+    m_brushSecondaryColor = c;
+    if (m_strokePainter && m_document && m_document->colorSpace()) {
+        m_strokePainter->setBackgroundColor(KoColor(c, m_document->colorSpace()));
+    }
 }
 
 void ReverieCore::registerPaintOps()
@@ -150,6 +168,10 @@ int ReverieCore::loadBrushResources(const QString &dirPath)
                     dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
                 if (lr) {
                     lr->addResource(KoResourceSP(res));
+                    KisBrush *b = dynamic_cast<KisBrush *>(res);
+                    if (b) {
+                        m_loadedBrushes.insert(base, KisBrushSP(b));
+                    }
                     ++loaded;
                 } else {
                     delete res;
@@ -198,11 +220,15 @@ bool ReverieCore::loadBrushPreset(int index)
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
+    setBrushSpacing(m_brushSpacing);
     setBrushSmudgeRate(m_smudgeRate);
     setBrushSmudgeLength(m_smudgeLength);
     // Re-apply the airbrush mode over the preset's own keys (same pattern as
     // size/opacity/flow above; members keep the user's last values).
     setBrushAirbrush(m_airbrushEnabled, m_airbrushRate);
+    if (!m_brushTipAsset.isEmpty()) {
+        setBrushTipAsset(m_brushTipAsset);
+    }
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =
@@ -352,12 +378,15 @@ void ReverieCore::setBrushAirbrush(bool enabled, qreal rate)
 
 void ReverieCore::setBrushSpacing(qreal v)
 {
+    m_brushSpacing = v;
     if (m_brushPreset && m_brushPreset->settings()) {
         KisBrushBasedPaintOpSettings *bs =
             dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
         if (bs) {
             bs->setSpacing(v);
         }
+        m_brushPreset->settings()->setProperty("spacing", v);
+        m_brushPreset->settings()->setProperty("SpacingValue", v);
     }
 }
 
@@ -428,5 +457,39 @@ void ReverieCore::setBrushCompositeOp(const QString &op)
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpCompositeOp(op);
     }
+}
+
+bool ReverieCore::setBrushTipAsset(const QString &assetName)
+{
+    m_brushTipAsset = assetName;
+    if (assetName.isEmpty() || !m_brushPreset || !m_brushPreset->settings()) {
+        return false;
+    }
+    KisBrushBasedPaintOpSettings *bs =
+        dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
+    if (!bs) {
+        return false;
+    }
+    KisBrushSP brush = m_loadedBrushes.value(assetName);
+    if (!brush) {
+        for (auto it = m_loadedBrushes.begin(); it != m_loadedBrushes.end(); ++it) {
+            if (it.key().compare(assetName, Qt::CaseInsensitive) == 0 ||
+                it.key().startsWith(assetName, Qt::CaseInsensitive) ||
+                (it.value() && it.value()->name().compare(assetName, Qt::CaseInsensitive) == 0)) {
+                brush = it.value();
+                break;
+            }
+        }
+    }
+    if (!brush) {
+        RPC_LOG("RPC setBrushTipAsset not found: %s", assetName.toUtf8().constData());
+        return false;
+    }
+    KisBrushOptionProperties prop;
+    prop.readOptionSetting(bs, m_brushResources, bs->canvasResourcesInterface());
+    prop.setBrush(brush);
+    prop.writeOptionSetting(bs);
+    RPC_LOG("RPC setBrushTipAsset SUCCESS: %s", assetName.toUtf8().constData());
+    return true;
 }
 

@@ -366,6 +366,7 @@ import kotlinx.coroutines.launch
     internal fun PaintViewModel.updateBrushTipAsset(asset: String) {
         brushTipAsset = asset
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushTipAsset(asset) }
     }
 
     internal fun PaintViewModel.updateBrushPaintOpId(id: String) {
@@ -414,11 +415,13 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
         brushMinSizeLimit = v
+        if (brushSize < v) updateBrushSize(v)
         saveBrushParam()
     }
 
     internal fun PaintViewModel.updateBrushMaxSizeLimit(v: Double) {
         brushMaxSizeLimit = v
+        if (brushSize > v) updateBrushSize(v)
         saveBrushParam()
     }
 
@@ -781,6 +784,7 @@ import kotlinx.coroutines.launch
             ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
             ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
             ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
+            ReverieCoreBridge.setBrushTipAsset("")
         }
     }
 
@@ -915,6 +919,9 @@ import kotlinx.coroutines.launch
                 ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
                 ReverieCoreBridge.setBrushAirbrush(saved.airbrush, saved.airbrushRate)
+                if (saved.tipAsset.isNotEmpty()) {
+                    ReverieCoreBridge.setBrushTipAsset(saved.tipAsset)
+                }
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
@@ -998,12 +1005,15 @@ import kotlinx.coroutines.launch
     }
 
     internal fun PaintViewModel.updateBrushSize(v: Double, commit: Boolean = true) {
-        brushSize = v
+        val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+        val maxL = brushMaxSizeLimit.coerceAtLeast(minL)
+        val clamped = v.coerceIn(minL, maxL)
+        brushSize = clamped
         if (commit) {
             saveBrushParam()
             rememberToolParamSnapshot()
         }
-        runCore(render = false) { ReverieCoreBridge.setBrushSize(v) }
+        runCore(render = false) { ReverieCoreBridge.setBrushSize(clamped) }
     }
 
     internal fun PaintViewModel.updateBrushColor(c: String) {

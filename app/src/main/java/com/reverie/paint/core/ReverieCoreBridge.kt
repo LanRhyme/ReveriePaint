@@ -283,6 +283,7 @@ object ReverieCoreBridge {
     external fun setBrushRotation(v: Double)
 
     external fun setBrushCompositeOp(op: String)
+    external fun setBrushTipAsset(assetName: String): Boolean
 
     external fun touchStrokeStart(
         x: Double,
@@ -336,6 +337,10 @@ object ReverieCoreBridge {
     external fun setUndoCaptureEnabled(on: Boolean)
 
     external fun clearUndoHistory()
+
+    external fun beginUndoMacro(text: String = "")
+
+    external fun endUndoMacro()
 
     external fun liquify(
         fx: Int,

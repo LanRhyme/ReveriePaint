@@ -42,6 +42,8 @@
 #include <kis_png_brush.h>
 #include <kis_imagepipe_brush.h>
 #include <kis_svg_brush.h>
+#include <kis_brush_option.h>
+#include <QMutex>
 
 #include <QDebug>
 #if defined(Q_OS_ANDROID)

@@ -250,8 +250,25 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, 
             painted = true;
         }
     }
+    // Flush any pending stroke samples remaining at the end of the batch
+    // so ink renders up to the latest point without a 1-frame lag.
+    if (core()->hasPendingStrokeSamples()) {
+        if (core()->flushStrokeBatch()) {
+            painted = true;
+        }
+    }
     env->ReleaseFloatArrayElements(coords, c, JNI_ABORT);
     return painted ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushTipAsset(JNIEnv *env, jobject, jstring jAssetName)
+{
+    if (!jAssetName) return JNI_FALSE;
+    const char *chars = env->GetStringUTFChars(jAssetName, nullptr);
+    const QString assetName = QString::fromUtf8(chars);
+    env->ReleaseStringUTFChars(jAssetName, chars);
+    return core()->setBrushTipAsset(assetName) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

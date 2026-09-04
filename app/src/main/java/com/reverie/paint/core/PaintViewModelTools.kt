@@ -75,15 +75,17 @@ private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     // collinear points, so behaviour is unchanged until the user customises it)
     val g = applyGlobalPressureCurve(p)
     // Stage 2: per-brush response curve (brush studio)
-    return when (brushPressureCurve) {
+    val curveP = when (brushPressureCurve) {
         1 -> Math.pow(g, 0.6) // Soft
         2 -> Math.pow(g, 1.8) // Hard
         3 -> g * g * (3.0 - 2.0 * g) // S-Curve
         else -> g // Linear
     }
+    // Stage 3: brushPressureSize dynamic scaling
+    return (1.0 - brushPressureSize) + brushPressureSize * curveP
 }
 
-private fun PaintViewModel.computeDynamicColor(): String {
+private fun PaintViewModel.computeDynamicColor(pressure: Double = 1.0): String {
     if (brushHueJitter <= 0.0 && brushSatJitter <= 0.0 && brushValJitter <= 0.0 && brushSecondaryMix <= 0.0) {
         return brushColor
     }
@@ -96,7 +98,11 @@ private fun PaintViewModel.computeDynamicColor(): String {
         if (brushSecondaryMix > 0.0) {
             val secHsv = FloatArray(3)
             android.graphics.Color.colorToHSV(secColor, secHsv)
-            val mix = (brushSecondaryMix * Math.random()).toFloat()
+            val mix = if (brushPressureColorMix) {
+                (pressure.toFloat() * brushSecondaryMix.toFloat()).coerceIn(0f, 1f)
+            } else {
+                (brushSecondaryMix * Math.random()).toFloat()
+            }
             hsv[0] = hsv[0] * (1f - mix) + secHsv[0] * mix
             hsv[1] = hsv[1] * (1f - mix) + secHsv[1] * mix
             hsv[2] = hsv[2] * (1f - mix) + secHsv[2] * mix
@@ -128,8 +134,15 @@ internal fun PaintViewModel.touchStart(
     onPaintingActivity()
     smoothedStrokeX = x
     smoothedStrokeY = y
+    lastStrokeX = x
+    lastStrokeY = y
+    lastStrokeDeltaX = 0f
+    lastStrokeDeltaY = 0f
+    lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
+    strokeDistanceAccumulator = 0f
     val effPressure = computeEffectivePressure(pressure)
-    val strokeColor = computeDynamicColor()
+    val strokeColor = computeDynamicColor(pressure = effPressure)
+    lastDynamicColor = strokeColor
     if (strokeColor != brushColor) {
         runCore(render = false) { ReverieCoreBridge.setBrushColor(strokeColor) }
     }
@@ -223,7 +236,40 @@ internal fun PaintViewModel.touchMove(
     pressure: Double = 1.0,
 ) {
     onPaintingActivity()
-    val effPressure = computeEffectivePressure(pressure)
+    val now = android.os.SystemClock.uptimeMillis()
+    val dt = (now - lastStrokeTimeMs).coerceAtLeast(1)
+    val dx = x - lastStrokeX
+    val dy = y - lastStrokeY
+    lastStrokeDeltaX = dx
+    lastStrokeDeltaY = dy
+    val dist = Math.hypot(dx.toDouble(), dy.toDouble())
+    var effPressure = computeEffectivePressure(pressure)
+
+    // Velocity-based brush size dynamics (calligraphy thinning)
+    if (brushSpeedSize > 0.0) {
+        val speed = dist / dt.toDouble()
+        val speedFactor = 1.0 - (speed / 3.0).coerceIn(0.0, 1.0) * brushSpeedSize * 0.7
+        effPressure = (effPressure * speedFactor).coerceIn(0.01, 1.0)
+    }
+
+    // Dynamic color jitter along stroke distance
+    if (brushHueJitter > 0.0 || brushSatJitter > 0.0 || brushValJitter > 0.0 || brushSecondaryMix > 0.0) {
+        strokeDistanceAccumulator += dist.toFloat()
+        val stepDist = maxOf(20f, (brushSize * 0.4).toFloat())
+        if (strokeDistanceAccumulator >= stepDist) {
+            strokeDistanceAccumulator = 0f
+            val nextColor = computeDynamicColor(pressure = effPressure)
+            if (nextColor != lastDynamicColor) {
+                lastDynamicColor = nextColor
+                runCore(render = false) { ReverieCoreBridge.setBrushColor(nextColor) }
+            }
+        }
+    }
+
+    lastStrokeTimeMs = now
+    lastStrokeX = x
+    lastStrokeY = y
+
     val stabFactor = maxOf(strokeStabilizer.toDouble(), brushStreamline).coerceIn(0.0, 0.98)
     var effX = x
     var effY = y
@@ -263,6 +309,32 @@ internal fun PaintViewModel.touchEnd() {
         }
         queueStrokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure)
     }
+
+    // Brush Taper (stroke tail taper finish)
+    if (brushTaper > 0.0) {
+        val norm = Math.hypot(lastStrokeDeltaX.toDouble(), lastStrokeDeltaY.toDouble()).toFloat()
+        if (norm > 0.5f) {
+            val nx = lastStrokeDeltaX / norm
+            val ny = lastStrokeDeltaY / norm
+            val taperSteps = 4
+            val taperLen = (brushSize * brushTaper * 0.75).toFloat()
+            val stepLen = taperLen / taperSteps
+            var tx = smoothedStrokeX
+            var ty = smoothedStrokeY
+            var tp = smoothedStrokePressure
+            for (i in 1..taperSteps) {
+                tx += nx * stepLen
+                ty += ny * stepLen
+                tp *= (1.0 - 0.7 * (i.toDouble() / taperSteps))
+                val curP = maxOf(0.02, tp)
+                if (recorder.recording) {
+                    recorder.strokeMove(tx, ty, curP.toFloat())
+                }
+                queueStrokeMove(tx, ty, curP)
+            }
+        }
+    }
+
     if (brushHueJitter > 0.0 || brushSatJitter > 0.0 || brushValJitter > 0.0 || brushSecondaryMix > 0.0) {
         runCore(render = false) { ReverieCoreBridge.setBrushColor(brushColor) }
     }
