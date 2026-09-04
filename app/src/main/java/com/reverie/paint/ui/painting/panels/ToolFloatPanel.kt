@@ -213,17 +213,55 @@ fun ToolFloatSlider(
     onValue: (Float) -> Unit,
     onRelease: (() -> Unit)? = null,
 ) {
+    var showDialog by remember { mutableStateOf(false) }
+    val span = maxOf(0.001f, range.endInclusive - range.start)
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(label, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Normal)
         com.reverie.paint.ui.components.ReSlider(
-            value = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f),
-            onValue = { frac -> onValue(range.start + frac * (range.endInclusive - range.start)) },
+            value = ((value - range.start) / span).coerceIn(0f, 1f),
+            onValue = { frac -> onValue(range.start + frac * span) },
             onRelease = onRelease,
             modifier = Modifier.weight(1f),
         )
-        Text(valueText, color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Morandi.panelHi.copy(alpha = 0.7f))
+                .noRippleClickable { showDialog = true }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                valueText,
+                color = Morandi.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+
+    if (showDialog) {
+        val suffix = when {
+            valueText.endsWith("px") -> "px"
+            valueText.endsWith("%") -> "%"
+            valueText.endsWith("°") -> "°"
+            else -> ""
+        }
+        NumericValueInputDialog(
+            label = label,
+            currentValue = value,
+            min = range.start,
+            max = range.endInclusive,
+            unitSuffix = suffix,
+            onValueConfirmed = { confirmed ->
+                onValue(confirmed)
+                onRelease?.invoke()
+            },
+            onDismiss = { showDialog = false }
+        )
     }
 }

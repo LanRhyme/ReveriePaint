@@ -299,8 +299,7 @@ internal fun SelectionFloatPanel(
                     // 拖动只更新本地显示, 松手才执行一次引擎操作——onValue 在
                     // 拖动中连续回调, 直接接引擎操作会叠加执行 (羽化越拖越糊)
                     var featherR by remember { mutableFloatStateOf(8f) }
-                    var expandR by remember { mutableFloatStateOf(16f) }
-                    var contractR by remember { mutableFloatStateOf(8f) }
+                    var expandContractR by remember { mutableFloatStateOf(0f) }
                     var smoothR by remember { mutableFloatStateOf(4f) }
                     ToolFloatSlider(
                         label = "羽化",
@@ -311,20 +310,19 @@ internal fun SelectionFloatPanel(
                         onRelease = { vm.featherSelection(featherR.toInt()) },
                     )
                     ToolFloatSlider(
-                        label = "扩展",
-                        valueText = "${expandR.toInt()}px",
-                        range = 0f..64f,
-                        value = expandR,
-                        onValue = { expandR = it },
-                        onRelease = { vm.expandSelection(expandR.toInt()) },
-                    )
-                    ToolFloatSlider(
-                        label = "收缩",
-                        valueText = "${contractR.toInt()}px",
-                        range = 0f..64f,
-                        value = contractR,
-                        onValue = { contractR = it },
-                        onRelease = { vm.contractSelection(contractR.toInt()) },
+                        label = "扩缩",
+                        valueText = if (expandContractR.toInt() > 0) "+${expandContractR.toInt()}px" else "${expandContractR.toInt()}px",
+                        range = -64f..64f,
+                        value = expandContractR,
+                        onValue = { expandContractR = it },
+                        onRelease = {
+                            val r = expandContractR.toInt()
+                            if (r > 0) {
+                                vm.expandSelection(r)
+                            } else if (r < 0) {
+                                vm.contractSelection(-r)
+                            }
+                        },
                     )
                     ToolFloatSlider(
                         label = "平滑",

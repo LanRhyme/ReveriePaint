@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -317,41 +318,73 @@ fun NumericValueInputDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "有效范围: ${min.roundToInt()} ~ ${max.roundToInt()}$unitSuffix",
                     color = Morandi.subText,
                     fontSize = 11.sp
                 )
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { input ->
-                        if (input.all { it.isDigit() || it == '.' } && input.length <= 6) {
-                            text = input
-                        }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = {
-                            val v = text.toFloatOrNull()
-                            if (v != null) {
-                                onValueConfirmed(v.coerceIn(min, max))
-                                onDismiss()
-                            }
-                        }
-                    ),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Morandi.text,
-                        unfocusedTextColor = Morandi.text,
-                        focusedBorderColor = Morandi.accent,
-                        unfocusedBorderColor = Morandi.border
-                    ),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    if (min < 0f) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                                .noRippleClickable {
+                                    text = if (text.startsWith("-")) {
+                                        text.removePrefix("-")
+                                    } else if (text.isNotEmpty() && text != "0") {
+                                        "-$text"
+                                    } else {
+                                        "-"
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("±", color = Morandi.accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    OutlinedTextField(
+                        value = text,
+                        onValueChange = { input ->
+                            val allowed = if (min < 0f) {
+                                (input.isEmpty() || input == "-" || input.toFloatOrNull() != null)
+                            } else {
+                                input.all { it.isDigit() || it == '.' }
+                            }
+                            if (allowed && input.length <= 7) {
+                                text = input
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (min < 0f) KeyboardType.Text else KeyboardType.Number,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                val v = text.toFloatOrNull()
+                                if (v != null) {
+                                    onValueConfirmed(v.coerceIn(min, max))
+                                    onDismiss()
+                                }
+                            }
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Morandi.text,
+                            unfocusedTextColor = Morandi.text,
+                            focusedBorderColor = Morandi.accent,
+                            unfocusedBorderColor = Morandi.border
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         },
         confirmButton = {
