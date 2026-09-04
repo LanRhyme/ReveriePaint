@@ -303,8 +303,35 @@ class PaintViewModel : ViewModel() {
     var brushPresetScrollOffset by mutableStateOf(0)
     var categoryPresetScrollMap by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
     var brushPropertyScrollValue by mutableStateOf(0)
+    var brushPanelGridView by mutableStateOf(false)
+    var favoriteBrushNames by mutableStateOf<Set<String>>(emptySet())
+    var recentBrushNames by mutableStateOf<List<String>>(emptyList())
     var settingsPanelOpen by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
+
+    fun toggleFavoriteBrush(name: String) {
+        if (name.isBlank()) return
+        favoriteBrushNames = if (favoriteBrushNames.contains(name)) {
+            favoriteBrushNames - name
+        } else {
+            favoriteBrushNames + name
+        }
+        persistBrushPanelState()
+    }
+
+    fun isFavoriteBrush(name: String): Boolean = favoriteBrushNames.contains(name)
+
+    fun recordRecentBrush(name: String) {
+        if (name.isBlank()) return
+        val list = (listOf(name) + recentBrushNames.filter { it != name }).take(16)
+        recentBrushNames = list
+        persistBrushPanelState()
+    }
+
+    fun toggleBrushPanelGridView() {
+        brushPanelGridView = !brushPanelGridView
+        persistBrushPanelState()
+    }
 
     // Stroke stabilizer working set: written every touch sample, read by no
     // composable — plain fields by design (zero allocation, zero recomposition).
@@ -495,6 +522,13 @@ class PaintViewModel : ViewModel() {
             } else {
                 p.remove("brush_panel_detail_idx")
             }
+
+            p.putBoolean("brush_panel_grid_view", brushPanelGridView)
+            p.putStringSet("brush_favorite_names", favoriteBrushNames)
+            val recentsArr = org.json.JSONArray()
+            recentBrushNames.forEach { recentsArr.put(it) }
+            p.putString("brush_recent_names", recentsArr.toString())
+
             p.apply()
         } catch (_: Exception) {}
     }
@@ -1308,6 +1342,20 @@ class PaintViewModel : ViewModel() {
 
             if (prefs.contains("brush_panel_detail_idx")) {
                 brushPanelDetailIndex = prefs.getInt("brush_panel_detail_idx", -1).takeIf { it >= 0 }
+            }
+
+            brushPanelGridView = prefs.getBoolean("brush_panel_grid_view", false)
+            favoriteBrushNames = prefs.getStringSet("brush_favorite_names", null)?.toSet() ?: emptySet()
+            val recentsJsonStr = prefs.getString("brush_recent_names", null)
+            if (!recentsJsonStr.isNullOrEmpty()) {
+                try {
+                    val arr = org.json.JSONArray(recentsJsonStr)
+                    val list = mutableListOf<String>()
+                    for (i in 0 until arr.length()) {
+                        list.add(arr.getString(i))
+                    }
+                    recentBrushNames = list
+                } catch (_: Exception) {}
             }
 
             // 参考窗口持久化恢复
@@ -2396,7 +2444,7 @@ data class BrushPresetInfo(
 )
 
 val BUILT_IN_BRUSH_GROUPS = setOf(
-    "全部", "常用", "基础", "铅笔", "勾线", "马克笔", "绘画", "水彩", "混合",
+    "全部", "★ 常用", "常用", "🕒 最近", "最近", "基础", "铅笔", "勾线", "马克笔", "绘画", "水彩", "混合",
     "速写", "形状", "特效与滤镜", "纹理与排线", "印章与喷溅", "像素画", "橡皮擦", "导入"
 )
 

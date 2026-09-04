@@ -769,6 +769,9 @@ import kotlinx.coroutines.launch
         brushVersion = "1.0"
         saveBrushParam()
         runCore(render = false) {
+            if (index >= 0) {
+                ReverieCoreBridge.loadBrushPreset(index)
+            }
             ReverieCoreBridge.setBrushSize(brushSize)
             ReverieCoreBridge.setBrushOpacity(brushOpacity)
             ReverieCoreBridge.setBrushFlow(brushFlow)
@@ -794,6 +797,9 @@ import kotlinx.coroutines.launch
         // never by list position: the Compose list may be reordered by the
         // user's brushOrder and diverge from native indices.
         val preset = brushPresets.firstOrNull { it.index == index }
+        if (preset != null) {
+            recordRecentBrush(preset.name)
+        }
         val isBuiltIn = preset?.isBuiltIn == true
         val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
 
