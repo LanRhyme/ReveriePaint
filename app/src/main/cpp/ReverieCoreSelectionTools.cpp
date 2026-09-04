@@ -166,7 +166,7 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged
     const int o0 = (y * iw + x) * 4;
     const int sR = bytes[o0 + 2];
     const int sG = bytes[o0 + 1];
-    const int sB = bytes[o0];
+    const int sA = bytes[o0 + 3];
 
     // Global scan: every pixel whose color is within tolerance (Krita's
     // similar-color selection, not connected-region limited). Direct byte
@@ -176,8 +176,15 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged
     size_t matched = 0;
     for (size_t i = 0; i < nPix; ++i) {
         const int o = int(i * 4);
+        const int tA = bytes[o + 3];
+        if (sA == 0 && tA == 0) {
+            mask[i] = 255;
+            ++matched;
+            continue;
+        }
         const int dr = bytes[o + 2] - sR, dg = bytes[o + 1] - sG, db = bytes[o] - sB;
-        if (dr * dr + dg * dg + db * db <= tolSq) {
+        const int da = tA - sA;
+        if (dr * dr + dg * dg + db * db + da * da <= tolSq) {
             mask[i] = 255;
             ++matched;
         }
@@ -358,9 +365,8 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
         return QRect();
     }
     image->waitForDone();
-    KisSelectionSP sel = image->globalSelection();
-    if (sel && !sel->selectedRect().isEmpty()) {
-        QRect sr = sel->selectedExactRect();
+    if (m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty()) {
+        QRect sr = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
         if (!sr.isEmpty() && sr.isValid()) {
             return sr;
         }

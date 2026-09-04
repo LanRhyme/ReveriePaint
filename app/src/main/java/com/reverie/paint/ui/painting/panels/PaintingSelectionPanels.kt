@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.panels
 
 import androidx.compose.foundation.Image
+import com.reverie.paint.model.LassoSubMode
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -165,6 +166,10 @@ internal fun SelectionFloatPanel(
     onToggleProps: () -> Unit,
     onDrag: (Float, Float) -> Unit,
     hazeState: HazeState? = null,
+    polyPoints: List<Offset> = emptyList(),
+    onPolyFinish: () -> Unit = {},
+    onPolyUndo: () -> Unit = {},
+    onPolyCancel: () -> Unit = {},
 ) {
     ToolFloatPanel(modifier = modifier, vm = vm, hazeState = hazeState) {
         Column(
@@ -182,6 +187,75 @@ internal fun SelectionFloatPanel(
                 selected = vm.selectionMode,
                 onSelect = { vm.updateSelectionMode(it) },
             )
+
+            // 套索工具操作方法 (自由描画, 折线, 自由+折线多次操作)
+            if (tool == Tool.LASSO) {
+                ToolFloatSegmented(
+                    options = listOf(
+                        0 to "自由",
+                        1 to "折线",
+                        2 to "自由+折线",
+                    ),
+                    selected = vm.lassoSubMode,
+                    onSelect = { vm.updateLassoSubMode(it) },
+                )
+            }
+
+            // 多次操作套索在编完成/取消栏
+            if (tool == Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToolFloatChip(
+                        label = "完成闭合",
+                        selected = true,
+                        onClick = { vm.finishLassoMulti() }
+                    )
+                    ToolFloatChip(
+                        label = "撤销点",
+                        onClick = { vm.undoLassoPoint() }
+                    )
+                    ToolFloatChip(
+                        label = "放弃",
+                        danger = true,
+                        onClick = { vm.cancelLassoMulti() }
+                    )
+                    Text(
+                        if (vm.lassoSubMode == LassoSubMode.POLYLINE) "${vm.lassoMultiPoints.size} 点" else "${vm.lassoSegmentCounts.size} 段",
+                        color = Morandi.subText,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+
+            // 多边形选择在编完成/取消栏
+            if (tool == Tool.SELECT_POLYGON && polyPoints.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ToolFloatChip(
+                        label = "完成选区",
+                        selected = true,
+                        onClick = onPolyFinish
+                    )
+                    ToolFloatChip(
+                        label = "撤销点",
+                        onClick = onPolyUndo
+                    )
+                    ToolFloatChip(
+                        label = "取消",
+                        danger = true,
+                        onClick = onPolyCancel
+                    )
+                    Text(
+                        "${polyPoints.size} 顶点",
+                        color = Morandi.subText,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
 
             // Row 2: Magic Wand / Similar Tolerance Slider + Reference Layers
             if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
@@ -210,8 +284,8 @@ internal fun SelectionFloatPanel(
             // Expandable Modifiers Drawer (空隙, 羽化, 扩展, 收缩, 平滑)
             androidx.compose.animation.AnimatedVisibility(visible = propsOpen) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.width(220.dp).padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.width(230.dp).padding(vertical = 4.dp),
                 ) {
                     if (tool == Tool.MAGICWAND) {
                         ToolFloatSlider(
@@ -263,7 +337,7 @@ internal fun SelectionFloatPanel(
                 }
             }
 
-            // Row 3: Action Buttons (全选, 反选, 清除, 属性)
+            // Row 3: Action Buttons (全选, 反选, 取消, 属性)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -280,7 +354,7 @@ internal fun SelectionFloatPanel(
                 )
                 SelectionActionItem(
                     iconRes = R.drawable.ic_trash,
-                    label = "清除",
+                    label = "取消",
                     danger = true,
                     onClick = { vm.clearSelectionAction() },
                 )

@@ -73,6 +73,13 @@ enum class Tool(
     }
 }
 
+/** 套索操作模式: 0: 自由描画, 1: 折线, 2: 自由描画与折线 (多次操作) */
+object LassoSubMode {
+    const val FREEHAND = 0
+    const val POLYLINE = 1
+    const val HYBRID = 2
+}
+
 /** Brush preset: name + default size + softness-ish hint */
 data class BrushPreset(
     val name: String,

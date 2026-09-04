@@ -128,7 +128,34 @@ class CanvasTouchView(context: Context) : View(context) {
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
 
-    // 手指多点手势状态
+    // 磁性套索与多次操作套索状态
+    private val magneticPoints = mutableListOf<Offset>()
+    private var lastMagneticDocPos = Offset.Zero
+    private var isMagneticQuerying = false
+    private var lastLassoTapTimeMs = 0L
+    private var lastLassoTapDocPos = Offset.Zero
+    private var justFinishedLassoInDown = false
+
+    private fun updateLiveSelectionPathFromPoints(points: List<Offset>, closed: Boolean = true) {
+        if (points.size < 2) {
+            liveSelectionPath?.value = null
+            return
+        }
+        val docW = docBitmap?.width ?: vm?.docWidth ?: 1
+        val docH = docBitmap?.height ?: vm?.docHeight ?: 1
+        val halfW = docW / 2f
+        val halfH = docH / 2f
+        val p = Path().apply {
+            moveTo(points[0].x - halfW, points[0].y - halfH)
+            for (j in 1 until points.size) {
+                lineTo(points[j].x - halfW, points[j].y - halfH)
+            }
+            if (closed) {
+                close()
+            }
+        }
+        liveSelectionPath?.value = p
+    }
     private var prevCentroid = Offset.Zero
     private var prevDistance = 1f
     private var prevAngle = 0f
@@ -1311,9 +1338,53 @@ class CanvasTouchView(context: Context) : View(context) {
                 liveShapeStart?.value = docPos
                 liveShapeEnd?.value = docPos
             }
+            Tool.SELECT_MAGNETIC -> {
+                magneticPoints.clear()
+                magneticPoints.add(docPos)
+                lastMagneticDocPos = docPos
+                isMagneticQuerying = false
+            }
             Tool.LASSO -> {
-                lassoPoints.clear()
-                lassoPoints.add(docPos)
+                val subMode = v.lassoSubMode
+                if (subMode == LassoSubMode.FREEHAND) {
+                    lassoPoints.clear()
+                    lassoPoints.add(docPos)
+                } else {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+                    val snapDistThreshold = (24f * density) / currentScale
+
+                    // 双击闭合 (至少已有3个点时双击直接闭合选区)
+                    if (v.lassoMultiPoints.size >= 3 && now - lastLassoTapTimeMs < 350L &&
+                        hypot(docPos.x - lastLassoTapDocPos.x, docPos.y - lastLassoTapDocPos.y) < snapDistThreshold
+                    ) {
+                        justFinishedLassoInDown = true
+                        lastLassoTapTimeMs = 0L
+                        v.finishLassoMulti()
+                        liveSelectionPath?.value = null
+                        lassoPoints.clear()
+                        return
+                    }
+                    lastLassoTapTimeMs = now
+                    lastLassoTapDocPos = docPos
+
+                    // 点击起点附近闭合
+                    if (v.lassoMultiPoints.size >= 3) {
+                        val startPt = v.lassoMultiPoints.first()
+                        val distToStart = hypot(docPos.x - startPt.first, docPos.y - startPt.second)
+                        if (distToStart <= snapDistThreshold) {
+                            justFinishedLassoInDown = true
+                            lastLassoTapTimeMs = 0L
+                            v.finishLassoMulti()
+                            liveSelectionPath?.value = null
+                            lassoPoints.clear()
+                            return
+                        }
+                    }
+
+                    lassoPoints.clear()
+                    lassoPoints.add(docPos)
+                }
             }
             Tool.MEASURE -> {
                 measureStart?.value = docPos
@@ -1455,25 +1526,46 @@ class CanvasTouchView(context: Context) : View(context) {
                 shapeEndDocPos = docPos
                 liveShapeEnd?.value = docPos
             }
+            Tool.SELECT_MAGNETIC -> {
+                val dist = hypot(docPos.x - lastMagneticDocPos.x, docPos.y - lastMagneticDocPos.y)
+                if (dist >= 14f && !isMagneticQuerying) {
+                    isMagneticQuerying = true
+                    val fx = lastMagneticDocPos.x.toInt()
+                    val fy = lastMagneticDocPos.y.toInt()
+                    val tx = docPos.x.toInt()
+                    val ty = docPos.y.toInt()
+                    lastMagneticDocPos = docPos
+                    v.magneticLassoAsync(fx, fy, tx, ty, radius = 32) { seg ->
+                        isMagneticQuerying = false
+                        if (seg.isNotEmpty()) {
+                            for (pt in seg) {
+                                magneticPoints.add(Offset(pt.first.toFloat(), pt.second.toFloat()))
+                            }
+                            updateLiveSelectionPathFromPoints(magneticPoints, closed = false)
+                        }
+                    }
+                }
+            }
             Tool.LASSO -> {
-                lassoPoints.add(docPos)
+                if (justFinishedLassoInDown) return
+                val subMode = v.lassoSubMode
+                val lastPt = lassoPoints.lastOrNull()
+                val minMove = 3f
+                if (lastPt == null || hypot(docPos.x - lastPt.x, docPos.y - lastPt.y) >= minMove) {
+                    lassoPoints.add(docPos)
+                }
                 val now = System.nanoTime()
                 if (now - lastLassoPreviewNs > 16_000_000L) {
                     lastLassoPreviewNs = now
-                    val docW = docBitmap?.width ?: vm?.docWidth ?: 1
-                    val docH = docBitmap?.height ?: vm?.docHeight ?: 1
-                    val halfW = docW / 2f
-                    val halfH = docH / 2f
-                    val p = Path().apply {
-                        if (lassoPoints.size >= 2) {
-                            moveTo(lassoPoints[0].x - halfW, lassoPoints[0].y - halfH)
-                            for (j in 1 until lassoPoints.size) {
-                                lineTo(lassoPoints[j].x - halfW, lassoPoints[j].y - halfH)
-                            }
-                            close()
-                        }
+                    if (subMode == LassoSubMode.FREEHAND) {
+                        updateLiveSelectionPathFromPoints(lassoPoints, closed = true)
+                    } else if (subMode == LassoSubMode.POLYLINE) {
+                        val preview = v.lassoMultiPoints.map { Offset(it.first.toFloat(), it.second.toFloat()) } + docPos
+                        updateLiveSelectionPathFromPoints(preview, closed = preview.size >= 3)
+                    } else {
+                        val preview = v.lassoMultiPoints.map { Offset(it.first.toFloat(), it.second.toFloat()) } + lassoPoints
+                        updateLiveSelectionPathFromPoints(preview, closed = preview.size >= 3)
                     }
-                    liveSelectionPath?.value = p
                 }
             }
             Tool.MEASURE -> {
@@ -1676,13 +1768,68 @@ class CanvasTouchView(context: Context) : View(context) {
                 liveShapeEnd?.value = null
                 v.selectShape(1, firstDocPos.x.toInt(), firstDocPos.y.toInt(), shapeEndDocPos.x.toInt(), shapeEndDocPos.y.toInt())
             }
-            Tool.LASSO -> {
+            Tool.SELECT_MAGNETIC -> {
                 liveSelectionPath?.value = null
-                if (lassoPoints.size >= 3) {
-                    val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
-                    v.selectPolygon(points)
+                if (magneticPoints.size >= 3) {
+                    val pts = magneticPoints.map { it.x.toInt() to it.y.toInt() }
+                    v.lassoSelect(pts)
                 }
-                lassoPoints.clear()
+                magneticPoints.clear()
+            }
+            Tool.LASSO -> {
+                val subMode = v.lassoSubMode
+                liveSelectionPath?.value = null
+                if (justFinishedLassoInDown) {
+                    justFinishedLassoInDown = false
+                    lassoPoints.clear()
+                    return
+                }
+                if (isCancel) {
+                    lassoPoints.clear()
+                    return
+                }
+                if (subMode == LassoSubMode.FREEHAND) {
+                    if (lassoPoints.size >= 3) {
+                        val points = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                        v.lassoSelect(points)
+                    }
+                    lassoPoints.clear()
+                } else {
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val isTap = dragDist < 8f * density && lassoPoints.size <= 3
+
+                    val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+                    val snapDistThreshold = (24f * density) / currentScale
+
+                    // 1. 若已有 >= 3 个点，且本次抬手位置落在起点吸附阈值内，直接闭合提交（不重复追加起点）
+                    if (v.lassoMultiPoints.size >= 3) {
+                        val startPt = v.lassoMultiPoints.first()
+                        if (hypot(docPos.x - startPt.first, docPos.y - startPt.second) <= snapDistThreshold) {
+                            v.finishLassoMulti()
+                            lassoPoints.clear()
+                            return
+                        }
+                    }
+
+                    // 2. 将本次点击或拖拽段加入点列表
+                    if (subMode == LassoSubMode.POLYLINE || isTap) {
+                        v.lassoMultiPoints = v.lassoMultiPoints + (docPos.x.toInt() to docPos.y.toInt())
+                        v.lassoSegmentCounts.add(1)
+                    } else {
+                        val pts = lassoPoints.map { it.x.toInt() to it.y.toInt() }
+                        v.lassoMultiPoints = v.lassoMultiPoints + pts
+                        v.lassoSegmentCounts.add(pts.size)
+                    }
+
+                    // 3. 混合模式下：若刚画完的自由笔画本身形成闭环（终点靠近初始起点），直接闭合提交
+                    if (v.lassoMultiPoints.size >= 3) {
+                        val startPt = v.lassoMultiPoints.first()
+                        if (hypot(docPos.x - startPt.first, docPos.y - startPt.second) <= snapDistThreshold) {
+                            v.finishLassoMulti()
+                        }
+                    }
+                    lassoPoints.clear()
+                }
             }
             Tool.TRANSFORM -> {
                 tfState?.handle = -1

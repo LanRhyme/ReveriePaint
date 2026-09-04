@@ -35,14 +35,18 @@ fun ShapeToolPanel(
     onFilled: (Boolean) -> Unit = { vm.updateShapeFillMode(if (it) 1 else 0) },
     onKeepAspect: (Boolean) -> Unit = { vm.updateShapeKeepAspect(it) },
     onFinish: () -> Unit,
+    onUndo: (() -> Unit)? = null,
     onCancel: () -> Unit,
     hazeState: HazeState? = null,
 ) {
     if (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON || tool == Tool.PATH) {
-        // Point-click tools: vertex count + finish/cancel
+        // Point-click tools: vertex count + finish/cancel/undo
         ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ToolFloatChip(label = "完成", selected = true, onClick = onFinish)
+                if (onUndo != null && vertexCount > 0) {
+                    ToolFloatChip(label = "撤销点", onClick = onUndo)
+                }
                 ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
                 Text(
                     "顶点 $vertexCount",

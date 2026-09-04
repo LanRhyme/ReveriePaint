@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -294,38 +295,6 @@ internal fun CanvasOverlay(
                     )
                 }
 
-                // Point-click shape preview (polygon/polyline/select)
-                if (polyPoints.isNotEmpty() && (tool == Tool.POLYGON || tool == Tool.POLYLINE || tool == Tool.SELECT_POLYGON)) {
-                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
-                    val pth = androidx.compose.ui.graphics.Path()
-                    pth.moveTo(
-                        polyPoints[0].x * scX - bmp.width / 2f,
-                        polyPoints[0].y * scY - bmp.height / 2f,
-                    )
-                    for (i in 1 until polyPoints.size) {
-                        pth.lineTo(
-                            polyPoints[i].x * scX - bmp.width / 2f,
-                            polyPoints[i].y * scY - bmp.height / 2f,
-                        )
-                    }
-                    if (tool == Tool.POLYGON) {
-                        pth.close()
-                    }
-                    drawPath(
-                        pth,
-                        color = Color.White,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
-                    )
-                    polyPoints.forEach { pt ->
-                        drawCircle(
-                            color = Color.White,
-                            radius = 3.dp.toPx(),
-                            center = Offset(pt.x * scX - bmp.width / 2f, pt.y * scY - bmp.height / 2f),
-                        )
-                    }
-                }
-
                 // Measure tool: white line + distance/angle text
                 if (tool == Tool.MEASURE && measureStart.value != null && measureEnd.value != null) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
@@ -565,7 +534,7 @@ internal fun CanvasOverlay(
                     }
                 }
 
-                // Polygon / Polyline vertices preview
+                // Polygon / Polyline / Select Polygon vertices preview
                 if (polyPoints.isNotEmpty()) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
@@ -577,25 +546,126 @@ internal fun CanvasOverlay(
                     for (i in 1 until mappedPts.size) {
                         polyPath.lineTo(mappedPts[i].x, mappedPts[i].y)
                     }
-                    if (tool == Tool.POLYGON && mappedPts.size >= 3) {
-                        polyPath.close()
-                    }
-                    drawPath(
-                        polyPath,
-                        color = Color.White,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
-                    )
-                    mappedPts.forEach { pt ->
-                        drawCircle(
-                            color = Morandi.accent,
-                            radius = 5.dp.toPx() / currentScale,
-                            center = pt,
-                        )
-                        drawCircle(
+
+                    if (tool == Tool.SELECT_POLYGON) {
+                        val strokeW = 1.0.dp.toPx() / currentScale
+                        val blackStrokeW = 1.5.dp.toPx() / currentScale
+                        val dashInterval = 3.5.dp.toPx() / currentScale
+
+                        if (mappedPts.size >= 3) {
+                            val closedPath = androidx.compose.ui.graphics.Path().apply {
+                                addPath(polyPath)
+                                close()
+                            }
+                            // 1. 半透明填充高亮
+                            drawPath(
+                                path = closedPath,
+                                color = Morandi.accent.copy(alpha = 0.20f),
+                                style = androidx.compose.ui.graphics.drawscope.Fill,
+                            )
+                            // 2. 双色闭合蚂蚁线
+                            drawPath(
+                                path = closedPath,
+                                color = Color.Black.copy(alpha = 0.75f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = blackStrokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = 0f
+                                    )
+                                )
+                            )
+                            drawPath(
+                                path = closedPath,
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = dashInterval
+                                    )
+                                )
+                            )
+                        } else {
+                            drawPath(
+                                path = polyPath,
+                                color = Color.Black.copy(alpha = 0.75f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = blackStrokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = 0f
+                                    )
+                                )
+                            )
+                            drawPath(
+                                path = polyPath,
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = dashInterval
+                                    )
+                                )
+                            )
+                        }
+
+                        // 顶点锚点高对比度绘制
+                        mappedPts.forEachIndexed { idx, pt ->
+                            if (idx == 0) {
+                                // 起点：高亮提示点击闭合
+                                drawCircle(
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    radius = 8.5.dp.toPx() / currentScale,
+                                    center = pt,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.8.dp.toPx() / currentScale)
+                                )
+                                drawCircle(
+                                    color = Morandi.accent,
+                                    radius = 8.dp.toPx() / currentScale,
+                                    center = pt,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
+                                )
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = 3.5.dp.toPx() / currentScale,
+                                    center = pt
+                                )
+                            } else {
+                                drawCircle(
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    radius = 4.dp.toPx() / currentScale,
+                                    center = pt,
+                                )
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = 2.5.dp.toPx() / currentScale,
+                                    center = pt,
+                                )
+                            }
+                        }
+                    } else {
+                        if (tool == Tool.POLYGON && mappedPts.size >= 3) {
+                            polyPath.close()
+                        }
+                        drawPath(
+                            polyPath,
                             color = Color.White,
-                            radius = 3.dp.toPx() / currentScale,
-                            center = pt,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
                         )
+                        mappedPts.forEach { pt ->
+                            drawCircle(
+                                color = Morandi.accent,
+                                radius = 5.dp.toPx() / currentScale,
+                                center = pt,
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 3.dp.toPx() / currentScale,
+                                center = pt,
+                            )
+                        }
                     }
                 }
 
@@ -656,22 +726,13 @@ internal fun CanvasOverlay(
 
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null) {
-                    val paint = androidx.compose.ui.graphics.Paint().apply {
-                        // Procreate / 画世界风格：选区内无遮盖原色不变，未选中的外部盖一层半透明深灰蒙版
-                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0x77141416)
-                        )
-                    }
-                    val bounds = androidx.compose.ui.geometry.Rect(
-                        -bmp.width / 2f, -bmp.height / 2f,
-                        bmp.width / 2f, bmp.height / 2f
-                    )
-                    drawContext.canvas.saveLayer(bounds, paint)
                     drawImage(
                         image = selBmp,
                         topLeft = Offset(-bmp.width / 2f, -bmp.height / 2f),
+                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
+                            Color(0x77141416)
+                        )
                     )
-                    drawContext.canvas.restore()
                 }
 
                 liveSelectionPath.value?.let { livePath ->
@@ -709,6 +770,157 @@ internal fun CanvasOverlay(
                                 phase = dashInterval
                             )
                         )
+                    )
+                }
+
+                // 多次操作套索（折线/自由混合）在空闲等待手势时的在编路径与起点指示
+                val multiPts = vm.lassoMultiPoints
+                if (multiPts.isNotEmpty() && liveSelectionPath.value == null && tool == Tool.LASSO) {
+                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
+                    val strokeW = 1.0.dp.toPx() / currentScale
+                    val blackStrokeW = 1.5.dp.toPx() / currentScale
+                    val dashInterval = 3.5.dp.toPx() / currentScale
+                    val docW = bmp.width.toFloat()
+                    val docH = bmp.height.toFloat()
+                    val halfW = docW / 2f
+                    val halfH = docH / 2f
+
+                    val path = Path().apply {
+                        moveTo(multiPts[0].first - halfW, multiPts[0].second - halfH)
+                        for (i in 1 until multiPts.size) {
+                            lineTo(multiPts[i].first - halfW, multiPts[i].second - halfH)
+                        }
+                    }
+
+                    if (multiPts.size >= 3) {
+                        val closedPath = Path().apply {
+                            addPath(path)
+                            close()
+                        }
+                        // 1. 半透明填充高亮
+                        drawPath(
+                            path = closedPath,
+                            color = Morandi.accent.copy(alpha = 0.20f),
+                            style = androidx.compose.ui.graphics.drawscope.Fill,
+                        )
+                        // 2. 双色闭合蚂蚁线
+                        drawPath(
+                            path = closedPath,
+                            color = Color.Black.copy(alpha = 0.75f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = blackStrokeW,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(dashInterval, dashInterval),
+                                    phase = 0f
+                                )
+                            )
+                        )
+                        drawPath(
+                            path = closedPath,
+                            color = Color.White,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = strokeW,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(dashInterval, dashInterval),
+                                    phase = dashInterval
+                                )
+                            )
+                        )
+                    } else {
+                        // 只有2点时的开放线段双色蚂蚁线
+                        drawPath(
+                            path = path,
+                            color = Color.Black.copy(alpha = 0.75f),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = blackStrokeW,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(dashInterval, dashInterval),
+                                    phase = 0f
+                                )
+                            )
+                        )
+                        drawPath(
+                            path = path,
+                            color = Color.White,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = strokeW,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(dashInterval, dashInterval),
+                                    phase = dashInterval
+                                )
+                            )
+                        )
+                    }
+
+                    // 中间转折锚点（仅在每段操作的交接点绘制，不在自由曲线内部点上绘制）
+                    if (vm.lassoSegmentCounts.isNotEmpty()) {
+                        var acc = 0
+                        for (count in vm.lassoSegmentCounts) {
+                            acc += count
+                            val jointIdx = acc - 1
+                            if (jointIdx in 1 until multiPts.size - 1) {
+                                val pt = multiPts[jointIdx]
+                                val center = Offset(pt.first - halfW, pt.second - halfH)
+                                drawCircle(
+                                    color = Color.Black.copy(alpha = 0.65f),
+                                    radius = 3.8.dp.toPx() / currentScale,
+                                    center = center,
+                                )
+                                drawCircle(
+                                    color = Color.White,
+                                    radius = 2.4.dp.toPx() / currentScale,
+                                    center = center,
+                                )
+                            }
+                        }
+                    } else if (vm.lassoSubMode == LassoSubMode.POLYLINE) {
+                        for (i in 1 until multiPts.size - 1) {
+                            val center = Offset(multiPts[i].first - halfW, multiPts[i].second - halfH)
+                            drawCircle(
+                                color = Color.Black.copy(alpha = 0.65f),
+                                radius = 3.8.dp.toPx() / currentScale,
+                                center = center,
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 2.4.dp.toPx() / currentScale,
+                                center = center,
+                            )
+                        }
+                    }
+
+                    // 起点闭合光圈 (高亮起点，提示用户点击可闭合)
+                    val startCenter = Offset(multiPts[0].first - halfW, multiPts[0].second - halfH)
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = 8.5.dp.toPx() / currentScale,
+                        center = startCenter,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.8.dp.toPx() / currentScale)
+                    )
+                    drawCircle(
+                        color = Morandi.accent,
+                        radius = 8.dp.toPx() / currentScale,
+                        center = startCenter,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 3.5.dp.toPx() / currentScale,
+                        center = startCenter
+                    )
+
+                    // 最新末端锚点
+                    val lastPt = multiPts.last()
+                    val endCenter = Offset(lastPt.first - halfW, lastPt.second - halfH)
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = 4.8.dp.toPx() / currentScale,
+                        center = endCenter
+                    )
+                    drawCircle(
+                        color = Morandi.accent,
+                        radius = 3.4.dp.toPx() / currentScale,
+                        center = endCenter
                     )
                 }
 

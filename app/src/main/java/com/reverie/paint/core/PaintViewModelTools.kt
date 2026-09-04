@@ -387,6 +387,10 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         // mid-stroke from the UI thread tore the dab pipeline
         runCore(render = false) { ReverieCoreBridge.setToolMode(mode) }
     }
+    if (toolId != "lasso") {
+        lassoMultiPoints = emptyList()
+        lassoSegmentCounts.clear()
+    }
     currentToolId = toolId
     try {
         prefs().edit().putString("current_tool_id", toolId).apply()
@@ -793,6 +797,14 @@ internal fun PaintViewModel.applyWarpMeshTransform(
 }
 
 internal fun PaintViewModel.undo() {
+    if (customUndoHook?.invoke() == true) {
+        return
+    }
+    if (currentToolId == "lasso" && lassoMultiPoints.isNotEmpty()) {
+        undoLassoPoint()
+        showActionToast("撤销套索点", R.drawable.ic_undo)
+        return
+    }
     showActionToast("撤销", R.drawable.ic_undo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true)
@@ -1218,6 +1230,41 @@ internal fun PaintViewModel.lassoSelect(points: List<Pair<Int, Int>>) {
     }
 }
 
+internal fun PaintViewModel.updateLassoSubMode(mode: Int) {
+    lassoSubMode = mode.coerceIn(0, 2)
+    lassoMultiPoints = emptyList()
+    lassoSegmentCounts.clear()
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.finishLassoMulti() {
+    val pts = lassoMultiPoints
+    if (pts.size >= 3) {
+        lassoSelect(pts)
+    } else if (pts.isNotEmpty()) {
+        showActionToast("选区至少需要3个点", R.drawable.ic_lasso)
+    }
+    lassoMultiPoints = emptyList()
+    lassoSegmentCounts.clear()
+}
+
+internal fun PaintViewModel.cancelLassoMulti() {
+    lassoMultiPoints = emptyList()
+    lassoSegmentCounts.clear()
+}
+
+internal fun PaintViewModel.undoLassoPoint(): Boolean {
+    if (lassoMultiPoints.isEmpty()) return false
+    val count = if (lassoSegmentCounts.isNotEmpty()) {
+        lassoSegmentCounts.removeAt(lassoSegmentCounts.lastIndex)
+    } else {
+        1
+    }
+    val newSize = (lassoMultiPoints.size - count).coerceAtLeast(0)
+    lassoMultiPoints = lassoMultiPoints.take(newSize)
+    return true
+}
+
 // Magic-wand / similar-color tolerance (0-255, default 24 like Krita)
 
 internal fun PaintViewModel.updateSelectionTolerance(value: Int) {
@@ -1328,6 +1375,7 @@ internal fun PaintViewModel.saveToolOptions() {
         o.put("sel_feather", selectionFeatherRadius)
         o.put("sel_close_gap", selectionCloseGap)
         o.put("sel_expand", selectionExpand)
+        o.put("lasso_sub_mode", lassoSubMode)
         o.put("picker_sample", pickerSampleLayers)
         prefs().edit().putString("tool_options", o.toString()).apply()
     } catch (_: Exception) {
@@ -1352,6 +1400,7 @@ internal fun PaintViewModel.loadToolOptions() {
         shapeFillMode = o.optInt("shape_fill", 0)
         shapeKeepAspect = o.optBoolean("shape_aspect", false)
         selectionMode = o.optInt("sel_mode", 0)
+        lassoSubMode = o.optInt("lasso_sub_mode", LassoSubMode.FREEHAND).coerceIn(0, 2)
         selectionTolerance = o.optInt("sel_tol", 24)
         selectionSampleLayers = o.optInt("sel_sample", 1)
         selectionFeatherRadius = o.optInt("sel_feather", 0)

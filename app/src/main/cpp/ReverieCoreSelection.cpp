@@ -99,7 +99,7 @@ void ReverieCore::invertSelection()
             mask[i] = 255;
         }
     }
-    setSelectionFromMask(this, image, mask, int(m_selectionMode));
+    setSelectionFromMask(this, image, mask, int(SelReplace));
     pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
     markDirty();
 }

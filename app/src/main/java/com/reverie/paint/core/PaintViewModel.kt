@@ -671,6 +671,10 @@ class PaintViewModel : ViewModel() {
     var shapeKeepAspect by mutableStateOf(false)
 
     var selectionMode by mutableIntStateOf(0) // 0: 替换, 1: 添加, 2: 减去, 3: 相交
+    var lassoSubMode by mutableIntStateOf(LassoSubMode.FREEHAND) // 0: 自由描画, 1: 折线, 2: 自由+折线
+    var lassoMultiPoints by mutableStateOf<List<Pair<Int, Int>>>(emptyList())
+    var lassoSegmentCounts = mutableListOf<Int>()
+    var customUndoHook: (() -> Boolean)? = null
     var selectionTolerance by mutableIntStateOf(24)
     var selectionSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
     var selectionFeatherRadius by mutableIntStateOf(0)

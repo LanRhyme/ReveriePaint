@@ -271,7 +271,33 @@ fun PaintingPage(
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
-    // ---- Quick Color Fill (ColorDrop) State & Diffusion Animation ----
+    LaunchedEffect(polyPoints.isNotEmpty(), vm.lassoMultiPoints.isNotEmpty()) {
+        if (polyPoints.isNotEmpty()) {
+            vm.customUndoHook = {
+                if (polyPoints.isNotEmpty()) {
+                    polyPoints = polyPoints.dropLast(1)
+                    vm.showActionToast("撤销顶点", R.drawable.ic_undo)
+                    true
+                } else {
+                    false
+                }
+            }
+        } else if (vm.lassoMultiPoints.isNotEmpty()) {
+            vm.customUndoHook = {
+                if (vm.lassoMultiPoints.isNotEmpty()) {
+                    val undone = vm.undoLassoPoint()
+                    if (undone) {
+                        vm.showActionToast("撤销套索点", R.drawable.ic_undo)
+                    }
+                    undone
+                } else {
+                    false
+                }
+            }
+        } else {
+            vm.customUndoHook = null
+        }
+    }
     var isColorDropping by remember { mutableStateOf(false) }
     var colorDropPos by remember { mutableStateOf(Offset.Zero) }
     var colorDropHex by remember { mutableStateOf(vm.brushColor) }
@@ -423,6 +449,9 @@ fun PaintingPage(
         if (tool != Tool.POLYGON && tool != Tool.POLYLINE && tool != Tool.PATH && tool != Tool.SELECT_POLYGON) {
             polyPoints = emptyList()
         }
+        if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
+            vm.cancelLassoMulti()
+        }
     }
     var shapeStrokeWidth by remember { mutableStateOf(4f) }
     var shapeFilled by remember { mutableStateOf(false) }
@@ -433,7 +462,6 @@ fun PaintingPage(
             Tool.ELLIPSE,
             Tool.POLYGON,
             Tool.POLYLINE,
-            Tool.SELECT_POLYGON,
             Tool.PATH,
         )
 
@@ -904,6 +932,12 @@ fun PaintingPage(
                         polyPoints = emptyList()
                     }
                 },
+                onUndo = {
+                    if (polyPoints.isNotEmpty()) {
+                        polyPoints = polyPoints.dropLast(1)
+                        vm.showActionToast("撤销顶点", R.drawable.ic_undo)
+                    }
+                },
                 onCancel = { polyPoints = emptyList() },
             )
         }
@@ -1091,12 +1125,79 @@ fun PaintingPage(
                 tool = tool,
                 propsOpen = selectionPropsOpen,
                 hazeState = hazeState,
+                polyPoints = polyPoints,
+                onPolyFinish = {
+                    if (polyPoints.isNotEmpty()) {
+                        val pts = polyPoints.map { it.x.toInt() to it.y.toInt() }
+                        vm.selectPolygon(pts)
+                        polyPoints = emptyList()
+                    }
+                },
+                onPolyUndo = {
+                    if (polyPoints.isNotEmpty()) {
+                        polyPoints = polyPoints.dropLast(1)
+                        vm.showActionToast("撤销顶点", R.drawable.ic_undo)
+                    }
+                },
+                onPolyCancel = { polyPoints = emptyList() },
                 onToggleProps = { selectionPropsOpen = !selectionPropsOpen },
                 onDrag = { dx, dy ->
                     selectionPanelOffsetX += dx
                     selectionPanelOffsetY += dy
                 },
             )
+        }
+
+        // ---- Global Active Selection Pill (when outside selection tools) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.hasSelection && tool !in selectionTools,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 52.dp),
+            enter = androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                androidx.compose.animation.slideInVertically(Motion.enterSpring()) { -it / 2 },
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) +
+                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(150)) { -it / 2 },
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Morandi.panelHi)
+                    .border(1.dp, Morandi.border, CircleShape)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent)
+                    )
+                    Text(
+                        "选区生效中",
+                        color = Morandi.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Morandi.panel)
+                            .border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            .clickable { vm.clearSelectionAction() }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            "取消选区",
+                            color = Morandi.subText,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+            }
         }
 
         // ---- Floating Color Picker layer-source bar (PaintWorld style) ----
