@@ -68,8 +68,23 @@ fun ColorHarmonyPage(
         }
     }
 
-    val harmonyHues = remember(hue, harmonyMode) {
-        harmonyMode.getHarmoniousHues(hue)
+    val initialBaseHue = if (vm.colorHarmonyBaseHue >= 0f) vm.colorHarmonyBaseHue else hue
+    var harmonyBaseHue by remember { mutableFloatStateOf(initialBaseHue) }
+
+    LaunchedEffect(Unit) {
+        if (vm.colorHarmonyBaseHue < 0f) {
+            vm.updateColorHarmonyBaseHue(hue)
+        }
+    }
+
+    LaunchedEffect(vm.colorHarmonyBaseHue) {
+        if (vm.colorHarmonyBaseHue >= 0f) {
+            harmonyBaseHue = vm.colorHarmonyBaseHue
+        }
+    }
+
+    val harmonyHues = remember(harmonyBaseHue, harmonyMode) {
+        harmonyMode.getHarmoniousHues(harmonyBaseHue)
     }
 
     val harmonyHexColors = remember(harmonyHues, sat, valB, vm.colorModel) {
@@ -123,10 +138,21 @@ fun ColorHarmonyPage(
         ) {
             HarmonyWheelCanvas(
                 hues = harmonyHues,
+                activeColorHex = vm.brushColor,
+                harmonyHexColors = harmonyHexColors,
                 sat = sat,
                 valB = valB,
-                onPrimaryHue = onHue,
-                onSelectSecondaryHue = { chosenHue -> onHue(chosenHue) },
+                onPrimaryHue = { newHue ->
+                    harmonyBaseHue = newHue
+                    vm.updateColorHarmonyBaseHue(newHue)
+                    onHue(newHue)
+                },
+                onSelectSecondary = { secondaryIndex ->
+                    val targetHex = harmonyHexColors.getOrNull(secondaryIndex)
+                    if (targetHex != null) {
+                        vm.updateBrushColor(targetHex)
+                    }
+                },
                 onInteractionStart = onInteractionStart,
                 onInteractionEnd = onInteractionEnd
             )
@@ -164,8 +190,7 @@ fun ColorHarmonyPage(
                                 shape = RoundedCornerShape(6.dp)
                             )
                             .clickable {
-                                val targetHue = harmonyHues.getOrNull(index) ?: hue
-                                onHue(targetHue)
+                                vm.updateBrushColor(hex)
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -267,18 +292,22 @@ fun ColorHarmonyPage(
 @Composable
 private fun HarmonyWheelCanvas(
     hues: List<Float>,
+    activeColorHex: String,
+    harmonyHexColors: List<String>,
     sat: Float,
     valB: Float,
     onPrimaryHue: (Float) -> Unit,
-    onSelectSecondaryHue: (Float) -> Unit,
+    onSelectSecondary: (Int) -> Unit,
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit
 ) {
     val currentOnPrimaryHue by rememberUpdatedState(onPrimaryHue)
-    val currentOnSelectSecondaryHue by rememberUpdatedState(onSelectSecondaryHue)
+    val currentOnSelectSecondary by rememberUpdatedState(onSelectSecondary)
     val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
     val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
     val currentHues by rememberUpdatedState(hues)
+    val currentActiveColorHex by rememberUpdatedState(activeColorHex)
+    val currentHarmonyHexColors by rememberUpdatedState(harmonyHexColors)
 
     Canvas(
         modifier = Modifier
@@ -295,45 +324,55 @@ private fun HarmonyWheelCanvas(
                     val nodeRadius = innerR * 0.72f
 
                     val dist = (down.position - Offset(cx, cy)).getDistance()
-                    if (dist > R + strokeWidth / 2f + 12.dp.toPx()) {
+                    if (dist > R + strokeWidth / 2f + 16.dp.toPx() || dist < innerR * 0.35f) {
                         return@awaitEachGesture
                     }
                     down.consume()
                     currentOnInteractionStart()
 
-                    // Check if tapped directly on or near a secondary node
+                    // Check if tapped directly on or near a secondary node (inner node or ring marker)
                     val secondaryTapped = currentHues.indices.firstOrNull { idx ->
                         if (idx == 0) return@firstOrNull false
                         val angle = (currentHues[idx] + 180f) * Math.PI / 180f
                         val nx = cx + cos(angle).toFloat() * nodeRadius
                         val ny = cy + sin(angle).toFloat() * nodeRadius
-                        (down.position - Offset(nx, ny)).getDistance() < 24.dp.toPx()
+                        val rx = cx + cos(angle).toFloat() * R
+                        val ry = cy + sin(angle).toFloat() * R
+                        val hitNode = (down.position - Offset(nx, ny)).getDistance() < 24.dp.toPx()
+                        val hitRing = (down.position - Offset(rx, ry)).getDistance() < 20.dp.toPx()
+                        hitNode || hitRing
                     }
 
                     if (secondaryTapped != null) {
-                        currentOnSelectSecondaryHue(currentHues[secondaryTapped])
-                    }
+                        currentOnSelectSecondary(secondaryTapped)
+                        // Consume all subsequent pointer events until release without touching angle
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            change.consume()
+                        }
+                        currentOnInteractionEnd()
+                    } else {
+                        fun updateAngle(pos: Offset) {
+                            val px = pos.x - cx
+                            val py = pos.y - cy
+                            val rawAngle = (atan2(py, px) * 180 / Math.PI).toFloat()
+                            val h = (rawAngle - 180f + 360f) % 360f
+                            currentOnPrimaryHue(h)
+                        }
 
-                    fun updateAngle(pos: Offset) {
-                        val px = pos.x - cx
-                        val py = pos.y - cy
-                        val rawAngle = (atan2(py, px) * 180 / Math.PI).toFloat()
-                        val h = (rawAngle - 180f + 360f) % 360f
-                        currentOnPrimaryHue(h)
-                    }
-
-                    if (secondaryTapped == null) {
                         updateAngle(down.position)
-                    }
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) break
-                        updateAngle(change.position)
-                        change.consume()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            updateAngle(change.position)
+                            change.consume()
+                        }
+                        currentOnInteractionEnd()
                     }
-                    currentOnInteractionEnd()
                 }
             }
     ) {
@@ -390,6 +429,8 @@ private fun HarmonyWheelCanvas(
             val isPrimary = index == 0
             val nodeHue = hues[index]
             val pureColor = hueToPureColor(nodeHue)
+            val nodeColorHex = currentHarmonyHexColors.getOrNull(index)
+            val isCurrentColor = nodeColorHex != null && nodeColorHex.equals(currentActiveColorHex, ignoreCase = true)
 
             // Connect line to ring
             val angle = (nodeHue + 180f) * Math.PI / 180f
@@ -413,11 +454,20 @@ private fun HarmonyWheelCanvas(
                 drawCircle(Color.White, radius = 7.dp.toPx(), center = Offset(rx, ry), style = Stroke(2.5.dp.toPx()))
             } else {
                 // Secondary nodes
-                drawCircle(pureColor, radius = 5.5.dp.toPx(), center = pos)
-                drawCircle(Color.White, radius = 6.5.dp.toPx(), center = pos, style = Stroke(1.8.dp.toPx()))
+                if (isCurrentColor) {
+                    drawCircle(pureColor, radius = 6.5.dp.toPx(), center = pos)
+                    drawCircle(Color.White, radius = 8.5.dp.toPx(), center = pos, style = Stroke(2.2.dp.toPx()))
+                    drawCircle(Color.Black.copy(alpha = 0.5f), radius = 9.5.dp.toPx(), center = pos, style = Stroke(1.dp.toPx()))
 
-                // Hue ring marker
-                drawCircle(Color.White.copy(alpha = 0.75f), radius = 4.5.dp.toPx(), center = Offset(rx, ry), style = Stroke(1.5.dp.toPx()))
+                    // Hue ring marker
+                    drawCircle(Color.White, radius = 6.dp.toPx(), center = Offset(rx, ry), style = Stroke(2.dp.toPx()))
+                } else {
+                    drawCircle(pureColor, radius = 5.5.dp.toPx(), center = pos)
+                    drawCircle(Color.White, radius = 6.5.dp.toPx(), center = pos, style = Stroke(1.8.dp.toPx()))
+
+                    // Hue ring marker
+                    drawCircle(Color.White.copy(alpha = 0.75f), radius = 4.5.dp.toPx(), center = Offset(rx, ry), style = Stroke(1.5.dp.toPx()))
+                }
             }
         }
     }
