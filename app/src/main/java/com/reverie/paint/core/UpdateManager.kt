@@ -27,13 +27,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.Xml
+import androidx.core.text.HtmlCompat
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.StringReader
 import java.util.concurrent.TimeUnit
 
 /**
@@ -43,6 +47,9 @@ object UpdateManager {
 
     private const val GITHUB_LATEST_RELEASE_URL =
         "https://api.github.com/repos/LanRhyme/ReveriePaint/releases/latest"
+
+    private const val GITHUB_RELEASES_ATOM_URL =
+        "https://github.com/LanRhyme/ReveriePaint/releases.atom"
 
     private const val PREFS_KEY_AUTO_CHECK = "auto_check_updates"
 
@@ -104,6 +111,11 @@ object UpdateManager {
      * @param context 上下文
      * @param isManual 是否手动触发（如果是手动触发，未检测到或失败时会弹 Toast 提示）
      */
+    /**
+     * 检查新版本
+     * 优先尝试 GitHub REST API；若因 IP 频控（HTTP 403 Rate Limit）或网络问题失败，
+     * 自动无缝降级至官方 Releases Atom 订阅源，彻底避免 60次/小时 速率限制导致的检查失败。
+     */
     fun checkForUpdates(
         context: Context,
         isManual: Boolean,
@@ -118,18 +130,12 @@ object UpdateManager {
 
         scope.launch(Dispatchers.IO) {
             try {
-                val request = Request.Builder()
-                    .url(GITHUB_LATEST_RELEASE_URL)
-                    .header("Accept", "application/vnd.github.v3+json")
-                    .header("User-Agent", "ReveriePaint-Android")
-                    .build()
+                val release = fetchReleaseFromApi() ?: fetchReleaseFromAtomFeed()
 
-                val response = okHttpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    val code = response.code
-                    val errorMsg = if (code == 404) "未找到发布版本" else "请求失败: HTTP $code"
+                if (release == null) {
                     withContext(Dispatchers.Main) {
                         isChecking = false
+                        val errorMsg = "获取版本信息失败，请检查网络设置"
                         onResult?.invoke(UpdateCheckResult.Error(errorMsg))
                         if (isManual) {
                             Toast.makeText(context, "检查更新失败: $errorMsg", Toast.LENGTH_SHORT).show()
@@ -138,49 +144,8 @@ object UpdateManager {
                     return@launch
                 }
 
-                val bodyStr = response.body?.string() ?: ""
-                val json = JSONObject(bodyStr)
-
-                val tagName = json.optString("tag_name", "")
-                val name = json.optString("name", tagName)
-                val body = json.optString("body", "")
-                val htmlUrl = json.optString("html_url", "https://github.com/LanRhyme/ReveriePaint/releases")
-                val publishedAt = json.optString("published_at", "")
-
-                // 解析 assets 找到 apk
-                val assetsJson = json.optJSONArray("assets")
-                var apkAsset: ReleaseAsset? = null
-                if (assetsJson != null) {
-                    for (i in 0 until assetsJson.length()) {
-                        val assetObj = assetsJson.optJSONObject(i) ?: continue
-                        val assetName = assetObj.optString("name", "")
-                        val downloadUrl = assetObj.optString("browser_download_url", "")
-                        val size = assetObj.optLong("size", 0L)
-                        val contentType = assetObj.optString("content_type", "")
-
-                        if (assetName.endsWith(".apk", ignoreCase = true)) {
-                            apkAsset = ReleaseAsset(
-                                name = assetName,
-                                downloadUrl = downloadUrl,
-                                size = size,
-                                contentType = contentType,
-                            )
-                            break
-                        }
-                    }
-                }
-
-                val release = ReleaseInfo(
-                    tagName = tagName,
-                    name = name,
-                    body = body,
-                    htmlUrl = htmlUrl,
-                    publishedAt = publishedAt,
-                    apkAsset = apkAsset,
-                )
-
                 val currentVersion = BuildConfig.VERSION_NAME
-                val hasNew = VersionComparator.isNewerVersion(tagName, currentVersion)
+                val hasNew = VersionComparator.isNewerVersion(release.tagName, currentVersion)
 
                 withContext(Dispatchers.Main) {
                     isChecking = false
@@ -205,6 +170,136 @@ object UpdateManager {
                     }
                 }
             }
+        }
+    }
+
+    private fun fetchReleaseFromApi(): ReleaseInfo? {
+        try {
+            val request = Request.Builder()
+                .url(GITHUB_LATEST_RELEASE_URL)
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "ReveriePaint-Android")
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return null
+
+            val bodyStr = response.body?.string() ?: return null
+            val json = JSONObject(bodyStr)
+
+            val tagName = json.optString("tag_name", "")
+            if (tagName.isBlank()) return null
+            val name = json.optString("name", tagName)
+            val body = json.optString("body", "")
+            val htmlUrl = json.optString("html_url", "https://github.com/LanRhyme/ReveriePaint/releases")
+            val publishedAt = json.optString("published_at", "")
+
+            val assetsJson = json.optJSONArray("assets")
+            var apkAsset: ReleaseAsset? = null
+            if (assetsJson != null) {
+                for (i in 0 until assetsJson.length()) {
+                    val assetObj = assetsJson.optJSONObject(i) ?: continue
+                    val assetName = assetObj.optString("name", "")
+                    val downloadUrl = assetObj.optString("browser_download_url", "")
+                    val size = assetObj.optLong("size", 0L)
+                    val contentType = assetObj.optString("content_type", "")
+
+                    if (assetName.endsWith(".apk", ignoreCase = true)) {
+                        apkAsset = ReleaseAsset(
+                            name = assetName,
+                            downloadUrl = downloadUrl,
+                            size = size,
+                            contentType = contentType,
+                        )
+                        break
+                    }
+                }
+            }
+
+            return ReleaseInfo(
+                tagName = tagName,
+                name = name,
+                body = body,
+                htmlUrl = htmlUrl,
+                publishedAt = publishedAt,
+                apkAsset = apkAsset,
+            )
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    private fun fetchReleaseFromAtomFeed(): ReleaseInfo? {
+        try {
+            val request = Request.Builder()
+                .url(GITHUB_RELEASES_ATOM_URL)
+                .header("User-Agent", "ReveriePaint-Android")
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return null
+            val xmlStr = response.body?.string() ?: return null
+
+            val parser = Xml.newPullParser()
+            parser.setInput(StringReader(xmlStr))
+            var eventType = parser.eventType
+            var inFirstEntry = false
+            var title = ""
+            var updated = ""
+            var contentHtml = ""
+            var htmlUrl = ""
+
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                val name = parser.name
+                when (eventType) {
+                    XmlPullParser.START_TAG -> {
+                        if (name == "entry") {
+                            if (!inFirstEntry) {
+                                inFirstEntry = true
+                            } else {
+                                break
+                            }
+                        } else if (inFirstEntry) {
+                            when (name) {
+                                "title" -> if (title.isEmpty()) title = parser.nextText()
+                                "updated" -> if (updated.isEmpty()) updated = parser.nextText()
+                                "content" -> if (contentHtml.isEmpty()) contentHtml = parser.nextText()
+                                "link" -> {
+                                    if (htmlUrl.isEmpty()) {
+                                        val rel = parser.getAttributeValue(null, "rel")
+                                        if (rel == "alternate" || rel == null) {
+                                            htmlUrl = parser.getAttributeValue(null, "href") ?: ""
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                eventType = parser.next()
+            }
+
+            if (title.isBlank()) return null
+            val tagName = title.trim()
+            val plainBody = HtmlCompat.fromHtml(contentHtml, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+            val apkName = "ReveriePaint-$tagName.apk"
+            val downloadUrl = "https://github.com/LanRhyme/ReveriePaint/releases/download/$tagName/$apkName"
+
+            return ReleaseInfo(
+                tagName = tagName,
+                name = tagName,
+                body = plainBody,
+                htmlUrl = htmlUrl.ifBlank { "https://github.com/LanRhyme/ReveriePaint/releases/tag/$tagName" },
+                publishedAt = updated,
+                apkAsset = ReleaseAsset(
+                    name = apkName,
+                    downloadUrl = downloadUrl,
+                    size = 0L,
+                    contentType = "application/vnd.android.package-archive",
+                ),
+            )
+        } catch (_: Exception) {
+            return null
         }
     }
 
