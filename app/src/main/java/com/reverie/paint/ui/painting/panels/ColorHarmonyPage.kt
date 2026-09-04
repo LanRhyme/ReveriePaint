@@ -60,7 +60,13 @@ fun ColorHarmonyPage(
     onInteractionEnd: () -> Unit
 ) {
     val context = LocalContext.current
-    var harmonyMode by remember { mutableStateOf(ColorHarmonyMode.COMPLEMENTARY) }
+    val harmonyMode = remember(vm.colorHarmonyModeName) {
+        try {
+            ColorHarmonyMode.valueOf(vm.colorHarmonyModeName)
+        } catch (_: Exception) {
+            ColorHarmonyMode.COMPLEMENTARY
+        }
+    }
 
     val harmonyHues = remember(hue, harmonyMode) {
         harmonyMode.getHarmoniousHues(hue)
@@ -95,7 +101,7 @@ fun ColorHarmonyPage(
                         .height(24.dp)
                         .clip(RoundedCornerShape(6.dp))
                         .background(if (isSel) Morandi.accent else Color.Transparent)
-                        .clickable { harmonyMode = mode },
+                        .clickable { vm.updateColorHarmonyMode(mode.name) },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -263,29 +269,52 @@ private fun HarmonyWheelCanvas(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit
 ) {
+    val currentOnPrimaryHue by rememberUpdatedState(onPrimaryHue)
+    val currentOnSelectSecondaryHue by rememberUpdatedState(onSelectSecondaryHue)
+    val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+    val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+    val currentHues by rememberUpdatedState(hues)
+
     Canvas(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(hues) {
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown().also { it.consume() }
-                    onInteractionStart()
+                    currentOnInteractionStart()
 
                     val cx = size.width / 2f
                     val cy = size.height / 2f
                     val ringSize = size.height.toFloat()
                     val strokeWidth = 15.dp.toPx()
                     val R = (ringSize - strokeWidth) / 2f
+                    val innerR = R - strokeWidth / 2f - 4.dp.toPx()
+                    val nodeRadius = innerR * 0.72f
+
+                    // Check if tapped directly on or near a secondary node
+                    val secondaryTapped = currentHues.indices.firstOrNull { idx ->
+                        if (idx == 0) return@firstOrNull false
+                        val angle = (currentHues[idx] + 180f) * Math.PI / 180f
+                        val nx = cx + cos(angle).toFloat() * nodeRadius
+                        val ny = cy + sin(angle).toFloat() * nodeRadius
+                        (down.position - Offset(nx, ny)).getDistance() < 24.dp.toPx()
+                    }
+
+                    if (secondaryTapped != null) {
+                        currentOnSelectSecondaryHue(currentHues[secondaryTapped])
+                    }
 
                     fun updateAngle(pos: Offset) {
                         val px = pos.x - cx
                         val py = pos.y - cy
                         val rawAngle = (atan2(py, px) * 180 / Math.PI).toFloat()
                         val h = (rawAngle - 180f + 360f) % 360f
-                        onPrimaryHue(h)
+                        currentOnPrimaryHue(h)
                     }
 
-                    updateAngle(down.position)
+                    if (secondaryTapped == null) {
+                        updateAngle(down.position)
+                    }
 
                     while (true) {
                         val event = awaitPointerEvent()
@@ -294,7 +323,7 @@ private fun HarmonyWheelCanvas(
                         updateAngle(change.position)
                         change.consume()
                     }
-                    onInteractionEnd()
+                    currentOnInteractionEnd()
                 }
             }
     ) {

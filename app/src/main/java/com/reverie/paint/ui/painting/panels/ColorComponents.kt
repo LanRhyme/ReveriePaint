@@ -96,6 +96,70 @@ fun hsvModelToRgb(hue: Float, s: Float, val_y: Float, mode: String): Int {
     return (0xFF shl 24) or (R shl 16) or (G shl 8) or B
 }
 
+/**
+ * Inverts an RGB integer color into (hue, s, val_y) for the specified color model.
+ * Models: "hsv" (Default), "v-hsv" (SAI vibrant darks), "hsl" (Lightness), "hsy" (Perceptual Luma)
+ */
+fun rgbToHsvModel(colorInt: Int, mode: String): FloatArray {
+    val r = ((colorInt shr 16) and 0xFF) / 255.0
+    val g = ((colorInt shr 8) and 0xFF) / 255.0
+    val b = (colorInt and 0xFF) / 255.0
+
+    val maxVal = max(r, max(g, b))
+    val minVal = min(r, min(g, b))
+    val delta = maxVal - minVal
+
+    // 1. Hue calculation (standard 0..360)
+    val hue = if (delta < 1e-5) {
+        0f
+    } else {
+        val h = when (maxVal) {
+            r -> ((g - b) / delta) % 6.0
+            g -> ((b - r) / delta) + 2.0
+            else -> ((r - g) / delta) + 4.0
+        } * 60.0
+        ((h % 360.0 + 360.0) % 360.0).toFloat()
+    }
+
+    // 2. Saturation and Value/Lightness/Luma per model
+    return when (mode) {
+        "v-hsv" -> {
+            val v = maxVal.toFloat()
+            val sHsv = if (v > 1e-5f) (delta / maxVal).toFloat() else 0f
+            val s = if (sHsv > 0f && v > 0f) {
+                sHsv.toDouble().pow(1.5 / (v + 0.5)).toFloat().coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            floatArrayOf(hue, s, v)
+        }
+        "hsl" -> {
+            val l = ((maxVal + minVal) / 2.0).toFloat()
+            val s = if (delta < 1e-5 || l <= 1e-5f || l >= 0.9999f) {
+                0f
+            } else {
+                val denom = 1.0 - abs(2.0 * l - 1.0)
+                (delta / denom).toFloat().coerceIn(0f, 1f)
+            }
+            floatArrayOf(hue, s, l)
+        }
+        "hsy" -> {
+            val y = (0.299 * r + 0.587 * g + 0.114 * b).toFloat()
+            val s = if (y > 1e-5f) {
+                (delta / y).toFloat().coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            floatArrayOf(hue, s, y)
+        }
+        else -> { // "hsv"
+            val v = maxVal.toFloat()
+            val s = if (v > 1e-5f) (delta / maxVal).toFloat().coerceIn(0f, 1f) else 0f
+            floatArrayOf(hue, s, v)
+        }
+    }
+}
+
 /** Pure hue color for GPU gradient shading */
 fun hueToPureColor(hue: Float): Color {
     val hp = (hue % 360f + 360f) % 360f / 60f

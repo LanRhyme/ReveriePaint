@@ -75,15 +75,16 @@ fun ColorPanel(
 
     val context = LocalContext.current
 
-    // Sync from vm.brushColor
-    LaunchedEffect(vm.brushColor) {
+    // Sync from vm.brushColor & vm.colorModel (supports canvas eyedropper in any color model)
+    LaunchedEffect(vm.brushColor, vm.colorModel) {
         if (!isInteracting) {
-            val c = android.graphics.Color.parseColor(vm.brushColor)
-            val hsv = FloatArray(3)
-            android.graphics.Color.colorToHSV(c, hsv)
-            hue = hsv[0]
-            sat = hsv[1]
-            valB = hsv[2]
+            try {
+                val c = android.graphics.Color.parseColor(vm.brushColor)
+                val modelHsv = rgbToHsvModel(c, vm.colorModel)
+                hue = modelHsv[0]
+                sat = modelHsv[1]
+                valB = modelHsv[2]
+            } catch (_: Exception) { }
         }
     }
 

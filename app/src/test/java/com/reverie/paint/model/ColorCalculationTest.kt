@@ -6,6 +6,7 @@ package com.reverie.paint.model
 
 import com.reverie.paint.ui.painting.panels.hsvModelToRgb
 import com.reverie.paint.ui.painting.panels.hueToPureColor
+import com.reverie.paint.ui.painting.panels.rgbToHsvModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -93,5 +94,64 @@ class ColorCalculationTest {
         // Tetradic: base, base + 90, base + 180, base + 270
         val tetradic = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.TETRADIC.getHarmoniousHues(base)
         assertEquals(listOf(30f, 120f, 210f, 300f), tetradic)
+    }
+
+    @Test
+    fun `rgbToHsvModel correctly recovers HSV from primary colors`() {
+        // Red 0xFFFF0000
+        val redHsv = rgbToHsvModel(0xFF shl 24 or (255 shl 16), "hsv")
+        assertEquals(0f, redHsv[0], 0.1f)
+        assertEquals(1f, redHsv[1], 0.01f)
+        assertEquals(1f, redHsv[2], 0.01f)
+
+        // Green 0xFF00FF00
+        val greenHsv = rgbToHsvModel(0xFF shl 24 or (255 shl 8), "hsv")
+        assertEquals(120f, greenHsv[0], 0.1f)
+        assertEquals(1f, greenHsv[1], 0.01f)
+        assertEquals(1f, greenHsv[2], 0.01f)
+
+        // Blue 0xFF0000FF
+        val blueHsv = rgbToHsvModel(0xFF shl 24 or 255, "hsv")
+        assertEquals(240f, blueHsv[0], 0.1f)
+        assertEquals(1f, blueHsv[1], 0.01f)
+        assertEquals(1f, blueHsv[2], 0.01f)
+    }
+
+    @Test
+    fun `rgbToHsvModel correctly recovers HSL lightness for pure saturated colors`() {
+        // Pure red in HSL has Lightness = 0.5, Saturation = 1.0
+        val redHsl = rgbToHsvModel(0xFF shl 24 or (255 shl 16), "hsl")
+        assertEquals(0f, redHsl[0], 0.1f)
+        assertEquals(1f, redHsl[1], 0.01f)
+        assertEquals(0.5f, redHsl[2], 0.01f)
+
+        // Pure white in HSL has Lightness = 1.0, Saturation = 0.0
+        val whiteHsl = rgbToHsvModel(-1, "hsl")
+        assertEquals(1.0f, whiteHsl[2], 0.01f)
+
+        // Pure black in HSL has Lightness = 0.0, Saturation = 0.0
+        val blackHsl = rgbToHsvModel(0xFF shl 24, "hsl")
+        assertEquals(0.0f, blackHsl[2], 0.01f)
+    }
+
+    @Test
+    fun `rgbToHsvModel and hsvModelToRgb round-trip consistency across models`() {
+        val testHues = listOf(0f, 60f, 120f, 180f, 240f, 300f)
+        val models = listOf("hsv", "v-hsv", "hsl", "hsy")
+
+        for (model in models) {
+            for (h in testHues) {
+                val origS = 0.8f
+                val origV = 0.8f
+                val rgb = hsvModelToRgb(h, origS, origV, model)
+                val inverted = rgbToHsvModel(rgb, model)
+
+                // Hue should match within rounding tolerance (±1.5 degree)
+                assertEquals("Hue match failed for model $model at $h", h, inverted[0], 1.5f)
+                // Values should be in valid range [0, 1]
+                assertTrue(inverted[1] in 0f..1f)
+                assertTrue(inverted[2] in 0f..1f)
+            }
+        }
     }
 }

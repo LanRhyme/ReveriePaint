@@ -1270,6 +1270,7 @@ class PaintViewModel : ViewModel() {
             recentColors = loadRecentColors()
             userPalettes = loadUserPalettes()
             defaultPaletteId = prefs.getString("defaultPaletteId", "builtin_basic") ?: "builtin_basic"
+            colorHarmonyModeName = prefs.getString("colorHarmonyMode", "COMPLEMENTARY") ?: "COMPLEMENTARY"
 
             // 笔刷面板持久化恢复
             brushPanelSelectedCategory = prefs.getString("brush_panel_category", "全部") ?: "全部"
@@ -1470,6 +1471,16 @@ class PaintViewModel : ViewModel() {
 
     /** Whether color panel is pinned as a floating companion window without blocking canvas interaction */
     var isColorPanelPinned by mutableStateOf(false)
+
+    var colorHarmonyModeName by mutableStateOf("COMPLEMENTARY")
+
+    fun updateColorHarmonyMode(mode: String) {
+        colorHarmonyModeName = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("colorHarmonyMode", mode).apply()
+        }
+    }
 
     fun addColorToPalette(paletteId: String, hex: String) {
         val upper = hex.uppercase()

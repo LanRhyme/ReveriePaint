@@ -194,17 +194,48 @@ fun SquareHsbColorPage(
             }
         }
 
-        // 2. Rainbow Hue Slider
-        CompactHsvSlider(
-            label = "",
-            value = hue,
-            max = 360f,
-            colors = RainbowHueColors,
-            onInteractionStart = onInteractionStart,
-            onInteractionEnd = onInteractionEnd,
-            onValueChange = onHue,
-            showValueText = false
-        )
+        // 2. Precision H, S, V Sliders
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            CompactHsvSlider(
+                label = "H",
+                value = hue,
+                max = 360f,
+                colors = RainbowHueColors,
+                onInteractionStart = onInteractionStart,
+                onInteractionEnd = onInteractionEnd,
+                onValueChange = onHue,
+                unitSuffix = "°"
+            )
+            CompactHsvSlider(
+                label = "S",
+                value = sat * 100f,
+                max = 100f,
+                colors = listOf(
+                    Color(hsvModelToRgb(hue, 0f, valB, vm.colorModel)),
+                    Color(hsvModelToRgb(hue, 1f, valB, vm.colorModel))
+                ),
+                onInteractionStart = onInteractionStart,
+                onInteractionEnd = onInteractionEnd,
+                onValueChange = { onSatVal(it / 100f, valB) },
+                unitSuffix = "%"
+            )
+            CompactHsvSlider(
+                label = "V",
+                value = valB * 100f,
+                max = 100f,
+                colors = listOf(
+                    Color(hsvModelToRgb(hue, sat, 0f, vm.colorModel)),
+                    Color(hsvModelToRgb(hue, sat, 1f, vm.colorModel))
+                ),
+                onInteractionStart = onInteractionStart,
+                onInteractionEnd = onInteractionEnd,
+                onValueChange = { onSatVal(sat, it / 100f) },
+                unitSuffix = "%"
+            )
+        }
 
         // 3. Bottom Quick Swatches (Recent Colors / Default Palette Switcher)
         BottomQuickSwatchesSection(
