@@ -69,4 +69,29 @@ class ColorCalculationTest {
             }
         }
     }
+
+    @Test
+    fun `color harmony modes calculate correct harmonious angles`() {
+        val base = 30f
+
+        // Complementary: base, base + 180
+        val comp = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.COMPLEMENTARY.getHarmoniousHues(base)
+        assertEquals(listOf(30f, 210f), comp)
+
+        // Split Complementary: base, base + 150, base + 210
+        val split = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.SPLIT_COMPLEMENTARY.getHarmoniousHues(base)
+        assertEquals(listOf(30f, 180f, 240f), split)
+
+        // Analogous: base - 30, base, base + 30
+        val analogous = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.ANALOGOUS.getHarmoniousHues(base)
+        assertEquals(listOf(0f, 30f, 60f), analogous)
+
+        // Triadic: base, base + 120, base + 240
+        val triadic = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.TRIADIC.getHarmoniousHues(base)
+        assertEquals(listOf(30f, 150f, 270f), triadic)
+
+        // Tetradic: base, base + 90, base + 180, base + 270
+        val tetradic = com.reverie.paint.ui.painting.panels.ColorHarmonyMode.TETRADIC.getHarmoniousHues(base)
+        assertEquals(listOf(30f, 120f, 210f, 300f), tetradic)
+    }
 }

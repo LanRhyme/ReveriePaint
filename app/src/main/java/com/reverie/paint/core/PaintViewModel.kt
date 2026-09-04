@@ -1269,6 +1269,7 @@ class PaintViewModel : ViewModel() {
             colorModel = prefs.getString("colorModel", "hsv") ?: "hsv"
             recentColors = loadRecentColors()
             userPalettes = loadUserPalettes()
+            defaultPaletteId = prefs.getString("defaultPaletteId", "builtin_basic") ?: "builtin_basic"
 
             // 笔刷面板持久化恢复
             brushPanelSelectedCategory = prefs.getString("brush_panel_category", "全部") ?: "全部"
@@ -1453,6 +1454,22 @@ class PaintViewModel : ViewModel() {
 
     val allPalettes: List<ColorPaletteItem>
         get() = userPalettes
+
+    var defaultPaletteId by mutableStateOf("builtin_basic")
+
+    fun setDefaultPalette(id: String) {
+        defaultPaletteId = id
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("defaultPaletteId", id).apply()
+        }
+    }
+
+    val defaultPalette: ColorPaletteItem?
+        get() = allPalettes.firstOrNull { it.id == defaultPaletteId } ?: allPalettes.firstOrNull()
+
+    /** Whether color panel is pinned as a floating companion window without blocking canvas interaction */
+    var isColorPanelPinned by mutableStateOf(false)
 
     fun addColorToPalette(paletteId: String, hex: String) {
         val upper = hex.uppercase()

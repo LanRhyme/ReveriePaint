@@ -423,6 +423,28 @@ fun HexInputDialog(
 }
 
 /**
+ * Supported color harmony modes (Procreate parity)
+ */
+enum class ColorHarmonyMode(val label: String) {
+    COMPLEMENTARY("互补色"),
+    SPLIT_COMPLEMENTARY("分裂互补"),
+    ANALOGOUS("类似色"),
+    TRIADIC("三等分"),
+    TETRADIC("四角形");
+
+    fun getHarmoniousHues(baseHue: Float): List<Float> {
+        val h = (baseHue % 360f + 360f) % 360f
+        return when (this) {
+            COMPLEMENTARY -> listOf(h, (h + 180f) % 360f)
+            SPLIT_COMPLEMENTARY -> listOf(h, (h + 150f) % 360f, (h + 210f) % 360f)
+            ANALOGOUS -> listOf((h - 30f + 360f) % 360f, h, (h + 30f) % 360f)
+            TRIADIC -> listOf(h, (h + 120f) % 360f, (h + 240f) % 360f)
+            TETRADIC -> listOf(h, (h + 90f) % 360f, (h + 180f) % 360f, (h + 270f) % 360f)
+        }
+    }
+}
+
+/**
  * 2x8 Swatches Grid component for Recent Colors (Compact 1:1 Square Chips)
  */
 @Composable
@@ -467,6 +489,105 @@ fun RecentColorsSection(
 }
 
 /**
+ * Bottom Quick Swatches Section: Supports toggling between "Recent Colors" (记忆色)
+ * and the user's pinned "Default Palette" (常驻色卡) across Wheel and Square tabs!
+ */
+@Composable
+fun BottomQuickSwatchesSection(
+    vm: com.reverie.paint.core.PaintViewModel,
+    currentColorHex: String,
+    onColorSelect: (String) -> Unit
+) {
+    var showPaletteMode by remember { mutableStateOf(false) }
+    val defaultPal = vm.defaultPalette
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Toggle Pills: [记忆色] | [常用色卡]
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "记忆色",
+                    color = if (!showPaletteMode) Morandi.text else Morandi.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (!showPaletteMode) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { showPaletteMode = false }
+                        .padding(horizontal = 2.dp, vertical = 1.dp)
+                )
+                Text(
+                    text = "|",
+                    color = Morandi.border,
+                    fontSize = 10.sp
+                )
+                Text(
+                    text = defaultPal?.name ?: "常驻色卡",
+                    color = if (showPaletteMode) Morandi.text else Morandi.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (showPaletteMode) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { showPaletteMode = true }
+                        .padding(horizontal = 2.dp, vertical = 1.dp)
+                )
+            }
+
+            if (!showPaletteMode) {
+                Text(
+                    text = "清除",
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { vm.clearRecentColors() }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            } else if (defaultPal != null) {
+                Text(
+                    text = "+存入",
+                    color = Morandi.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable {
+                            vm.addColorToPalette(defaultPal.id, vm.brushColor)
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        if (!showPaletteMode) {
+            SquarePaletteSwatchesGrid(
+                colors = vm.recentColors,
+                selectedColor = currentColorHex,
+                onColorSelect = onColorSelect
+            )
+        } else {
+            SquarePaletteSwatchesGrid(
+                colors = defaultPal?.colors ?: emptyList(),
+                selectedColor = currentColorHex,
+                onColorSelect = onColorSelect,
+                onEmptySlotClick = if (defaultPal != null) {
+                    { vm.addColorToPalette(defaultPal.id, vm.brushColor) }
+                } else null
+            )
+        }
+    }
+}
+
+/**
  * Dynamic row count Grid with Compact Square Swatches (8 columns)
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -475,7 +596,8 @@ fun SquarePaletteSwatchesGrid(
     colors: List<String>,
     selectedColor: String? = null,
     onColorSelect: (String) -> Unit,
-    onColorLongPress: ((Int) -> Unit)? = null
+    onColorLongPress: ((Int) -> Unit)? = null,
+    onEmptySlotClick: (() -> Unit)? = null
 ) {
     val cols = 8
     val count = maxOf(16, colors.size)
@@ -528,11 +650,23 @@ fun SquarePaletteSwatchesGrid(
                                         onClick = { onColorSelect(hex) },
                                         onLongClick = { onColorLongPress?.invoke(idx) }
                                     )
+                                } else if (onEmptySlotClick != null) {
+                                    Modifier.clickable(onClick = onEmptySlotClick)
                                 } else {
                                     Modifier
                                 }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (hex == null && onEmptySlotClick != null && idx == colors.size) {
+                            Text(
+                                text = "+",
+                                color = Morandi.subText.copy(alpha = 0.5f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Light
                             )
-                    )
+                        }
+                    }
                 }
             }
         }

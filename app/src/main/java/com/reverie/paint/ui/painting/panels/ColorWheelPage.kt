@@ -305,12 +305,11 @@ fun WheelColorPage(
             )
         }
 
-        // 3. Memory Colors Grid
-        RecentColorsSection(
-            recentColors = vm.recentColors,
+        // 3. Bottom Quick Swatches (Recent Colors / Default Palette Switcher)
+        BottomQuickSwatchesSection(
+            vm = vm,
             currentColorHex = vm.brushColor,
-            onColorSelect = { hex -> vm.updateBrushColor(hex) },
-            onClear = { vm.clearRecentColors() }
+            onColorSelect = { hex -> vm.updateBrushColor(hex) }
         )
     }
 }
