@@ -66,6 +66,16 @@ fun WheelColorPage(
     var showShapePopup by remember { mutableStateOf(false) }
     var showModelPopup by remember { mutableStateOf(false) }
 
+    val isHsvFixed = vm.colorWheelInnerShape != "SQUARE"
+
+    LaunchedEffect(vm.colorWheelInnerShape) {
+        if (isHsvFixed && vm.colorModel != "hsv") {
+            vm.updateColorModel("hsv")
+        }
+    }
+
+    val effectiveColorModel = if (isHsvFixed) "hsv" else vm.colorModel
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -79,7 +89,7 @@ fun WheelColorPage(
         ) {
             WheelPickerCanvas(
                 shape = vm.colorWheelInnerShape,
-                colorModel = vm.colorModel,
+                colorModel = effectiveColorModel,
                 hue = hue,
                 sat = sat,
                 valB = valB,
@@ -151,6 +161,7 @@ fun WheelColorPage(
                                 .background(if (isTriangle) Morandi.accent else Color.Transparent)
                                 .clickable {
                                     vm.updateColorWheelInnerShape("TRIANGLE")
+                                    vm.updateColorModel("hsv")
                                     showShapePopup = false
                                 },
                             contentAlignment = Alignment.Center
@@ -175,6 +186,7 @@ fun WheelColorPage(
                                 .background(if (isCircle) Morandi.accent else Color.Transparent)
                                 .clickable {
                                     vm.updateColorWheelInnerShape("CIRCLE")
+                                    vm.updateColorModel("hsv")
                                     showShapePopup = false
                                 },
                             contentAlignment = Alignment.Center
@@ -199,11 +211,11 @@ fun WheelColorPage(
                     modifier = Modifier
                         .height(26.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .clickable { showModelPopup = !showModelPopup }
+                        .clickable(enabled = !isHsvFixed) { showModelPopup = !showModelPopup }
                         .padding(horizontal = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val modelLabel = when (vm.colorModel) {
+                    val modelLabel = if (isHsvFixed) "HSV" else when (effectiveColorModel) {
                         "v-hsv" -> "v-HSV"
                         "hsl" -> "HSL"
                         "hsy" -> "HSY'"
@@ -211,50 +223,52 @@ fun WheelColorPage(
                     }
                     Text(
                         text = modelLabel,
-                        color = Morandi.subText,
+                        color = if (isHsvFixed) Morandi.subText.copy(alpha = 0.4f) else Morandi.subText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
 
-                DropdownMenu(
-                    expanded = showModelPopup,
-                    onDismissRequest = { showModelPopup = false },
-                    modifier = Modifier
-                        .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 4.dp, vertical = 3.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                if (!isHsvFixed) {
+                    DropdownMenu(
+                        expanded = showModelPopup,
+                        onDismissRequest = { showModelPopup = false },
+                        modifier = Modifier
+                            .background(Morandi.panel)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 4.dp, vertical = 3.dp)
                     ) {
-                        val models = listOf(
-                            "hsv" to "HSV",
-                            "v-hsv" to "v-HSV",
-                            "hsl" to "HSL",
-                            "hsy" to "HSY'"
-                        )
-                        for ((key, label) in models) {
-                            val isSel = vm.colorModel == key
-                            Box(
-                                modifier = Modifier
-                                    .height(24.dp)
-                                    .clip(RoundedCornerShape(5.dp))
-                                    .background(if (isSel) Morandi.accent else Color.Transparent)
-                                    .clickable {
-                                        vm.updateColorModel(key)
-                                        showModelPopup = false
-                                    }
-                                    .padding(horizontal = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    color = if (isSel) Color.White else Morandi.subText,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val models = listOf(
+                                "hsv" to "HSV",
+                                "v-hsv" to "v-HSV",
+                                "hsl" to "HSL",
+                                "hsy" to "HSY'"
+                            )
+                            for ((key, label) in models) {
+                                val isSel = effectiveColorModel == key
+                                Box(
+                                    modifier = Modifier
+                                        .height(24.dp)
+                                        .clip(RoundedCornerShape(5.dp))
+                                        .background(if (isSel) Morandi.accent else Color.Transparent)
+                                        .clickable {
+                                            vm.updateColorModel(key)
+                                            showModelPopup = false
+                                        }
+                                        .padding(horizontal = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSel) Color.White else Morandi.subText,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }
@@ -282,8 +296,8 @@ fun WheelColorPage(
                 value = sat * 100f,
                 max = 100f,
                 colors = listOf(
-                    Color(hsvModelToRgb(hue, 0f, valB, vm.colorModel)),
-                    Color(hsvModelToRgb(hue, 1f, valB, vm.colorModel))
+                    Color(hsvModelToRgb(hue, 0f, valB, effectiveColorModel)),
+                    Color(hsvModelToRgb(hue, 1f, valB, effectiveColorModel))
                 ),
                 onInteractionStart = onInteractionStart,
                 onInteractionEnd = onInteractionEnd,
@@ -295,8 +309,8 @@ fun WheelColorPage(
                 value = valB * 100f,
                 max = 100f,
                 colors = listOf(
-                    Color(hsvModelToRgb(hue, sat, 0f, vm.colorModel)),
-                    Color(hsvModelToRgb(hue, sat, 1f, vm.colorModel))
+                    Color(hsvModelToRgb(hue, sat, 0f, effectiveColorModel)),
+                    Color(hsvModelToRgb(hue, sat, 1f, effectiveColorModel))
                 ),
                 onInteractionStart = onInteractionStart,
                 onInteractionEnd = onInteractionEnd,
@@ -331,7 +345,7 @@ private fun WheelPickerCanvas(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
 ) {
-    val bmpRes = 72
+    val bmpRes = 128
     var cachedShapeBmp by remember { mutableStateOf<Bitmap?>(null) }
     val shapePixelBuffer = remember { IntArray(bmpRes * bmpRes) }
     var lastHueForBmp by remember { mutableFloatStateOf(-1f) }
@@ -392,31 +406,33 @@ private fun WheelPickerCanvas(
                                     val wA = (1f - x0 / W - y0 / H) / 2f
                                     val wB = (1f - x0 / W + y0 / H) / 2f
 
-                                    var cwC = wC.coerceIn(0f, 1f)
-                                    var cwA = wA.coerceIn(0f, 1f)
-                                    var cwB = wB.coerceIn(0f, 1f)
-                                    val sum = cwC + cwA + cwB
-                                    if (sum > 0) {
-                                        cwC /= sum; cwA /= sum; cwB /= sum
+                                    val (s, v) = triangleBarycentricToSv(wC, wA, wB)
+                                    if (snapIfDoubleTap) {
+                                        val (cwC, cwA, cwB) = triangleSvToBarycentric(s, v)
+                                        when {
+                                            cwA >= 0.65f -> onSatVal(0f, 1f)
+                                            cwC >= 0.65f -> onSatVal(1f, 1f)
+                                            cwB >= 0.65f -> onSatVal(0f, 0f)
+                                            else -> onSatVal(s, v)
+                                        }
                                     } else {
-                                        cwA = 1f; cwB = 0f; cwC = 0f
+                                        onSatVal(s, v)
                                     }
-
-                                    val v = cwA + cwC
-                                    val s = if (v > 0) cwC / v else 0f
-                                    onSatVal(s.coerceIn(0f, 1f), v.coerceIn(0f, 1f))
                                 }
                                 "CIRCLE" -> {
-                                    var cdx = x - cx
-                                    var cdy = y - cy
-                                    val cdist = sqrt(cdx * cdx + cdy * cdy)
-                                    if (cdist > innerR && cdist > 0f) {
-                                        cdx = cdx * (innerR / cdist)
-                                        cdy = cdy * (innerR / cdist)
+                                    val cdx = x - cx
+                                    val cdy = y - cy
+                                    val (s, v) = squircularInverse(cdx / innerR, cdy / innerR)
+                                    if (snapIfDoubleTap) {
+                                        when {
+                                            s <= 0.28f && v >= 0.72f -> onSatVal(0f, 1f)
+                                            s >= 0.72f && v >= 0.72f -> onSatVal(1f, 1f)
+                                            v <= 0.22f -> onSatVal(s, 0f)
+                                            else -> onSatVal(s, v)
+                                        }
+                                    } else {
+                                        onSatVal(s, v)
                                     }
-                                    val s = ((cdx / innerR) + 1f) / 2f
-                                    val v = (1f - (cdy / innerR)) / 2f
-                                    onSatVal(s.coerceIn(0f, 1f), v.coerceIn(0f, 1f))
                                 }
                                 else -> { // "SQUARE"
                                     val side = 2f * innerR / sqrt(2f)
@@ -538,22 +554,20 @@ private fun WheelPickerCanvas(
             if (abs(lastHueForBmp - hue) > 0.8f || lastShapeForBmp != shape || lastModelForBmp != colorModel) {
                 when (shape) {
                     "TRIANGLE" -> {
-                        val H = bmpRes * sqrt(3f) / 2f
-                        val W = 1.5f * (bmpRes / 2f)
-                        val left = (bmpRes / 2f) - (bmpRes / 4f)
+                        val r = bmpRes / 2f
+                        val H = r * sqrt(3f) / 2f
+                        val W = 1.5f * r
+                        val left = r - r / 2f
                         for (y in 0 until bmpRes) {
-                            val y0 = y - (bmpRes / 2f)
+                            val y0 = (y + 0.5f) - r
                             for (x in 0 until bmpRes) {
-                                val x0 = x - left
+                                val x0 = (x + 0.5f) - left
                                 val wC = x0 / W
                                 val wA = (1f - x0 / W - y0 / H) / 2f
                                 val wB = (1f - x0 / W + y0 / H) / 2f
-                                if (wC >= -0.04f && wA >= -0.04f && wB >= -0.04f) {
-                                    val cwC = wC.coerceIn(0f, 1f)
-                                    val cwA = wA.coerceIn(0f, 1f)
-                                    val v = cwA + cwC
-                                    val s = if (v > 0) cwC / v else 0f
-                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s.coerceIn(0f, 1f), v.coerceIn(0f, 1f), colorModel)
+                                if (wC >= -0.02f && wA >= -0.02f && wB >= -0.02f) {
+                                    val (s, v) = triangleBarycentricToSv(wC, wA, wB)
+                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
                                 } else {
                                     shapePixelBuffer[y * bmpRes + x] = AColor.TRANSPARENT
                                 }
@@ -563,14 +577,13 @@ private fun WheelPickerCanvas(
                     "CIRCLE" -> {
                         val rRadius = bmpRes / 2f
                         for (y in 0 until bmpRes) {
-                            val dy = y - rRadius
+                            val dy = (y + 0.5f) - rRadius
                             for (x in 0 until bmpRes) {
-                                val dx = x - rRadius
+                                val dx = (x + 0.5f) - rRadius
                                 val dist = sqrt(dx * dx + dy * dy)
                                 if (dist <= rRadius) {
-                                    val s = ((dx / rRadius) + 1f) / 2f
-                                    val v = (1f - (dy / rRadius)) / 2f
-                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s.coerceIn(0f, 1f), v.coerceIn(0f, 1f), colorModel)
+                                    val (s, v) = squircularInverse(dx / rRadius, dy / rRadius)
+                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
                                 } else {
                                     shapePixelBuffer[y * bmpRes + x] = AColor.TRANSPARENT
                                 }
@@ -613,9 +626,7 @@ private fun WheelPickerCanvas(
                         )
                         canvas.nativeCanvas.restore()
                     }
-                    val wC = sat * valB
-                    val wA = valB - wC
-                    val wB = 1f - valB
+                    val (wC, wA, wB) = triangleSvToBarycentric(sat, valB)
                     val x0 = wC * W
                     val y0 = (wB - wA) * H
                     selX = cx - innerR / 2f + x0
@@ -635,8 +646,9 @@ private fun WheelPickerCanvas(
                         )
                         canvas.nativeCanvas.restore()
                     }
-                    selX = cx + (2f * sat - 1f) * innerR
-                    selY = cy + (1f - 2f * valB) * innerR
+                    val (nx, ny) = squircularForward(sat, valB)
+                    selX = cx + nx * innerR
+                    selY = cy + ny * innerR
                 }
                 else -> { // "SQUARE"
                     val side = 2f * innerR / sqrt(2f)

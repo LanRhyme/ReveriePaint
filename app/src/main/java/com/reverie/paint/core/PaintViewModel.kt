@@ -1267,6 +1267,9 @@ class PaintViewModel : ViewModel() {
             brushFlowPresets = loadSliderPresets("brushFlowPresets")
             colorWheelInnerShape = prefs.getString("colorWheelInnerShape", "SQUARE") ?: "SQUARE"
             colorModel = prefs.getString("colorModel", "hsv") ?: "hsv"
+            if (colorWheelInnerShape != "SQUARE") {
+                colorModel = "hsv"
+            }
             recentColors = loadRecentColors()
             userPalettes = loadUserPalettes()
             defaultPaletteId = prefs.getString("defaultPaletteId", "builtin_basic") ?: "builtin_basic"
@@ -1569,6 +1572,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun updateColorModel(model: String) {
+        if (colorWheelInnerShape != "SQUARE" && model != "hsv") return
         colorModel = model
         if (::appContext.isInitialized) {
             appContext
@@ -1594,6 +1598,9 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorWheelInnerShape(shape: String) {
         colorWheelInnerShape = shape
+        if (shape != "SQUARE" && colorModel != "hsv") {
+            updateColorModel("hsv")
+        }
         if (::appContext.isInitialized) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)

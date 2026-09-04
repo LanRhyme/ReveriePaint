@@ -744,3 +744,72 @@ fun SquarePaletteSwatchesGrid(
         }
     }
 }
+
+/**
+ * Maps unit square (s, v) in [0, 1]^2 to unit disk (nx, ny) via FG-Squircular mapping.
+ * Pure color (1, 1) -> (1/sqrt(2), -1/sqrt(2)) [top-right arc]
+ * Pure white (0, 1) -> (-1/sqrt(2), -1/sqrt(2)) [top-left arc]
+ * Pure black (0, 0) -> (-1/sqrt(2), 1/sqrt(2)) [bottom-left arc]
+ */
+fun squircularForward(s: Float, v: Float): Pair<Float, Float> {
+    val u = 2f * s.coerceIn(0f, 1f) - 1f
+    val w = 1f - 2f * v.coerceIn(0f, 1f)
+    val nx = u * sqrt(max(0f, 1f - w * w / 2f))
+    val ny = w * sqrt(max(0f, 1f - u * u / 2f))
+    return Pair(nx, ny)
+}
+
+/**
+ * Maps unit disk coordinate (nxRaw, nyRaw) to unit square (s, v) in [0, 1]^2 via FG-Squircular inverse mapping.
+ */
+fun squircularInverse(nxRaw: Float, nyRaw: Float): Pair<Float, Float> {
+    var nx = nxRaw
+    var ny = nyRaw
+    val d = sqrt(nx * nx + ny * ny)
+    if (d > 1f && d > 0f) {
+        nx /= d
+        ny /= d
+    }
+    val nx2 = nx * nx
+    val ny2 = ny * ny
+    val sqrt2 = sqrt(2f)
+
+    val t1 = max(0f, 2f + 2f * sqrt2 * nx + nx2 - ny2)
+    val t2 = max(0f, 2f - 2f * sqrt2 * nx + nx2 - ny2)
+    val t3 = max(0f, 2f + 2f * sqrt2 * ny - nx2 + ny2)
+    val t4 = max(0f, 2f - 2f * sqrt2 * ny - nx2 + ny2)
+
+    val u = 0.5f * (sqrt(t1) - sqrt(t2))
+    val w = 0.5f * (sqrt(t3) - sqrt(t4))
+
+    val s = ((u + 1f) / 2f).coerceIn(0f, 1f)
+    val v = ((1f - w) / 2f).coerceIn(0f, 1f)
+    return Pair(s, v)
+}
+
+/**
+ * Converts barycentric weights (wC: pure hue, wA: white, wB: black) to (S, V).
+ */
+fun triangleBarycentricToSv(wC: Float, wA: Float, wB: Float): Pair<Float, Float> {
+    val cwC = wC.coerceIn(0f, 1f)
+    val cwA = wA.coerceIn(0f, 1f)
+    val cwB = wB.coerceIn(0f, 1f)
+    val sum = cwC + cwA + cwB
+    val (normC, normA) = if (sum > 0f) (cwC / sum) to (cwA / sum) else 0f to 1f
+    val v = (normA + normC).coerceIn(0f, 1f)
+    val s = (if (v > 0f) normC / v else 0f).coerceIn(0f, 1f)
+    return Pair(s, v)
+}
+
+/**
+ * Converts (S, V) to barycentric weights (wC: pure hue, wA: white, wB: black).
+ */
+fun triangleSvToBarycentric(s: Float, v: Float): Triple<Float, Float, Float> {
+    val sc = s.coerceIn(0f, 1f)
+    val vc = v.coerceIn(0f, 1f)
+    val wC = sc * vc
+    val wA = vc - wC
+    val wB = 1f - vc
+    return Triple(wC, wA, wB)
+}
+
