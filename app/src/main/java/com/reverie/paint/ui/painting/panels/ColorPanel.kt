@@ -75,9 +75,11 @@ fun ColorPanel(
 
     val context = LocalContext.current
 
+    var lastSelfUpdatedHex by remember { mutableStateOf("") }
+
     // Sync from vm.brushColor & vm.colorModel (supports canvas eyedropper in any color model)
     LaunchedEffect(vm.brushColor, vm.colorModel) {
-        if (!isInteracting) {
+        if (!isInteracting && !vm.brushColor.equals(lastSelfUpdatedHex, ignoreCase = true)) {
             try {
                 val c = android.graphics.Color.parseColor(vm.brushColor)
                 val modelHsv = rgbToHsvModel(c, vm.colorModel)
@@ -91,6 +93,7 @@ fun ColorPanel(
     val updateColorHsv = { h: Float, s: Float, v: Float ->
         val rgb = hsvModelToRgb(h, s, v, vm.colorModel)
         val hex = "#%06X".format(rgb and 0xFFFFFF)
+        lastSelfUpdatedHex = hex
         vm.updateBrushColor(hex)
     }
 

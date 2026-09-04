@@ -134,7 +134,9 @@ fun ColorHarmonyPage(
 
         // 3. Harmony Chord Swatches Row + "存入色卡" button
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -161,7 +163,10 @@ fun ColorHarmonyPage(
                                 color = if (isCurrent) Color.White else Morandi.border,
                                 shape = RoundedCornerShape(6.dp)
                             )
-                            .clickable { vm.updateBrushColor(hex) },
+                            .clickable {
+                                val targetHue = harmonyHues.getOrNull(index) ?: hue
+                                onHue(targetHue)
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (isPrimary) {
@@ -280,9 +285,7 @@ private fun HarmonyWheelCanvas(
             .fillMaxSize()
             .pointerInput(Unit) {
                 awaitEachGesture {
-                    val down = awaitFirstDown().also { it.consume() }
-                    currentOnInteractionStart()
-
+                    val down = awaitFirstDown()
                     val cx = size.width / 2f
                     val cy = size.height / 2f
                     val ringSize = size.height.toFloat()
@@ -290,6 +293,13 @@ private fun HarmonyWheelCanvas(
                     val R = (ringSize - strokeWidth) / 2f
                     val innerR = R - strokeWidth / 2f - 4.dp.toPx()
                     val nodeRadius = innerR * 0.72f
+
+                    val dist = (down.position - Offset(cx, cy)).getDistance()
+                    if (dist > R + strokeWidth / 2f + 12.dp.toPx()) {
+                        return@awaitEachGesture
+                    }
+                    down.consume()
+                    currentOnInteractionStart()
 
                     // Check if tapped directly on or near a secondary node
                     val secondaryTapped = currentHues.indices.firstOrNull { idx ->

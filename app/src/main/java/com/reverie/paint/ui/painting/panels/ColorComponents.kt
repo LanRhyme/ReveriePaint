@@ -69,7 +69,15 @@ fun hsvModelToRgb(hue: Float, s: Float, val_y: Float, mode: String): Int {
         "hsy" -> {
             c = val_y.toDouble() * s
             x_val = c * (1.0 - abs(hp % 2.0 - 1.0))
-            m = val_y - (0.299 * c + 0.587 * x_val)
+            val lumaChroma = when {
+                hp < 1.0 -> 0.299 * c + 0.587 * x_val
+                hp < 2.0 -> 0.299 * x_val + 0.587 * c
+                hp < 3.0 -> 0.587 * c + 0.114 * x_val
+                hp < 4.0 -> 0.587 * x_val + 0.114 * c
+                hp < 5.0 -> 0.299 * x_val + 0.114 * c
+                else -> 0.299 * c + 0.114 * x_val
+            }
+            m = val_y - lumaChroma
         }
         else -> { // "hsv"
             c = val_y.toDouble() * s
