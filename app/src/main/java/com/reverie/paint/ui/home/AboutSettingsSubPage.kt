@@ -30,7 +30,8 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.People
-import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.core.UpdateManager
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.ui.dialog.ContributorsDialog
@@ -78,6 +81,7 @@ fun AboutSettingsSubPage(
     var showContributorsDialog by remember { mutableStateOf(false) }
     var showSponsorsDialog by remember { mutableStateOf(false) }
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var autoCheckUpdates by remember { mutableStateOf(UpdateManager.isAutoCheckEnabled(context)) }
 
     // Subtle wave animation for the painting canvas header
     val infiniteTransition = rememberInfiniteTransition(label = "artHeader")
@@ -312,24 +316,73 @@ fun AboutSettingsSubPage(
                 title = "版本",
                 summary = BuildConfig.VERSION_NAME,
                 rightWidget = {
-                    Text(
-                        text = "检查更新",
-                        color = Morandi.accent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(Morandi.panel)
                             .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                             .clickable {
-                                Toast.makeText(context, "当前已是最新版本 (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                                if (!UpdateManager.isChecking) {
+                                    UpdateManager.checkForUpdates(context, isManual = true)
+                                }
                             }
                             .padding(horizontal = 10.dp, vertical = 5.dp),
-                    )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (UpdateManager.isChecking) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Morandi.accent,
+                                )
+                                Text(
+                                    text = "检查中",
+                                    color = Morandi.accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "检查更新",
+                                color = Morandi.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
                 },
                 shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
                 onClick = {
-                    Toast.makeText(context, "当前已是最新版本 (v${BuildConfig.VERSION_NAME})", Toast.LENGTH_SHORT).show()
+                    if (!UpdateManager.isChecking) {
+                        UpdateManager.checkForUpdates(context, isManual = true)
+                    }
+                },
+            )
+
+            // 启动时自动检查更新 (Middle Rounded)
+            AboutGroupItem(
+                icon = Icons.Rounded.Sync,
+                title = "启动时自动检查更新",
+                summary = "每次打开应用时在后台检测新版本",
+                shape = RoundedCornerShape(4.dp),
+                rightWidget = {
+                    ReSwitch(
+                        checked = autoCheckUpdates,
+                        onChecked = { checked ->
+                            autoCheckUpdates = checked
+                            UpdateManager.setAutoCheckEnabled(context, checked)
+                        },
+                    )
+                },
+                onClick = {
+                    val newVal = !autoCheckUpdates
+                    autoCheckUpdates = newVal
+                    UpdateManager.setAutoCheckEnabled(context, newVal)
                 },
             )
 

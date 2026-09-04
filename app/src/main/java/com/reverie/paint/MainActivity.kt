@@ -12,12 +12,15 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reverie.paint.core.*
 import com.reverie.paint.core.Page
 import com.reverie.paint.ui.components.LiquidIndication
 import com.reverie.paint.ui.create.CreatePage
+import com.reverie.paint.ui.dialog.UpdateDialog
 import com.reverie.paint.ui.home.HomePage
 import com.reverie.paint.ui.painting.PaintingPage
 import com.reverie.paint.ui.replay.ReplayPage
@@ -166,6 +169,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun ReverieApp(vm: PaintViewModel = viewModel()) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        if (UpdateManager.isAutoCheckEnabled(context)) {
+            UpdateManager.checkForUpdates(context, isManual = false)
+        }
+    }
+
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
@@ -288,5 +299,13 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
                 }
             }
         }
+    }
+
+    val availableUpdate = UpdateManager.availableUpdate
+    if (UpdateManager.showUpdateDialog && availableUpdate != null) {
+        UpdateDialog(
+            release = availableUpdate,
+            onDismiss = { UpdateManager.dismissDialog() },
+        )
     }
 }
