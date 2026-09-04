@@ -5,7 +5,11 @@
 package com.reverie.paint.ui.painting.panels
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Color as AColor
+import android.graphics.Matrix
+import android.graphics.Paint as APaint
+import android.graphics.Shader
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -345,12 +349,19 @@ private fun WheelPickerCanvas(
     onInteractionStart: () -> Unit,
     onInteractionEnd: () -> Unit,
 ) {
-    val bmpRes = 128
+    val bmpRes = 192
     var cachedShapeBmp by remember { mutableStateOf<Bitmap?>(null) }
+    var shapeShader by remember { mutableStateOf<BitmapShader?>(null) }
     val shapePixelBuffer = remember { IntArray(bmpRes * bmpRes) }
     var lastHueForBmp by remember { mutableFloatStateOf(-1f) }
     var lastShapeForBmp by remember { mutableStateOf("") }
     var lastModelForBmp by remember { mutableStateOf("") }
+
+    val shapePaint = remember {
+        APaint(APaint.ANTI_ALIAS_FLAG or APaint.FILTER_BITMAP_FLAG)
+    }
+    val shaderMatrix = remember { Matrix() }
+    val trianglePath = remember { android.graphics.Path() }
 
     // Tap tracking for double-tap snap
     var lastTapTime by remember { mutableLongStateOf(0L) }
@@ -508,40 +519,31 @@ private fun WheelPickerCanvas(
             val side = 2f * innerR / sqrt(2f)
             val left = cx - side / 2f
             val top = cy - side / 2f
-            val cornerRadius = 6.dp.toPx()
+            val cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx(), 6.dp.toPx())
+            val pureHueColor = hueToPureColor(hue)
 
-            val rectPath = android.graphics.Path().apply {
-                addRoundRect(left, top, left + side, top + side, cornerRadius, cornerRadius, android.graphics.Path.Direction.CW)
-            }
-
-            drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.save()
-                canvas.nativeCanvas.clipPath(rectPath)
-
-                // Layer 1: Horizontal gradient White -> Pure Hue
-                val pureHueColor = hueToPureColor(hue)
-                drawRect(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(Color.White, pureHueColor),
-                        startX = left,
-                        endX = left + side
-                    ),
-                    topLeft = Offset(left, top),
-                    size = Size(side, side)
-                )
-                // Layer 2: Vertical gradient Transparent -> Black
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black),
-                        startY = top,
-                        endY = top + side
-                    ),
-                    topLeft = Offset(left, top),
-                    size = Size(side, side)
-                )
-
-                canvas.nativeCanvas.restore()
-            }
+            // Layer 1: Horizontal gradient White -> Pure Hue
+            drawRoundRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.White, pureHueColor),
+                    startX = left,
+                    endX = left + side
+                ),
+                topLeft = Offset(left, top),
+                size = Size(side, side),
+                cornerRadius = cornerRadius
+            )
+            // Layer 2: Vertical gradient Transparent -> Black
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color.Transparent, Color.Black),
+                    startY = top,
+                    endY = top + side
+                ),
+                topLeft = Offset(left, top),
+                size = Size(side, side),
+                cornerRadius = cornerRadius
+            )
 
             selX = left + sat * side
             selY = top + (1f - valB) * side
@@ -549,6 +551,7 @@ private fun WheelPickerCanvas(
             // --- Reusable Bitmap Buffer for Triangle, Circle, and Non-HSV Models ---
             val bmp = cachedShapeBmp ?: Bitmap.createBitmap(bmpRes, bmpRes, Bitmap.Config.ARGB_8888).also {
                 cachedShapeBmp = it
+                shapeShader = BitmapShader(it, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
             }
 
             if (abs(lastHueForBmp - hue) > 0.8f || lastShapeForBmp != shape || lastModelForBmp != colorModel) {
@@ -565,12 +568,8 @@ private fun WheelPickerCanvas(
                                 val wC = x0 / W
                                 val wA = (1f - x0 / W - y0 / H) / 2f
                                 val wB = (1f - x0 / W + y0 / H) / 2f
-                                if (wC >= -0.02f && wA >= -0.02f && wB >= -0.02f) {
-                                    val (s, v) = triangleBarycentricToSv(wC, wA, wB)
-                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
-                                } else {
-                                    shapePixelBuffer[y * bmpRes + x] = AColor.TRANSPARENT
-                                }
+                                val (s, v) = triangleBarycentricToSv(wC, wA, wB)
+                                shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
                             }
                         }
                     }
@@ -580,13 +579,8 @@ private fun WheelPickerCanvas(
                             val dy = (y + 0.5f) - rRadius
                             for (x in 0 until bmpRes) {
                                 val dx = (x + 0.5f) - rRadius
-                                val dist = sqrt(dx * dx + dy * dy)
-                                if (dist <= rRadius) {
-                                    val (s, v) = squircularInverse(dx / rRadius, dy / rRadius)
-                                    shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
-                                } else {
-                                    shapePixelBuffer[y * bmpRes + x] = AColor.TRANSPARENT
-                                }
+                                val (s, v) = squircularInverse(dx / rRadius, dy / rRadius)
+                                shapePixelBuffer[y * bmpRes + x] = hsvModelToRgb(hue, s, v, "hsv")
                             }
                         }
                     }
@@ -611,20 +605,19 @@ private fun WheelPickerCanvas(
                     val H = innerR * sqrt(3f) / 2f
                     val W = 1.5f * innerR
                     drawIntoCanvas { canvas ->
-                        val path = android.graphics.Path().apply {
-                            moveTo(cx - innerR / 2f, cy - H)
-                            lineTo(cx - innerR / 2f, cy + H)
-                            lineTo(cx + innerR, cy)
-                            close()
-                        }
-                        canvas.nativeCanvas.save()
-                        canvas.nativeCanvas.clipPath(path)
-                        drawImage(
-                            image = bmp.asImageBitmap(),
-                            dstOffset = IntOffset((cx - innerR).toInt(), (cy - innerR).toInt()),
-                            dstSize = IntSize((innerR * 2).toInt(), (innerR * 2).toInt())
-                        )
-                        canvas.nativeCanvas.restore()
+                        val shader = shapeShader ?: return@drawIntoCanvas
+                        shaderMatrix.reset()
+                        shaderMatrix.setScale((innerR * 2f) / bmpRes, (innerR * 2f) / bmpRes)
+                        shaderMatrix.postTranslate(cx - innerR, cy - innerR)
+                        shader.setLocalMatrix(shaderMatrix)
+                        shapePaint.shader = shader
+
+                        trianglePath.reset()
+                        trianglePath.moveTo(cx - innerR / 2f, cy - H)
+                        trianglePath.lineTo(cx - innerR / 2f, cy + H)
+                        trianglePath.lineTo(cx + innerR, cy)
+                        trianglePath.close()
+                        canvas.nativeCanvas.drawPath(trianglePath, shapePaint)
                     }
                     val (wC, wA, wB) = triangleSvToBarycentric(sat, valB)
                     val x0 = wC * W
@@ -634,17 +627,13 @@ private fun WheelPickerCanvas(
                 }
                 "CIRCLE" -> {
                     drawIntoCanvas { canvas ->
-                        val path = android.graphics.Path().apply {
-                            addCircle(cx, cy, innerR, android.graphics.Path.Direction.CW)
-                        }
-                        canvas.nativeCanvas.save()
-                        canvas.nativeCanvas.clipPath(path)
-                        drawImage(
-                            image = bmp.asImageBitmap(),
-                            dstOffset = IntOffset((cx - innerR).toInt(), (cy - innerR).toInt()),
-                            dstSize = IntSize((innerR * 2).toInt(), (innerR * 2).toInt())
-                        )
-                        canvas.nativeCanvas.restore()
+                        val shader = shapeShader ?: return@drawIntoCanvas
+                        shaderMatrix.reset()
+                        shaderMatrix.setScale((innerR * 2f) / bmpRes, (innerR * 2f) / bmpRes)
+                        shaderMatrix.postTranslate(cx - innerR, cy - innerR)
+                        shader.setLocalMatrix(shaderMatrix)
+                        shapePaint.shader = shader
+                        canvas.nativeCanvas.drawCircle(cx, cy, innerR, shapePaint)
                     }
                     val (nx, ny) = squircularForward(sat, valB)
                     selX = cx + nx * innerR
@@ -657,17 +646,13 @@ private fun WheelPickerCanvas(
                     val cornerRadius = 6.dp.toPx()
 
                     drawIntoCanvas { canvas ->
-                        val path = android.graphics.Path().apply {
-                            addRoundRect(left, top, left + side, top + side, cornerRadius, cornerRadius, android.graphics.Path.Direction.CW)
-                        }
-                        canvas.nativeCanvas.save()
-                        canvas.nativeCanvas.clipPath(path)
-                        drawImage(
-                            image = bmp.asImageBitmap(),
-                            dstOffset = IntOffset(left.toInt(), top.toInt()),
-                            dstSize = IntSize(side.toInt(), side.toInt())
-                        )
-                        canvas.nativeCanvas.restore()
+                        val shader = shapeShader ?: return@drawIntoCanvas
+                        shaderMatrix.reset()
+                        shaderMatrix.setScale(side / bmpRes, side / bmpRes)
+                        shaderMatrix.postTranslate(left, top)
+                        shader.setLocalMatrix(shaderMatrix)
+                        shapePaint.shader = shader
+                        canvas.nativeCanvas.drawRoundRect(left, top, left + side, top + side, cornerRadius, cornerRadius, shapePaint)
                     }
 
                     selX = left + sat * side
