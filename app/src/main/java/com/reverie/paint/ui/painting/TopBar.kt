@@ -73,7 +73,6 @@ fun TopBar(
     ) {
         ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
         ReIconButton(R.drawable.ic_redo, "重做", onRedo)
-        ReIconButton(R.drawable.ic_grid, "绘图辅助", onGuides)
         ReIconButton(R.drawable.ic_layers, "图层", onLayers)
         ReIconButton(R.drawable.ic_settings, "设置", onSettings)
         ReIconButton(R.drawable.ic_x, "关闭", onBack) // Moved to the right

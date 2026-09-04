@@ -683,14 +683,6 @@ fun PaintingPage(
                 moreToolsOpen = false
                 drawingGuidePanelOpen = false
             },
-            onGuides = {
-                drawingGuidePanelOpen = !drawingGuidePanelOpen
-                settingsPanelOpen = false
-                layerPanelOpen = false
-                brushPanelOpen = false
-                colorPanelOpen = false
-                moreToolsOpen = false
-            },
         )
 
         // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
