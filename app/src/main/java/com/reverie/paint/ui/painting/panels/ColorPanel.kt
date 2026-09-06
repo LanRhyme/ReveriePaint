@@ -44,6 +44,7 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
+import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.roundToInt
 
 /**
@@ -120,20 +121,19 @@ fun ColorPanel(
                 .offset { IntOffset(panelOffset.x.roundToInt(), panelOffset.y.roundToInt()) }
                 .padding(start = 44.dp, bottom = 16.dp)
                 .width(280.dp)
-                .shadow(16.dp, panelShape)
+                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
-                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = Glass.popupStyle(opacity),
+                            style = Glass.popupStyle(if (opacity >= 0.99f) 0.90f else opacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
-                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
+                .glassBorder(panelShape)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -362,7 +362,7 @@ private fun ColorPanelHeader(
                             .align(Alignment.BottomEnd)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(android.graphics.Color.parseColor(secondaryColor)))
-                            .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                     )
                     // Foreground Color Box (top left)
                     Box(
@@ -371,7 +371,7 @@ private fun ColorPanelHeader(
                             .align(Alignment.TopStart)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(android.graphics.Color.parseColor(brushColor)))
-                            .border(1.dp, Morandi.border, RoundedCornerShape(4.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                     )
                 }
 

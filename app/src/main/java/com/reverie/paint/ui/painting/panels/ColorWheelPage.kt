@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.*
 
 /**
@@ -128,8 +129,8 @@ fun WheelColorPage(
                     expanded = showShapePopup,
                     onDismissRequest = { showShapePopup = false },
                     modifier = Modifier
-                        .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi)
+                        .glassBorder(RoundedCornerShape(10.dp))
                         .padding(horizontal = 4.dp, vertical = 3.dp)
                 ) {
                     Row(
@@ -238,8 +239,8 @@ fun WheelColorPage(
                         expanded = showModelPopup,
                         onDismissRequest = { showModelPopup = false },
                         modifier = Modifier
-                            .background(Morandi.panel)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                            .background(Morandi.panelHi)
+                            .glassBorder(RoundedCornerShape(10.dp))
                             .padding(horizontal = 4.dp, vertical = 3.dp)
                     ) {
                         Row(

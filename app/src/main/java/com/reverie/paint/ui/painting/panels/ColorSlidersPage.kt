@@ -177,7 +177,6 @@ fun SlidersNumericPage(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                     .clickable { showHexInputDialog = true }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -204,7 +203,6 @@ fun SlidersNumericPage(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
                         .clickable {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
@@ -238,7 +236,6 @@ fun SlidersNumericPage(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
                         .clickable {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("hex", "#$hexStr"))

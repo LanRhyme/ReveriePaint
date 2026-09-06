@@ -47,6 +47,8 @@ import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -102,9 +104,10 @@ internal fun ExitSaveDialog(
             Box(
                 modifier = Modifier
                     .width(320.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -167,9 +170,10 @@ internal fun DiscardConfirmDialog(
                             indication = null,
                             onClick = {} // Consume click on modal content
                         )
+                        .shadow(20.dp, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                         .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                         .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .glassBorder(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                         .navigationBarsPadding()
                         .padding(horizontal = 24.dp, vertical = 20.dp)
                 ) {

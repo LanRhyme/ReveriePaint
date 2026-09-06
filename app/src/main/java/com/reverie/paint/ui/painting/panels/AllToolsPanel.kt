@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -33,6 +34,7 @@ import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.ui.components.noRippleClickable
@@ -78,19 +80,19 @@ fun AllToolsPanel(
                 .align(Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(200.dp)
+                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
-                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = Glass.barStyle(opacity),
+                            style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
-                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
+                .glassBorder(panelShape)
                 .padding(12.dp)
         ) {
             Column {

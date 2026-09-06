@@ -194,7 +194,6 @@ internal fun ExportTabPage(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -295,7 +294,6 @@ internal fun ExportTabPage(
                     .clip(RoundedCornerShape(14.dp))
                     .liquidHighlight(galleryInteraction, Color.White, radius = 80.dp)
                     .background(Morandi.panel.copy(alpha = 0.8f))
-                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
                     .clickable(interactionSource = galleryInteraction, indication = null, enabled = !isExporting) {
                         isExporting = true
                         vm.exportImageToGallery(
@@ -334,7 +332,6 @@ internal fun ExportTabPage(
                 .clip(RoundedCornerShape(14.dp))
                 .liquidHighlight(shareInteraction, Color.White, radius = 80.dp)
                 .background(Morandi.panel.copy(alpha = 0.6f))
-                .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
                 .clickable(interactionSource = shareInteraction, indication = null, enabled = !isExporting) {
                     isExporting = true
                     val ext = selectedFormat.lowercase()

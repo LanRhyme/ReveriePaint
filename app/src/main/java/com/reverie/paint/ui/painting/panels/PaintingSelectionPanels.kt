@@ -393,16 +393,6 @@ internal fun SelectionActionItem(
                     else -> Morandi.panelHi
                 }
             )
-            .border(
-                1.dp,
-                when {
-                    primary -> Morandi.accent
-                    danger -> Color(0xFFFF4D4F).copy(alpha = 0.4f)
-                    active -> Morandi.accent
-                    else -> Morandi.border
-                },
-                RoundedCornerShape(10.dp)
-            )
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {

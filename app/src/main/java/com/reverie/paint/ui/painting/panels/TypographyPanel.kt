@@ -48,6 +48,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.commitTypographyToCanvas
 import com.reverie.paint.model.TypographyConfig
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import dev.chrisbanes.haze.HazeState
@@ -69,15 +70,16 @@ fun TypographyPanel(
     Box(
         modifier = modifier
             .width(330.dp)
-            .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.25f))
+            .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(panelShape)
-            .background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
             .then(
                 if (vm.blurBackground && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(vm.popupPanelOpacity))
-                } else Modifier
+                } else {
+                    Modifier.background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
+                }
             )
-            .border(1.dp, Morandi.border, panelShape)
+            .glassBorder(panelShape)
             .padding(14.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -124,7 +126,6 @@ fun TypographyPanel(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.bg.copy(alpha = 0.6f))
-                    .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                     .padding(8.dp),
             ) {
                 BasicTextField(

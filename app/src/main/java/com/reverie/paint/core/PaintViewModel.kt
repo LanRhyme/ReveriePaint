@@ -594,7 +594,7 @@ class PaintViewModel : ViewModel() {
     var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
-    var accentColorHex by mutableStateOf("#5E8BA8")
+    var accentColorHex by mutableStateOf("#0A84FF")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
@@ -1259,7 +1259,8 @@ class PaintViewModel : ViewModel() {
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-            accentColorHex = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
+            val savedAccent = prefs.getString("accentColor", "#0A84FF") ?: "#0A84FF"
+            accentColorHex = if (savedAccent.equals("#5E8BA8", ignoreCase = true)) "#0A84FF" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"

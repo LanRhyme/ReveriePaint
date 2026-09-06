@@ -43,22 +43,22 @@ data class AppColors(
     val canvasShadow: Color, // drop shadow under the document
 )
 
-/** Default iOS Dark palette - clean black background, dark slate panels, and elevated workspace. */
+/** Procreate-inspired Dark palette - refined neutral studio workspace, elevated dark graphite panels, specular hairline borders, crisp electric blue accent. */
 val MorandiDarkColors =
     AppColors(
-        bg = Color(0xFF000000), // iOS System Background (True OLED Black)
-        panel = Color(0xFF1C1C1E), // iOS Secondary System Background (Dark Slate Panel)
-        panelHi = Color(0xFF2C2C2E), // iOS Tertiary System Background (Raised surfaces/sliders)
-        accent = Color(0xFF5E8BA8), // Morandi blue accent
-        accentHi = Color(0xFF7CA4BE),
+        bg = Color(0xFF141416), // Procreate deep graphite background
+        panel = Color(0xFF1E1E22), // Sleek dark graphite panel (iPadOS dark chrome)
+        panelHi = Color(0xFF2A2A2E), // Raised surfaces, cards, slider tracks
+        accent = Color(0xFF0A84FF), // Procreate signature electric blue
+        accentHi = Color(0xFF409CFF),
         onAccent = Color(0xFFFFFFFF),
-        text = Color(0xFFFFFFFF), // Crisp readable white text
-        subText = Color(0xFF8E8E93), // iOS System Gray secondary text
-        canvasBg = Color(0xFF2C2C2E), // Painting workspace background (brighter than panel)
-        border = Color(0xFF38383A), // iOS Dark Separator / crisp border
-        icon = Color(0xFF98989D),
-        scrim = Color(0x99000000),
-        gridLine = Color(0xFF3A3A3C),
+        text = Color(0xFFF5F5F7), // Crisp readable off-white text
+        subText = Color(0xFF8E8E93), // Apple secondary label gray
+        canvasBg = Color(0xFF28282C), // Neutral studio workspace backdrop behind document
+        border = Color(0x12FFFFFF), // Subtle soft hairline for dividers
+        icon = Color(0xFF98989D), // Apple neutral silver icon
+        scrim = Color(0x80000000),
+        gridLine = Color(0x1FFFFFFF),
         canvasShadow = Color(0x80000000),
     )
 
@@ -68,16 +68,16 @@ val MorandiLightColors =
         bg = Color(0xFFF2F2F7), // iOS Grouped Background: refined light gray
         panel = Color(0xFFFFFFFF), // Pure white foreground cards/panels
         panelHi = Color(0xFFE5E5EA), // iOS System Gray 5: Inner card surfaces/pills
-        accent = Color(0xFF3E6988), // Refined accent
-        accentHi = Color(0xFF5681A0),
+        accent = Color(0xFF007AFF), // Refined accent
+        accentHi = Color(0xFF2997FF),
         onAccent = Color(0xFFFFFFFF),
         text = Color(0xFF000000), // Crisp deep black text
         subText = Color(0xFF8E8E93), // iOS Secondary Label gray
         canvasBg = Color(0xFFE5E5EA), // Clean neutral workspace backdrop
-        border = Color(0xFFD1D1D6), // iOS Separator light hairline border
+        border = Color(0x1F000000), // iOS Separator light hairline border
         icon = Color(0xFF3C3C43),
         scrim = Color(0x52000000),
-        gridLine = Color(0xFFD1D1D6),
+        gridLine = Color(0x1F000000),
         canvasShadow = Color(0x1F000000),
     )
 
@@ -111,7 +111,7 @@ fun buildThemeColors(isDark: Boolean, accent: Color): AppColors {
 fun getMonetColors(
     context: Context,
     isDark: Boolean = true,
-    fallbackAccent: Color = if (isDark) Color(0xFF5E8BA8) else Color(0xFF3E6988)
+    fallbackAccent: Color = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
 ): AppColors {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {

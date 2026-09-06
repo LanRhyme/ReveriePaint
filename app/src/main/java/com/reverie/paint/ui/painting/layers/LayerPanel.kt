@@ -21,6 +21,7 @@ import androidx.compose.animation.togetherWith
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.Canvas
@@ -85,6 +86,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -227,19 +229,19 @@ fun LayerPanel(
                     .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
+                    .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(panelShape)
-                    .background(Morandi.panel.copy(alpha = opacity))
                     .then(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = Glass.barStyle(opacity),
+                                style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
                             )
                         } else {
-                            Modifier
+                            Modifier.background(Morandi.panel.copy(alpha = opacity))
                         }
                     )
-                    .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
+                    .glassBorder(panelShape)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,

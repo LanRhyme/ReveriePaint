@@ -43,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -118,16 +119,16 @@ fun ToolRail(
                 modifier = Modifier
                     .width(36.dp)
                     .weight(1f, fill = false)
+                    .shadow(10.dp, upperShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(upperShape)
-                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
                     .then(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = Glass.barStyle(opacity.toFloat()),
+                                style = Glass.barStyle(if (opacity >= 0.99) 0.90f else opacity.toFloat()),
                             )
                         } else {
-                            Modifier
+                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
                         }
                     )
                     .padding(vertical = 4.dp)
@@ -168,7 +169,7 @@ fun ToolRail(
                                         .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.panel.copy(alpha = popupAlpha))
-                                        .border(1.dp, Morandi.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
+                                        .glassBorder(RoundedCornerShape(8.dp))
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
                                     Text(
@@ -213,16 +214,16 @@ fun ToolRail(
             Column(
                 modifier = Modifier
                     .width(36.dp)
+                    .shadow(10.dp, lowerShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(lowerShape)
-                    .background(Morandi.panel.copy(alpha = opacity.toFloat()))
                     .then(
                         if (vm.blurBackground && hazeState != null) {
                             Modifier.hazeChild(
                                 state = hazeState,
-                                style = Glass.barStyle(opacity.toFloat()),
+                                style = Glass.barStyle(if (opacity >= 0.99) 0.90f else opacity.toFloat()),
                             )
                         } else {
-                            Modifier
+                            Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
                         }
                     )
                     .padding(top = 4.dp, bottom = 8.dp),
@@ -246,7 +247,7 @@ fun ToolRail(
                             .size(24.dp)
                             .clip(CircleShape)
                             .background(parseColor(brushColor))
-                            .border(1.5.dp, Morandi.border, CircleShape)
+                            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     )
                 }
                 Spacer(Modifier.height(5.dp))

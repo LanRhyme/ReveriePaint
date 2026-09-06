@@ -26,6 +26,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -201,7 +203,6 @@ internal fun LayerDetailPage(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panelHi)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                             .noRippleClickable { showBgColorPicker = true }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -217,7 +218,7 @@ internal fun LayerDetailPage(
                                     .size(28.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(Color(currentColor))
-                                    .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp)),
+                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
                         )
                         Column {
                             Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -313,7 +314,6 @@ internal fun LayerDetailPage(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                         .noRippleClickable { showFillColorPicker = true }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -329,7 +329,7 @@ internal fun LayerDetailPage(
                                 .size(24.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.accent)
-                                .border(1.dp, Morandi.border, RoundedCornerShape(6.dp)),
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
                     )
                     Column {
                         Text("填充图层颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -367,7 +367,6 @@ internal fun LayerDetailPage(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.accent.copy(alpha = 0.15f))
-                        .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
                         .noRippleClickable(onOpenFilters)
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -486,10 +485,10 @@ internal fun LayerDetailPage(
                             .size(22.dp)
                             .clip(CircleShape)
                             .background(if (label == 0) Morandi.panelHi else color)
-                            .border(
-                                width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
-                                shape = CircleShape,
+                            .then(
+                                if (isSelected) {
+                                    Modifier.border(2.dp, Morandi.accent, CircleShape)
+                                } else Modifier
                             ).clickable { vm.setLayerColorLabel(index, label) },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -522,9 +521,10 @@ internal fun LayerDetailPage(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.9f)
+                            .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(14.dp))
                             .background(Morandi.panel)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                            .glassBorder(RoundedCornerShape(14.dp))
                             .padding(18.dp),
                 ) {
                     Column {
@@ -866,14 +866,13 @@ internal fun BlendModesPage(
                 },
             contentAlignment = Alignment.Center,
         ) {
-            // 中央定位托盘：中性胶囊底 + 细描边（先声明 → 画在列表下层，不遮内容）
+            // 中央定位托盘：中性胶囊底
             Box(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp)
                     .height(itemH)
-                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp))
-                    .border(1.dp, Morandi.border.copy(alpha = 0.8f), RoundedCornerShape(10.dp)),
+                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp)),
             )
             androidx.compose.foundation.lazy.LazyColumn(
                 state = listState,

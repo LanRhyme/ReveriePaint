@@ -334,7 +334,6 @@ fun NumericValueInputDialog(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Morandi.panelHi)
-                                .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                                 .noRippleClickable {
                                     text = if (text.startsWith("-")) {
                                         text.removePrefix("-")
@@ -380,7 +379,9 @@ fun NumericValueInputDialog(
                             focusedTextColor = Morandi.text,
                             unfocusedTextColor = Morandi.text,
                             focusedBorderColor = Morandi.accent,
-                            unfocusedBorderColor = Morandi.border
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Morandi.panelHi,
+                            unfocusedContainerColor = Morandi.panelHi,
                         ),
                         modifier = Modifier.weight(1f)
                     )
@@ -456,7 +457,7 @@ fun HexInputDialog(
                             .size(38.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(parsedColor ?: Color.Transparent)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                     )
 
                     // Hex Text Field
@@ -473,7 +474,9 @@ fun HexInputDialog(
                             focusedTextColor = Morandi.text,
                             unfocusedTextColor = Morandi.text,
                             focusedBorderColor = Morandi.accent,
-                            unfocusedBorderColor = Morandi.border
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Morandi.panelHi,
+                            unfocusedContainerColor = Morandi.panelHi,
                         ),
                         modifier = Modifier.weight(1f)
                     )
@@ -632,7 +635,7 @@ fun BottomQuickSwatchesSection(
                 )
                 Text(
                     text = "|",
-                    color = Morandi.border,
+                    color = Morandi.subText.copy(alpha = 0.4f),
                     fontSize = 10.sp
                 )
                 Text(
@@ -713,7 +716,6 @@ fun SquarePaletteSwatchesGrid(
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
             .background(Morandi.panelHi)
-            .border(1.dp, Morandi.border.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
             .padding(4.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
@@ -745,8 +747,8 @@ fun SquarePaletteSwatchesGrid(
                             .clip(RoundedCornerShape(3.dp))
                             .background(bg)
                             .border(
-                                width = if (isSelected) 1.5.dp else 0.5.dp,
-                                color = if (isSelected) Morandi.accent else Morandi.border.copy(alpha = 0.35f),
+                                width = if (isSelected) 1.5.dp else 0.dp,
+                                color = if (isSelected) Morandi.accent else Color.Transparent,
                                 shape = RoundedCornerShape(3.dp)
                             )
                             .then(

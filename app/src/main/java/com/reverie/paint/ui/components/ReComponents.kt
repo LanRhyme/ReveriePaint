@@ -322,7 +322,6 @@ fun SliderFineTunePopup(
                                 .pressScale(leftInteraction, pressedScale = 0.90f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
-                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
                                 .clickable(
                                     interactionSource = leftInteraction,
                                     indication = null
@@ -358,7 +357,6 @@ fun SliderFineTunePopup(
                                 .pressScale(rightInteraction, pressedScale = 0.90f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panelHi)
-                                .border(0.5.dp, colors.border, RoundedCornerShape(8.dp))
                                 .clickable(
                                     interactionSource = rightInteraction,
                                     indication = null
@@ -451,11 +449,6 @@ fun SliderFineTunePopup(
                                             .aspectRatio(1.2f)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(if (presetVal != null) colors.panelHi else colors.panelHi.copy(alpha = 0.35f))
-                                            .border(
-                                                0.5.dp,
-                                                if (presetVal != null) colors.border else colors.border.copy(alpha = 0.35f),
-                                                RoundedCornerShape(8.dp)
-                                            )
                                             .pointerInput(idx, presetVal) {
                                                 detectTapGestures(
                                                     onTap = {
@@ -629,7 +622,7 @@ fun ReVerticalSlider(
                 val capsuleRadius = (trackWidth / 2).dp
                 val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
 
-                // Track Background & Outlined Border
+                // Track Background (Groove style without rigid borders)
                 Box(
                     modifier = Modifier
                         .width(trackWidth.dp)
@@ -641,7 +634,6 @@ fun ReVerticalSlider(
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
                         .background(colors.panel.copy(alpha = 0.55f))
-                        .border(1.5.dp, colors.border, RoundedCornerShape(capsuleRadius))
                 ) {
                     // Active progress fill level
                     Box(
@@ -687,7 +679,6 @@ fun ReVerticalSlider(
                         )
                         .clip(RoundedCornerShape(indicatorHeight / 2))
                         .background(colors.accent.copy(alpha = indicatorAlpha))
-                        .border(0.5.dp, colors.panel, RoundedCornerShape(indicatorHeight / 2))
                 )
 
                 // Live floating tooltip (Fixed cleanly at Center-Start of the slider, no jumping/jittering)
@@ -708,7 +699,7 @@ fun ReVerticalSlider(
                                 .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(colors.panel.copy(alpha = popupAlpha))
-                                .border(1.dp, colors.border.copy(alpha = popupAlpha), RoundedCornerShape(8.dp))
+                                .glassBorder(RoundedCornerShape(8.dp))
                                 .padding(horizontal = 10.dp, vertical = 5.dp)
                         ) {
                             Text(
@@ -1184,7 +1175,6 @@ fun ReMenuItem(
     val interaction = remember { MutableInteractionSource() }
     val isPressed by interaction.collectIsPressedAsState()
     val cardBg = if (isPressed) colors.panelHi.copy(alpha = 0.95f) else colors.panelHi.copy(alpha = 0.6f)
-    val cardBorder = if (isPressed) colors.accent.copy(alpha = 0.3f) else colors.border.copy(alpha = 0.4f)
 
     Column(
         modifier = modifier
@@ -1193,7 +1183,6 @@ fun ReMenuItem(
             .clip(RoundedCornerShape(10.dp))
             .liquidHighlight(interaction, Color.White, radius = 30.dp)
             .background(cardBg)
-            .border(1.dp, cardBorder, RoundedCornerShape(10.dp))
             .clickable(interactionSource = interaction, indication = null) { onTap() }
             .padding(vertical = 10.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

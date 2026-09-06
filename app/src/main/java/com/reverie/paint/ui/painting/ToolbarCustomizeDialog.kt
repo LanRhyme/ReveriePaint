@@ -9,6 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -157,9 +159,10 @@ fun ToolbarCustomizeDialog(
                     .heightIn(max = 560.dp)
                     .fillMaxWidth(0.90f)
                     .fillMaxHeight(0.75f)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .clickable(enabled = false) {}
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {

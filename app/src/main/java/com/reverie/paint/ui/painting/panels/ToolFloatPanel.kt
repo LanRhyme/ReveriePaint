@@ -82,10 +82,9 @@ fun ToolFloatPanel(
                     }
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.2f))
+                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.45f))
                 .systemHoverIcon(context)
                 .clip(capsuleShape)
-                .background(Morandi.panel.copy(alpha = vm?.popupPanelOpacity ?: 0.94f))
                 .then(
                     if (vm?.blurBackground == true && hazeState != null) {
                         Modifier.hazeChild(
@@ -93,7 +92,7 @@ fun ToolFloatPanel(
                             style = Glass.popupStyle(vm.popupPanelOpacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = vm?.popupPanelOpacity ?: 0.94f))
                     }
                 )
                 .glassBorder(capsuleShape)
@@ -126,11 +125,6 @@ fun ToolFloatChip(
                     danger -> Color(0x33B05552)
                     else -> Morandi.panelHi
                 }
-            )
-            .border(
-                1.dp, 
-                if (selected) Morandi.accent else Morandi.border.copy(alpha = 0.3f), 
-                RoundedCornerShape(8.dp)
             )
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -165,7 +159,6 @@ fun <T> ToolFloatSegmented(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(Morandi.panelHi)
-            .border(1.dp, Morandi.border.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
             .padding(2.dp),
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,

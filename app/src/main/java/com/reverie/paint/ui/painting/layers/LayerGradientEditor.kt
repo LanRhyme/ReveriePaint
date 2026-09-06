@@ -38,7 +38,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.window.Dialog
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -213,11 +215,13 @@ fun CompactColorPickerDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Morandi.panel,
-            border = BorderStroke(1.dp, Morandi.border),
-            modifier = Modifier.width(300.dp).padding(4.dp)
+        Box(
+            modifier = Modifier
+                .width(300.dp)
+                .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.5f))
+                .clip(RoundedCornerShape(16.dp))
+                .background(Morandi.panel)
+                .glassBorder(RoundedCornerShape(16.dp))
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -235,7 +239,7 @@ fun CompactColorPickerDialog(
                             .size(32.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(currentColor)
-                            .border(1.5.dp, Morandi.border, RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                     )
                 }
 
@@ -245,7 +249,6 @@ fun CompactColorPickerDialog(
                         .fillMaxWidth()
                         .height(140.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                         .pointerInput(hue) {
                             detectDragGestures(
                                 onDragStart = { offset ->
@@ -302,7 +305,6 @@ fun CompactColorPickerDialog(
                                 )
                             )
                         )
-                        .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { offset ->
@@ -330,7 +332,7 @@ fun CompactColorPickerDialog(
                                 .size(22.dp)
                                 .clip(CircleShape)
                                 .background(sw)
-                                .border(1.dp, Morandi.border, CircleShape)
+                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
                                 .clickable {
                                     val arr = FloatArray(3)
                                     android.graphics.Color.colorToHSV(
@@ -439,7 +441,6 @@ internal fun CustomGradientEditor(
                     .height(32.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(gradientBrush)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                     .pointerInput(Unit) {
                         detectTapGestures { tapOffset ->
                             val pos = (tapOffset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -553,7 +554,6 @@ internal fun CustomGradientEditor(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
                     .noRippleClickable { showColorPicker = true }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -568,7 +568,7 @@ internal fun CustomGradientEditor(
                             .size(24.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(activeStop.color)
-                            .border(1.5.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
                     )
                     Column {
                         Text(
@@ -638,7 +638,6 @@ internal fun CustomGradientEditor(
                                 .weight(1f)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.panelHi)
-                                .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                                 .noRippleClickable {
                                     stops.clear()
                                     presetStops.forEachIndexed { i, p ->

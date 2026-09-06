@@ -330,9 +330,9 @@ internal fun LayerRow(
                                 when {
                                     dragOnGroup -> Morandi.panelHi
 
-                                    selected -> Morandi.accent.copy(alpha = 0.72f)
+                                    selected -> Morandi.accent.copy(alpha = 0.28f)
 
-                                    multiSelected -> Morandi.accent.copy(alpha = 0.55f)
+                                    multiSelected -> Morandi.accent.copy(alpha = 0.16f)
 
                                     // rows are transparent by default; the
                                     // panel itself is translucent
@@ -437,10 +437,14 @@ internal fun LayerRowContent(
             Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .border(
-                    width = if (layer.colorLabel > 0) 2.dp else 1.dp,
-                    color = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Morandi.border.copy(alpha = 0.7f),
-                    shape = RoundedCornerShape(6.dp),
+                .then(
+                    if (layer.colorLabel > 0) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = layerLabelColor(layer.colorLabel),
+                            shape = RoundedCornerShape(6.dp),
+                        )
+                    } else Modifier
                 ),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())

@@ -66,7 +66,6 @@ fun SquareHsbColorPage(
                 .fillMaxWidth()
                 .height(175.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
         ) {
             Canvas(
                 modifier = Modifier

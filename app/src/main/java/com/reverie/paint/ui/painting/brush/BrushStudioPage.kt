@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -261,10 +263,11 @@ fun BrushStudioPage(
         list
     }
 
-    val pageBg = Color(0xFF141416)
-    val panelBg = Color(0xFF1A1A1E)
-    val cardBg = Color(0xFF222227)
-    val borderCol = Color(0xFF2A2A30)
+    val pageBg = Color(0xFF000000)
+    val panelBg = Color(0xFF000000)
+    val cardBg = Color(0xFF16161A)
+    val borderCol = Color.Transparent
+    val dividerCol = Color(0xFF26262C)
     val textMain = Color(0xFFE6E6EB)
     val textSub = Color(0xFF8C8C94)
 
@@ -362,7 +365,7 @@ fun BrushStudioPage(
                 }
             }
 
-            Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(dividerCol))
 
             // ---- Master-Detail Split Workspace ----
             Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -424,7 +427,7 @@ fun BrushStudioPage(
                     }
                 }
 
-                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(borderCol))
+                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(dividerCol))
 
                 // Right Main Workspace (右侧工作区)
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().background(pageBg)) {
@@ -485,7 +488,7 @@ fun BrushStudioPage(
                         }
                     }
 
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(dividerCol))
 
                     // Parameter Cards Stack
                     Column(
@@ -689,7 +692,7 @@ private fun TipTabContent(
             modifier = Modifier
                 .size(64.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF18181C))
+                .background(Morandi.panel)
                 .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                 .clickable { onOpenTipPicker() }
                 .padding(3.dp),
@@ -832,9 +835,10 @@ private fun BrushTipPickerModal(
                     .widthIn(min = 320.dp, max = 560.dp)
                     .fillMaxWidth(0.88f)
                     .fillMaxHeight(0.78f)
+                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF1A1A1E))
-                    .border(1.dp, borderCol, RoundedCornerShape(14.dp))
+                    .background(Morandi.panel)
+                    .glassBorder(RoundedCornerShape(14.dp))
                     .clickable(enabled = false) {},
             ) {
                 Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
@@ -859,7 +863,7 @@ private fun BrushTipPickerModal(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
-                                        .background(if (sel) Color(0xFF34343E) else Color(0xFF222227))
+                                        .background(if (sel) Color(0xFF2C2C34) else cardBg)
                                         .border(1.dp, if (sel) Color(0xFF70707C) else Color.Transparent, RoundedCornerShape(4.dp))
                                         .clickable { filterCategory = cat }
                                         .padding(horizontal = 8.dp, vertical = 3.dp),
@@ -879,7 +883,7 @@ private fun BrushTipPickerModal(
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF26262D))
+                                .background(cardBg)
                                 .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                                 .clickable { onImportTip() }
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -912,8 +916,8 @@ private fun BrushTipPickerModal(
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSelected) Color(0xFF34343E) else Color(0xFF141416))
-                                    .border(1.dp, if (isSelected) Color(0xFF9090A0) else Color(0xFF26262B), RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) Color(0xFF2C2C34) else Morandi.panel)
+                                    .border(1.dp, if (isSelected) Color(0xFF9090A0) else borderCol, RoundedCornerShape(6.dp))
                                     .clickable { onSelectTip(item.filename) }
                                     .padding(4.dp),
                                 contentAlignment = Alignment.Center,
@@ -1203,7 +1207,7 @@ private fun EngineTabContent(
                     .weight(1f)
                     .height(38.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF1E1E22))
+                    .background(cardBg)
                     .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1234,7 +1238,7 @@ private fun EngineTabContent(
                     .weight(1f)
                     .height(38.dp)
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF1E1E22))
+                    .background(cardBg)
                     .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1292,7 +1296,7 @@ private fun InfoTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF19191D))
+                    .background(Morandi.panel)
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             ) {
@@ -1303,7 +1307,7 @@ private fun InfoTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF19191D))
+                    .background(Morandi.panel)
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .clickable { onRenamePreset() }
                     .padding(horizontal = 10.dp, vertical = 10.dp),
@@ -1344,7 +1348,7 @@ private fun InfoTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF19191D))
+                    .background(Morandi.panel)
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             ) {
@@ -1355,7 +1359,7 @@ private fun InfoTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF19191D))
+                    .background(Morandi.panel)
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             ) {
@@ -1370,7 +1374,7 @@ private fun InfoTabContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
-                    .background(Color(0xFF19191D))
+                    .background(Morandi.panel)
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             )
@@ -1391,7 +1395,7 @@ private fun InfoTabContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF19191D))
+                        .background(Morandi.panel)
                         .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                         .padding(8.dp),
                 )
@@ -1404,7 +1408,7 @@ private fun InfoTabContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF19191D))
+                        .background(Morandi.panel)
                         .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                         .padding(8.dp),
                 ) {
@@ -1431,7 +1435,7 @@ private fun InfoTabContent(
                 .fillMaxWidth()
                 .heightIn(min = 72.dp, max = 160.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color(0xFF19191D))
+                .background(Morandi.panel)
                 .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                 .padding(10.dp),
         )
@@ -1615,8 +1619,8 @@ private fun CheckerboardBackground(modifier: Modifier = Modifier) {
         val checkSize = 12.dp.toPx()
         val cols = (size.width / checkSize).toInt() + 1
         val rows = (size.height / checkSize).toInt() + 1
-        val color1 = Color(0xFF1B1B1E)
-        val color2 = Color(0xFF222226)
+        val color1 = Color(0xFF101012)
+        val color2 = Color(0xFF18181C)
         for (i in 0 until cols) {
             for (j in 0 until rows) {
                 val c = if ((i + j) % 2 == 0) color1 else color2
@@ -1805,7 +1809,7 @@ private fun StudioNewBrushDialog(
                     textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 14.sp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF18181C), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF101012), RoundedCornerShape(6.dp))
                         .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                         .padding(10.dp),
                 )
@@ -1851,7 +1855,7 @@ private fun StudioRenameDialog(
                     textStyle = androidx.compose.ui.text.TextStyle(color = textMain, fontSize = 14.sp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF18181C), RoundedCornerShape(6.dp))
+                        .background(Color(0xFF101012), RoundedCornerShape(6.dp))
                         .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                         .padding(10.dp),
                 )

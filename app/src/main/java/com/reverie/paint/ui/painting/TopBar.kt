@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -17,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,16 +58,16 @@ fun TopBar(
         modifier =
             modifier
                 .pointerHoverIcon(com.reverie.paint.ui.theme.systemDefaultPointerIcon(context), overrideDescendants = true)
+                .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(shape)
-                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = Glass.barStyle(opacity),
+                            style = Glass.barStyle(if (opacity >= 0.99f) 0.90f else opacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
                 .padding(horizontal = 4.dp, vertical = 2.dp),

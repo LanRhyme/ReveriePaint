@@ -184,10 +184,9 @@ fun ColorHarmonyPage(
                             .size(if (isPrimary) 30.dp else 26.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(chipColor)
-                            .border(
-                                width = if (isCurrent) 2.dp else 0.5.dp,
-                                color = if (isCurrent) Color.White else Morandi.border,
-                                shape = RoundedCornerShape(6.dp)
+                            .then(
+                                if (isCurrent) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
+                                else Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
                             )
                             .clickable {
                                 vm.updateBrushColor(hex)
@@ -210,7 +209,6 @@ fun ColorHarmonyPage(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
                     .clickable {
                         val targetPal = vm.defaultPalette
                         if (targetPal != null) {

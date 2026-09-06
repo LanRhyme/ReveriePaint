@@ -38,15 +38,15 @@ object Glass {
 
     /** 浮层条：顶栏/工具滑轨/侧栏大面板/底部栏 */
     @Composable
-    fun barStyle(alpha: Float = 0.78f): HazeStyle = style(alpha)
+    fun barStyle(alpha: Float = 0.90f): HazeStyle = style(alpha)
 
     /** 弹出层：对话框/浮动弹窗，更透更虚 */
     @Composable
-    fun popupStyle(alpha: Float = 0.66f): HazeStyle = style(alpha)
+    fun popupStyle(alpha: Float = 0.88f): HazeStyle = style(alpha)
 
     @Composable
     private fun style(alpha: Float): HazeStyle {
-        val c = Morandi.panel.copy(alpha = alpha.coerceIn(0.05f, 0.98f))
+        val c = Morandi.panel.copy(alpha = alpha.coerceIn(0.05f, 0.96f))
         return remember(c) {
             HazeStyle(
                 backgroundColor = c,
@@ -59,7 +59,7 @@ object Glass {
 }
 
 /**
- * 方向性玻璃描边：上缘受光（白 α0.14）渐隐至下缘背光（黑 α0.06），
+ * 方向性玻璃描边：上缘受光（白 α0.18）渐隐至下缘背光，
  * 替代纯色 border 的塑料感。hairline 1dp。Brush/Stroke 均在组合期预分配。
  */
 fun Modifier.glassBorder(shape: Shape): Modifier = composed {

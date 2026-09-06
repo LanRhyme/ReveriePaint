@@ -13,6 +13,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -368,7 +370,6 @@ internal fun SettingsTabPage(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(Morandi.panelHi)
-                                        .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
                                         .padding(horizontal = 10.dp, vertical = 4.dp),
                                 ) {
                                     Text(
@@ -812,9 +813,10 @@ internal fun SettingsTabPage(
             Box(
                 modifier = Modifier
                     .width(300.dp)
+                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(14.dp))
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                    .glassBorder(RoundedCornerShape(14.dp))
                     .focusRequester(dialogFocusRequester)
                     .focusable()
                     .onKeyEvent { event ->

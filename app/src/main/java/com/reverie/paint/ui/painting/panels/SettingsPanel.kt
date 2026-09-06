@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,7 @@ import java.util.Locale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.painting.canvas.CanvasTabPage
 import com.reverie.paint.ui.painting.ExportTabPage
 
@@ -95,19 +97,19 @@ fun SettingsPanel(
                 .align(Alignment.TopEnd)
                 .padding(top = 44.dp, end = 8.dp)
                 .width(280.dp)
+                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
-                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = Glass.barStyle(opacity),
+                            style = Glass.popupStyle(if (opacity >= 0.99f) 0.92f else opacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
-                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
+                .glassBorder(panelShape)
                 .padding(12.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },

@@ -22,6 +22,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -724,14 +725,11 @@ fun PaintingPage(
                 Box(
                     modifier =
                         Modifier
+                            .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.35f))
                             .systemHoverIcon(popupContext)
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panel)
-                            .border(
-                                1.dp,
-                                Morandi.border,
-                                RoundedCornerShape(10.dp),
-                            ),
+                            .glassBorder(RoundedCornerShape(10.dp)),
                 ) {
                     Column {
                         SelectionMenuItem("选中图层") { vm.selectAllAction() }
@@ -1160,9 +1158,10 @@ fun PaintingPage(
         ) {
             Box(
                 modifier = Modifier
+                    .shadow(10.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(CircleShape)
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.border, CircleShape)
+                    .glassBorder(CircleShape)
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Row(
@@ -1185,7 +1184,6 @@ fun PaintingPage(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(Morandi.panel)
-                            .border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
                             .clickable { vm.clearSelectionAction() }
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
@@ -1240,9 +1238,10 @@ fun PaintingPage(
             Box(
                 modifier =
                     Modifier
+                        .shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.35f))
                         .clip(RoundedCornerShape(12.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                        .glassBorder(RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1302,9 +1301,10 @@ fun PaintingPage(
             Box(
                 modifier =
                     Modifier
+                        .shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.35f))
                         .clip(RoundedCornerShape(12.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                        .glassBorder(RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1607,9 +1607,10 @@ fun PaintingPage(
                 Box(
                     modifier =
                         Modifier
+                            .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(18.dp))
                             .background(Morandi.panelHi)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                            .glassBorder(RoundedCornerShape(18.dp))
                             .padding(horizontal = 28.dp, vertical = 22.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -1698,9 +1699,9 @@ fun TextInputDialog(
                     colors =
                         androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Morandi.accent,
-                            unfocusedBorderColor = Morandi.border,
-                            focusedContainerColor = Morandi.panel,
-                            unfocusedContainerColor = Morandi.panel,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Morandi.panelHi,
+                            unfocusedContainerColor = Morandi.panelHi,
                             cursorColor = Morandi.accent,
                         ),
                 )

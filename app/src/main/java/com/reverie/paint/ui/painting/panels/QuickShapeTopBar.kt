@@ -44,6 +44,7 @@ import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 
 /**
  * Procreate-style Top Capsule for QuickShape Editing
@@ -65,15 +66,16 @@ fun QuickShapeTopBar(
     ) {
         Row(
             modifier = Modifier
-                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.25f))
+                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(capsuleShape)
-                .background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(vm.popupPanelOpacity))
-                    } else Modifier
+                    } else {
+                        Modifier.background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
+                    }
                 )
-                .border(1.dp, Morandi.border, capsuleShape)
+                .glassBorder(capsuleShape)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

@@ -15,6 +15,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -87,9 +89,10 @@ internal fun CanvasTabPage(
             Box(
                 modifier = Modifier
                     .width(320.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -150,9 +153,10 @@ internal fun CanvasTabPage(
             Box(
                 modifier = Modifier
                     .width(320.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -231,9 +235,10 @@ internal fun CanvasTabPage(
             Box(
                 modifier = Modifier
                     .width(320.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -321,9 +326,10 @@ internal fun CanvasTabPage(
             Box(
                 modifier = Modifier
                     .width(320.dp)
+                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(16.dp))
                     .padding(20.dp)
             ) {
                 Column {
@@ -383,7 +389,6 @@ internal fun CanvasTabPage(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
                 .background(Morandi.panelHi.copy(alpha = 0.5f))
-                .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             SettingInfoRow("创建时间", createdStr)

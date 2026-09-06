@@ -150,7 +150,7 @@ fun TransformPanel(
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF1B1E24))
+                        .background(Morandi.panelHi)
                         .padding(2.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -306,18 +306,8 @@ private fun TransformActionItem(
                     primary -> Morandi.accent
                     danger -> Color(0x33C45656)
                     active -> Morandi.accent.copy(alpha = 0.25f)
-                    else -> Color(0xFF262A33).copy(alpha = 0.7f)
+                    else -> Morandi.panelHi
                 }
-            )
-            .border(
-                1.dp,
-                when {
-                    primary -> Morandi.accent
-                    danger -> Color(0x66C45656)
-                    active -> Morandi.accent
-                    else -> Color(0xFF383D48)
-                },
-                RoundedCornerShape(10.dp)
             )
             .liquidHighlight(btnSource, Color.White, radius = 30.dp)
             .clickable(interactionSource = btnSource, indication = null) { onClick() }
@@ -364,8 +354,7 @@ private fun TransformIconButton(
             .pressScale(iconSource, pressedScale = 0.86f)
             .liquidLean(iconSource, maxOffset = 3.dp)
             .clip(CircleShape)
-            .background(Color(0xFF262A33).copy(alpha = 0.90f))
-            .border(1.dp, Color(0xFF485060), CircleShape)
+            .background(Morandi.panelHi)
             .liquidHighlight(iconSource, Color.White, radius = 20.dp)
             .clickable(interactionSource = iconSource, indication = null) { onClick() },
         contentAlignment = Alignment.Center,

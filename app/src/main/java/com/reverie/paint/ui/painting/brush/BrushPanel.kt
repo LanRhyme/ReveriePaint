@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.theme.Morandi
@@ -252,19 +254,19 @@ fun BrushPanel(
                 .align(Alignment.CenterStart)
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
+                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
-                .background(Morandi.panel.copy(alpha = opacity))
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
                             state = hazeState,
-                            style = Glass.barStyle(opacity),
+                            style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
                         )
                     } else {
-                        Modifier
+                        Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
-                .border(1.dp, Morandi.border.copy(alpha = opacity), panelShape)
+                .glassBorder(panelShape)
                 .clickable(enabled = false) {}
         ) {
             AnimatedContent(
@@ -292,7 +294,7 @@ fun BrushPanel(
                                     modifier = Modifier
                                         .width(88.dp)
                                         .fillMaxHeight()
-                                        .background(Morandi.panel.copy(alpha = opacity))
+                                        .background(Morandi.panelHi.copy(alpha = 0.35f))
                                 ) {
                                     items(categories, key = { it }) { cat ->
                                         val sel = cat == selectedCategory
@@ -706,7 +708,7 @@ private fun PresetGridCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panel.copy(alpha = 0.5f)
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panelHi.copy(alpha = 0.5f)
     val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
 
     Column(
@@ -776,7 +778,7 @@ private fun PresetListRow(
     onToggleFav: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.10f) else Morandi.panel.copy(alpha = 0.5f)
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.10f) else Morandi.panelHi.copy(alpha = 0.5f)
     val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
 
     Row(

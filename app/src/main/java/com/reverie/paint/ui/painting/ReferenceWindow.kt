@@ -112,15 +112,14 @@ fun ReferenceWindow(
             .shadow(14.dp, windowShape)
             .systemHoverIcon(context)
             .clip(windowShape)
-            .background(Morandi.panel.copy(alpha = opacity))
             .then(
                 if (vm.blurBackground && hazeState != null) {
                     Modifier.hazeChild(
                         state = hazeState,
-                        style = Glass.popupStyle(opacity),
+                        style = Glass.popupStyle(if (opacity >= 0.99f) 0.92f else opacity),
                     )
                 } else {
-                    Modifier
+                    Modifier.background(Morandi.panel.copy(alpha = opacity))
                 }
             )
             .glassBorder(windowShape)
@@ -129,7 +128,7 @@ fun ReferenceWindow(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF161719))
+                .background(Color(0xFF101114))
                 .onSizeChanged { viewportSize = it }
                 .pointerInput(vm.referenceAllowRotation) {
                     awaitEachGesture {
@@ -259,8 +258,7 @@ fun ReferenceWindow(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panel)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                            .background(Morandi.panelHi)
                             .clickable { importImagesLauncher.launch("image/*") }
                             .padding(horizontal = 24.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center
@@ -860,7 +858,7 @@ private fun ReferenceSettingsPopup(
                 .shadow(16.dp, RoundedCornerShape(14.dp))
                 .clip(RoundedCornerShape(14.dp))
                 .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(14.dp))
+                .glassBorder(RoundedCornerShape(14.dp))
                 .padding(vertical = 8.dp, horizontal = 12.dp)
         ) {
             Column(

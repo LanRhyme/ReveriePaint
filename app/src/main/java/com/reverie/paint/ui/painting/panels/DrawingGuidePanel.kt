@@ -45,6 +45,7 @@ import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.SymmetryType
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
@@ -66,15 +67,16 @@ fun DrawingGuidePanel(
     Box(
         modifier = modifier
             .width(320.dp)
-            .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.25f))
+            .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(panelShape)
-            .background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
             .then(
                 if (vm.blurBackground && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(vm.popupPanelOpacity))
-                } else Modifier
+                } else {
+                    Modifier.background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
+                }
             )
-            .border(1.dp, Morandi.border, panelShape)
+            .glassBorder(panelShape)
             .padding(14.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

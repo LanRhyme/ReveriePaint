@@ -24,6 +24,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -354,7 +355,7 @@ internal fun LayerListView(
                 DropdownMenu(
                     expanded = showNewLayerMenu,
                     onDismissRequest = { showNewLayerMenu = false },
-                    modifier = Modifier.background(Morandi.panel).border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
+                    modifier = Modifier.background(Morandi.panel).glassBorder(RoundedCornerShape(8.dp)),
                 ) {
                     DropdownMenuItem(
                         text = { Text("填充图层", color = Morandi.text, fontSize = 13.sp) },

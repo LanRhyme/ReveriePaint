@@ -39,6 +39,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.glassBorder
 
 /**
  * Tab 2: Palettes Page with:
@@ -151,7 +152,7 @@ fun PalettesPage(
                     onDismissRequest = { showTopPlusMenu = false },
                     modifier = Modifier
                         .background(Morandi.panel)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                        .glassBorder(RoundedCornerShape(10.dp))
                 ) {
                     DropdownMenuItem(
                         text = { Text("新建色卡", color = Morandi.text, fontSize = 13.sp) },
@@ -253,8 +254,7 @@ fun PalettesPage(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(3.dp))
-                                        .background(Morandi.accent.copy(alpha = 0.2f))
-                                        .border(0.5.dp, Morandi.accent.copy(alpha = 0.5f), RoundedCornerShape(3.dp))
+                                        .background(Morandi.accent.copy(alpha = 0.15f))
                                         .padding(horizontal = 4.dp, vertical = 1.dp)
                                 ) {
                                     Text(
@@ -284,7 +284,7 @@ fun PalettesPage(
                                 onDismissRequest = { activeMenuPalette = null },
                                 modifier = Modifier
                                     .background(Morandi.panel)
-                                    .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                                    .glassBorder(RoundedCornerShape(10.dp))
                             ) {
                                 if (palette.id != vm.defaultPaletteId) {
                                     DropdownMenuItem(
@@ -424,8 +424,7 @@ fun PalettesPage(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.panelHi)
-                                .border(1.dp, Morandi.border.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                            .clickable {
+                                .clickable {
                                 vm.addColorToPalette(pal.id, vm.brushColor)
                                 showAddColorPalettePicker = false
                                 Toast.makeText(context, "已存入 ${pal.name}", Toast.LENGTH_SHORT).show()
@@ -461,7 +460,9 @@ fun PalettesPage(
                         focusedTextColor = Morandi.text,
                         unfocusedTextColor = Morandi.text,
                         focusedBorderColor = Morandi.accent,
-                        unfocusedBorderColor = Morandi.border
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Morandi.panelHi,
+                        unfocusedContainerColor = Morandi.panelHi,
                     ),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -502,7 +503,9 @@ fun PalettesPage(
                         focusedTextColor = Morandi.text,
                         unfocusedTextColor = Morandi.text,
                         focusedBorderColor = Morandi.accent,
-                        unfocusedBorderColor = Morandi.border
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Morandi.panelHi,
+                        unfocusedContainerColor = Morandi.panelHi,
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )

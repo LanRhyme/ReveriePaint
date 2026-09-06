@@ -151,7 +151,6 @@ internal fun RealCurvesGraph(
                 .aspectRatio(1.2f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                 .pointerInput(activeChannel) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
