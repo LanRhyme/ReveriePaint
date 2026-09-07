@@ -755,7 +755,12 @@ internal fun PaintViewModel.startPainting(
                 renderH = h
                 displayBufferInvalid = true
                 if (initialBitmap != null) {
-                    ReverieCoreBridge.stampBitmap(0, 0, initialBitmap)
+                    val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(initialBitmap)
+                    try {
+                        ReverieCoreBridge.stampBitmap(0, 0, stampBmp)
+                    } finally {
+                        stampBmp.recycle()
+                    }
                     ReverieCoreBridge.clearUndoHistory()
                 }
                 syncLayersFromNative()

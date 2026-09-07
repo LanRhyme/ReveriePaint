@@ -1489,7 +1489,12 @@ internal fun PaintViewModel.drawText(
     }
 
     runCore {
-        ReverieCoreBridge.stampBitmap(x.toInt(), y.toInt(), textBmp)
+        val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(textBmp)
+        try {
+            ReverieCoreBridge.stampBitmap(x.toInt(), y.toInt(), stampBmp)
+        } finally {
+            stampBmp.recycle()
+        }
     }
 }
 

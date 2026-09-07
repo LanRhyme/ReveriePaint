@@ -153,7 +153,12 @@ internal fun PaintViewModel.importImageToNewLayer(
             } else {
                 bitmap
             }
-            ReverieCoreBridge.stampBitmap(placement.x, placement.y, scaledBmp)
+            val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(scaledBmp)
+            try {
+                ReverieCoreBridge.stampBitmap(placement.x, placement.y, stampBmp)
+            } finally {
+                stampBmp.recycle()
+            }
             if (scaledBmp != bitmap) {
                 scaledBmp.recycle()
             }

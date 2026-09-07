@@ -113,6 +113,27 @@ object ImageImportHelper {
     }
 
     /**
+     * Swaps Red and Blue channels of [src] bitmap so that when [ReverieCoreBridge.stampBitmap]
+     * transfers pixels directly into Krita's native BGRA color space, the colors match correctly.
+     */
+    fun swapRedAndBlueForStamp(src: Bitmap): Bitmap {
+        val out = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        val paint = android.graphics.Paint()
+        val matrix = android.graphics.ColorMatrix(
+            floatArrayOf(
+                0f, 0f, 1f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                1f, 0f, 0f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
+        paint.colorFilter = android.graphics.ColorMatrixColorFilter(matrix)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
+    }
+
+    /**
      * Safely reads and decodes an image from a content Uri:
      * 1. Copies to cache temp file
      * 2. Inspects bounds and EXIF orientation
