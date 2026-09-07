@@ -126,6 +126,45 @@ internal fun PaintViewModel.addLayer() {
     }
 }
 
+internal fun PaintViewModel.importImageToNewLayer(
+    bitmap: Bitmap,
+    onComplete: () -> Unit = {},
+) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
+    }
+    runCore(
+        after = {
+            notifyLayerChanged()
+            onComplete()
+        },
+    ) {
+        try {
+            ReverieCoreBridge.addLayer("导入图片")
+            val placement = ImageImportHelper.calculateFitPlacement(
+                docW = coreW,
+                docH = coreH,
+                imgW = bitmap.width,
+                imgH = bitmap.height,
+                maxRatio = 0.8f,
+            )
+            val scaledBmp = if (placement.targetW != bitmap.width || placement.targetH != bitmap.height) {
+                Bitmap.createScaledBitmap(bitmap, placement.targetW, placement.targetH, true)
+            } else {
+                bitmap
+            }
+            ReverieCoreBridge.stampBitmap(placement.x, placement.y, scaledBmp)
+            if (scaledBmp != bitmap) {
+                scaledBmp.recycle()
+            }
+        } finally {
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+        }
+    }
+}
+
 internal fun PaintViewModel.removeLayer() {
     removeLayer(currentLayerIndex)
 }

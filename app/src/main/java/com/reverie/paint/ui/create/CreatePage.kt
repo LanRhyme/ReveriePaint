@@ -84,6 +84,27 @@ fun CreatePage(vm: PaintViewModel) {
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = 预设, 1 = 自定义
 
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            val bmp = ImageImportHelper.decodeUriSafely(context, uri)
+            if (bmp != null) {
+                val name = ImageImportHelper.getFileName(context, uri) ?: "导入图片"
+                val snapFile = ImageImportHelper.writeTempPng(context, bmp)
+                vm.startPainting(
+                    w = bmp.width,
+                    h = bmp.height,
+                    name = name,
+                    initialBitmap = bmp,
+                    initialSnapshotFile = snapFile,
+                )
+            } else {
+                android.widget.Toast.makeText(context, "无法载入该图片", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // Custom Canvas States
     var customW by remember { mutableStateOf("2048") }
     var customH by remember { mutableStateOf("2048") }
@@ -191,7 +212,22 @@ fun CreatePage(vm: PaintViewModel) {
             }
 
             Spacer(Modifier.width(16.dp))
-            Box(modifier = Modifier.size(38.dp)) // Visual balance placeholder
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(colors.panelHi.copy(alpha = 0.6f))
+                    .border(1.dp, colors.border.copy(alpha = 0.6f), CircleShape)
+                    .clickable { imagePickerLauncher.launch("image/*") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_image),
+                    contentDescription = "从图片新建",
+                    tint = colors.text,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
 
         AnimatedContent(
@@ -484,6 +520,65 @@ fun CreatePage(vm: PaintViewModel) {
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                         contentPadding = PaddingValues(bottom = 24.dp)
                     ) {
+                        item(key = "import_image_card") {
+                            val importSource = remember { MutableInteractionSource() }
+                            val isImportPressed by importSource.collectIsPressedAsState()
+                            val importScale by animateFloatAsState(
+                                targetValue = if (isImportPressed) 0.97f else 1.0f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                label = "ImportCardScale"
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .scale(importScale)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(colors.panel)
+                                    .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+                                    .clickable(interactionSource = importSource, indication = null) {
+                                        imagePickerLauncher.launch("image/*")
+                                    }
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.accent.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_image),
+                                        contentDescription = null,
+                                        tint = colors.accent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "从图片新建画布",
+                                        color = colors.text,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = "导入设备中的图片并以此尺寸创建画布",
+                                        color = colors.subText,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                                Icon(
+                                    painterResource(R.drawable.ic_chevron),
+                                    contentDescription = null,
+                                    tint = colors.subText,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
                         items(allPresets, key = { "${it.name}_${it.width}_${it.height}" }) { item ->
                             val itemSource = remember { MutableInteractionSource() }
                             val isItemPressed by itemSource.collectIsPressedAsState()

@@ -2305,6 +2305,7 @@ class PaintViewModel : ViewModel() {
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)
 
     var transformPreviewBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+    var isImportTransformPending: Boolean by mutableStateOf(false)
     internal val layerThumbStates = mutableStateMapOf<Int, Bitmap>()
 
     // Name-keyed mirror: layer indices change on every move/group op, so the

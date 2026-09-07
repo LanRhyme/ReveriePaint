@@ -9,6 +9,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +64,8 @@ fun TransformPanel(
     vm: PaintViewModel,
     tfState: TransformState,
     onReset: () -> Unit = {},
+    onCommit: () -> Unit = {},
+    onCancel: () -> Unit = {},
     hazeState: HazeState? = null,
 ) {
     var showDpad by remember { mutableStateOf(false) }
@@ -202,9 +206,18 @@ fun TransformPanel(
 
                 // Functional Action Buttons Row
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Cancel Action
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_x,
+                        label = "取消",
+                        danger = true,
+                        onClick = onCancel,
+                    )
+
                     // Flip Horizontal
                     TransformActionItem(
                         iconRes = R.drawable.ic_flip_h,
@@ -276,6 +289,14 @@ fun TransformPanel(
                             tfState.reset(b)
                             onReset()
                         },
+                    )
+
+                    // Commit Action
+                    TransformActionItem(
+                        iconRes = R.drawable.ic_check,
+                        label = "完成",
+                        primary = true,
+                        onClick = onCommit,
                     )
                 }
             }

@@ -720,6 +720,8 @@ internal fun PaintViewModel.startPainting(
     w: Int,
     h: Int,
     name: String? = null,
+    initialBitmap: android.graphics.Bitmap? = null,
+    initialSnapshotFile: java.io.File? = null,
 ) {
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     currentProjectFile = null // Reset so new artwork won't overwrite previous project file
@@ -745,15 +747,26 @@ internal fun PaintViewModel.startPainting(
             startPaintingTimer()
         },
     ) {
-        if (ReverieCoreBridge.newDocument(w, h)) {
-            coreW = w
-            coreH = h
-            renderW = w
-            renderH = h
-            displayBufferInvalid = true
-            syncLayersFromNative()
-            ReverieCoreBridge.setBrushColor(brushColor)
-            recorder.beginSession(w, h, snapshotSource = null, snapshotTempDir = recSessionDir())
+        try {
+            if (ReverieCoreBridge.newDocument(w, h)) {
+                coreW = w
+                coreH = h
+                renderW = w
+                renderH = h
+                displayBufferInvalid = true
+                if (initialBitmap != null) {
+                    ReverieCoreBridge.stampBitmap(0, 0, initialBitmap)
+                    ReverieCoreBridge.clearUndoHistory()
+                }
+                syncLayersFromNative()
+                ReverieCoreBridge.setBrushColor(brushColor)
+                recorder.beginSession(w, h, snapshotSource = initialSnapshotFile, snapshotTempDir = recSessionDir())
+            }
+        } finally {
+            if (initialBitmap != null && !initialBitmap.isRecycled) {
+                initialBitmap.recycle()
+            }
+            initialSnapshotFile?.delete()
         }
     }
 }

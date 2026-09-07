@@ -83,6 +83,23 @@ internal fun CanvasTabPage(
     var resizeH by remember { mutableStateOf(vm.docHeight.toString()) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            onClose()
+            val bmp = ImageImportHelper.decodeUriSafely(context, uri)
+            if (bmp != null) {
+                vm.importImageToNewLayer(bmp) {
+                    vm.isImportTransformPending = true
+                    vm.applyTool(com.reverie.paint.model.Tool.TRANSFORM.id)
+                }
+            } else {
+                android.widget.Toast.makeText(context, "无法载入该图片", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // Custom Styled Dialog: Save As
     if (showSaveAsDialog) {
         androidx.compose.ui.window.Dialog(onDismissRequest = { showSaveAsDialog = false }) {
@@ -459,7 +476,9 @@ internal fun CanvasTabPage(
             ReMenuItem(R.drawable.ic_color_profile, "颜色配置", {
                 showProfileDialog = true
             }, modifier = Modifier.weight(1f))
-            Spacer(modifier = Modifier.weight(1f))
+            ReMenuItem(R.drawable.ic_image, "导入图片", {
+                imagePickerLauncher.launch("image/*")
+            }, modifier = Modifier.weight(1f))
             Spacer(modifier = Modifier.weight(1f))
         }
     }

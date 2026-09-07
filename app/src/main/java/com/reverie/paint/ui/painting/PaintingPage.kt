@@ -271,6 +271,78 @@ fun PaintingPage(
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
+    val commitTransform: () -> Unit = {
+        if (tfState.active) {
+            when (tfState.mode) {
+                TransformMode.PERSPECTIVE -> {
+                    val corners = tfState.quadCorners
+                    if (corners.size == 4) {
+                        vm.applyPerspectiveTransform(
+                            corners[0].x.toDouble(),
+                            corners[0].y.toDouble(),
+                            corners[1].x.toDouble(),
+                            corners[1].y.toDouble(),
+                            corners[2].x.toDouble(),
+                            corners[2].y.toDouble(),
+                            corners[3].x.toDouble(),
+                            corners[3].y.toDouble(),
+                            tfState.bounds.left.toDouble(),
+                            tfState.bounds.top.toDouble(),
+                            tfState.bounds.width.toDouble(),
+                            tfState.bounds.height.toDouble(),
+                        )
+                    }
+                }
+                TransformMode.DISTORT -> {
+                    vm.applyWarpMeshTransform(
+                        tfState.origMeshPoints,
+                        tfState.meshPoints,
+                        tfState.bounds.left.toDouble(),
+                        tfState.bounds.top.toDouble(),
+                        tfState.bounds.width.toDouble(),
+                        tfState.bounds.height.toDouble(),
+                    )
+                }
+                else -> {
+                    val rad = Math.toRadians(tfState.rotation.toDouble())
+                    val c = tfState.bounds.center
+                    if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
+                        tfState.ty != 0f
+                    ) {
+                        vm.applyTransform(
+                            tfState.scaleX.toDouble(),
+                            tfState.scaleY.toDouble(),
+                            0.0,
+                            0.0,
+                            rad,
+                            tfState.tx.toDouble(),
+                            tfState.ty.toDouble(),
+                            c.x.toDouble(),
+                            c.y.toDouble(),
+                        )
+                    } else {
+                        vm.cancelTransformPreview()
+                    }
+                }
+            }
+            tfState.active = false
+            vm.isImportTransformPending = false
+            vm.applyTool(Tool.BRUSH.id)
+        }
+    }
+
+    val cancelTransform: () -> Unit = {
+        if (tfState.active) {
+            vm.cancelTransformPreview()
+            tfState.active = false
+            if (vm.isImportTransformPending) {
+                vm.isImportTransformPending = false
+                vm.removeLayer()
+            }
+            vm.applyTool(Tool.BRUSH.id)
+        }
+    }
+
     LaunchedEffect(polyPoints.isNotEmpty(), vm.lassoMultiPoints.isNotEmpty()) {
         if (polyPoints.isNotEmpty()) {
             vm.customUndoHook = {
@@ -444,6 +516,7 @@ fun PaintingPage(
                 }
             }
             tfState.active = false
+            vm.isImportTransformPending = false
         }
         if (tool != Tool.CROP) cropRect = null
         if (tool != Tool.POLYGON && tool != Tool.POLYLINE && tool != Tool.PATH && tool != Tool.SELECT_POLYGON) {
@@ -657,6 +730,7 @@ fun PaintingPage(
                 selectionMenuOpen -> selectionMenuOpen = false
                 selectionPanelOpen -> selectionPanelOpen = false
                 selectionPropsOpen -> selectionPropsOpen = false
+                tfState.active -> cancelTransform()
                 vm.currentToolId != "brush" -> vm.applyTool("brush")
                 else -> requestExit()
             }
@@ -863,6 +937,8 @@ fun PaintingPage(
                     }
                     vm.startTransformPreview()
                 },
+                onCommit = commitTransform,
+                onCancel = cancelTransform,
             )
         }
 
