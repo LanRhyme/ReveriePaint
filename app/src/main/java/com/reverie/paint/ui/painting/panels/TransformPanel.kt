@@ -149,7 +149,7 @@ fun TransformPanel(
             // Functional Action Buttons Row
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 1. 变换模式下拉
@@ -181,78 +181,71 @@ fun TransformPanel(
                     active = true,
                 )
 
-                // Cancel Action
-                TransformActionItem(
-                    iconRes = R.drawable.ic_x,
-                    label = "取消",
-                    danger = true,
-                    onClick = onCancel,
-                )
-
-                // Flip Horizontal
-                TransformActionItem(
-                    iconRes = R.drawable.ic_flip_h,
-                    label = "水平",
-                    onClick = {
-                        tfState.scaleX *= -1f
-                        val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
-                        tfState.quadCorners = tfState.quadCorners.map {
-                            it.copy(x = c.x - (it.x - c.x))
-                        }
-                        tfState.meshPoints = tfState.meshPoints.map {
-                            it.copy(x = c.x - (it.x - c.x))
-                        }
-                    },
-                )
-
-                // Flip Vertical
-                TransformActionItem(
-                    iconRes = R.drawable.ic_flip_v,
-                    label = "垂直",
-                    onClick = {
-                        tfState.scaleY *= -1f
-                        val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
-                        tfState.quadCorners = tfState.quadCorners.map {
-                            it.copy(y = c.y - (it.y - c.y))
-                        }
-                        tfState.meshPoints = tfState.meshPoints.map {
-                            it.copy(y = c.y - (it.y - c.y))
+                // 2. 翻转下拉 (水平翻转 / 垂直翻转)
+                ToolBubbleDropdown(
+                    items = listOf(
+                        ToolDropdownItemData(0, R.drawable.ic_flip_h, "水平翻转"),
+                        ToolDropdownItemData(1, R.drawable.ic_flip_v, "垂直翻转"),
+                    ),
+                    selected = 0,
+                    labelOverride = "翻转",
+                    iconOverride = R.drawable.ic_flip_h,
+                    onSelect = { option ->
+                        if (option == 0) {
+                            tfState.scaleX *= -1f
+                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                            tfState.quadCorners = tfState.quadCorners.map {
+                                it.copy(x = c.x - (it.x - c.x))
+                            }
+                            tfState.meshPoints = tfState.meshPoints.map {
+                                it.copy(x = c.x - (it.x - c.x))
+                            }
+                        } else {
+                            tfState.scaleY *= -1f
+                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                            tfState.quadCorners = tfState.quadCorners.map {
+                                it.copy(y = c.y - (it.y - c.y))
+                            }
+                            tfState.meshPoints = tfState.meshPoints.map {
+                                it.copy(y = c.y - (it.y - c.y))
+                            }
                         }
                     },
                 )
 
-                // Rotate -90
-                TransformActionItem(
-                    iconRes = R.drawable.ic_rotate_ccw,
-                    label = "-90°",
-                    onClick = {
-                        var r = (tfState.rotation - 90f) % 360f
-                        if (r < -180f) r += 360f
-                        tfState.rotation = r
-                    },
-                )
-
-                // Rotate +90
-                TransformActionItem(
-                    iconRes = R.drawable.ic_rotate_cw,
-                    label = "+90°",
-                    onClick = {
-                        var r = (tfState.rotation + 90f) % 360f
+                // 3. 旋转下拉 (顺时针 / 逆时针 / 180度)
+                ToolBubbleDropdown(
+                    items = listOf(
+                        ToolDropdownItemData(0, R.drawable.ic_rotate_cw, "顺时针 90°"),
+                        ToolDropdownItemData(1, R.drawable.ic_rotate_ccw, "逆时针 90°"),
+                        ToolDropdownItemData(2, R.drawable.ic_refresh, "旋转 180°"),
+                    ),
+                    selected = 0,
+                    labelOverride = "旋转",
+                    iconOverride = R.drawable.ic_rotate_cw,
+                    onSelect = { option ->
+                        val delta = when (option) {
+                            0 -> 90f
+                            1 -> -90f
+                            else -> 180f
+                        }
+                        var r = (tfState.rotation + delta) % 360f
                         if (r > 180f) r -= 360f
+                        else if (r < -180f) r += 360f
                         tfState.rotation = r
                     },
                 )
 
-                // Micro D-Pad Toggle
-                TransformActionItem(
+                // 4. 微调手柄开关
+                ToolActionButton(
                     iconRes = R.drawable.ic_move,
                     label = "微调",
                     active = showDpad,
                     onClick = { showDpad = !showDpad },
                 )
 
-                // Reset All
-                TransformActionItem(
+                // 5. 重置所有变形
+                ToolActionButton(
                     iconRes = R.drawable.ic_refresh,
                     label = "重置",
                     onClick = {
@@ -262,8 +255,16 @@ fun TransformPanel(
                     },
                 )
 
-                // Commit Action
-                TransformActionItem(
+                // 6. 取消
+                ToolActionButton(
+                    iconRes = R.drawable.ic_x,
+                    label = "取消",
+                    danger = true,
+                    onClick = onCancel,
+                )
+
+                // 7. 完成
+                ToolActionButton(
                     iconRes = R.drawable.ic_check,
                     label = "完成",
                     primary = true,
@@ -274,60 +275,7 @@ fun TransformPanel(
     }
 }
 
-@Composable
-private fun TransformActionItem(
-    iconRes: Int,
-    label: String,
-    primary: Boolean = false,
-    danger: Boolean = false,
-    active: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val btnSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = Modifier
-            .pressScale(btnSource, pressedScale = 0.90f)
-            .liquidLean(btnSource, maxOffset = 2.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                when {
-                    primary -> Morandi.accent
-                    danger -> Color(0x33C45656)
-                    active -> Morandi.accent.copy(alpha = 0.25f)
-                    else -> Morandi.panelHi
-                }
-            )
-            .liquidHighlight(btnSource, Color.White, radius = 30.dp)
-            .clickable(interactionSource = btnSource, indication = null) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        Icon(
-            painter = painterResource(id = iconRes),
-            contentDescription = label,
-            tint = when {
-                primary -> Morandi.onAccent
-                danger -> Color(0xFFF28B82)
-                active -> Morandi.accent
-                else -> Morandi.text
-            },
-            modifier = Modifier.size(18.dp),
-        )
-        Text(
-            text = label,
-            fontSize = 10.sp,
-            fontWeight = if (primary || active) FontWeight.Bold else FontWeight.Normal,
-            color = when {
-                primary -> Morandi.onAccent
-                danger -> Color(0xFFF28B82)
-                active -> Morandi.accent
-                else -> Morandi.subText
-            },
-        )
-    }
-}
 
 @Composable
 private fun TransformIconButton(

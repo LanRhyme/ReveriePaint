@@ -215,7 +215,7 @@ fun ToolDropdownTriggerButton(
                     onTap = { onClick() }
                 )
             }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 9.dp, vertical = 5.dp),
     ) {
         Box(
             modifier = Modifier.size(20.dp),
@@ -250,6 +250,82 @@ fun ToolDropdownTriggerButton(
             fontSize = 10.sp,
             fontWeight = if (expanded || active) FontWeight.Bold else FontWeight.Normal,
             color = if (expanded || active) Morandi.accent else Morandi.subText,
+        )
+    }
+}
+
+/**
+ * Standard uniform action button with identical geometry and tactile response as ToolDropdownTriggerButton.
+ */
+@Composable
+fun ToolActionButton(
+    iconRes: Int,
+    label: String,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    danger: Boolean = false,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.90f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "btn_scale",
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = modifier
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    primary -> Morandi.accent
+                    danger -> Color(0xFFFF4D4F).copy(alpha = 0.12f)
+                    active -> Morandi.accent.copy(alpha = 0.15f)
+                    else -> Morandi.panelHi
+                }
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        pressed = true
+                        tryAwaitRelease()
+                        pressed = false
+                    },
+                    onTap = { onClick() }
+                )
+            }
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(20.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = label,
+                tint = when {
+                    primary -> Morandi.onAccent
+                    danger -> Color(0xFFFF4D4F)
+                    active -> Morandi.accent
+                    else -> Morandi.icon
+                },
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = if (active || primary) FontWeight.Bold else FontWeight.Normal,
+            color = when {
+                primary -> Morandi.onAccent
+                danger -> Color(0xFFFF4D4F)
+                active -> Morandi.accent
+                else -> Morandi.subText
+            },
         )
     }
 }

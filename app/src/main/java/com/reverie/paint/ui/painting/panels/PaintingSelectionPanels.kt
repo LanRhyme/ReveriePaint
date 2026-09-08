@@ -405,59 +405,16 @@ internal fun SelectionActionItem(
     active: Boolean = false,
     onClick: () -> Unit,
 ) {
-    var pressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (pressed) 0.90f else 1f, spring(dampingRatio = 0.6f, stiffness = 500f), label = "btn_scale")
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = Modifier
-            .scale(scale)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                when {
-                    primary -> Morandi.accent
-                    danger -> Color(0xFFFF4D4F).copy(alpha = 0.12f)
-                    active -> Morandi.accent.copy(alpha = 0.15f)
-                    else -> Morandi.panelHi
-                }
-            )
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { onClick() }
-                )
-            }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    ) {
-        androidx.compose.material3.Icon(
-            painter = androidx.compose.ui.res.painterResource(id = iconRes),
-            contentDescription = label,
-            tint = when {
-                primary -> Morandi.onAccent
-                danger -> Color(0xFFFF4D4F)
-                active -> Morandi.accent
-                else -> Morandi.icon
-            },
-            modifier = Modifier.size(18.dp),
-        )
-        Text(
-            text = label,
-            fontSize = 10.sp,
-            fontWeight = if (primary || active) FontWeight.Bold else FontWeight.Normal,
-            color = when {
-                primary -> Morandi.onAccent
-                danger -> Color(0xFFFF4D4F)
-                active -> Morandi.accent
-                else -> Morandi.subText
-            },
-        )
-    }
+    ToolActionButton(
+        iconRes = iconRes,
+        label = label,
+        primary = primary,
+        danger = danger,
+        active = active,
+        onClick = onClick,
+    )
 }
+
 
 
 /** Catmull-Rom spline through the anchor points - Krita's path tool draws

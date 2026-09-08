@@ -54,7 +54,7 @@ fun GradientPanel(
 ) {
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ToolBubbleDropdown(
@@ -67,9 +67,10 @@ fun GradientPanel(
                 selected = repeat,
                 onSelect = onRepeat,
             )
-            ToolFloatChip(
+            ToolActionButton(
+                iconRes = R.drawable.ic_refresh,
                 label = "反向",
-                selected = reverse,
+                active = reverse,
                 onClick = { onReverse(!reverse) },
             )
         }
@@ -95,12 +96,19 @@ fun FillPanel(
     var propsOpen by remember { mutableStateOf(false) }
 
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(modifier = Modifier.width(130.dp)) {
+                ToolBubbleDropdown(
+                    items = fillSampleOptions,
+                    selected = sampleLayers,
+                    labelOverride = if (sampleLayers == 0) "当前" else "全部",
+                    onSelect = onSampleLayers,
+                    active = true,
+                )
+                Box(modifier = Modifier.width(140.dp)) {
                     ToolFloatSlider(
                         label = "容差",
                         valueText = "$tolerance",
@@ -109,14 +117,10 @@ fun FillPanel(
                         onValue = { onTolerance(it.toInt()) },
                     )
                 }
-                ToolBubbleDropdown(
-                    items = fillSampleOptions,
-                    selected = sampleLayers,
-                    onSelect = onSampleLayers,
-                )
-                ToolFloatChip(
-                    label = "高级",
-                    selected = propsOpen,
+                ToolActionButton(
+                    iconRes = R.drawable.ic_sliders,
+                    label = if (propsOpen) "收起" else "属性",
+                    active = propsOpen,
                     onClick = { propsOpen = !propsOpen },
                 )
             }
