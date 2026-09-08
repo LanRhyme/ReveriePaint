@@ -1305,6 +1305,7 @@ internal fun PaintViewModel.updateGradientReverse(value: Boolean) {
 
 internal fun PaintViewModel.updateShapeStrokeWidth(value: Double) {
     shapeStrokeWidth = value
+    shapeState.strokeWidth = value.toFloat()
     saveToolOptions()
     if (recorder.recording) {
         recorder.toolOp(T_SHAPE_STROKE_WIDTH) { it.f32(value.toFloat()) }
@@ -1314,12 +1315,22 @@ internal fun PaintViewModel.updateShapeStrokeWidth(value: Double) {
 
 internal fun PaintViewModel.updateShapeFillMode(value: Int) {
     shapeFillMode = value
+    shapeState.fillMode = when (value) {
+        1 -> ShapeFillMode.FILL
+        2 -> ShapeFillMode.STROKE_AND_FILL
+        else -> ShapeFillMode.STROKE
+    }
     saveToolOptions()
     runCore(render = false) { ReverieCoreBridge.setShapeFilled(value == 1 || value == 2) }
 }
 
 internal fun PaintViewModel.updateShapeKeepAspect(value: Boolean) {
     shapeKeepAspect = value
+    shapeState.keepAspect = value
+    if (value && shapeState.active) {
+        val pt = ShapeGeometry.constrainAspect(Point2D(shapeState.p1.x, shapeState.p1.y), Point2D(shapeState.p2.x, shapeState.p2.y))
+        shapeState.p2 = androidx.compose.ui.geometry.Offset(pt.x, pt.y)
+    }
     saveToolOptions()
 }
 
@@ -1592,5 +1603,195 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
     }
     drawText(cfg.posX, cfg.posY, cfg.text, cfg.fontSize.toDouble())
     isTypographyEditing = false
+}
+
+internal fun PaintViewModel.commitActiveShape() {
+    val state = shapeState
+    if (!state.active) return
+
+    val type = state.type
+    val fillMode = state.fillMode
+    val strokeW = state.strokeWidth
+    val colStr = brushColor
+    val parsedCol = try {
+        android.graphics.Color.parseColor(colStr)
+    } catch (_: Exception) {
+        android.graphics.Color.BLACK
+    }
+    val alpha = (brushOpacity.coerceIn(0.0, 1.0) * 255).toInt()
+    val finalColor = android.graphics.Color.argb(
+        alpha,
+        android.graphics.Color.red(parsedCol),
+        android.graphics.Color.green(parsedCol),
+        android.graphics.Color.blue(parsedCol),
+    )
+
+    val path = android.graphics.Path()
+    when (type) {
+        ShapeType.LINE -> {
+            path.moveTo(state.p1.x, state.p1.y)
+            path.lineTo(state.p2.x, state.p2.y)
+        }
+        ShapeType.RECT -> {
+            val p2 = if (state.keepAspect) {
+                val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                androidx.compose.ui.geometry.Offset(pt.x, pt.y)
+            } else state.p2
+            val (tl, br) = ShapeGeometry.normalizeRect(Point2D(state.p1.x, state.p1.y), Point2D(p2.x, p2.y))
+            val rectF = android.graphics.RectF(tl.x, tl.y, br.x, br.y)
+            path.addRect(rectF, android.graphics.Path.Direction.CW)
+        }
+        ShapeType.ROUNDED_RECT -> {
+            val p2 = if (state.keepAspect) {
+                val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                androidx.compose.ui.geometry.Offset(pt.x, pt.y)
+            } else state.p2
+            val (tl, br) = ShapeGeometry.normalizeRect(Point2D(state.p1.x, state.p1.y), Point2D(p2.x, p2.y))
+            val rectF = android.graphics.RectF(tl.x, tl.y, br.x, br.y)
+            val maxR = minOf(rectF.width(), rectF.height()) / 2f
+            val r = state.cornerRadius.coerceIn(0f, maxR)
+            path.addRoundRect(rectF, r, r, android.graphics.Path.Direction.CW)
+        }
+        ShapeType.ELLIPSE -> {
+            val p2 = if (state.keepAspect) {
+                val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                androidx.compose.ui.geometry.Offset(pt.x, pt.y)
+            } else state.p2
+            val (tl, br) = ShapeGeometry.normalizeRect(Point2D(state.p1.x, state.p1.y), Point2D(p2.x, p2.y))
+            val rectF = android.graphics.RectF(tl.x, tl.y, br.x, br.y)
+            path.addOval(rectF, android.graphics.Path.Direction.CW)
+        }
+        ShapeType.REGULAR_POLYGON -> {
+            val center = Point2D((state.p1.x + state.p2.x) / 2f, (state.p1.y + state.p2.y) / 2f)
+            val radius = kotlin.math.hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
+            if (radius > 1f) {
+                val pts = ShapeGeometry.generateRegularPolygon(center, radius, state.polygonSides, state.rotationDegrees)
+                path.moveTo(pts[0].x, pts[0].y)
+                for (i in 1 until pts.size) {
+                    path.lineTo(pts[i].x, pts[i].y)
+                }
+                path.close()
+            }
+        }
+        ShapeType.STAR -> {
+            val center = Point2D((state.p1.x + state.p2.x) / 2f, (state.p1.y + state.p2.y) / 2f)
+            val outerR = kotlin.math.hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
+            val innerR = outerR * state.starInnerRatio.coerceIn(0.1f, 0.9f)
+            if (outerR > 1f) {
+                val pts = ShapeGeometry.generateStar(center, outerR, innerR, state.starPoints, state.rotationDegrees)
+                path.moveTo(pts[0].x, pts[0].y)
+                for (i in 1 until pts.size) {
+                    path.lineTo(pts[i].x, pts[i].y)
+                }
+                path.close()
+            }
+        }
+        ShapeType.POLYLINE, ShapeType.POLYGON -> {
+            if (state.nodes.size >= 2) {
+                path.moveTo(state.nodes[0].pos.x, state.nodes[0].pos.y)
+                for (i in 1 until state.nodes.size) {
+                    path.lineTo(state.nodes[i].pos.x, state.nodes[i].pos.y)
+                }
+                if (type == ShapeType.POLYGON || state.closed) {
+                    path.close()
+                }
+            }
+        }
+        ShapeType.BEZIER -> {
+            if (state.nodes.size >= 2) {
+                path.moveTo(state.nodes[0].pos.x, state.nodes[0].pos.y)
+                for (i in 1 until state.nodes.size) {
+                    val prev = state.nodes[i - 1]
+                    val curr = state.nodes[i]
+                    path.cubicTo(prev.cpOut.x, prev.cpOut.y, curr.cpIn.x, curr.cpIn.y, curr.pos.x, curr.pos.y)
+                }
+                if (state.closed) {
+                    val last = state.nodes.last()
+                    val first = state.nodes.first()
+                    path.cubicTo(last.cpOut.x, last.cpOut.y, first.cpIn.x, first.cpIn.y, first.pos.x, first.pos.y)
+                    path.close()
+                }
+            }
+        }
+    }
+
+    if (kotlin.math.abs(state.rotationDegrees) > 0.01f && (type == ShapeType.RECT || type == ShapeType.ROUNDED_RECT || type == ShapeType.ELLIPSE)) {
+        val cx = (state.p1.x + state.p2.x) / 2f
+        val cy = (state.p1.y + state.p2.y) / 2f
+        val matrix = android.graphics.Matrix()
+        matrix.postRotate(state.rotationDegrees, cx, cy)
+        path.transform(matrix)
+    }
+
+    val bounds = android.graphics.RectF()
+    path.computeBounds(bounds, true)
+    if (bounds.isEmpty) {
+        state.clear()
+        return
+    }
+
+    val pad = maxOf(4f, strokeW) + 4f
+    val left = (bounds.left - pad).toInt().coerceAtLeast(0)
+    val top = (bounds.top - pad).toInt().coerceAtLeast(0)
+    val right = (bounds.right + pad).toInt().coerceAtMost(docWidth)
+    val bottom = (bounds.bottom + pad).toInt().coerceAtMost(docHeight)
+    val bw = right - left
+    val bh = bottom - top
+    if (bw <= 0 || bh <= 0) {
+        state.clear()
+        return
+    }
+
+    val shapeBmp = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(shapeBmp)
+    canvas.translate(-left.toFloat(), -top.toFloat())
+
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = finalColor
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        strokeJoin = android.graphics.Paint.Join.ROUND
+    }
+
+    val shouldFill = (fillMode == ShapeFillMode.FILL || fillMode == ShapeFillMode.STROKE_AND_FILL) &&
+        type != ShapeType.LINE && type != ShapeType.POLYLINE
+    val shouldStroke = fillMode == ShapeFillMode.STROKE || fillMode == ShapeFillMode.STROKE_AND_FILL ||
+        type == ShapeType.LINE || type == ShapeType.POLYLINE
+
+    if (shouldFill) {
+        paint.style = android.graphics.Paint.Style.FILL
+        canvas.drawPath(path, paint)
+    }
+    if (shouldStroke) {
+        paint.style = android.graphics.Paint.Style.STROKE
+        paint.strokeWidth = strokeW
+        canvas.drawPath(path, paint)
+    }
+
+    runCore {
+        val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(shapeBmp)
+        try {
+            ReverieCoreBridge.stampBitmap(left, top, stampBmp)
+        } finally {
+            stampBmp.recycle()
+            shapeBmp.recycle()
+        }
+    }
+
+    state.clear()
+    showActionToast("形状已生成", R.drawable.ic_check)
+}
+
+internal fun PaintViewModel.cancelActiveShape() {
+    shapeState.clear()
+    showActionToast("已取消", R.drawable.ic_x)
+}
+
+internal fun PaintViewModel.undoShapeNode() {
+    val state = shapeState
+    if (state.nodes.isNotEmpty()) {
+        state.nodes.removeAt(state.nodes.size - 1)
+        state.selectedNodeIndex = state.nodes.size - 1
+        showActionToast("撤销顶点", R.drawable.ic_undo)
+    }
 }
 

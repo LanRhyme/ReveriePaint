@@ -1325,13 +1325,16 @@ class CanvasTouchView(context: Context) : View(context) {
                 wandFlash?.value = docPos
                 v.selectSimilar(docPos.x.toInt(), docPos.y.toInt())
             }
-            Tool.POLYGON, Tool.POLYLINE, Tool.SELECT_POLYGON, Tool.PATH -> {
+            Tool.SELECT_POLYGON -> {
                 onPolyPoint?.invoke(docPos)
+            }
+            Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
+                handleShapeDown(docPos)
             }
             Tool.TEXT -> {
                 onTextRequested?.invoke(docPos.x, docPos.y)
             }
-            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+            Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
                 liveShapeStart?.value = docPos
                 liveShapeEnd?.value = docPos
             }
@@ -1513,7 +1516,10 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.PICKER -> {
                 sampleColorAtScreenPos(previousSinglePos)
             }
-            Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+            Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
+                handleShapeMove(docPos)
+            }
+            Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
                 shapeEndDocPos = docPos
                 liveShapeEnd?.value = docPos
             }
@@ -1703,22 +1709,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     strokeStarted = false
                 }
             }
-            Tool.LINE, Tool.RECT, Tool.ELLIPSE -> {
-                liveShapeStart?.value = null
-                liveShapeEnd?.value = null
-                val kind = when (tool) {
-                    Tool.RECT -> 1
-                    Tool.ELLIPSE -> 2
-                    else -> 0
-                }
-                var ex = shapeEndDocPos.x
-                var ey = shapeEndDocPos.y
-                if (v.shapeKeepAspect && (kind == 1 || kind == 2)) {
-                    val maxDim = maxOf(abs(ex - firstDocPos.x), abs(ey - firstDocPos.y))
-                    ex = if (ex >= firstDocPos.x) firstDocPos.x + maxDim else firstDocPos.x - maxDim
-                    ey = if (ey >= firstDocPos.y) firstDocPos.y + maxDim else firstDocPos.y - maxDim
-                }
-                v.drawShape(kind, firstDocPos.x, firstDocPos.y, ex, ey)
+            Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
+                handleShapeUp(docPos)
             }
             Tool.GRADIENT -> {
                 liveShapeStart?.value = null
@@ -1826,5 +1818,291 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             else -> Unit
         }
+    }
+
+    private fun isShapeTool(t: Tool): Boolean =
+        t == Tool.SHAPES || t == Tool.LINE || t == Tool.RECT ||
+        t == Tool.ELLIPSE || t == Tool.POLYGON || t == Tool.POLYLINE ||
+        t == Tool.PATH || t.group == ToolGroup.SHAPES
+
+    private fun defaultShapeType(t: Tool, fallback: ShapeType): ShapeType =
+        when (t) {
+            Tool.LINE -> ShapeType.LINE
+            Tool.RECT -> ShapeType.RECT
+            Tool.ELLIPSE -> ShapeType.ELLIPSE
+            Tool.POLYGON -> ShapeType.POLYGON
+            Tool.POLYLINE -> ShapeType.POLYLINE
+            Tool.PATH -> ShapeType.BEZIER
+            else -> fallback
+        }
+
+    private fun hitTestShapeHandle(
+        state: ShapeState,
+        docPos: Offset,
+        density: Float,
+        currentScale: Float,
+    ): Int {
+        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
+        when (state.type) {
+            ShapeType.LINE -> {
+                if (hypot(docPos.x - state.p1.x, docPos.y - state.p1.y) < hitDist) return ShapeHandleId.LINE_P1
+                if (hypot(docPos.x - state.p2.x, docPos.y - state.p2.y) < hitDist) return ShapeHandleId.LINE_P2
+                val mid = (state.p1 + state.p2) / 2f
+                if (hypot(docPos.x - mid.x, docPos.y - mid.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
+                val d = ShapeGeometry.distanceToSegment(Point2D(docPos.x, docPos.y), Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                if (d < hitDist) return ShapeHandleId.TRANSLATE_BODY
+            }
+            ShapeType.RECT, ShapeType.ROUNDED_RECT, ShapeType.ELLIPSE -> {
+                val p2 = if (state.keepAspect) {
+                    val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                    Offset(pt.x, pt.y)
+                } else state.p2
+                val (tl, br) = ShapeGeometry.normalizeRect(Point2D(state.p1.x, state.p1.y), Point2D(p2.x, p2.y))
+                val tr = Offset(br.x, tl.y)
+                val bl = Offset(tl.x, br.y)
+                val center = Offset((tl.x + br.x) / 2f, (tl.y + br.y) / 2f)
+
+                val localPos = if (abs(state.rotationDegrees) > 0.01f) {
+                    val rotated = ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(center.x, center.y), -state.rotationDegrees)
+                    Offset(rotated.x, rotated.y)
+                } else docPos
+
+                val rotPos = Offset(center.x, tl.y - (28f * density) / maxOf(0.01f, currentScale))
+                if (hypot(localPos.x - rotPos.x, localPos.y - rotPos.y) < hitDist) return ShapeHandleId.ROTATE
+
+                if (state.type == ShapeType.ROUNDED_RECT) {
+                    val cr = state.cornerRadius.coerceIn(0f, minOf(br.x - tl.x, br.y - tl.y) / 2f)
+                    val crPos = Offset(tl.x + cr, tl.y + cr)
+                    if (hypot(localPos.x - crPos.x, localPos.y - crPos.y) < hitDist) return ShapeHandleId.CORNER_RADIUS
+                }
+
+                if (hypot(localPos.x - tl.x, localPos.y - tl.y) < hitDist) return ShapeHandleId.CORNER_TL
+                if (hypot(localPos.x - tr.x, localPos.y - tr.y) < hitDist) return ShapeHandleId.CORNER_TR
+                if (hypot(localPos.x - br.x, localPos.y - br.y) < hitDist) return ShapeHandleId.CORNER_BR
+                if (hypot(localPos.x - bl.x, localPos.y - bl.y) < hitDist) return ShapeHandleId.CORNER_BL
+
+                if (localPos.x in tl.x..br.x && localPos.y in tl.y..br.y) return ShapeHandleId.TRANSLATE_BODY
+            }
+            ShapeType.REGULAR_POLYGON -> {
+                val center = (state.p1 + state.p2) / 2f
+                val radius = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
+                val baseAngle = (-PI / 2.0).toFloat() + Math.toRadians(state.rotationDegrees.toDouble()).toFloat()
+                val topH = Offset(center.x + radius * cos(baseAngle), center.y + radius * sin(baseAngle))
+                if (hypot(docPos.x - topH.x, docPos.y - topH.y) < hitDist) return ShapeHandleId.STAR_OUTER
+                if (hypot(docPos.x - center.x, docPos.y - center.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
+                if (hypot(docPos.x - center.x, docPos.y - center.y) < radius) return ShapeHandleId.TRANSLATE_BODY
+            }
+            ShapeType.STAR -> {
+                val center = (state.p1 + state.p2) / 2f
+                val outerR = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
+                val innerR = outerR * state.starInnerRatio
+                val baseAngle = (-PI / 2.0).toFloat() + Math.toRadians(state.rotationDegrees.toDouble()).toFloat()
+                val outerH = Offset(center.x + outerR * cos(baseAngle), center.y + outerR * sin(baseAngle))
+                if (hypot(docPos.x - outerH.x, docPos.y - outerH.y) < hitDist) return ShapeHandleId.STAR_OUTER
+                val angleStep = (PI / state.starPoints).toFloat()
+                val innerAngle = baseAngle + angleStep
+                val innerH = Offset(
+                    center.x + innerR * cos(innerAngle),
+                    center.y + innerR * sin(innerAngle)
+                )
+                if (hypot(docPos.x - innerH.x, docPos.y - innerH.y) < hitDist) return ShapeHandleId.STAR_INNER
+                if (hypot(docPos.x - center.x, docPos.y - center.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
+                if (hypot(docPos.x - center.x, docPos.y - center.y) < outerR) return ShapeHandleId.TRANSLATE_BODY
+            }
+            ShapeType.POLYLINE, ShapeType.POLYGON -> {
+                for (i in state.nodes.indices) {
+                    val n = state.nodes[i]
+                    if (hypot(docPos.x - n.pos.x, docPos.y - n.pos.y) < hitDist) {
+                        state.selectedNodeIndex = i
+                        return ShapeHandleId.NODE_ANCHOR_BASE + i
+                    }
+                }
+            }
+            ShapeType.BEZIER -> {
+                val selIdx = state.selectedNodeIndex
+                if (selIdx in 0 until state.nodes.size) {
+                    val n = state.nodes[selIdx]
+                    if (hypot(docPos.x - n.cpIn.x, docPos.y - n.cpIn.y) < hitDist) {
+                        return ShapeHandleId.NODE_CP_IN_BASE + selIdx
+                    }
+                    if (hypot(docPos.x - n.cpOut.x, docPos.y - n.cpOut.y) < hitDist) {
+                        return ShapeHandleId.NODE_CP_OUT_BASE + selIdx
+                    }
+                }
+                for (i in state.nodes.indices) {
+                    val n = state.nodes[i]
+                    if (hypot(docPos.x - n.pos.x, docPos.y - n.pos.y) < hitDist) {
+                        state.selectedNodeIndex = i
+                        return ShapeHandleId.NODE_ANCHOR_BASE + i
+                    }
+                }
+            }
+        }
+        return ShapeHandleId.NONE
+    }
+
+    private fun handleShapeDown(docPos: Offset) {
+        val v = vm ?: return
+        val state = v.shapeState
+        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+        if (state.active) {
+            val hit = hitTestShapeHandle(state, docPos, density, currentScale)
+            if (hit != ShapeHandleId.NONE) {
+                state.activeHandle = hit
+                state.dragStartDocPos = docPos
+                state.dragP1 = state.p1
+                state.dragP2 = state.p2
+                state.dragRotation = state.rotationDegrees
+                state.dragCornerRadius = state.cornerRadius
+                state.dragStarInnerRatio = state.starInnerRatio
+                state.isCreatingNewNode = false
+            } else {
+                if (state.type == ShapeType.POLYLINE || state.type == ShapeType.POLYGON || state.type == ShapeType.BEZIER) {
+                    state.nodes.add(ShapeNode(Point2D(docPos.x, docPos.y)))
+                    val newIdx = state.nodes.size - 1
+                    state.selectedNodeIndex = newIdx
+                    state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + newIdx
+                    state.dragStartDocPos = docPos
+                    state.isCreatingNewNode = true
+                } else {
+                    state.reset(state.type, docPos)
+                    state.activeHandle = if (state.type == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
+                    state.dragStartDocPos = docPos
+                    state.dragP1 = docPos
+                    state.dragP2 = docPos
+                    state.isCreatingNewNode = false
+                }
+            }
+        } else {
+            val targetType = defaultShapeType(tool, state.type)
+            state.reset(targetType, docPos)
+            if (targetType == ShapeType.POLYLINE || targetType == ShapeType.POLYGON || targetType == ShapeType.BEZIER) {
+                state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + 0
+                state.selectedNodeIndex = 0
+                state.dragStartDocPos = docPos
+                state.isCreatingNewNode = true
+            } else {
+                state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
+                state.dragStartDocPos = docPos
+                state.dragP1 = docPos
+                state.dragP2 = docPos
+                state.isCreatingNewNode = false
+            }
+        }
+    }
+
+    private fun handleShapeMove(docPos: Offset) {
+        val v = vm ?: return
+        val state = v.shapeState
+        if (state.active && state.activeHandle != ShapeHandleId.NONE) {
+            val handle = state.activeHandle
+            when {
+                handle == ShapeHandleId.TRANSLATE_BODY -> {
+                    val delta = docPos - state.dragStartDocPos
+                    state.p1 = state.dragP1 + delta
+                    state.p2 = state.dragP2 + delta
+                }
+                handle == ShapeHandleId.LINE_P1 -> {
+                    state.p1 = docPos
+                }
+                handle == ShapeHandleId.LINE_P2 -> {
+                    state.p2 = docPos
+                }
+                handle == ShapeHandleId.ROTATE -> {
+                    val center = (state.p1 + state.p2) / 2f
+                    val angleRad = atan2(docPos.y - center.y, docPos.x - center.x)
+                    state.rotationDegrees = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
+                }
+                handle == ShapeHandleId.CORNER_BR || handle == ShapeHandleId.CORNER_TL ||
+                handle == ShapeHandleId.CORNER_TR || handle == ShapeHandleId.CORNER_BL ||
+                handle == ShapeHandleId.CORNER_RADIUS -> {
+                    val center = (state.dragP1 + state.dragP2) / 2f
+                    val localPt = if (abs(state.rotationDegrees) > 0.01f) {
+                        ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(center.x, center.y), -state.rotationDegrees)
+                    } else Point2D(docPos.x, docPos.y)
+                    val localDocPos = Offset(localPt.x, localPt.y)
+
+                    when (handle) {
+                        ShapeHandleId.CORNER_BR -> {
+                            state.p2 = localDocPos
+                        }
+                        ShapeHandleId.CORNER_TL -> {
+                            state.p1 = localDocPos
+                        }
+                        ShapeHandleId.CORNER_TR -> {
+                            state.p1 = Offset(state.p1.x, localDocPos.y)
+                            state.p2 = Offset(localDocPos.x, state.p2.y)
+                        }
+                        ShapeHandleId.CORNER_BL -> {
+                            state.p1 = Offset(localDocPos.x, state.p1.y)
+                            state.p2 = Offset(state.p2.x, localDocPos.y)
+                        }
+                        ShapeHandleId.CORNER_RADIUS -> {
+                            val minDim = minOf(abs(state.p2.x - state.p1.x), abs(state.p2.y - state.p1.y))
+                            val dist = hypot(localDocPos.x - state.p1.x, localDocPos.y - state.p1.y)
+                            state.cornerRadius = dist.coerceIn(0f, minDim / 2f)
+                        }
+                    }
+                }
+                handle == ShapeHandleId.STAR_OUTER -> {
+                    val center = (state.p1 + state.p2) / 2f
+                    val r = hypot(docPos.x - center.x, docPos.y - center.y)
+                    state.p1 = center - Offset(r, r)
+                    state.p2 = center + Offset(r, r)
+                    val angleRad = atan2(docPos.y - center.y, docPos.x - center.x)
+                    state.rotationDegrees = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
+                }
+                handle == ShapeHandleId.STAR_INNER -> {
+                    val center = (state.p1 + state.p2) / 2f
+                    val outerR = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
+                    val curR = hypot(docPos.x - center.x, docPos.y - center.y)
+                    if (outerR > 1f) state.starInnerRatio = (curR / outerR).coerceIn(0.1f, 0.9f)
+                }
+                handle >= ShapeHandleId.NODE_CP_OUT_BASE -> {
+                    val idx = handle - ShapeHandleId.NODE_CP_OUT_BASE
+                    if (idx in 0 until state.nodes.size) {
+                        val old = state.nodes[idx]
+                        state.nodes[idx] = ShapeNode(old.pos, old.cpIn, Point2D(docPos.x, docPos.y))
+                    }
+                }
+                handle >= ShapeHandleId.NODE_CP_IN_BASE -> {
+                    val idx = handle - ShapeHandleId.NODE_CP_IN_BASE
+                    if (idx in 0 until state.nodes.size) {
+                        val old = state.nodes[idx]
+                        state.nodes[idx] = ShapeNode(old.pos, Point2D(docPos.x, docPos.y), old.cpOut)
+                    }
+                }
+                handle >= ShapeHandleId.NODE_ANCHOR_BASE -> {
+                    val idx = handle - ShapeHandleId.NODE_ANCHOR_BASE
+                    if (idx in 0 until state.nodes.size) {
+                        if (state.isCreatingNewNode && state.type == ShapeType.BEZIER) {
+                            val center = state.dragStartDocPos
+                            val deltaX = docPos.x - center.x
+                            val deltaY = docPos.y - center.y
+                            state.nodes[idx] = ShapeNode(
+                                Point2D(center.x, center.y),
+                                Point2D(center.x - deltaX, center.y - deltaY),
+                                Point2D(center.x + deltaX, center.y + deltaY),
+                            )
+                        } else {
+                            val old = state.nodes[idx]
+                            val delta = docPos - Offset(old.pos.x, old.pos.y)
+                            state.nodes[idx] = ShapeNode(
+                                Point2D(docPos.x, docPos.y),
+                                Point2D(old.cpIn.x + delta.x, old.cpIn.y + delta.y),
+                                Point2D(old.cpOut.x + delta.x, old.cpOut.y + delta.y)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun handleShapeUp(docPos: Offset) {
+        val v = vm ?: return
+        v.shapeState.activeHandle = ShapeHandleId.NONE
+        v.shapeState.dragStartDocPos = Offset.Zero
+        v.shapeState.isCreatingNewNode = false
     }
 }

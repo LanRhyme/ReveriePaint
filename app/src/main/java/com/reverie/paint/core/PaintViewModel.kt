@@ -669,6 +669,7 @@ class PaintViewModel : ViewModel() {
     var shapeStrokeWidth by mutableDoubleStateOf(4.0)
     var shapeFillMode by mutableIntStateOf(0) // 0: 仅描边, 1: 仅填充, 2: 描边与填充
     var shapeKeepAspect by mutableStateOf(false)
+    val shapeState = ShapeState()
 
     var selectionMode by mutableIntStateOf(0) // 0: 替换, 1: 添加, 2: 减去, 3: 相交
     var lassoSubMode by mutableIntStateOf(LassoSubMode.FREEHAND) // 0: 自由描画, 1: 折线, 2: 自由+折线

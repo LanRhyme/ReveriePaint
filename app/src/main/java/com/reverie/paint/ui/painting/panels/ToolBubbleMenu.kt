@@ -298,7 +298,7 @@ fun ToolActionButton(
                     else -> Morandi.panelHi
                 }
             )
-            .pointerInput(Unit) {
+            .pointerInput(onClick) {
                 detectTapGestures(
                     onPress = {
                         pressed = true

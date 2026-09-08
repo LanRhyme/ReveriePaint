@@ -133,6 +133,17 @@ private class FillDiffusionWave(
     val anim: Animatable<Float, AnimationVector1D>,
 )
 
+private val shapeTools =
+    listOf(
+        Tool.SHAPES,
+        Tool.LINE,
+        Tool.RECT,
+        Tool.ELLIPSE,
+        Tool.POLYGON,
+        Tool.POLYLINE,
+        Tool.PATH,
+    )
+
 /**
  * Painting page: full-bleed canvas with touch painting + gestures,
  * overlaid by the top bar, left tool rail and popup panels.
@@ -522,21 +533,13 @@ fun PaintingPage(
         if (tool != Tool.POLYGON && tool != Tool.POLYLINE && tool != Tool.PATH && tool != Tool.SELECT_POLYGON) {
             polyPoints = emptyList()
         }
+        if (tool !in shapeTools && tool.group != ToolGroup.SHAPES && vm.shapeState.active) {
+            vm.commitActiveShape()
+        }
         if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
             vm.cancelLassoMulti()
         }
     }
-    var shapeStrokeWidth by remember { mutableStateOf(4f) }
-    var shapeFilled by remember { mutableStateOf(false) }
-    val shapeTools =
-        listOf(
-            Tool.LINE,
-            Tool.RECT,
-            Tool.ELLIPSE,
-            Tool.POLYGON,
-            Tool.POLYLINE,
-            Tool.PATH,
-        )
 
     val hazeState = remember { HazeState() }
 
@@ -942,9 +945,9 @@ fun PaintingPage(
             )
         }
 
-        // ---- Shape tools options panel (Krita tool-options style) ----
+        // ---- Shape tools options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool in shapeTools,
+            visible = tool in shapeTools || tool.group == ToolGroup.SHAPES,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -959,59 +962,7 @@ fun PaintingPage(
         ) {
             ShapeToolPanel(
                 vm = vm,
-                tool = tool,
-                vertexCount = polyPoints.size,
-                strokeWidth = vm.shapeStrokeWidth.toFloat(),
-                filled = vm.shapeFillMode == 1,
-                keepAspect = vm.shapeKeepAspect,
                 hazeState = hazeState,
-                onStrokeWidth = {
-                    vm.updateShapeStrokeWidth(it.toDouble())
-                },
-                onFilled = {
-                    vm.updateShapeFillMode(if (it) 1 else 0)
-                },
-                onKeepAspect = {
-                    vm.updateShapeKeepAspect(it)
-                },
-                onFinish = {
-                    if (polyPoints.isNotEmpty()) {
-                        val pts = polyPoints.map { it.x.toInt() to it.y.toInt() }
-                        when (tool) {
-                            Tool.POLYGON -> {
-                                vm.drawPolygon(pts, closed = true)
-                            }
-
-                            Tool.POLYLINE -> {
-                                vm.drawPolygon(pts, closed = false)
-                            }
-
-                            Tool.SELECT_POLYGON -> {
-                                vm.selectPolygon(pts)
-                            }
-
-                            Tool.PATH -> {
-                                // Bézier path: smooth through the anchors with
-                                // a Catmull-Rom spline, commit as a selection
-                                // (Krita's path tool can convert to a selection)
-                                val smooth = smoothPathPoints(pts)
-                                if (smooth.size >= 3) vm.selectPolygon(smooth)
-                            }
-
-                            else -> {
-                                Unit
-                            }
-                        }
-                        polyPoints = emptyList()
-                    }
-                },
-                onUndo = {
-                    if (polyPoints.isNotEmpty()) {
-                        polyPoints = polyPoints.dropLast(1)
-                        vm.showActionToast("撤销顶点", R.drawable.ic_undo)
-                    }
-                },
-                onCancel = { polyPoints = emptyList() },
             )
         }
 

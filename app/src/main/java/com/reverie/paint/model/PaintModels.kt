@@ -37,6 +37,7 @@ enum class Tool(
     GRADIENT("gradient", "渐变", ToolGroup.FILL),
 
     // Shape tools (Krita's shape tools)
+    SHAPES("shapes", "形状", ToolGroup.SHAPES),
     LINE("line", "直线", ToolGroup.SHAPES),
     RECT("rect", "矩形", ToolGroup.SHAPES),
     ELLIPSE("ellipse", "椭圆", ToolGroup.SHAPES),

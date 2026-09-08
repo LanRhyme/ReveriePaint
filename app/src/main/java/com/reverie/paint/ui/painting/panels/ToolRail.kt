@@ -289,6 +289,7 @@ fun toolIcon(tool: Tool): Int =
         Tool.FILL -> R.drawable.ic_fill
         Tool.LASSO -> R.drawable.ic_lasso
         Tool.MAGICWAND -> R.drawable.ic_magicwand
+        Tool.SHAPES -> R.drawable.ic_shapes
         Tool.LINE -> R.drawable.ic_minus
         Tool.RECT -> R.drawable.ic_rect
         Tool.ELLIPSE -> R.drawable.ic_ellipse

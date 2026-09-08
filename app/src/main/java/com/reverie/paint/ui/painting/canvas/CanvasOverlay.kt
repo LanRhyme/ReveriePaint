@@ -724,6 +724,331 @@ internal fun CanvasOverlay(
                     }
                 }
 
+                // Interactive Shape Tool Rendering (Handles + High Fidelity Preview)
+                val shapeState = vm.shapeState
+                if (shapeState.active) {
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
+                    val currentScale = zoom.value * fitScale
+                    val strokeW = maxOf(1f, shapeState.strokeWidth * scX)
+
+                    val shapeColor = try {
+                        parseColor(vm.brushColor).copy(alpha = vm.brushOpacity.toFloat())
+                    } catch (_: Exception) {
+                        Color.White
+                    }
+
+                    val drawHandle = { center: Offset, isSelected: Boolean ->
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.7f),
+                            radius = 7.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                        drawCircle(
+                            color = if (isSelected) Morandi.accent else Color.White,
+                            radius = 5.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                        drawCircle(
+                            color = if (isSelected) Color.White else Morandi.accent,
+                            radius = 2.5.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                    }
+
+                    val p1Canvas = bx(shapeState.p1)
+                    val p2Raw = if (shapeState.keepAspect) {
+                        val pt = ShapeGeometry.constrainAspect(Point2D(shapeState.p1.x, shapeState.p1.y), Point2D(shapeState.p2.x, shapeState.p2.y))
+                        Offset(pt.x, pt.y)
+                    } else shapeState.p2
+                    val p2Canvas = bx(p2Raw)
+
+                    val isBoxShape = shapeState.type == ShapeType.RECT ||
+                        shapeState.type == ShapeType.ROUNDED_RECT ||
+                        shapeState.type == ShapeType.ELLIPSE
+
+                    val shapePath = androidx.compose.ui.graphics.Path()
+
+                    when (shapeState.type) {
+                        ShapeType.LINE -> {
+                            shapePath.moveTo(p1Canvas.x, p1Canvas.y)
+                            shapePath.lineTo(p2Canvas.x, p2Canvas.y)
+                        }
+                        ShapeType.RECT -> {
+                            val minX = minOf(p1Canvas.x, p2Canvas.x)
+                            val minY = minOf(p1Canvas.y, p2Canvas.y)
+                            val maxX = maxOf(p1Canvas.x, p2Canvas.x)
+                            val maxY = maxOf(p1Canvas.y, p2Canvas.y)
+                            val r = androidx.compose.ui.geometry.Rect(minX, minY, maxX, maxY)
+                            shapePath.addRect(r)
+                        }
+                        ShapeType.ROUNDED_RECT -> {
+                            val minX = minOf(p1Canvas.x, p2Canvas.x)
+                            val minY = minOf(p1Canvas.y, p2Canvas.y)
+                            val maxX = maxOf(p1Canvas.x, p2Canvas.x)
+                            val maxY = maxOf(p1Canvas.y, p2Canvas.y)
+                            val r = androidx.compose.ui.geometry.Rect(minX, minY, maxX, maxY)
+                            val cr = (shapeState.cornerRadius * scX).coerceIn(0f, minOf(r.width, r.height) / 2f)
+                            shapePath.addRoundRect(
+                                androidx.compose.ui.geometry.RoundRect(
+                                    rect = r,
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(cr, cr)
+                                )
+                            )
+                        }
+                        ShapeType.ELLIPSE -> {
+                            val minX = minOf(p1Canvas.x, p2Canvas.x)
+                            val minY = minOf(p1Canvas.y, p2Canvas.y)
+                            val maxX = maxOf(p1Canvas.x, p2Canvas.x)
+                            val maxY = maxOf(p1Canvas.y, p2Canvas.y)
+                            val r = androidx.compose.ui.geometry.Rect(minX, minY, maxX, maxY)
+                            shapePath.addOval(r)
+                        }
+                        ShapeType.REGULAR_POLYGON -> {
+                            val center = (shapeState.p1 + shapeState.p2) / 2f
+                            val radius = kotlin.math.hypot(shapeState.p2.x - shapeState.p1.x, shapeState.p2.y - shapeState.p1.y) / 2f
+                            if (radius > 1f) {
+                                val pts = ShapeGeometry.generateRegularPolygon(
+                                    Point2D(center.x, center.y),
+                                    radius,
+                                    shapeState.polygonSides,
+                                    shapeState.rotationDegrees
+                                ).map { bx(Offset(it.x, it.y)) }
+                                shapePath.moveTo(pts[0].x, pts[0].y)
+                                for (i in 1 until pts.size) {
+                                    shapePath.lineTo(pts[i].x, pts[i].y)
+                                }
+                                shapePath.close()
+                            }
+                        }
+                        ShapeType.STAR -> {
+                            val center = (shapeState.p1 + shapeState.p2) / 2f
+                            val outerR = kotlin.math.hypot(shapeState.p2.x - shapeState.p1.x, shapeState.p2.y - shapeState.p1.y) / 2f
+                            val innerR = outerR * shapeState.starInnerRatio
+                            if (outerR > 1f) {
+                                val pts = ShapeGeometry.generateStar(
+                                    Point2D(center.x, center.y),
+                                    outerR,
+                                    innerR,
+                                    shapeState.starPoints,
+                                    shapeState.rotationDegrees
+                                ).map { bx(Offset(it.x, it.y)) }
+                                shapePath.moveTo(pts[0].x, pts[0].y)
+                                for (i in 1 until pts.size) {
+                                    shapePath.lineTo(pts[i].x, pts[i].y)
+                                }
+                                shapePath.close()
+                            }
+                        }
+                        ShapeType.POLYLINE, ShapeType.POLYGON -> {
+                            if (shapeState.nodes.isNotEmpty()) {
+                                val first = bx(Offset(shapeState.nodes[0].pos.x, shapeState.nodes[0].pos.y))
+                                shapePath.moveTo(first.x, first.y)
+                                for (i in 1 until shapeState.nodes.size) {
+                                    val pt = bx(Offset(shapeState.nodes[i].pos.x, shapeState.nodes[i].pos.y))
+                                    shapePath.lineTo(pt.x, pt.y)
+                                }
+                                if (shapeState.type == ShapeType.POLYGON || shapeState.closed) {
+                                    shapePath.close()
+                                }
+                            }
+                        }
+                        ShapeType.BEZIER -> {
+                            if (shapeState.nodes.isNotEmpty()) {
+                                val first = bx(Offset(shapeState.nodes[0].pos.x, shapeState.nodes[0].pos.y))
+                                shapePath.moveTo(first.x, first.y)
+                                for (i in 1 until shapeState.nodes.size) {
+                                    val prev = shapeState.nodes[i - 1]
+                                    val curr = shapeState.nodes[i]
+                                    val cpOut = bx(Offset(prev.cpOut.x, prev.cpOut.y))
+                                    val cpIn = bx(Offset(curr.cpIn.x, curr.cpIn.y))
+                                    val pos = bx(Offset(curr.pos.x, curr.pos.y))
+                                    shapePath.cubicTo(cpOut.x, cpOut.y, cpIn.x, cpIn.y, pos.x, pos.y)
+                                }
+                                if (shapeState.closed && shapeState.nodes.size >= 3) {
+                                    val last = shapeState.nodes.last()
+                                    val firstNode = shapeState.nodes.first()
+                                    val cpOut = bx(Offset(last.cpOut.x, last.cpOut.y))
+                                    val cpIn = bx(Offset(firstNode.cpIn.x, firstNode.cpIn.y))
+                                    val pos = bx(Offset(firstNode.pos.x, firstNode.pos.y))
+                                    shapePath.cubicTo(cpOut.x, cpOut.y, cpIn.x, cpIn.y, pos.x, pos.y)
+                                    shapePath.close()
+                                }
+                            }
+                        }
+                    }
+
+                    val drawBoxContent = {
+                        // 1. Fill preview
+                        if (shapeState.fillMode == ShapeFillMode.FILL || shapeState.fillMode == ShapeFillMode.STROKE_AND_FILL) {
+                            drawPath(shapePath, color = shapeColor, style = androidx.compose.ui.graphics.drawscope.Fill)
+                        }
+
+                        // 2. Stroke preview
+                        if (shapeState.fillMode == ShapeFillMode.STROKE || shapeState.fillMode == ShapeFillMode.STROKE_AND_FILL) {
+                            drawPath(
+                                shapePath,
+                                color = shapeColor,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                                )
+                            )
+                        }
+
+                        // 3. Handles & guidelines for box shapes
+                        val minX = minOf(p1Canvas.x, p2Canvas.x)
+                        val minY = minOf(p1Canvas.y, p2Canvas.y)
+                        val maxX = maxOf(p1Canvas.x, p2Canvas.x)
+                        val maxY = maxOf(p1Canvas.y, p2Canvas.y)
+                        val tl = Offset(minX, minY)
+                        val tr = Offset(maxX, minY)
+                        val br = Offset(maxX, maxY)
+                        val bl = Offset(minX, maxY)
+                        val center = Offset((minX + maxX) / 2f, (minY + maxY) / 2f)
+
+                        val dashStyle = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 1.dp.toPx() / currentScale,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(4.dp.toPx() / currentScale, 4.dp.toPx() / currentScale)
+                            )
+                        )
+                        drawRect(Color.White.copy(alpha = 0.6f), topLeft = tl, size = androidx.compose.ui.geometry.Size(maxX - minX, maxY - minY), style = dashStyle)
+
+                        val rotStemY = tl.y - 28.dp.toPx() / currentScale
+                        val rotPos = Offset(center.x, rotStemY)
+                        drawLine(Color.White.copy(alpha = 0.8f), Offset(center.x, tl.y), rotPos, strokeWidth = 1.dp.toPx() / currentScale)
+                        drawHandle(rotPos, shapeState.activeHandle == ShapeHandleId.ROTATE)
+
+                        if (shapeState.type == ShapeType.ROUNDED_RECT) {
+                            val cr = (shapeState.cornerRadius * scX).coerceIn(0f, minOf(maxX - minX, maxY - minY) / 2f)
+                            val crPos = Offset(tl.x + cr, tl.y + cr)
+                            drawCircle(Color.White, radius = 4.dp.toPx() / currentScale, center = crPos)
+                            drawCircle(Morandi.accent, radius = 2.5.dp.toPx() / currentScale, center = crPos)
+                        }
+
+                        drawHandle(tl, shapeState.activeHandle == ShapeHandleId.CORNER_TL)
+                        drawHandle(tr, shapeState.activeHandle == ShapeHandleId.CORNER_TR)
+                        drawHandle(br, shapeState.activeHandle == ShapeHandleId.CORNER_BR)
+                        drawHandle(bl, shapeState.activeHandle == ShapeHandleId.CORNER_BL)
+                    }
+
+                    if (isBoxShape) {
+                        val boxCenter = (p1Canvas + p2Canvas) / 2f
+                        if (kotlin.math.abs(shapeState.rotationDegrees) > 0.01f) {
+                            withTransform({
+                                rotate(shapeState.rotationDegrees, pivot = boxCenter)
+                            }) {
+                                drawBoxContent()
+                            }
+                        } else {
+                            drawBoxContent()
+                        }
+                    } else {
+                        // Non-box shapes: Fill & Stroke preview
+                        if (shapeState.fillMode == ShapeFillMode.FILL || shapeState.fillMode == ShapeFillMode.STROKE_AND_FILL) {
+                            drawPath(shapePath, color = shapeColor, style = androidx.compose.ui.graphics.drawscope.Fill)
+                        }
+                        if (shapeState.fillMode == ShapeFillMode.STROKE || shapeState.fillMode == ShapeFillMode.STROKE_AND_FILL ||
+                            shapeState.type == ShapeType.LINE || shapeState.type == ShapeType.POLYLINE) {
+                            drawPath(
+                                shapePath,
+                                color = shapeColor,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                                )
+                            )
+                        }
+
+                        // Handles for Line, Polygon, Star, Polyline, Bezier
+                        when (shapeState.type) {
+                            ShapeType.LINE -> {
+                                drawHandle(p1Canvas, shapeState.activeHandle == ShapeHandleId.LINE_P1)
+                                drawHandle(p2Canvas, shapeState.activeHandle == ShapeHandleId.LINE_P2)
+                                val mid = (p1Canvas + p2Canvas) / 2f
+                                drawHandle(mid, shapeState.activeHandle == ShapeHandleId.TRANSLATE_BODY)
+                            }
+                            ShapeType.REGULAR_POLYGON -> {
+                                val center = bx((shapeState.p1 + shapeState.p2) / 2f)
+                                val radius = (kotlin.math.hypot(shapeState.p2.x - shapeState.p1.x, shapeState.p2.y - shapeState.p1.y) / 2f) * scX
+                                drawHandle(center, shapeState.activeHandle == ShapeHandleId.TRANSLATE_BODY)
+                                val baseAngle = (-kotlin.math.PI / 2.0).toFloat() + Math.toRadians(shapeState.rotationDegrees.toDouble()).toFloat()
+                                val topH = Offset(
+                                    center.x + radius * kotlin.math.cos(baseAngle),
+                                    center.y + radius * kotlin.math.sin(baseAngle)
+                                )
+                                drawHandle(topH, shapeState.activeHandle == ShapeHandleId.STAR_OUTER)
+                            }
+                            ShapeType.STAR -> {
+                                val center = bx((shapeState.p1 + shapeState.p2) / 2f)
+                                val outerR = (kotlin.math.hypot(shapeState.p2.x - shapeState.p1.x, shapeState.p2.y - shapeState.p1.y) / 2f) * scX
+                                val innerR = outerR * shapeState.starInnerRatio
+                                drawHandle(center, shapeState.activeHandle == ShapeHandleId.TRANSLATE_BODY)
+                                val baseAngle = (-kotlin.math.PI / 2.0).toFloat() + Math.toRadians(shapeState.rotationDegrees.toDouble()).toFloat()
+                                val outerH = Offset(
+                                    center.x + outerR * kotlin.math.cos(baseAngle),
+                                    center.y + outerR * kotlin.math.sin(baseAngle)
+                                )
+                                drawHandle(outerH, shapeState.activeHandle == ShapeHandleId.STAR_OUTER)
+                                val angleStep = (kotlin.math.PI / shapeState.starPoints).toFloat()
+                                val innerAngle = baseAngle + angleStep
+                                val innerH = Offset(
+                                    center.x + innerR * kotlin.math.cos(innerAngle),
+                                    center.y + innerR * kotlin.math.sin(innerAngle)
+                                )
+                                drawHandle(innerH, shapeState.activeHandle == ShapeHandleId.STAR_INNER)
+                            }
+                            ShapeType.POLYLINE, ShapeType.POLYGON -> {
+                                shapeState.nodes.forEachIndexed { idx, node ->
+                                    val pt = bx(Offset(node.pos.x, node.pos.y))
+                                    drawHandle(pt, idx == shapeState.selectedNodeIndex)
+                                }
+                            }
+                            ShapeType.BEZIER -> {
+                                shapeState.nodes.forEachIndexed { idx, node ->
+                                    val pt = bx(Offset(node.pos.x, node.pos.y))
+                                    val isNodeSelected = idx == shapeState.selectedNodeIndex
+                                    val hasCpIn = node.cpIn.x != node.pos.x || node.cpIn.y != node.pos.y
+                                    val hasCpOut = node.cpOut.x != node.pos.x || node.cpOut.y != node.pos.y
+
+                                    if (isNodeSelected || hasCpIn || hasCpOut) {
+                                        val cpInCanvas = bx(Offset(node.cpIn.x, node.cpIn.y))
+                                        val cpOutCanvas = bx(Offset(node.cpOut.x, node.cpOut.y))
+                                        val handleLineColor = Color.White.copy(alpha = 0.6f)
+                                        val handleLineWidth = 1.dp.toPx() / currentScale
+
+                                        if (hasCpIn || isNodeSelected) {
+                                            drawLine(handleLineColor, pt, cpInCanvas, strokeWidth = handleLineWidth)
+                                            drawCircle(Color.Black.copy(alpha = 0.4f), radius = 4.5.dp.toPx() / currentScale, center = cpInCanvas)
+                                            drawCircle(
+                                                color = if (shapeState.activeHandle == ShapeHandleId.NODE_CP_IN_BASE + idx) Color.White else Morandi.accent,
+                                                radius = 3.dp.toPx() / currentScale,
+                                                center = cpInCanvas
+                                            )
+                                        }
+                                        if (hasCpOut || isNodeSelected) {
+                                            drawLine(handleLineColor, pt, cpOutCanvas, strokeWidth = handleLineWidth)
+                                            drawCircle(Color.Black.copy(alpha = 0.4f), radius = 4.5.dp.toPx() / currentScale, center = cpOutCanvas)
+                                            drawCircle(
+                                                color = if (shapeState.activeHandle == ShapeHandleId.NODE_CP_OUT_BASE + idx) Color.White else Morandi.accent,
+                                                radius = 3.dp.toPx() / currentScale,
+                                                center = cpOutCanvas
+                                            )
+                                        }
+                                    }
+
+                                    drawHandle(pt, isNodeSelected)
+                                }
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
+
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null) {
                     drawImage(
