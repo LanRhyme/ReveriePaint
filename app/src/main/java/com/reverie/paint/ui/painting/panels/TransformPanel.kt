@@ -187,7 +187,7 @@ fun TransformPanel(
                         ToolDropdownItemData(0, R.drawable.ic_flip_h, "水平翻转"),
                         ToolDropdownItemData(1, R.drawable.ic_flip_v, "垂直翻转"),
                     ),
-                    selected = 0,
+                    selected = null,
                     labelOverride = "翻转",
                     iconOverride = R.drawable.ic_flip_h,
                     onSelect = { option ->
@@ -220,7 +220,7 @@ fun TransformPanel(
                         ToolDropdownItemData(1, R.drawable.ic_rotate_ccw, "逆时针 90°"),
                         ToolDropdownItemData(2, R.drawable.ic_refresh, "旋转 180°"),
                     ),
-                    selected = 0,
+                    selected = null,
                     labelOverride = "旋转",
                     iconOverride = R.drawable.ic_rotate_cw,
                     onSelect = { option ->

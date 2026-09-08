@@ -348,9 +348,10 @@ fun <T> ToolBubbleMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     items: List<ToolDropdownItemData<T>>,
-    selected: T,
+    selected: T? = null,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    showCheckmark: Boolean = (selected != null),
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = expanded
@@ -438,55 +439,59 @@ fun <T> ToolBubbleMenu(
                     )
                     .widthIn(min = 128.dp, max = 180.dp),
             ) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                items.forEach { item ->
-                    val isSel = item.value == selected
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                onSelect(item.value)
-                            }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            painter = painterResource(id = item.iconRes),
-                            contentDescription = item.label,
-                            tint = if (isSel) Morandi.accent else Morandi.text,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = item.label,
-                            color = if (isSel) Morandi.accent else Morandi.text,
-                            fontSize = 13.sp,
-                            fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                        Spacer(
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    items.forEach { item ->
+                        val isSel = showCheckmark && item.value == selected
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .widthIn(min = 12.dp),
-                        )
-                        if (isSel) {
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onSelect(item.value)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Icon(
-                                painter = painterResource(id = R.drawable.ic_check),
-                                contentDescription = "已选择",
-                                tint = Morandi.accent,
-                                modifier = Modifier.size(16.dp),
+                                painter = painterResource(id = item.iconRes),
+                                contentDescription = item.label,
+                                tint = if (isSel) Morandi.accent else Morandi.text,
+                                modifier = Modifier.size(20.dp),
                             )
-                        } else {
-                            Spacer(modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = item.label,
+                                color = if (isSel) Morandi.accent else Morandi.text,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                            if (showCheckmark) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .widthIn(min = 12.dp),
+                                )
+                                if (isSel) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_check),
+                                        contentDescription = "已选择",
+                                        tint = Morandi.accent,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.size(16.dp))
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }
             }
         }
     }
-}
 }
 
 /**
@@ -495,15 +500,20 @@ fun <T> ToolBubbleMenu(
 @Composable
 fun <T> ToolBubbleDropdown(
     items: List<ToolDropdownItemData<T>>,
-    selected: T,
+    selected: T? = null,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
     active: Boolean = false,
     labelOverride: String? = null,
     iconOverride: Int? = null,
+    showCheckmark: Boolean = (selected != null),
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val currentItem = items.firstOrNull { it.value == selected } ?: items.firstOrNull()
+    val currentItem = if (selected != null) {
+        items.firstOrNull { it.value == selected } ?: items.firstOrNull()
+    } else {
+        items.firstOrNull()
+    }
 
     Box(modifier = modifier) {
         ToolDropdownTriggerButton(
@@ -519,6 +529,7 @@ fun <T> ToolBubbleDropdown(
             onDismissRequest = { expanded = false },
             items = items,
             selected = selected,
+            showCheckmark = showCheckmark,
             onSelect = { value ->
                 onSelect(value)
                 expanded = false

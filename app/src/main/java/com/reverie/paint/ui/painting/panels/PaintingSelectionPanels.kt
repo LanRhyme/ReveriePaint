@@ -361,7 +361,7 @@ internal fun SelectionFloatPanel(
                         ToolDropdownItemData(2, R.drawable.ic_cut, "剪切到新图层"),
                         ToolDropdownItemData(3, R.drawable.ic_cut, "剪切到当前图层"),
                     ),
-                    selected = 0,
+                    selected = null,
                     labelOverride = "复制/剪切",
                     iconOverride = R.drawable.ic_copy,
                     onSelect = { option ->
