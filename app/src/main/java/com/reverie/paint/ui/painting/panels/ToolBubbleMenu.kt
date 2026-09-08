@@ -4,8 +4,15 @@
 
 package com.reverie.paint.ui.painting.panels
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,7 +47,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -331,7 +341,7 @@ fun ToolActionButton(
 }
 
 /**
- * Bubble popup menu showing icon, label, and checkmark for selected item.
+ * Bubble popup menu showing icon, label, and checkmark for selected item with spring entry/exit animation.
  */
 @Composable
 fun <T> ToolBubbleMenu(
@@ -342,7 +352,12 @@ fun <T> ToolBubbleMenu(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (!expanded) return
+    val transitionState = remember { MutableTransitionState(false) }
+    transitionState.targetState = expanded
+
+    if (!transitionState.currentState && !transitionState.targetState) {
+        return
+    }
 
     var arrowOffsetPx by remember { mutableStateOf<Float?>(null) }
     var arrowDirection by remember { mutableStateOf(ArrowDirection.DOWN) }
@@ -384,20 +399,45 @@ fun <T> ToolBubbleMenu(
             )
         }
 
-        Box(
-            modifier = modifier
-                .shadow(12.dp, bubbleShape, spotColor = Color.Black.copy(alpha = 0.5f))
-                .clip(bubbleShape)
-                .background(Morandi.panel.copy(alpha = 0.96f))
-                .glassBorder(bubbleShape)
-                .padding(
-                    top = if (arrowDirection == ArrowDirection.UP) 6.dp + 6.dp else 6.dp,
-                    bottom = if (arrowDirection == ArrowDirection.DOWN) 6.dp + 6.dp else 6.dp,
-                    start = 6.dp,
-                    end = 6.dp,
-                )
-                .widthIn(min = 128.dp, max = 180.dp),
+        var popupWidthPx by remember { mutableFloatStateOf(0f) }
+        val originX = if (popupWidthPx > 0f && arrowOffsetPx != null) {
+            (arrowOffsetPx!! / popupWidthPx).coerceIn(0.1f, 0.9f)
+        } else {
+            0.5f
+        }
+        val originY = if (arrowDirection == ArrowDirection.DOWN) 1f else 0f
+        val transformOrigin = remember(originX, originY) {
+            TransformOrigin(originX, originY)
+        }
+
+        AnimatedVisibility(
+            visibleState = transitionState,
+            enter = fadeIn(tween(140)) + scaleIn(
+                initialScale = 0.82f,
+                transformOrigin = transformOrigin,
+                animationSpec = spring(dampingRatio = 0.72f, stiffness = 550f),
+            ),
+            exit = fadeOut(tween(110)) + scaleOut(
+                targetScale = 0.82f,
+                transformOrigin = transformOrigin,
+                animationSpec = tween(110),
+            ),
         ) {
+            Box(
+                modifier = modifier
+                    .onSizeChanged { popupWidthPx = it.width.toFloat() }
+                    .shadow(12.dp, bubbleShape, spotColor = Color.Black.copy(alpha = 0.5f))
+                    .clip(bubbleShape)
+                    .background(Morandi.panel.copy(alpha = 0.96f))
+                    .glassBorder(bubbleShape)
+                    .padding(
+                        top = if (arrowDirection == ArrowDirection.UP) 6.dp + 6.dp else 6.dp,
+                        bottom = if (arrowDirection == ArrowDirection.DOWN) 6.dp + 6.dp else 6.dp,
+                        start = 6.dp,
+                        end = 6.dp,
+                    )
+                    .widthIn(min = 128.dp, max = 180.dp),
+            ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -446,6 +486,7 @@ fun <T> ToolBubbleMenu(
             }
         }
     }
+}
 }
 
 /**
