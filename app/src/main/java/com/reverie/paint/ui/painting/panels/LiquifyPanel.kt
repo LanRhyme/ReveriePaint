@@ -20,7 +20,7 @@ import kotlin.math.roundToInt
 import dev.chrisbanes.haze.HazeState
 
 private val liquifyModeOptions = listOf(
-    ToolDropdownItemData(0, R.drawable.ic_liquify, "推拉"),
+    ToolDropdownItemData(0, R.drawable.ic_lq_push, "推拉"),
     ToolDropdownItemData(1, R.drawable.ic_lq_bloat, "膨胀"),
     ToolDropdownItemData(2, R.drawable.ic_lq_pucker, "收缩"),
     ToolDropdownItemData(3, R.drawable.ic_rotate_cw, "顺时针"),
@@ -28,8 +28,8 @@ private val liquifyModeOptions = listOf(
 )
 
 /**
- * Liquify tool options - floating capsule in the same flat style as the
- * shape/fill/gradient panels: mode bubble dropdown, brush size, strength
+ * Liquify tool options - floating capsule with compact mode dropdown
+ * and vertically stacked precision sliders for brush size and strength
  */
 @Composable
 fun LiquifyPanel(
@@ -51,17 +51,19 @@ fun LiquifyPanel(
                 items = liquifyModeOptions,
                 selected = mode,
                 onSelect = onMode,
+                active = true,
             )
-            Box(modifier = Modifier.width(130.dp)) {
+            Column(
+                modifier = Modifier.width(170.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 ToolFloatSlider(
-                    label = "笔刷",
+                    label = "大小",
                     valueText = "${brushSize.roundToInt()}px",
                     range = 8f..300f,
                     value = brushSize,
                     onValue = onBrushSize,
                 )
-            }
-            Box(modifier = Modifier.width(130.dp)) {
                 ToolFloatSlider(
                     label = "强度",
                     valueText = "${(strength * 100).roundToInt()}%",
