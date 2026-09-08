@@ -134,6 +134,29 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyTransformLayers(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyTransformLayersEx(
+    JNIEnv *env, jobject, jintArray layers,
+    jdouble xscale, jdouble yscale, jdouble xshear, jdouble yshear,
+    jdouble rotationRad, jdouble xtranslate, jdouble ytranslate,
+    jdouble originX, jdouble originY, jboolean copyOnly)
+{
+    QVector<int> list;
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < n; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    return core()->applyTransformLayers(list, xscale, yscale, xshear, yshear,
+                                        rotationRad, xtranslate, ytranslate,
+                                        originX, originY, copyOnly == JNI_TRUE)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_applyPerspectiveTransform(JNIEnv *env, jobject,
                                                                         jdouble x0, jdouble y0,
                                                                         jdouble x1, jdouble y1,
@@ -328,6 +351,42 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreviewLayers(
     }
     QImage outImage;
     bool res = core()->startTransformPreview(list, &outImage);
+    if (res && !outImage.isNull()) {
+        AndroidBitmapInfo info;
+        void *pixels;
+        if (AndroidBitmap_getInfo(env, bitmap, &info) >= 0 &&
+            info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
+            AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
+
+            if (outImage.width() == (int)info.width && outImage.height() == (int)info.height) {
+                memcpy(pixels, outImage.constBits(), size_t(info.width) * info.height * 4);
+            } else {
+                QImage scaled = outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+                memcpy(pixels, scaled.constBits(), size_t(info.width) * info.height * 4);
+            }
+            AndroidBitmap_unlockPixels(env, bitmap);
+            return JNI_TRUE;
+        }
+    }
+    return JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreviewLayersEx(
+    JNIEnv *env, jobject, jintArray layers, jobject bitmap, jboolean copyOnly)
+{
+    if (!bitmap) return JNI_FALSE;
+    QVector<int> list;
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < n; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    QImage outImage;
+    bool res = core()->startTransformPreview(list, &outImage, copyOnly == JNI_TRUE);
     if (res && !outImage.isNull()) {
         AndroidBitmapInfo info;
         void *pixels;

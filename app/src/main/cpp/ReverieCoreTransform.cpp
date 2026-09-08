@@ -303,7 +303,8 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
                                        double xshear, double yshear,
                                        double rotationRad,
                                        double xtranslate, double ytranslate,
-                                       double originX, double originY)
+                                       double originX, double originY,
+                                       bool copyOnly)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return false;
@@ -365,7 +366,9 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
             p0.setSelection(m_selection);
             p0.bitBlt(selBounds.topLeft(), device, selBounds);
 
-            device->clearSelection(m_selection);
+            if (!copyOnly) {
+                device->clearSelection(m_selection);
+            }
 
             KisTransformWorker workerSel(temp,
                                          xscale, yscale,
@@ -432,7 +435,7 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     return true;
 }
 
-bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outImage)
+bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outImage, bool copyOnly)
 {
     KisImageSP image = m_document;
     if (!image) return false;
@@ -480,8 +483,10 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
             p0.bitBlt(selBounds.topLeft(), device, selBounds);
             p0.end();
 
-            // Cleanly erase selected area on device so it doesn't double-render
-            device->clearSelection(m_selection);
+            // Cleanly erase selected area on device so it doesn't double-render, unless copyOnly
+            if (!copyOnly) {
+                device->clearSelection(m_selection);
+            }
         } else {
             KisPainter p0(m_previewTempDevice);
             p0.bitBlt(bounds.topLeft(), device, bounds);

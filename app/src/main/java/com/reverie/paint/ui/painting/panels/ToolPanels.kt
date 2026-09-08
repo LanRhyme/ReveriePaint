@@ -19,8 +19,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.reverie.paint.R
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
+
+private val gradientTypeOptions = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_grad_linear, "线性"),
+    ToolDropdownItemData(1, R.drawable.ic_grad_radial, "径向"),
+    ToolDropdownItemData(2, R.drawable.ic_grad_angle, "角度"),
+)
+
+private val gradientRepeatOptions = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_repeat_none, "单次"),
+    ToolDropdownItemData(1, R.drawable.ic_repeat_loop, "重复"),
+    ToolDropdownItemData(2, R.drawable.ic_repeat_mirror, "往返"),
+)
+
+private val fillSampleOptions = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_rect, "当前图层"),
+    ToolDropdownItemData(1, R.drawable.ic_layers, "全部图层"),
+)
 
 /** Gradient tool options: type (linear / radial / conical), repeat, reverse */
 @Composable
@@ -34,20 +52,18 @@ fun GradientPanel(
     onReverse: (Boolean) -> Unit = { vm.updateGradientReverse(it) },
     hazeState: HazeState? = null,
 ) {
-    val types = listOf(0 to "线性", 1 to "径向", 2 to "角度")
-    val repeats = listOf(0 to "单次", 1 to "重复", 2 to "往返")
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolFloatSegmented(
-                options = types,
+            ToolBubbleDropdown(
+                items = gradientTypeOptions,
                 selected = type,
                 onSelect = onType,
             )
-            ToolFloatSegmented(
-                options = repeats,
+            ToolBubbleDropdown(
+                items = gradientRepeatOptions,
                 selected = repeat,
                 onSelect = onRepeat,
             )
@@ -93,8 +109,8 @@ fun FillPanel(
                         onValue = { onTolerance(it.toInt()) },
                     )
                 }
-                ToolFloatSegmented(
-                    options = listOf(0 to "当前", 1 to "全部"),
+                ToolBubbleDropdown(
+                    items = fillSampleOptions,
                     selected = sampleLayers,
                     onSelect = onSampleLayers,
                 )

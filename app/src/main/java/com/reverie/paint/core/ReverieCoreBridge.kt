@@ -370,7 +370,6 @@ object ReverieCoreBridge {
         dy: Int,
     )
 
-    /** Transform several layers as one group (union-bounds center). */
     external fun applyTransformLayers(
         layers: IntArray?,
         xscale: Double,
@@ -382,6 +381,20 @@ object ReverieCoreBridge {
         ytranslate: Double,
         originX: Double = -1.0,
         originY: Double = -1.0,
+    ): Boolean
+
+    external fun applyTransformLayersEx(
+        layers: IntArray?,
+        xscale: Double,
+        yscale: Double,
+        xshear: Double,
+        yshear: Double,
+        rotationRad: Double,
+        xtranslate: Double,
+        ytranslate: Double,
+        originX: Double = -1.0,
+        originY: Double = -1.0,
+        copyOnly: Boolean = false,
     ): Boolean
 
     external fun lassoSelect(
@@ -484,6 +497,12 @@ object ReverieCoreBridge {
         bitmap: Bitmap,
     ): Boolean
 
+    external fun startTransformPreviewLayersEx(
+        layers: IntArray,
+        bitmap: Bitmap,
+        copyOnly: Boolean,
+    ): Boolean
+
     external fun cancelTransformPreview()
 
     external fun docWidth(): Int
@@ -494,6 +513,8 @@ object ReverieCoreBridge {
     external fun addGroupLayer(name: String): Int
 
     external fun copyLayer(index: Int): Int
+
+    external fun copySelectionToNewLayer(cut: Boolean): Int
 
     external fun clearLayer(index: Int)
 

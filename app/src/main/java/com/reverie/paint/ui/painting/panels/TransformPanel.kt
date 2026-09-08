@@ -146,159 +146,129 @@ fun TransformPanel(
 
         // Main Bottom Floating Panel
         ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            // Functional Action Buttons Row
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Top Segmented Mode Selector (标准, 自由, 透视, 扭曲)
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panelHi)
-                        .padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val modes = listOf(
-                        TransformMode.STANDARD to "标准",
-                        TransformMode.FREE to "自由",
-                        TransformMode.PERSPECTIVE to "透视",
-                        TransformMode.DISTORT to "扭曲",
-                    )
-                    modes.forEach { (modeVal, modeName) ->
-                        val isSel = tfState.mode == modeVal
-                        val modeSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        Box(
-                            modifier = Modifier
-                                .pressScale(modeSource, pressedScale = 0.94f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) Morandi.accent else Color.Transparent)
-                                .liquidSheen(trigger = isSel)
-                                .clickable(interactionSource = modeSource, indication = null) {
-                                    if (tfState.mode != modeVal) {
-                                        tfState.mode = modeVal
-                                        val b = tfState.bounds
-                                        val mList = List(16) { idx ->
-                                            val r = idx / 4
-                                            val c = idx % 4
-                                            Offset(
-                                                b.left + b.width * (c / 3f),
-                                                b.top + b.height * (r / 3f),
-                                            )
-                                            }
-                                            tfState.meshPoints = mList
-                                            tfState.origMeshPoints = mList
-                                            tfState.quadCorners = listOf(b.topLeft, b.topRight, b.bottomRight, b.bottomLeft)
-                                        }
-                                }
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = modeName,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isSel) Morandi.onAccent else Morandi.subText,
-                            )
-                        }
-                    }
-                }
-
-                // Functional Action Buttons Row
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Cancel Action
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_x,
-                        label = "取消",
-                        danger = true,
-                        onClick = onCancel,
-                    )
-
-                    // Flip Horizontal
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_flip_h,
-                        label = "水平",
-                        onClick = {
-                            tfState.scaleX *= -1f
-                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
-                            tfState.quadCorners = tfState.quadCorners.map {
-                                it.copy(x = c.x - (it.x - c.x))
-                            }
-                            tfState.meshPoints = tfState.meshPoints.map {
-                                it.copy(x = c.x - (it.x - c.x))
-                            }
-                        },
-                    )
-
-                    // Flip Vertical
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_flip_v,
-                        label = "垂直",
-                        onClick = {
-                            tfState.scaleY *= -1f
-                            val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
-                            tfState.quadCorners = tfState.quadCorners.map {
-                                it.copy(y = c.y - (it.y - c.y))
-                            }
-                            tfState.meshPoints = tfState.meshPoints.map {
-                                it.copy(y = c.y - (it.y - c.y))
-                            }
-                        },
-                    )
-
-                    // Rotate -90
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_rotate_ccw,
-                        label = "-90°",
-                        onClick = {
-                            var r = (tfState.rotation - 90f) % 360f
-                            if (r < -180f) r += 360f
-                            tfState.rotation = r
-                        },
-                    )
-
-                    // Rotate +90
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_rotate_cw,
-                        label = "+90°",
-                        onClick = {
-                            var r = (tfState.rotation + 90f) % 360f
-                            if (r > 180f) r -= 360f
-                            tfState.rotation = r
-                        },
-                    )
-
-                    // Micro D-Pad Toggle
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_move,
-                        label = "微调",
-                        active = showDpad,
-                        onClick = { showDpad = !showDpad },
-                    )
-
-                    // Reset All
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_refresh,
-                        label = "重置",
-                        onClick = {
+                // 1. 变换模式下拉
+                ToolBubbleDropdown(
+                    items = listOf(
+                        ToolDropdownItemData(TransformMode.STANDARD, R.drawable.ic_tf_standard, "标准"),
+                        ToolDropdownItemData(TransformMode.FREE, R.drawable.ic_tf_free, "自由"),
+                        ToolDropdownItemData(TransformMode.PERSPECTIVE, R.drawable.ic_tf_perspective, "透视"),
+                        ToolDropdownItemData(TransformMode.DISTORT, R.drawable.ic_tf_distort, "扭曲"),
+                    ),
+                    selected = tfState.mode,
+                    onSelect = { modeVal ->
+                        if (tfState.mode != modeVal) {
+                            tfState.mode = modeVal
                             val b = tfState.bounds
-                            tfState.reset(b)
-                            onReset()
-                        },
-                    )
+                            val mList = List(16) { idx ->
+                                val r = idx / 4
+                                val c = idx % 4
+                                Offset(
+                                    b.left + b.width * (c / 3f),
+                                    b.top + b.height * (r / 3f),
+                                )
+                            }
+                            tfState.meshPoints = mList
+                            tfState.origMeshPoints = mList
+                            tfState.quadCorners = listOf(b.topLeft, b.topRight, b.bottomRight, b.bottomLeft)
+                        }
+                    },
+                    active = true,
+                )
 
-                    // Commit Action
-                    TransformActionItem(
-                        iconRes = R.drawable.ic_check,
-                        label = "完成",
-                        primary = true,
-                        onClick = onCommit,
-                    )
-                }
+                // Cancel Action
+                TransformActionItem(
+                    iconRes = R.drawable.ic_x,
+                    label = "取消",
+                    danger = true,
+                    onClick = onCancel,
+                )
+
+                // Flip Horizontal
+                TransformActionItem(
+                    iconRes = R.drawable.ic_flip_h,
+                    label = "水平",
+                    onClick = {
+                        tfState.scaleX *= -1f
+                        val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                        tfState.quadCorners = tfState.quadCorners.map {
+                            it.copy(x = c.x - (it.x - c.x))
+                        }
+                        tfState.meshPoints = tfState.meshPoints.map {
+                            it.copy(x = c.x - (it.x - c.x))
+                        }
+                    },
+                )
+
+                // Flip Vertical
+                TransformActionItem(
+                    iconRes = R.drawable.ic_flip_v,
+                    label = "垂直",
+                    onClick = {
+                        tfState.scaleY *= -1f
+                        val c = tfState.bounds.center + androidx.compose.ui.geometry.Offset(tfState.tx, tfState.ty)
+                        tfState.quadCorners = tfState.quadCorners.map {
+                            it.copy(y = c.y - (it.y - c.y))
+                        }
+                        tfState.meshPoints = tfState.meshPoints.map {
+                            it.copy(y = c.y - (it.y - c.y))
+                        }
+                    },
+                )
+
+                // Rotate -90
+                TransformActionItem(
+                    iconRes = R.drawable.ic_rotate_ccw,
+                    label = "-90°",
+                    onClick = {
+                        var r = (tfState.rotation - 90f) % 360f
+                        if (r < -180f) r += 360f
+                        tfState.rotation = r
+                    },
+                )
+
+                // Rotate +90
+                TransformActionItem(
+                    iconRes = R.drawable.ic_rotate_cw,
+                    label = "+90°",
+                    onClick = {
+                        var r = (tfState.rotation + 90f) % 360f
+                        if (r > 180f) r -= 360f
+                        tfState.rotation = r
+                    },
+                )
+
+                // Micro D-Pad Toggle
+                TransformActionItem(
+                    iconRes = R.drawable.ic_move,
+                    label = "微调",
+                    active = showDpad,
+                    onClick = { showDpad = !showDpad },
+                )
+
+                // Reset All
+                TransformActionItem(
+                    iconRes = R.drawable.ic_refresh,
+                    label = "重置",
+                    onClick = {
+                        val b = tfState.bounds
+                        tfState.reset(b)
+                        onReset()
+                    },
+                )
+
+                // Commit Action
+                TransformActionItem(
+                    iconRes = R.drawable.ic_check,
+                    label = "完成",
+                    primary = true,
+                    onClick = onCommit,
+                )
             }
         }
     }

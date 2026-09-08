@@ -659,38 +659,29 @@ internal fun PaintViewModel.applyTransform(
             it.f64(originY)
         }
     }
+    val copyOnly = transformCopyOnly
     val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged()
         refreshSelection()
         transformPreviewBitmap = null
+        transformCopyOnly = false
+        isSelectionTransformPending = false
     }) {
-        if (arr != null) {
-            ReverieCoreBridge.applyTransformLayers(
-                arr,
-                xscale,
-                yscale,
-                xshear,
-                yshear,
-                rotationRad,
-                xtranslate,
-                ytranslate,
-                originX,
-                originY,
-            )
-        } else {
-            ReverieCoreBridge.applyTransform(
-                xscale,
-                yscale,
-                xshear,
-                yshear,
-                rotationRad,
-                xtranslate,
-                ytranslate,
-                originX,
-                originY,
-            )
-        }
+        val targets = arr ?: intArrayOf(currentLayerIndex)
+        ReverieCoreBridge.applyTransformLayersEx(
+            targets,
+            xscale,
+            yscale,
+            xshear,
+            yshear,
+            rotationRad,
+            xtranslate,
+            ytranslate,
+            originX,
+            originY,
+            copyOnly,
+        )
     }
 }
 
@@ -932,9 +923,10 @@ internal fun PaintViewModel.liquify(
 internal fun PaintViewModel.startTransformPreview() {
     if (docWidth <= 0 || docHeight <= 0) return
     val targets = editTargetLayers().toIntArray()
+    val copyOnly = transformCopyOnly
     runCore(render = true) {
         val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
-        val success = ReverieCoreBridge.startTransformPreviewLayers(targets, b)
+        val success = ReverieCoreBridge.startTransformPreviewLayersEx(targets, b, copyOnly)
         mainHandler.post {
             if (success) {
                 transformPreviewBitmap = b.asImageBitmap()
@@ -946,8 +938,42 @@ internal fun PaintViewModel.startTransformPreview() {
 internal fun PaintViewModel.cancelTransformPreview() {
     runCore(render = true, after = {
         transformPreviewBitmap = null
+        transformCopyOnly = false
+        isSelectionTransformPending = false
     }) {
         ReverieCoreBridge.cancelTransformPreview()
+    }
+}
+
+internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean) {
+    if (!hasSelection) {
+        showActionToast("请先创建选区", R.drawable.ic_lasso)
+        return
+    }
+    val bounds = contentBounds()
+    if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) {
+        showActionToast("选区范围内无像素", R.drawable.ic_lasso)
+        return
+    }
+
+    if (toNewLayer) {
+        runCore(render = true, after = {
+            syncLayersFromNative()
+            selectionMask = null
+            hasSelection = false
+            selectionOverlayBitmap = null
+            transformCopyOnly = false
+            isSelectionTransformPending = true
+            currentToolId = Tool.TRANSFORM.id
+        }) {
+            ReverieCoreBridge.copySelectionToNewLayer(cut)
+            ReverieCoreBridge.clearSelection()
+            refreshDisplay()
+        }
+    } else {
+        transformCopyOnly = !cut
+        isSelectionTransformPending = true
+        currentToolId = Tool.TRANSFORM.id
     }
 }
 

@@ -14,11 +14,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 import dev.chrisbanes.haze.HazeState
+
+private val shapeFillOptions = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_shape_stroke, "描边"),
+    ToolDropdownItemData(1, R.drawable.ic_shape_fill, "填充"),
+)
 
 /**
  * Shape tools options panel - Krita tool-options floating capsule
@@ -60,8 +66,8 @@ fun ShapeToolPanel(
         ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (tool == Tool.RECT || tool == Tool.ELLIPSE) {
-                    ToolFloatSegmented(
-                        options = listOf(0 to "描边", 1 to "填充"),
+                    ToolBubbleDropdown(
+                        items = shapeFillOptions,
                         selected = if (filled) 1 else 0,
                         onSelect = { onFilled(it == 1) },
                     )

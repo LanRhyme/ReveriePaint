@@ -200,6 +200,7 @@ public:
     void clearSelection();
     void selectAll();
     void invertSelection();
+    int copySelectionToNewLayer(bool cut);
     // Selection merge mode: 0=replace, 1=add, 2=subtract, 3=intersect
     enum SelMode { SelReplace, SelAdd, SelSubtract, SelIntersect };
     void setSelectionMode(int mode) { m_selectionMode = SelMode(mode); }
@@ -303,7 +304,8 @@ public:
                               double xscale, double yscale, double xshear,
                               double yshear, double rotationRad,
                               double xtranslate, double ytranslate,
-                              double originX = -1.0, double originY = -1.0);
+                              double originX = -1.0, double originY = -1.0,
+                              bool copyOnly = false);
     bool applyPerspectiveTransform(double x0, double y0,
                                    double x1, double y1,
                                    double x2, double y2,
@@ -319,7 +321,7 @@ public:
     void cropCanvas(int x, int y, int w, int h);
     
     // Transform preview mechanism (extracts target pixels and hides them in C++)
-    bool startTransformPreview(const QVector<int> &layers, QImage* outImage);
+    bool startTransformPreview(const QVector<int> &layers, QImage* outImage, bool copyOnly = false);
     void cancelTransformPreview();
 
     // Draw text at (x, y) with the current brush color/size

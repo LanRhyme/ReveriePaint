@@ -236,12 +236,36 @@ internal fun SelectionFloatPanel(
                 }
             }
 
-            // Expandable Modifiers Drawer (空隙, 羽化, 扩展, 收缩, 平滑)
-            androidx.compose.animation.AnimatedVisibility(visible = propsOpen) {
+            // Expandable Modifiers Drawer for Magic Wand / Similar Color (容差, 空隙, 图层采样, 羽化, 扩缩, 平滑)
+            androidx.compose.animation.AnimatedVisibility(visible = propsOpen && (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR)) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.width(230.dp).padding(vertical = 4.dp),
+                    modifier = Modifier.width(260.dp).padding(vertical = 4.dp),
                 ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            ToolFloatSlider(
+                                label = "容差",
+                                valueText = "${vm.selectionTolerance}",
+                                range = 1f..100f,
+                                value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
+                                onValue = { vm.updateSelectionTolerance(it.toInt()) },
+                            )
+                        }
+                        ToolBubbleDropdown(
+                            items = listOf(
+                                ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
+                                ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
+                            ),
+                            selected = vm.selectionSampleLayers,
+                            onSelect = { vm.updateSelectionSampleLayers(it) },
+                            active = true,
+                        )
+                    }
+
                     if (tool == Tool.MAGICWAND) {
                         ToolFloatSlider(
                             label = "空隙",
@@ -251,8 +275,8 @@ internal fun SelectionFloatPanel(
                             onValue = { vm.updateSelectionCloseGap(it.toInt()) },
                         )
                     }
-                    // 拖动只更新本地显示, 松手才执行一次引擎操作——onValue 在
-                    // 拖动中连续回调, 直接接引擎操作会叠加执行 (羽化越拖越糊)
+
+                    // 拖动只更新本地显示, 松手才执行一次引擎操作
                     var featherR by remember { mutableFloatStateOf(8f) }
                     var expandContractR by remember { mutableFloatStateOf(0f) }
                     var smoothR by remember { mutableFloatStateOf(4f) }
@@ -322,51 +346,51 @@ internal fun SelectionFloatPanel(
                     active = true,
                 )
 
-                // 魔棒 / 相似采样图层 + 容差
-                if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
-                    ToolBubbleDropdown(
-                        items = listOf(
-                            ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
-                            ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
-                        ),
-                        selected = vm.selectionSampleLayers,
-                        onSelect = { vm.updateSelectionSampleLayers(it) },
-                        active = true,
-                    )
-                    Box(modifier = Modifier.width(136.dp)) {
-                        ToolFloatSlider(
-                            label = "容差",
-                            valueText = "${vm.selectionTolerance}",
-                            range = 1f..100f,
-                            value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
-                            onValue = { vm.updateSelectionTolerance(it.toInt()) },
-                        )
-                    }
-                }
-
-                // 操作按钮组: 全选, 反选, 取消, 属性
-                SelectionActionItem(
-                    iconRes = R.drawable.ic_layers,
-                    label = "全选",
-                    onClick = { vm.selectAllCanvasAction() },
-                )
+                // 操作按钮组: 反选
                 SelectionActionItem(
                     iconRes = R.drawable.ic_refresh,
                     label = "反选",
                     onClick = { vm.invertSelectionAction() },
                 )
+
+                // 复制 / 剪切 (气泡下拉)
+                ToolBubbleDropdown(
+                    items = listOf(
+                        ToolDropdownItemData(0, R.drawable.ic_copy, "复制到新图层"),
+                        ToolDropdownItemData(1, R.drawable.ic_copy, "复制到当前图层"),
+                        ToolDropdownItemData(2, R.drawable.ic_cut, "剪切到新图层"),
+                        ToolDropdownItemData(3, R.drawable.ic_cut, "剪切到当前图层"),
+                    ),
+                    selected = 0,
+                    labelOverride = "复制/剪切",
+                    iconOverride = R.drawable.ic_copy,
+                    onSelect = { option ->
+                        when (option) {
+                            0 -> vm.copyOrCutSelection(cut = false, toNewLayer = true)
+                            1 -> vm.copyOrCutSelection(cut = false, toNewLayer = false)
+                            2 -> vm.copyOrCutSelection(cut = true, toNewLayer = true)
+                            3 -> vm.copyOrCutSelection(cut = true, toNewLayer = false)
+                        }
+                    },
+                )
+
+                // 取消按钮
                 SelectionActionItem(
                     iconRes = R.drawable.ic_trash,
                     label = "取消",
                     danger = true,
                     onClick = { vm.clearSelectionAction() },
                 )
-                SelectionActionItem(
-                    iconRes = R.drawable.ic_sliders,
-                    label = if (propsOpen) "收起" else "属性",
-                    active = propsOpen,
-                    onClick = { onToggleProps() },
-                )
+
+                // 魔棒/相似选区独占的属性展开按钮
+                if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
+                    SelectionActionItem(
+                        iconRes = R.drawable.ic_sliders,
+                        label = if (propsOpen) "收起" else "属性",
+                        active = propsOpen,
+                        onClick = { onToggleProps() },
+                    )
+                }
             }
         }
     }

@@ -166,6 +166,7 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged
     const int o0 = (y * iw + x) * 4;
     const int sR = bytes[o0 + 2];
     const int sG = bytes[o0 + 1];
+    const int sB = bytes[o0];
     const int sA = bytes[o0 + 3];
 
     // Global scan: every pixel whose color is within tolerance (Krita's

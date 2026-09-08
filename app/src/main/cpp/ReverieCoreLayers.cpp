@@ -243,6 +243,59 @@ int ReverieCore::copyLayer(int index)
     return m_currentLayer;
 }
 
+int ReverieCore::copySelectionToNewLayer(bool cut)
+{
+    KisImageSP image = m_document;
+    if (!image) return -1;
+    if (!hasSelection()) return -1;
+    if (m_currentLayer < 0 || m_currentLayer >= m_layers.size()) return -1;
+
+    LayerEntry &src = m_layers[m_currentLayer];
+    KisPaintDeviceSP srcDev = layerPaintDeviceFor(src);
+    if (!srcDev) return -1;
+
+    const QRect canvasRect(0, 0, image->width(), image->height());
+    QRect selBounds = m_selection->selectedExactRect().intersected(canvasRect);
+    if (selBounds.isEmpty() || !selBounds.isValid()) return -1;
+
+    const KoColorSpace *cs = image->colorSpace();
+    QString newName = QStringLiteral("选区 ") + QString::number(m_layers.size());
+    KisPaintLayerSP newLayer = new KisPaintLayer(image, newName, 255, cs);
+    if (!newLayer) return -1;
+
+    KisPaintDeviceSP dstDev = newLayer->paintDevice();
+    if (!dstDev) return -1;
+
+    // Copy selected pixels from srcDev to dstDev
+    KisPainter p(dstDev);
+    p.setSelection(m_selection);
+    p.bitBlt(selBounds.topLeft(), srcDev, selBounds);
+    p.end();
+
+    if (cut) {
+        KisTransaction *cutTxn = new KisTransaction(kundo2_i18n("Cut Selection"), srcDev, nullptr, -1, nullptr);
+        srcDev->clearSelection(m_selection);
+        srcDev->setDirty(selBounds);
+        pushUndoCommand(cutTxn->endAndTake());
+        delete cutTxn;
+    }
+
+    KisNodeSP above;
+    KisNodeSP parent;
+    currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
+
+    recompositeProjection();
+    syncLayersFromImage();
+
+    const int idx = indexOfNode(newLayer.data());
+    if (idx >= 0) {
+        m_currentLayer = idx;
+    }
+    markDirty();
+    return m_currentLayer;
+}
+
 int ReverieCore::stampVisibleLayers()
 {
     KisImageSP image = m_document;
