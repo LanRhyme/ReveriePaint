@@ -118,10 +118,14 @@ internal fun PickerLayerSourceBar(
                 )
     ) {
         ToolFloatPanel(vm = vm, hazeState = hazeState) {
-            ToolFloatSegmented(
-                options = listOf(0 to "当前图层", 1 to "全部图层"),
+            ToolBubbleDropdown(
+                items = listOf(
+                    ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
+                    ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
+                ),
                 selected = vm.pickerSampleLayers,
                 onSelect = { vm.updatePickerSampleLayers(it) },
+                active = true,
             )
         }
     }
@@ -174,33 +178,8 @@ internal fun SelectionFloatPanel(
     ToolFloatPanel(modifier = modifier, vm = vm, hazeState = hazeState) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // Row 1: Top Segmented Mode Selector (新建, 增加, 减去, 相交)
-            ToolFloatSegmented(
-                options = listOf(
-                    0 to "新建",
-                    1 to "增加",
-                    2 to "减去",
-                    3 to "相交",
-                ),
-                selected = vm.selectionMode,
-                onSelect = { vm.updateSelectionMode(it) },
-            )
-
-            // 套索工具操作方法 (自由描画, 折线, 自由+折线多次操作)
-            if (tool == Tool.LASSO) {
-                ToolFloatSegmented(
-                    options = listOf(
-                        0 to "自由",
-                        1 to "折线",
-                        2 to "自由+折线",
-                    ),
-                    selected = vm.lassoSubMode,
-                    onSelect = { vm.updateLassoSubMode(it) },
-                )
-            }
-
             // 多次操作套索在编完成/取消栏
             if (tool == Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
                 Row(
@@ -253,30 +232,6 @@ internal fun SelectionFloatPanel(
                         "${polyPoints.size} 顶点",
                         color = Morandi.subText,
                         fontSize = 11.sp,
-                    )
-                }
-            }
-
-            // Row 2: Magic Wand / Similar Tolerance Slider + Reference Layers
-            if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
-                Row(
-                    modifier = Modifier.width(260.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        ToolFloatSlider(
-                            label = "容差",
-                            valueText = "${vm.selectionTolerance}",
-                            range = 1f..100f,
-                            value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
-                            onValue = { vm.updateSelectionTolerance(it.toInt()) },
-                        )
-                    }
-                    ToolFloatSegmented(
-                        options = listOf(0 to "当前", 1 to "全部"),
-                        selected = vm.selectionSampleLayers,
-                        onSelect = { vm.updateSelectionSampleLayers(it) },
                     )
                 }
             }
@@ -335,11 +290,61 @@ internal fun SelectionFloatPanel(
                 }
             }
 
-            // Row 3: Action Buttons (全选, 反选, 取消, 属性)
+            // Main Bar: Dropdowns + Action Buttons
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 套索工具操作方法 (自由描画, 折线, 自由+折线)
+                if (tool == Tool.LASSO) {
+                    ToolBubbleDropdown(
+                        items = listOf(
+                            ToolDropdownItemData(LassoSubMode.FREEHAND, R.drawable.ic_lasso, "自由"),
+                            ToolDropdownItemData(LassoSubMode.POLYLINE, R.drawable.ic_polyline, "折线"),
+                            ToolDropdownItemData(LassoSubMode.HYBRID, R.drawable.ic_lasso_multi, "自由+折线"),
+                        ),
+                        selected = vm.lassoSubMode,
+                        onSelect = { vm.updateLassoSubMode(it) },
+                        active = true,
+                    )
+                }
+
+                // 选区模式 (新建, 增加, 减去, 相交)
+                ToolBubbleDropdown(
+                    items = listOf(
+                        ToolDropdownItemData(0, R.drawable.ic_sel_mode_new, "新建"),
+                        ToolDropdownItemData(1, R.drawable.ic_sel_mode_add, "增加"),
+                        ToolDropdownItemData(2, R.drawable.ic_sel_mode_sub, "减去"),
+                        ToolDropdownItemData(3, R.drawable.ic_sel_mode_intersect, "相交"),
+                    ),
+                    selected = vm.selectionMode,
+                    onSelect = { vm.updateSelectionMode(it) },
+                    active = true,
+                )
+
+                // 魔棒 / 相似采样图层 + 容差
+                if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
+                    ToolBubbleDropdown(
+                        items = listOf(
+                            ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
+                            ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
+                        ),
+                        selected = vm.selectionSampleLayers,
+                        onSelect = { vm.updateSelectionSampleLayers(it) },
+                        active = true,
+                    )
+                    Box(modifier = Modifier.width(136.dp)) {
+                        ToolFloatSlider(
+                            label = "容差",
+                            valueText = "${vm.selectionTolerance}",
+                            range = 1f..100f,
+                            value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
+                            onValue = { vm.updateSelectionTolerance(it.toInt()) },
+                        )
+                    }
+                }
+
+                // 操作按钮组: 全选, 反选, 取消, 属性
                 SelectionActionItem(
                     iconRes = R.drawable.ic_layers,
                     label = "全选",
