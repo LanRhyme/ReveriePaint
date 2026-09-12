@@ -46,6 +46,17 @@ class CanvasTouchView(context: Context) : View(context) {
     var tfState: TransformState? = null
     var docBitmap: Bitmap? = null
 
+    private var cachedDriver: com.reverie.paint.core.stylus.StylusDriver? = null
+
+    private fun getOrCreateStylusDriver(): com.reverie.paint.core.stylus.StylusDriver? {
+        val cached = cachedDriver
+        if (cached != null) return cached
+        val v = vm ?: return null
+        val driver = v.getOrCreateStylusDriver(context)
+        cachedDriver = driver
+        return driver
+    }
+
     var viewW: Int = 1
     var viewH: Int = 1
     var canvasZoom: Float = 1f
@@ -240,6 +251,12 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return@Runnable
         if (activeLongPressToken == longPressToken && isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
             isPendingLongPress = false
+            if (strokeStarted) {
+                v.touchCancel()
+                strokeStarted = false
+            }
+            tipHistory.clear()
+            predictedDocPoint = null
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
@@ -248,36 +265,24 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-
-
-    // ---- 触控预测 (Hermite Motion Predictor) ----
-    private var histPos0 = Offset.Zero
-    private var histPos1 = Offset.Zero
-    private var histTime0 = 0L
-    private var histTime1 = 0L
-
-    private fun updateMotionPrediction(screenPos: Offset, nowMs: Long): Offset {
-        val v = vm
-        if (v?.motionPredictorEnabled != true) return screenPos
-        if (histTime0 == 0L) {
-            histPos0 = screenPos
-            histTime0 = nowMs
-            return screenPos
-        }
-        val dt = (nowMs - histTime0).coerceIn(1L, 50L)
-        histPos1 = histPos0
-        histTime1 = histTime0
-        histPos0 = screenPos
-        histTime0 = nowMs
-
-        val vx = (histPos0.x - histPos1.x) / dt.toFloat()
-        val vy = (histPos0.y - histPos1.y) / dt.toFloat()
-        val predDt = 14f // 预测前推约 14ms (1~2 帧)
-        val maxDist = 24f * density
-        val predDx = (vx * predDt).coerceIn(-maxDist, maxDist)
-        val predDy = (vy * predDt).coerceIn(-maxDist, maxDist)
-        return Offset(screenPos.x + predDx, screenPos.y + predDy)
+    // ---- 实时低延迟笔迹预测渲染 (Zero-Latency Predictive Tip Overlay) ----
+    private class TipPoint(val docX: Float, val docY: Float, val pressure: Float, val timeMs: Long)
+    private val tipHistory = ArrayList<TipPoint>(20)
+    private var predictedDocPoint: Point2D? = null
+    private var predictedPressure: Float = 1f
+    private val predictiveStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
+    private val predictiveStrokePath = android.graphics.Path()
+    private val motionPredictor = if (Build.VERSION.SDK_INT >= 34) {
+        try {
+            android.view.MotionPredictor(context)
+        } catch (_: Throwable) {
+            null
+        }
+    } else null
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
     data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double)
@@ -439,6 +444,7 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         activeTouchView = this
+        getOrCreateStylusDriver()?.syncSettings()
     }
 
     override fun onDetachedFromWindow() {
@@ -448,6 +454,8 @@ class CanvasTouchView(context: Context) : View(context) {
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
+        cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+        cachedDriver = null
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
@@ -543,6 +551,48 @@ class CanvasTouchView(context: Context) : View(context) {
                             canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
                         }
                     }
+                } catch (_: Exception) {}
+            }
+
+            // 实时低延迟前向预测笔迹绘制 (120Hz/144Hz 硬件加速瞬态覆盖层)
+            if (localIsTouching && strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER) && tipHistory.size >= 2) {
+                try {
+                    predictiveStrokePaint.strokeWidth = (cursorBrushSize * scale * pressureFraction).coerceAtLeast(1.5f)
+                    if (isEraser) {
+                        val bgHex = if (v.canvasBgColorHex == "DEFAULT" || v.canvasBgColorHex.isBlank()) "#FFFFFF" else v.canvasBgColorHex
+                        predictiveStrokePaint.color = android.graphics.Color.parseColor(bgHex)
+                    } else {
+                        predictiveStrokePaint.color = android.graphics.Color.parseColor(v.brushColor)
+                        predictiveStrokePaint.alpha = (v.brushOpacity * 255).toInt().coerceIn(0, 255)
+                    }
+
+                    val recentCount = minOf(6, tipHistory.size)
+                    val startIdx = tipHistory.size - recentCount
+                    predictiveStrokePath.reset()
+                    val pFirstScreen = docToScreen(Offset(tipHistory[startIdx].docX, tipHistory[startIdx].docY))
+                    predictiveStrokePath.moveTo(pFirstScreen.x, pFirstScreen.y)
+
+                    var prevScreen = pFirstScreen
+                    for (i in (startIdx + 1) until tipHistory.size) {
+                        val curScreen = docToScreen(Offset(tipHistory[i].docX, tipHistory[i].docY))
+                        val midX = (prevScreen.x + curScreen.x) * 0.5f
+                        val midY = (prevScreen.y + curScreen.y) * 0.5f
+                        predictiveStrokePath.quadTo(prevScreen.x, prevScreen.y, midX, midY)
+                        prevScreen = curScreen
+                    }
+
+                    val predPt = predictedDocPoint
+                    if (predPt != null) {
+                        val predScreen = docToScreen(Offset(predPt.x, predPt.y))
+                        val midX = (prevScreen.x + predScreen.x) * 0.5f
+                        val midY = (prevScreen.y + predScreen.y) * 0.5f
+                        predictiveStrokePath.quadTo(prevScreen.x, prevScreen.y, midX, midY)
+                        predictiveStrokePath.lineTo(predScreen.x, predScreen.y)
+                    } else {
+                        predictiveStrokePath.lineTo(prevScreen.x, prevScreen.y)
+                    }
+
+                    canvas.drawPath(predictiveStrokePath, predictiveStrokePaint)
                 } catch (_: Exception) {}
             }
         }
@@ -723,6 +773,10 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        val driver = getOrCreateStylusDriver()
+        if (driver?.onGenericMotionEvent(event) == true) {
+            return true
+        }
         if (event.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER)) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
                 localCursorPos = Offset(event.x, event.y)
@@ -780,6 +834,9 @@ class CanvasTouchView(context: Context) : View(context) {
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
         // =========================================================
         if (isStylusTouch) {
+            val driver = getOrCreateStylusDriver()
+            driver?.onStylusMotionEvent(event)
+
             val x = event.getX(stylusPointerIndex)
             val y = event.getY(stylusPointerIndex)
             val screenPos = Offset(x, y)
@@ -817,6 +874,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     shapeEndDocPos = docPos
                     isLongPressPickerActive = false
 
+                    // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
+                    handleToolDown(docPos, pressure, isStylus = true)
+
                     if (canEyedrop) {
                         isPendingLongPress = true
                         activeLongPressToken = longPressToken
@@ -827,7 +887,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         postDelayed(longPressRunnable, delayMs)
                     } else {
                         isPendingLongPress = false
-                        handleToolDown(docPos, pressure, isStylus = true)
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -843,17 +902,21 @@ class CanvasTouchView(context: Context) : View(context) {
                             removeCallbacks(longPressRunnable)
                             longPressToken++
                             isPendingLongPress = false
-                            handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
-                            handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                         }
-                    } else {
-                        handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                     }
+                    handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                     previousSinglePos = screenPos
+                    localCursorPos = screenPos
+                    localIsTouching = true
+                    if (strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE)) {
+                        invalidate()
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     removeCallbacks(longPressRunnable)
                     longPressToken++
+                    isPendingLongPress = false
                     if (isLongPressPickerActive) {
                         val curCol = pickerCurrentColor?.value
                         if (curCol != null) {
@@ -869,20 +932,18 @@ class CanvasTouchView(context: Context) : View(context) {
                         localIsTouching = false
                         localIsHovering = true
                         isInteracting = false
+                        tipHistory.clear()
+                        predictedDocPoint = null
                         invalidate()
                         return true
                     }
 
-                    if (isPendingLongPress) {
-                        isPendingLongPress = false
-                        handleToolDown(pendingDownDocPos, pendingDownPressure, isStylus = true)
-                        handleToolUp(event, pendingDownDocPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    } else {
-                        handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    }
+                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
+                    tipHistory.clear()
+                    predictedDocPoint = null
                     invalidate()
                 }
             }
@@ -1291,7 +1352,13 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 smoothedPressure = pressure
+                if (isStylus) {
+                    getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (tool == Tool.ERASER))
+                }
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+                tipHistory.clear()
+                tipHistory.add(TipPoint(docPos.x, docPos.y, pressure, android.os.SystemClock.uptimeMillis()))
+                predictedDocPoint = null
 
                 mirroredBranches.clear()
                 if (hasSymmetry) {
@@ -1480,10 +1547,10 @@ class CanvasTouchView(context: Context) : View(context) {
         when (tool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 if (!strokeStarted) {
-                    // First MOVE may arrive when DOWN was rejected (locked
-                    // layer switched mid-gesture): retry the guarded start;
-                    // still refused → swallow the gesture (no phantom move).
                     strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
+                    if (strokeStarted && isStylus) {
+                        getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (tool == Tool.ERASER))
+                    }
                 }
                 if (!strokeStarted) return
 
@@ -1499,12 +1566,62 @@ class CanvasTouchView(context: Context) : View(context) {
                     for (idx in symPts.indices) {
                         if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
                     }
+                    val hTime = try { event.getHistoricalEventTime(i) } catch (_: Throwable) { event.eventTime }
+                    tipHistory.add(TipPoint(hAssisted.x, hAssisted.y, hP, hTime))
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
                 val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                 for (idx in symPts.indices) {
                     if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
+                }
+                tipHistory.add(TipPoint(effectiveDocPos.x, effectiveDocPos.y, pressure, event.eventTime))
+                while (tipHistory.size > 16) {
+                    tipHistory.removeAt(0)
+                }
+
+                // 实时前向运动预测计算 (Forward Motion Prediction)
+                if (v.stylusStrokePredictionEnabled && tipHistory.size >= 2) {
+                    var hasPredicted = false
+                    if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
+                        try {
+                            motionPredictor.record(event)
+                            // 预测未来约 15ms（120Hz/144Hz 屏幕约 1~2 帧时间窗口）
+                            val predictedMotion = motionPredictor.predict(event.eventTime + 15_000_000L)
+                            if (predictedMotion != null) {
+                                val pScreen = Offset(predictedMotion.x, predictedMotion.y)
+                                val pDoc = screenToDoc(pScreen)
+                                val pAssisted = applyAssistedDrawing(firstDocPos, pDoc)
+                                predictedDocPoint = Point2D(pAssisted.x, pAssisted.y)
+                                predictedPressure = predictedMotion.pressure.coerceIn(0.01f, 1f)
+                                predictedMotion.recycle()
+                                hasPredicted = true
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    if (!hasPredicted) {
+                        val pLast = tipHistory.last()
+                        val pPrev = tipHistory[tipHistory.size - 2]
+                        val dt = (pLast.timeMs - pPrev.timeMs).coerceIn(2L, 45L).toFloat()
+                        val vx = (pLast.docX - pPrev.docX) / dt
+                        val vy = (pLast.docY - pPrev.docY) / dt
+                        val speed = hypot(vx, vy)
+                        // 抬笔预判防冲：压力急剧下降（降至前值 70% 以下）时不进行过冲预测
+                        val isLifting = tipHistory.size >= 3 && pLast.pressure < pPrev.pressure * 0.7f
+                        if (speed > 0.02f && !isLifting) {
+                            val predDt = 16f // 前推约 16ms
+                            val maxDist = (v.brushSize.toFloat() * 1.5f + 20f).coerceIn(8f, 60f)
+                            val pDx = (vx * predDt).coerceIn(-maxDist, maxDist)
+                            val pDy = (vy * predDt).coerceIn(-maxDist, maxDist)
+                            predictedDocPoint = Point2D(pLast.docX + pDx, pLast.docY + pDy)
+                            predictedPressure = pLast.pressure
+                        } else {
+                            predictedDocPoint = null
+                        }
+                    }
+                } else {
+                    predictedDocPoint = null
                 }
             }
             Tool.LIQUIFY -> {
@@ -1674,6 +1791,7 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 if (strokeStarted) {
+                    cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     if (isCancel) {
                         v.touchCancel()
                         if (hasSymmetry) {
@@ -1698,6 +1816,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     strokeStarted = false
                 }
                 mirroredBranches.clear()
+                tipHistory.clear()
+                predictedDocPoint = null
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
@@ -2104,5 +2224,19 @@ class CanvasTouchView(context: Context) : View(context) {
         v.shapeState.activeHandle = ShapeHandleId.NONE
         v.shapeState.dragStartDocPos = Offset.Zero
         v.shapeState.isCreatingNewNode = false
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event != null && getOrCreateStylusDriver()?.onStylusKeyEvent(event) == true) {
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event != null && getOrCreateStylusDriver()?.onStylusKeyEvent(event) == true) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 }

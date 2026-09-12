@@ -225,8 +225,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                             Morandi.panel,
                         )
                     )
-                )
-                .border(1.dp, Morandi.border, RoundedCornerShape(28.dp)),
+                ),
         ) {
             when {
                 isLoading -> {

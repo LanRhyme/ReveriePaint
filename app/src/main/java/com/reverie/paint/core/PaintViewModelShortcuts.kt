@@ -373,7 +373,7 @@ internal fun PaintViewModel.consumeUiCommand() {
     pendingUiCommand = null
 }
 
-private fun PaintViewModel.executeShortcutAction(id: String) {
+internal fun PaintViewModel.executeShortcutAction(id: String) {
     when (id) {
         "tool_brush" -> applyTool("brush")
         "tool_eraser" -> applyTool("eraser")

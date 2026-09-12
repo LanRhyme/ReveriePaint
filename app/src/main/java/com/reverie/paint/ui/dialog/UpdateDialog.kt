@@ -72,7 +72,6 @@ fun UpdateDialog(
                 .heightIn(max = 620.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(24.dp))
                 .padding(22.dp),
         ) {
             Column(
@@ -124,7 +123,6 @@ fun UpdateDialog(
                             .size(32.dp)
                             .clip(CircleShape)
                             .background(Morandi.panelHi)
-                            .border(1.dp, Morandi.border, CircleShape)
                             .clickable {
                                 if (status == DownloadStatus.DOWNLOADING) {
                                     UpdateManager.cancelDownload()
@@ -150,7 +148,6 @@ fun UpdateDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -207,7 +204,6 @@ fun UpdateDialog(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
                         .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
                         .padding(12.dp)
                         .verticalScroll(scrollState),
                 ) {
@@ -387,7 +383,6 @@ fun UpdateDialog(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(Morandi.panelHi)
-                                        .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
                                         .clickable { onDismiss() }
                                         .padding(horizontal = 14.dp, vertical = 8.dp),
                                     contentAlignment = Alignment.Center,

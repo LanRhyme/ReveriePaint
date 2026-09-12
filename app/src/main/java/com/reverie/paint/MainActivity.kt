@@ -100,6 +100,7 @@ class MainActivity : ComponentActivity() {
             val vm: PaintViewModel = viewModel()
             currentViewModel = vm
             vm.appContext = applicationContext
+            vm.getOrCreateStylusDriver(applicationContext)
             vm.updateColorPickerMode(
                 applicationContext
                     .getSharedPreferences(
@@ -118,6 +119,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
+        val vm = currentViewModel
+        if (vm != null) {
+            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
+            if (driver.onGenericMotionEvent(ev)) {
+                return true
+            }
+        }
+
         val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (touchView != null) {
             val action = ev.actionMasked
@@ -143,9 +152,15 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
         val vm = currentViewModel
-        if (vm != null && vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
-            if (vm.handleNativeKeyEvent(event)) {
+        if (vm != null) {
+            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
+            if (driver.onStylusKeyEvent(event)) {
                 return true
+            }
+            if (vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
+                if (vm.handleNativeKeyEvent(event)) {
+                    return true
+                }
             }
         }
         return super.dispatchKeyEvent(event)

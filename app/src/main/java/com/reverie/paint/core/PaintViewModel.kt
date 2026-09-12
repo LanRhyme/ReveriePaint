@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.reverie.paint.R
 import com.reverie.paint.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -594,7 +595,7 @@ class PaintViewModel : ViewModel() {
     var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
-    var accentColorHex by mutableStateOf("#0A84FF")
+    var accentColorHex by mutableStateOf("#5E8BA8")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
@@ -626,6 +627,28 @@ class PaintViewModel : ViewModel() {
     var activeQuickShape by mutableStateOf<QuickShapeResult?>(null)
     var isQuickShapeEditing by mutableStateOf(false)
 
+    // Vendor Stylus Adaptations (OPPO Pencil / OnePlus Stylo & Samsung S Pen)
+    var oppoPencilModelMode by mutableStateOf("AUTO") // "AUTO", "STANDARD", "PRO"
+    var detectedOppoPencilModel by mutableStateOf(com.reverie.paint.core.stylus.OppoPencilModel.PRO)
+    val oppoPencilModel: com.reverie.paint.core.stylus.OppoPencilModel
+        get() = when (oppoPencilModelMode) {
+            "STANDARD" -> com.reverie.paint.core.stylus.OppoPencilModel.STANDARD
+            "PRO" -> com.reverie.paint.core.stylus.OppoPencilModel.PRO
+            else -> detectedOppoPencilModel
+        }
+    var oppoDoubleTapAction by mutableStateOf("toggle_eraser")
+    var oppoSlideAction by mutableStateOf("adjust_brush_size")
+    var oppoInPenHapticsEnabled by mutableStateOf(true)
+    var stylusHapticsEnabled by mutableStateOf(true)
+    var stylusHapticsIntensity by mutableFloatStateOf(0.5f)
+    var stylusAudioEnabled by mutableStateOf(false)
+    var stylusAudioVolume by mutableFloatStateOf(0.6f)
+    var stylusAudioTypeOrdinal by mutableIntStateOf(0)
+    var stylusStrokePredictionEnabled by mutableStateOf(true)
+    var samsungSingleClickAction by mutableStateOf("toggle_eraser")
+    var samsungDoubleClickAction by mutableStateOf("undo")
+    var samsungLongPressAction by mutableStateOf("tool_picker")
+
     // 触控预测与输入延迟优化
     var motionPredictorEnabled by mutableStateOf(true)
 
@@ -639,14 +662,8 @@ class PaintViewModel : ViewModel() {
     var pressureCurvePreset by mutableIntStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
         listOf(
-            androidx.compose.ui.geometry
-                .Offset(0f, 0f),
-            androidx.compose.ui.geometry
-                .Offset(0.33f, 0.33f),
-            androidx.compose.ui.geometry
-                .Offset(0.66f, 0.66f),
-            androidx.compose.ui.geometry
-                .Offset(1f, 1f),
+            androidx.compose.ui.geometry.Offset(0f, 0f),
+            androidx.compose.ui.geometry.Offset(1f, 1f),
         ),
     )
 
@@ -706,13 +723,22 @@ class PaintViewModel : ViewModel() {
         moreSettingsOpen = false
     }
 
-    /** Evaluate mapped pressure from raw input pressure using the active curve (monotonic piecewise cubic spline) */
+    /** Evaluate mapped pressure from raw input pressure using the active curve */
     fun evaluatePressure(raw: Float): Float {
         val x = raw.coerceIn(0f, 1f)
         val pts = pressureControlPoints.sortedBy { it.x }
-        if (pts.size < 2) return x
-        if (x <= pts.first().x) return pts.first().y.coerceIn(0.01f, 1f)
-        if (x >= pts.last().x) return pts.last().y.coerceIn(0.01f, 1f)
+        val n = pts.size
+        if (n < 2) return x
+        if (n == 2) {
+            val p0 = pts[0]
+            val p1 = pts[1]
+            if (p0.x == 0f && p0.y == 0f && p1.x == 1f && p1.y == 1f) return x
+            val spanX = (p1.x - p0.x).coerceAtLeast(0.0001f)
+            val t = ((x - p0.x) / spanX).coerceIn(0f, 1f)
+            return (p0.y + t * (p1.y - p0.y)).coerceIn(0f, 1f)
+        }
+        if (x <= pts.first().x) return pts.first().y.coerceIn(0f, 1f)
+        if (x >= pts.last().x) return pts.last().y.coerceIn(0f, 1f)
 
         var i = 0
         while (i < pts.size - 1 && pts[i + 1].x < x) {
@@ -737,23 +763,29 @@ class PaintViewModel : ViewModel() {
         val h11 = t3 - t2
 
         val y = h00 * p1.y + h10 * dx * m1 + h01 * p2.y + h11 * dx * m2
-        return y.coerceIn(0.01f, 1f)
+        return y.coerceIn(0f, 1f)
     }
 
     /**
      * Hot-path variant of [evaluatePressure] used per stroke sample.
-     * Assumes control points are kept ascending by x (the curve editor
-     * clamps each point past its left neighbour and sorts on insert), so
-     * no per-call sort/allocation happens. Collinear default points yield
-     * an exact identity mapping.
+     * Assumes control points are kept ascending by x.
+     * Collinear default 2 points yield an exact identity mapping with 0 overhead.
      */
     internal fun applyGlobalPressureCurve(raw: Double): Double {
         val pts = pressureControlPoints
         val n = pts.size
-        if (n < 2) return raw
+        if (n < 2) return raw.coerceIn(0.0, 1.0)
         val x = raw.toFloat().coerceIn(0f, 1f)
-        if (x <= pts[0].x) return pts[0].y.coerceIn(0.01f, 1f).toDouble()
-        if (x >= pts[n - 1].x) return pts[n - 1].y.coerceIn(0.01f, 1f).toDouble()
+        if (n == 2) {
+            val p0 = pts[0]
+            val p1 = pts[1]
+            if (p0.x == 0f && p0.y == 0f && p1.x == 1f && p1.y == 1f) return x.toDouble()
+            val spanX = (p1.x - p0.x).coerceAtLeast(0.0001f)
+            val t = ((x - p0.x) / spanX).coerceIn(0f, 1f)
+            return (p0.y + t * (p1.y - p0.y)).coerceIn(0f, 1f).toDouble()
+        }
+        if (x <= pts[0].x) return pts[0].y.coerceIn(0f, 1f).toDouble()
+        if (x >= pts[n - 1].x) return pts[n - 1].y.coerceIn(0f, 1f).toDouble()
         var i = 0
         while (i < n - 2 && pts[i + 1].x < x) i++
         val p0 = if (i > 0) pts[i - 1] else pts[i]
@@ -771,7 +803,7 @@ class PaintViewModel : ViewModel() {
         val h01 = -2f * t3 + 3f * t2
         val h11 = t3 - t2
         val y = h00 * p1.y + h10 * dx * m1 + h01 * p2.y + h11 * dx * m2
-        return y.coerceIn(0.01f, 1f).toDouble()
+        return y.coerceIn(0f, 1f).toDouble()
     }
 
     /** Persist a user-drawn custom pressure curve together with preset id 4. */
@@ -943,77 +975,196 @@ class PaintViewModel : ViewModel() {
         quickShapeEnabled = false
     }
 
+    fun updateOppoPencilModelMode(mode: String) {
+        oppoPencilModelMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("oppoPencilModelMode", mode).apply()
+        }
+    }
+
+    fun updateOppoSlideAction(actionId: String) {
+        oppoSlideAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("oppoSlideAction", actionId).apply()
+        }
+    }
+
+    fun updateOppoInPenHapticsEnabled(enabled: Boolean) {
+        oppoInPenHapticsEnabled = enabled
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("oppoInPenHapticsEnabled", enabled).apply()
+        }
+    }
+
+    fun executeStylusSlide(delta: Float) {
+        when (oppoSlideAction) {
+            "adjust_brush_size" -> {
+                val step = if (brushSize > 60.0) 5.0 else if (brushSize > 20.0) 2.0 else 1.0
+                val newSize = (brushSize + (if (delta > 0) step else -step)).coerceIn(1.0, 500.0)
+                updateBrushSize(newSize)
+                if (::appContext.isInitialized) {
+                    mainHandler.post {
+                        showActionToast("画笔粗细: ${newSize.toInt()}px", R.drawable.ic_brush)
+                    }
+                }
+            }
+            "adjust_opacity" -> {
+                val step = 0.05
+                val newOpacity = (brushOpacity + (if (delta > 0) step else -step)).coerceIn(0.01, 1.0)
+                updateBrushOpacity(newOpacity)
+                if (::appContext.isInitialized) {
+                    mainHandler.post {
+                        showActionToast("不透明度: ${(newOpacity * 100).toInt()}%", R.drawable.ic_brush)
+                    }
+                }
+            }
+            "undo_redo" -> {
+                if (delta > 0) redo() else undo()
+            }
+        }
+    }
+
+    fun updateOppoDoubleTapAction(actionId: String) {
+        oppoDoubleTapAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("oppoDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateStylusHapticsEnabled(enabled: Boolean) {
+        stylusHapticsEnabled = enabled
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("stylusHapticsEnabled", enabled).apply()
+        }
+    }
+
+    fun updateStylusHapticsIntensity(intensity: Float) {
+        stylusHapticsIntensity = intensity
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putFloat("stylusHapticsIntensity", intensity).apply()
+        }
+    }
+
+    fun updateStylusAudioEnabled(enabled: Boolean) {
+        stylusAudioEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("stylusAudioEnabled", enabled).apply()
+        }
+    }
+
+    fun updateStylusAudioVolume(volume: Float) {
+        stylusAudioVolume = volume
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putFloat("stylusAudioVolume", volume).apply()
+        }
+    }
+
+    fun updateStylusAudioTypeOrdinal(ordinal: Int) {
+        stylusAudioTypeOrdinal = ordinal
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("stylusAudioTypeOrdinal", ordinal).apply()
+        }
+    }
+
+    fun updateStylusStrokePredictionEnabled(enabled: Boolean) {
+        stylusStrokePredictionEnabled = enabled
+        motionPredictorEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
+        }
+    }
+
+    fun updateSamsungSingleClickAction(actionId: String) {
+        samsungSingleClickAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("samsungSingleClickAction", actionId).apply()
+        }
+    }
+
+    fun updateSamsungDoubleClickAction(actionId: String) {
+        samsungDoubleClickAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("samsungDoubleClickAction", actionId).apply()
+        }
+    }
+
+    fun updateSamsungLongPressAction(actionId: String) {
+        samsungLongPressAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("samsungLongPressAction", actionId).apply()
+        }
+    }
+
+    fun executeStylusAction(action: com.reverie.paint.core.stylus.StylusAction) {
+        executeShortcutAction(action.actionId)
+        when (action) {
+            com.reverie.paint.core.stylus.StylusAction.TOGGLE_ERASER -> {
+                showActionToast(if (currentToolId == "eraser") "已切换为橡皮擦" else "已切换为画笔", if (currentToolId == "eraser") R.drawable.ic_eraser else R.drawable.ic_brush)
+            }
+            com.reverie.paint.core.stylus.StylusAction.UNDO -> showActionToast("撤销", R.drawable.ic_undo)
+            com.reverie.paint.core.stylus.StylusAction.REDO -> showActionToast("重做", R.drawable.ic_redo)
+            com.reverie.paint.core.stylus.StylusAction.COLOR_PICKER -> showActionToast("吸管取色", R.drawable.ic_picker)
+            com.reverie.paint.core.stylus.StylusAction.TOGGLE_LAST_TOOL -> showActionToast("切换上一工具", R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.SHOW_COLOR_PALETTE -> showActionToast("调色盘", R.drawable.ic_palette)
+            else -> {}
+        }
+    }
+
     fun updatePressureCurvePreset(preset: Int) {
         pressureCurvePreset = preset
         when (preset) {
             0 -> {
-                pressureControlPoints =
-                    listOf(
-                        androidx.compose.ui.geometry
-                            .Offset(0f, 0f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.33f, 0.33f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.66f, 0.66f),
-                        androidx.compose.ui.geometry
-                            .Offset(1f, 1f),
-                    )
+                pressureControlPoints = listOf(
+                    androidx.compose.ui.geometry.Offset(0f, 0f),
+                    androidx.compose.ui.geometry.Offset(1f, 1f),
+                )
             }
-
             1 -> {
-                pressureControlPoints =
-                    listOf( // Soft / Convex (Huawei sensitive)
-                        androidx.compose.ui.geometry
-                            .Offset(0f, 0f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.15f, 0.65f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.45f, 0.90f),
-                        androidx.compose.ui.geometry
-                            .Offset(1f, 1f),
-                    )
+                pressureControlPoints = listOf( // Soft / Convex (轻压灵敏)
+                    androidx.compose.ui.geometry.Offset(0f, 0f),
+                    androidx.compose.ui.geometry.Offset(0.30f, 0.65f),
+                    androidx.compose.ui.geometry.Offset(1f, 1f),
+                )
             }
-
             2 -> {
-                pressureControlPoints =
-                    listOf( // Hard / Concave
-                        androidx.compose.ui.geometry
-                            .Offset(0f, 0f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.55f, 0.10f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.85f, 0.35f),
-                        androidx.compose.ui.geometry
-                            .Offset(1f, 1f),
-                    )
+                pressureControlPoints = listOf( // Hard / Concave (重压偏硬)
+                    androidx.compose.ui.geometry.Offset(0f, 0f),
+                    androidx.compose.ui.geometry.Offset(0.70f, 0.35f),
+                    androidx.compose.ui.geometry.Offset(1f, 1f),
+                )
             }
-
             3 -> {
-                pressureControlPoints =
-                    listOf( // S-Curve
-                        androidx.compose.ui.geometry
-                            .Offset(0f, 0f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.40f, 0.10f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.60f, 0.90f),
-                        androidx.compose.ui.geometry
-                            .Offset(1f, 1f),
-                    )
+                pressureControlPoints = listOf( // S-Curve (S型)
+                    androidx.compose.ui.geometry.Offset(0f, 0f),
+                    androidx.compose.ui.geometry.Offset(0.35f, 0.15f),
+                    androidx.compose.ui.geometry.Offset(0.65f, 0.85f),
+                    androidx.compose.ui.geometry.Offset(1f, 1f),
+                )
             }
-
             4 -> {
-                pressureControlPoints =
-                    listOf( // Extreme
-                        androidx.compose.ui.geometry
-                            .Offset(0f, 0f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.10f, 0.85f),
-                        androidx.compose.ui.geometry
-                            .Offset(0.90f, 0.95f),
-                        androidx.compose.ui.geometry
-                            .Offset(1f, 1f),
+                // If switching to custom without existing points, start from linear
+                if (pressureControlPoints.size < 2) {
+                    pressureControlPoints = listOf(
+                        androidx.compose.ui.geometry.Offset(0f, 0f),
+                        androidx.compose.ui.geometry.Offset(1f, 1f),
                     )
+                }
             }
         }
         if (::appContext.isInitialized) {
@@ -1260,14 +1411,28 @@ class PaintViewModel : ViewModel() {
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-            val savedAccent = prefs.getString("accentColor", "#0A84FF") ?: "#0A84FF"
-            accentColorHex = if (savedAccent.equals("#5E8BA8", ignoreCase = true)) "#0A84FF" else savedAccent
+            val savedAccent = prefs.getString("accentColor", "#5E8BA8") ?: "#5E8BA8"
+            accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true)) "#5E8BA8" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             immersiveMode = prefs.getBoolean("immersiveMode", false)
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
+            oppoPencilModelMode = prefs.getString("oppoPencilModelMode", "AUTO") ?: "AUTO"
+            oppoDoubleTapAction = prefs.getString("oppoDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            oppoSlideAction = prefs.getString("oppoSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
+            oppoInPenHapticsEnabled = prefs.getBoolean("oppoInPenHapticsEnabled", true)
+            stylusHapticsEnabled = prefs.getBoolean("stylusHapticsEnabled", true)
+            stylusHapticsIntensity = prefs.getFloat("stylusHapticsIntensity", 0.5f)
+            stylusAudioEnabled = prefs.getBoolean("stylusAudioEnabled", false)
+            stylusAudioVolume = prefs.getFloat("stylusAudioVolume", 0.6f)
+            stylusAudioTypeOrdinal = prefs.getInt("stylusAudioTypeOrdinal", 0)
+            stylusStrokePredictionEnabled = prefs.getBoolean("stylusStrokePredictionEnabled", true)
+            motionPredictorEnabled = stylusStrokePredictionEnabled
+            samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"
+            samsungDoubleClickAction = prefs.getString("samsungDoubleClickAction", "undo") ?: "undo"
+            samsungLongPressAction = prefs.getString("samsungLongPressAction", "tool_picker") ?: "tool_picker"
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
@@ -1298,6 +1463,7 @@ class PaintViewModel : ViewModel() {
                 }
             } catch (_: Exception) {
             }
+            stylusDriver?.syncSettings()
 
             autoSaveEnabled = prefs.getBoolean("autoSaveEnabled", true)
             autoSaveIntervalMinutes = prefs.getInt("autoSaveIntervalMinutes", 5).coerceIn(1, 60)
@@ -1892,7 +2058,21 @@ class PaintViewModel : ViewModel() {
         startRenderThread()
     }
 
+    var stylusDriver: com.reverie.paint.core.stylus.StylusDriver? = null
+
+    fun getOrCreateStylusDriver(context: android.content.Context): com.reverie.paint.core.stylus.StylusDriver {
+        val existing = stylusDriver
+        if (existing != null) {
+            return existing
+        }
+        val driver = com.reverie.paint.core.stylus.StylusDriver(context.applicationContext, this)
+        stylusDriver = driver
+        return driver
+    }
+
     override fun onCleared() {
+        stylusDriver?.release()
+        stylusDriver = null
         stopAirbrush()
         mainHandler.removeCallbacks(persistParamsRunnable)
         persistBrushParams()
@@ -2111,8 +2291,6 @@ class PaintViewModel : ViewModel() {
         renderHandler?.removeCallbacks(strokeStartKickRunnable)
     }
 
-    internal var renderDeferCount = 0
-
     internal fun scheduleRender(immediate: Boolean = false) {
         val h = renderHandler ?: return
         if (immediate) {
@@ -2143,6 +2321,8 @@ class PaintViewModel : ViewModel() {
         pendingRenderRunnable = r
         h.post(r)
     }
+
+    internal var renderDeferCount = 0
 
     internal fun doRender() {
         renderScheduled = false

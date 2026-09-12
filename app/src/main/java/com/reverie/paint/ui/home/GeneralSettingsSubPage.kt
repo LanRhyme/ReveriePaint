@@ -42,6 +42,7 @@ internal fun GeneralSettingsSubPage(
     vm: PaintViewModel,
     onBack: () -> Unit,
     compact: Boolean = false,
+    showBackButton: Boolean = true,
 ) {
     val colors = Theme.current
 
@@ -69,110 +70,113 @@ internal fun GeneralSettingsSubPage(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
     ) {
-        // Back Bar
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_left),
-                    contentDescription = "返回",
-                    tint = colors.text,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = "通用设置",
-                color = colors.text,
-                fontSize = if (compact) 18.sp else 20.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-
-        // Section 1: 自动保存
-        SettingCategoryHeader("自动保存")
-
-        SettingSwitchRow(
-            title = "启用自动保存",
-            summary = "在绘画过程中按设定时间间隔自动在后台保存作品",
-            checked = vm.autoSaveEnabled,
-            onCheckedChange = { vm.updateAutoSaveEnabled(it) },
-        )
-
-        if (vm.autoSaveEnabled) {
-            Spacer(Modifier.height(8.dp))
-
-            Text(
-                text = "保存时间间隔",
-                color = colors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-
-            // Segment selector for quick interval selection
+        if (showBackButton) {
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.panel)
-                        .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        .padding(bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                intervalOptions.forEach { (mins, _) ->
-                    val isSelected = vm.autoSaveIntervalMinutes == mins
-                    Box(
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSelected) colors.accent else Color.Transparent)
-                                .clickable { vm.updateAutoSaveIntervalMinutes(mins) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (mins >= 10) "${mins}m" else "${mins}分",
-                            color = if (isSelected) Color.White else colors.subText,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
+                Box(
+                    modifier =
+                        Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_left),
+                        contentDescription = "返回",
+                        tint = colors.text,
+                        modifier = Modifier.size(20.dp),
+                    )
                 }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = "通用设置",
+                    color = colors.text,
+                    fontSize = if (compact) 18.sp else 20.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-
-            Spacer(Modifier.height(10.dp))
-
-            SettingSwitchRow(
-                title = "自动保存轻量提示",
-                summary = "自动保存成功后在屏幕上方弹出非阻塞提示",
-                checked = vm.autoSaveToastEnabled,
-                onCheckedChange = { vm.updateAutoSaveToastEnabled(it) },
-            )
         }
 
-        Spacer(Modifier.height(12.dp))
+        // Section 1: 自动保存
+        SettingCategoryHeader("自动保存")
+        GroupedSettingsCard {
+            SettingSwitchRow(
+                title = "启用自动保存",
+                summary = "在绘画过程中按设定时间间隔自动在后台保存作品",
+                checked = vm.autoSaveEnabled,
+                onCheckedChange = { vm.updateAutoSaveEnabled(it) },
+            )
+
+            if (vm.autoSaveEnabled) {
+                SettingsCardDivider()
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "保存时间间隔",
+                    color = colors.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Normal,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+
+                // Segment selector for quick interval selection
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panelHi)
+                            .padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    intervalOptions.forEach { (mins, _) ->
+                        val isSelected = vm.autoSaveIntervalMinutes == mins
+                        Box(
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (isSelected) colors.accent else Color.Transparent)
+                                    .clickable { vm.updateAutoSaveIntervalMinutes(mins) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (mins >= 10) "${mins}m" else "${mins}分",
+                                color = if (isSelected) Color.White else colors.subText,
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                SettingsCardDivider()
+
+                SettingSwitchRow(
+                    title = "自动保存轻量提示",
+                    summary = "自动保存成功后在屏幕上方弹出非阻塞提示",
+                    checked = vm.autoSaveToastEnabled,
+                    onCheckedChange = { vm.updateAutoSaveToastEnabled(it) },
+                )
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
 
         // Info Card
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(colors.panelHi)
                     .padding(14.dp),
         ) {
@@ -193,35 +197,33 @@ internal fun GeneralSettingsSubPage(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
         // Section 2: 历史记录与性能
         SettingCategoryHeader("历史记录与性能")
+        GroupedSettingsCard {
+            SettingDropdownRow(
+                title = "最大撤销步数",
+                currentText = undoOptions.find { it.first == vm.maxUndoSteps }?.second ?: "${vm.maxUndoSteps}步",
+                options = undoOptions.map { it.second },
+                onSelect = { idx ->
+                    vm.updateMaxUndoSteps(undoOptions[idx].first)
+                },
+            )
+        }
 
-        SettingDropdownRow(
-            title = "最大撤销步数",
-            currentText = undoOptions.find { it.first == vm.maxUndoSteps }?.second ?: "${vm.maxUndoSteps}步",
-            options = undoOptions.map { it.second },
-            onSelect = { idx ->
-                vm.updateMaxUndoSteps(undoOptions[idx].first)
-            },
-        )
-
-        Spacer(Modifier.height(20.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
         // Section 3: 项目管理
         SettingCategoryHeader("项目管理")
-
-        SettingSwitchRow(
-            title = "退出时提示保存",
-            summary = "若当前画布有未保存的修改，退出到主页时提示保存",
-            checked = vm.promptSaveOnExit,
-            onCheckedChange = { vm.updatePromptSaveOnExit(it) },
-        )
+        GroupedSettingsCard {
+            SettingSwitchRow(
+                title = "退出时提示保存",
+                summary = "若当前画布有未保存的修改，退出到主页时提示保存",
+                checked = vm.promptSaveOnExit,
+                onCheckedChange = { vm.updatePromptSaveOnExit(it) },
+            )
+        }
 
         Spacer(Modifier.height(60.dp))
     }

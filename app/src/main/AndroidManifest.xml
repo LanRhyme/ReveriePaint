@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="com.oplus.ipemanager.permission.receiver.DOUBLE_CLICK" />
+    <uses-permission android:name="com.oplus.ocs.permission.third" />
+    <uses-permission android:name="com.oplus.permission.safe.IOT" />
+
+    <queries>
+        <package android:name="com.coloros.ocs.opencapabilityservice" />
+        <package android:name="com.oplus.ocs" />
+        <package android:name="com.oplus.ipemanager" />
+        <package android:name="net.huanci.hsjpro" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -14,6 +25,10 @@
         android:label="ReveriePaint"
         android:supportsRtl="true"
         android:theme="@style/Theme.ReveriePaint">
+        <uses-library android:name="vendor.oplus.hardware.touch-V1" android:required="false" />
+        <meta-data
+            android:name="com.oplus.ocs.ipepencil.AUTH_CODE"
+            android:value="ATBFAiEA2FKyTQgEPDCvkD3iAtqkxi9B+cRRZxf0MBIyW7y9bCQCIBr6z6/TC8HcOdGx0BdlD0LgwzsY0H1qCmU+Gni98yiqcLhVZ4AAAAA=" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

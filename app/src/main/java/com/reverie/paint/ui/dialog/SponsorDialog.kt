@@ -229,8 +229,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize(0.92f)
                 .clip(RoundedCornerShape(28.dp))
-                .background(Morandi.panelHi)
-                .border(1.dp, Morandi.border, RoundedCornerShape(28.dp)),
+                .background(Morandi.panelHi),
         ) {
             when {
                 isLoading -> {
@@ -476,8 +475,7 @@ private fun SponsorListItem(item: SponsorItem) {
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, CircleShape),
+                        .background(Morandi.panelHi),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (item.bitmap != null) {

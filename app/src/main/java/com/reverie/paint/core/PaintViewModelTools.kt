@@ -404,19 +404,46 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         t == com.reverie.paint.model.Tool.SMUDGE
     ) {
         var state = toolBrushStates[toolId]
+        val isEraserTool = t == com.reverie.paint.model.Tool.ERASER
+        val isSmudgeTool = t == com.reverie.paint.model.Tool.SMUDGE
+        val isBrushTool = t == com.reverie.paint.model.Tool.BRUSH
+
+        val defaultBrushIdx = brushPresets.firstOrNull { it.name == "b)_Basic-5_Size_default" }?.index
+            ?: brushPresets.firstOrNull { it.name == "b)_Basic-5_Size_Opacity" }?.index
+            ?: brushPresets.firstOrNull { it.group == "基础" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true) }?.index
+            ?: brushPresets.firstOrNull { it.group != "橡皮擦" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true) }?.index
+            ?: -1
+
+        val defaultEraserIdx = brushPresets.firstOrNull { it.name == "a)_Eraser_Circle" }?.index
+            ?: brushPresets.firstOrNull { it.name == "Eraser_circle" }?.index
+            ?: brushPresets.firstOrNull { it.group == "橡皮擦" }?.index
+            ?: -1
+
+        val defaultSmudgeIdx = brushPresets.firstOrNull { it.name == "k)_Blender_Basic" }?.index
+            ?: brushPresets.firstOrNull { it.group == "混合" }?.index
+            ?: -1
+
         if (state == null) {
-            val cat =
-                when (t) {
-                    com.reverie.paint.model.Tool.ERASER -> "橡皮擦"
-                    com.reverie.paint.model.Tool.SMUDGE -> "混合"
-                    else -> "全部"
-                }
-            var defaultIdx = brushPresets.firstOrNull { it.group == cat }?.index ?: -1
-            // 分类为空时保持 -1 ("未选预设"), 不回退到预设 0 —— 否则橡皮擦/混合
-            // 会继承 b)_Basic-1 画笔的全部数值。引擎侧沿用已加载预设, 由
-            // m_toolMode 决定擦除语义。
+            val cat = when {
+                isEraserTool -> "橡皮擦"
+                isSmudgeTool -> "混合"
+                else -> "基础"
+            }
+            val defaultIdx = when {
+                isEraserTool -> defaultEraserIdx
+                isSmudgeTool -> defaultSmudgeIdx
+                else -> defaultBrushIdx
+            }
             state = PaintViewModel.ToolBrushState(category = cat, presetIndex = defaultIdx)
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
+        } else if (isBrushTool && state.presetIndex >= 0) {
+            // Self-healing: if brush tool mistakenly inherited an eraser preset, revert to default drawing brush
+            val cur = brushPresets.firstOrNull { it.index == state.presetIndex }
+            val isEraser = cur == null || cur.group == "橡皮擦" || cur.name.startsWith("a)") || cur.name.contains("Eraser", ignoreCase = true)
+            if (isEraser && defaultBrushIdx >= 0) {
+                state = state.copy(category = "基础", presetIndex = defaultBrushIdx)
+                toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
+            }
         }
 
         brushPanelSelectedCategory = state.category
@@ -428,8 +455,6 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         // Stale-index clamp: persisted presetIndex can point past the end of
         // the current preset list (preset set changed between runs). Treat it
         // as "no selection" instead of letting selectBrushPreset fail late.
-        // (Clamping at use-time, not load-time: loadBrushParams runs before
-        // brushPresets is built.)
         if (brushPresets.any { it.index == state.presetIndex }) {
             if (state.presetIndex != brushPresetIndex) {
                 selectBrushPreset(state.presetIndex)

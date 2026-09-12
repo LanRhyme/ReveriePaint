@@ -884,16 +884,56 @@ internal fun PaintViewModel.loadBrushPresets() {
             else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
         brushPresets = ordered
         if (ordered.isNotEmpty()) {
+            val defaultDrawingPreset = ordered.firstOrNull {
+                it.name == "b)_Basic-5_Size_default"
+            } ?: ordered.firstOrNull {
+                it.name == "b)_Basic-5_Size_Opacity"
+            } ?: ordered.firstOrNull {
+                it.group == "基础" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true)
+            } ?: ordered.firstOrNull {
+                it.group != "橡皮擦" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true)
+            } ?: ordered[0]
+
+            val defaultEraserPreset = ordered.firstOrNull {
+                it.name == "a)_Eraser_Circle"
+            } ?: ordered.firstOrNull {
+                it.name == "Eraser_circle"
+            } ?: ordered.firstOrNull {
+                it.group == "橡皮擦"
+            } ?: ordered[0]
+
             val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
+            val isEraserTool = savedToolId == "eraser"
+            val fallbackPreset = if (isEraserTool) defaultEraserPreset else defaultDrawingPreset
+
             val savedToolState = toolBrushStates[savedToolId]
-            // Saved preset indices are NATIVE-table indices; validate by item
-            // presence, not list position (the list order may differ).
+            // Saved preset indices are NATIVE-table indices; validate by item presence
             val targetIndex =
                 if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
-                    savedToolState.presetIndex
+                    val candidate = ordered.first { it.index == savedToolState.presetIndex }
+                    val isCandidateEraser = candidate.group == "橡皮擦" ||
+                            candidate.name.startsWith("a)") ||
+                            candidate.name.contains("Eraser", ignoreCase = true)
+                    if (!isEraserTool && isCandidateEraser) {
+                        fallbackPreset.index
+                    } else {
+                        savedToolState.presetIndex
+                    }
                 } else {
-                    val savedPresetIdx = prefs().getInt("last_brush_preset_index", 0)
-                    if (ordered.any { it.index == savedPresetIdx }) savedPresetIdx else ordered[0].index
+                    val savedPresetIdx = prefs().getInt("last_brush_preset_index", -1)
+                    if (savedPresetIdx >= 0 && ordered.any { it.index == savedPresetIdx }) {
+                        val candidate = ordered.first { it.index == savedPresetIdx }
+                        val isCandidateEraser = candidate.group == "橡皮擦" ||
+                                candidate.name.startsWith("a)") ||
+                                candidate.name.contains("Eraser", ignoreCase = true)
+                        if (!isEraserTool && isCandidateEraser) {
+                            fallbackPreset.index
+                        } else {
+                            savedPresetIdx
+                        }
+                    } else {
+                        fallbackPreset.index
+                    }
                 }
             applyTool(savedToolId)
             selectBrushPreset(targetIndex)

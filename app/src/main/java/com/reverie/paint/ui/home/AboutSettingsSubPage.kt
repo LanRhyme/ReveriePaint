@@ -62,7 +62,6 @@ import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.ui.dialog.ContributorsDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
-import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Theme
 import kotlin.math.sin
 
@@ -73,6 +72,7 @@ import kotlin.math.sin
 fun AboutSettingsSubPage(
     onBack: () -> Unit,
     compact: Boolean = false,
+    showBackButton: Boolean = true,
 ) {
     val colors = Theme.current
     val uriHandler = LocalUriHandler.current
@@ -103,38 +103,39 @@ fun AboutSettingsSubPage(
             .padding(horizontal = if (compact) 8.dp else 20.dp, vertical = if (compact) 8.dp else 20.dp),
     ) {
         // 1. Navigation Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
+        if (showBackButton) {
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(Morandi.panel)
-                    .border(1.dp, Morandi.border, CircleShape)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .height(44.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_left),
-                    contentDescription = "返回",
-                    tint = colors.text,
-                    modifier = Modifier.size(20.dp),
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colors.panel)
+                        .clickable(onClick = onBack),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_left),
+                        contentDescription = "返回",
+                        tint = colors.text,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = "关于",
+                    color = colors.text,
+                    fontSize = if (compact) 16.sp else 19.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = "关于",
-                color = colors.text,
-                fontSize = if (compact) 16.sp else 19.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
 
-        Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp))
+        }
 
         // 2. Artistic Header Banner (No app icon, pure typography & fluid art waves)
         Box(
@@ -142,8 +143,7 @@ fun AboutSettingsSubPage(
                 .fillMaxWidth()
                 .height(if (compact) 110.dp else 135.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp)),
+                .background(colors.panel),
         ) {
             // Painterly fluid acrylic & watercolor waves
             ComposeCanvas(modifier = Modifier.fillMaxSize()) {
@@ -154,7 +154,7 @@ fun AboutSettingsSubPage(
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.15f),
+                            colors.accent.copy(alpha = 0.15f),
                             Color.Transparent,
                         ),
                         center = Offset(w * 0.8f, h * 0.35f),
@@ -179,9 +179,9 @@ fun AboutSettingsSubPage(
                     path = p1,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            Morandi.accent.copy(alpha = 0.10f),
-                            Morandi.accent.copy(alpha = 0.22f),
-                            Morandi.panel.copy(alpha = 0.1f),
+                            colors.accent.copy(alpha = 0.10f),
+                            colors.accent.copy(alpha = 0.22f),
+                            colors.panel.copy(alpha = 0.1f),
                         )
                     ),
                 )
@@ -201,9 +201,9 @@ fun AboutSettingsSubPage(
                     path = p2,
                     brush = Brush.horizontalGradient(
                         listOf(
-                            Morandi.panel.copy(alpha = 0.2f),
-                            Morandi.accent.copy(alpha = 0.18f),
-                            Morandi.accent.copy(alpha = 0.06f),
+                            colors.panel.copy(alpha = 0.2f),
+                            colors.accent.copy(alpha = 0.18f),
+                            colors.accent.copy(alpha = 0.06f),
                         )
                     ),
                 )
@@ -230,13 +230,12 @@ fun AboutSettingsSubPage(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Morandi.accent.copy(alpha = 0.18f))
-                            .border(1.dp, Morandi.accent.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                            .background(colors.accent.copy(alpha = 0.18f))
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                     ) {
                         Text(
                             text = "v${BuildConfig.VERSION_NAME}",
-                            color = Morandi.accent,
+                            color = colors.accent,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -245,7 +244,7 @@ fun AboutSettingsSubPage(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "移动端与平板专业数字绘画创作软件",
-                    color = Morandi.subText,
+                    color = colors.subText,
                     fontSize = if (compact) 11.sp else 13.sp,
                     fontWeight = FontWeight.Normal,
                 )
@@ -257,7 +256,7 @@ fun AboutSettingsSubPage(
         // 3. Contiguous Card Group 1: 项目与社区 (Custom ROM Group Style)
         Text(
             text = "项目与社区",
-            color = Morandi.accent,
+            color = colors.accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.8.sp,
@@ -300,7 +299,7 @@ fun AboutSettingsSubPage(
         // 4. Contiguous Card Group 2: 应用与系统
         Text(
             text = "应用与系统",
-            color = Morandi.accent,
+            color = colors.accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.8.sp,
@@ -319,8 +318,7 @@ fun AboutSettingsSubPage(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panel)
-                            .border(1.dp, Morandi.border, RoundedCornerShape(8.dp))
+                            .background(colors.panelHi)
                             .clickable {
                                 if (!UpdateManager.isChecking) {
                                     UpdateManager.checkForUpdates(context, isManual = true)
@@ -337,11 +335,11 @@ fun AboutSettingsSubPage(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(12.dp),
                                     strokeWidth = 2.dp,
-                                    color = Morandi.accent,
+                                    color = colors.accent,
                                 )
                                 Text(
                                     text = "检查中",
-                                    color = Morandi.accent,
+                                    color = colors.accent,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
@@ -349,7 +347,7 @@ fun AboutSettingsSubPage(
                         } else {
                             Text(
                                 text = "检查更新",
-                                color = Morandi.accent,
+                                color = colors.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -414,8 +412,7 @@ fun AboutSettingsSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                .background(colors.panel)
                 .padding(18.dp),
         ) {
             Column {
@@ -425,7 +422,7 @@ fun AboutSettingsSubPage(
                             .width(3.5.dp)
                             .height(14.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(Morandi.accent),
+                            .background(colors.accent),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
@@ -438,7 +435,7 @@ fun AboutSettingsSubPage(
                 Spacer(Modifier.height(10.dp))
                 Text(
                     text = "ReveriePaint 是一款专注于移动端与平板体验的专业级数字绘图软件，搭载强大的笔刷绘制引擎，支持多图层合成、选区操作与丰富的工具生态，带来流畅自然的数字绘画创作体验。",
-                    color = Morandi.subText,
+                    color = colors.subText,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
                 )
@@ -489,8 +486,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                 .fillMaxWidth(0.95f)
                 .height(460.dp)
                 .clip(RoundedCornerShape(22.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(22.dp))
+                .background(colors.panel)
                 .padding(20.dp),
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -503,7 +499,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "ReveriePaint 使用了以下优秀的开源项目与组件",
-                    color = Morandi.subText,
+                    color = colors.subText,
                     fontSize = 12.sp,
                 )
 
@@ -518,7 +514,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(Morandi.panelHi)
+                                .background(colors.panelHi)
                                 .padding(12.dp),
                         ) {
                             Column {
@@ -536,12 +532,12 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(Morandi.panel)
+                                            .background(colors.panel)
                                             .padding(horizontal = 6.dp, vertical = 2.dp),
                                     ) {
                                         Text(
                                             text = lib.license,
-                                            color = Morandi.accent,
+                                            color = colors.accent,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                         )
@@ -550,13 +546,13 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = lib.author,
-                                    color = Morandi.subText,
+                                    color = colors.subText,
                                     fontSize = 11.sp,
                                 )
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     text = lib.description,
-                                    color = Morandi.subText.copy(alpha = 0.8f),
+                                    color = colors.subText.copy(alpha = 0.8f),
                                     fontSize = 11.sp,
                                 )
                             }
@@ -570,7 +566,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("确定", onDismiss, textColor = Morandi.accent, fontWeight = FontWeight.Bold)
+                    ReTextButton("确定", onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -593,8 +589,7 @@ private fun AboutGroupItem(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(Morandi.panel)
-            .border(1.dp, Morandi.border, shape)
+            .background(colors.panel)
             .then(
                 if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
             )
@@ -612,7 +607,7 @@ private fun AboutGroupItem(
                 Icon(
                     imageVector = icon,
                     contentDescription = title,
-                    tint = Morandi.icon,
+                    tint = colors.icon,
                     modifier = Modifier.size(22.dp),
                 )
 
@@ -628,7 +623,7 @@ private fun AboutGroupItem(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = summary,
-                        color = if (isLink) Morandi.accent else Morandi.subText,
+                        color = if (isLink) colors.accent else colors.subText,
                         fontSize = 12.sp,
                         textDecoration = if (isLink) TextDecoration.Underline else TextDecoration.None,
                     )

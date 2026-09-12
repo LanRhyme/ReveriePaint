@@ -101,8 +101,8 @@ internal fun SettingDropdownRow(
         Box {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.panel)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.panelHi)
                     .clickable { expanded = true }
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -147,59 +147,258 @@ internal fun SettingDropdownRow(
 }
 
 @Composable
+internal fun GroupedSettingsCard(
+    modifier: Modifier = Modifier,
+    containerColor: Color = Theme.current.panel,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(containerColor)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            content = content
+        )
+    }
+}
+
+@Composable
+internal fun SettingsCardDivider() {
+    val colors = Theme.current
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(0.6.dp)
+            .background(colors.border.copy(alpha = 0.25f))
+    )
+}
+
+@Composable
 internal fun SettingCategoryHeader(title: String) {
     val colors = Theme.current
     Text(
         text = title,
-        color = colors.accent,
-        fontSize = 13.sp,
+        color = colors.subText.copy(alpha = 0.85f),
+        fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(bottom = 12.dp)
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 4.dp)
     )
 }
 
 @Composable
 internal fun SettingNavRow(
-    iconRes: Int,
+    iconRes: Int? = null,
     title: String,
     summary: String,
+    badge: String? = null,
     onClick: () -> Unit
 ) {
     val colors = Theme.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (iconRes != null) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.panelHi),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = colors.text,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            if (summary.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = summary,
+                    color = colors.subText,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+        if (badge != null) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(colors.accent.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = badge,
+                    color = colors.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+        }
+        Icon(
+            painter = painterResource(R.drawable.ic_chevron),
+            contentDescription = null,
+            tint = colors.subText.copy(alpha = 0.5f),
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
+@Composable
+internal fun SettingMasterNavRow(
+    iconRes: Int,
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = Theme.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isSelected) colors.accent.copy(alpha = 0.12f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             painter = painterResource(iconRes),
             contentDescription = null,
-            tint = colors.icon,
-            modifier = Modifier.size(24.dp)
+            tint = if (isSelected) colors.accent else colors.subText,
+            modifier = Modifier.size(19.dp)
         )
-        Spacer(Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = colors.text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Normal
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = summary,
-                color = colors.subText,
-                fontSize = 12.sp
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            color = if (isSelected) colors.accent else colors.text,
+            fontSize = 14.sp,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+internal fun SettingStylusDeviceRow(
+    title: String,
+    summary: String,
+    isCurrentDevice: Boolean,
+    isConnected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = Theme.current
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .then(
+                    if (onClick != null) {
+                        Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(vertical = 12.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isConnected) colors.accent.copy(alpha = 0.12f) else colors.panelHi),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_pencil),
+                contentDescription = null,
+                tint = if (isConnected) colors.accent else colors.subText,
+                modifier = Modifier.size(18.dp),
             )
         }
-        Icon(
-            painter = painterResource(R.drawable.ic_chevron),
-            contentDescription = null,
-            tint = colors.subText.copy(alpha = 0.6f),
-            modifier = Modifier.size(20.dp)
-        )
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    color = colors.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (isConnected) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier =
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.accent.copy(alpha = 0.12f))
+                                .padding(horizontal = 7.dp, vertical = 1.5.dp),
+                    ) {
+                        Text(
+                            text = "已连接",
+                            color = colors.accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                } else if (isCurrentDevice) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier =
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.panelHi)
+                                .padding(horizontal = 7.dp, vertical = 1.5.dp),
+                    ) {
+                        Text(
+                            text = "当前机型支持",
+                            color = colors.subText,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+            if (summary.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = summary,
+                    color = colors.subText,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+        if (onClick != null) {
+            Spacer(Modifier.width(8.dp))
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron),
+                contentDescription = null,
+                tint = colors.subText.copy(alpha = 0.45f),
+                modifier = Modifier.size(15.dp),
+            )
+        }
     }
 }
 
@@ -313,9 +512,8 @@ internal fun CustomColorDialog(
         Box(
             modifier = Modifier
                 .width(320.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(colors.panelHi)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(20.dp)
         ) {
             Column {
@@ -336,9 +534,8 @@ internal fun CustomColorDialog(
                     Box(
                         modifier = Modifier
                             .size(48.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(parsedPreview)
-                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
                     )
                     OutlinedTextField(
                         value = hexInput,

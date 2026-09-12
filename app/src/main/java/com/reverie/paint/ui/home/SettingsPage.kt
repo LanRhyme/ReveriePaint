@@ -24,12 +24,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -87,12 +89,23 @@ fun SettingsPageContent(
     vm: PaintViewModel,
     onExit: () -> Unit = {},
 ) {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isTabletLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+            configuration.screenWidthDp >= 600
+
     var subPage by remember {
         mutableStateOf(
             if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS
             else if (vm.settingsInitialSubPage == "GENERAL") SettingsSubPage.GENERAL
+            else if (isTabletLandscape) SettingsSubPage.GENERAL
             else SettingsSubPage.MAIN,
         )
+    }
+
+    androidx.compose.runtime.LaunchedEffect(isTabletLandscape) {
+        if (isTabletLandscape && subPage == SettingsSubPage.MAIN) {
+            subPage = SettingsSubPage.GENERAL
+        }
     }
 
     androidx.compose.runtime.LaunchedEffect(vm.settingsInitialSubPage) {
@@ -111,60 +124,183 @@ fun SettingsPageContent(
         }
     }
 
-    androidx.activity.compose.BackHandler(enabled = subPage != SettingsSubPage.MAIN) {
+    androidx.activity.compose.BackHandler(enabled = !isTabletLandscape && subPage != SettingsSubPage.MAIN) {
         subPage = SettingsSubPage.MAIN
     }
 
     // 主页内嵌时无退出入口；绘画页覆盖层通过 onExit 返回画布
-    androidx.activity.compose.BackHandler(enabled = subPage == SettingsSubPage.MAIN) {
+    androidx.activity.compose.BackHandler(enabled = isTabletLandscape || subPage == SettingsSubPage.MAIN) {
         onExit()
     }
 
-    AnimatedContent(
-        targetState = subPage,
-        transitionSpec = {
-            if (targetState != SettingsSubPage.MAIN) {
-                (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)))
-                    .togetherWith(slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(150)))
-            } else {
-                (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(200)))
-                    .togetherWith(slideOutHorizontally(tween(200)) { it } + fadeOut(tween(150)))
-            }
-        },
-        label = "SettingsSubPageTransition",
-    ) { page ->
-        when (page) {
-            SettingsSubPage.MAIN -> {
-                SettingsMainPage(
-                    onNavigate = { subPage = it },
-                )
+    val colors = Theme.current
+
+    if (isTabletLandscape) {
+        // ==========================================
+        // 平板横屏 Master-Detail 双栏布局
+        // ==========================================
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.bg)
+        ) {
+            // Left: Master Navigation Rail
+            Column(
+                modifier = Modifier
+                    .width(240.dp)
+                    .fillMaxHeight()
+                    .background(colors.panel)
+                    .padding(horizontal = 16.dp, vertical = 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 6.dp, end = 2.dp, bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "设置",
+                        color = colors.text,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onExit),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_x),
+                            contentDescription = "关闭",
+                            tint = colors.subText,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
+                ) {
+                    SettingMasterNavRow(
+                        iconRes = R.drawable.ic_settings,
+                        title = "通用设置",
+                        isSelected = subPage == SettingsSubPage.GENERAL,
+                        onClick = { subPage = SettingsSubPage.GENERAL }
+                    )
+                    SettingMasterNavRow(
+                        iconRes = R.drawable.ic_palette,
+                        title = "主题设置",
+                        isSelected = subPage == SettingsSubPage.THEME,
+                        onClick = { subPage = SettingsSubPage.THEME }
+                    )
+                    SettingMasterNavRow(
+                        iconRes = R.drawable.ic_pencil,
+                        title = "手写笔设置",
+                        isSelected = subPage == SettingsSubPage.STYLUS,
+                        onClick = { subPage = SettingsSubPage.STYLUS }
+                    )
+                    SettingMasterNavRow(
+                        iconRes = R.drawable.ic_info_circle,
+                        title = "关于应用",
+                        isSelected = subPage == SettingsSubPage.ABOUT,
+                        onClick = { subPage = SettingsSubPage.ABOUT }
+                    )
+                }
             }
 
-            SettingsSubPage.GENERAL -> {
-                GeneralSettingsSubPage(
-                    vm = vm,
-                    onBack = { subPage = SettingsSubPage.MAIN },
-                )
-            }
+            // Divider between Master and Detail
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(colors.border)
+            )
 
-            SettingsSubPage.THEME -> {
-                ThemeSettingsSubPage(
-                    vm = vm,
-                    onBack = { subPage = SettingsSubPage.MAIN },
-                )
+            // Right: Detail Content Pane
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .background(colors.bg),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .widthIn(max = 680.dp)
+                ) {
+                    AnimatedContent(
+                        targetState = subPage,
+                        transitionSpec = {
+                            fadeIn(tween(180)).togetherWith(fadeOut(tween(140)))
+                        },
+                        label = "TabletDetailTransition"
+                    ) { target ->
+                        when (target) {
+                            SettingsSubPage.GENERAL -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                            SettingsSubPage.THEME -> ThemeSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                            SettingsSubPage.STYLUS -> StylusSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                            SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
+                            SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        }
+                    }
+                }
             }
+        }
+    } else {
+        // ==========================================
+        // 手机 / 竖屏单栏下钻布局
+        // ==========================================
+        AnimatedContent(
+            targetState = subPage,
+            transitionSpec = {
+                if (targetState != SettingsSubPage.MAIN) {
+                    (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)))
+                        .togetherWith(slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(150)))
+                } else {
+                    (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(200)))
+                        .togetherWith(slideOutHorizontally(tween(200)) { it } + fadeOut(tween(150)))
+                }
+            },
+            label = "SettingsSubPageTransition",
+        ) { page ->
+            when (page) {
+                SettingsSubPage.MAIN -> {
+                    SettingsMainPage(
+                        onNavigate = { subPage = it },
+                    )
+                }
 
-            SettingsSubPage.STYLUS -> {
-                StylusSettingsSubPage(
-                    vm = vm,
-                    onBack = { subPage = SettingsSubPage.MAIN },
-                )
-            }
+                SettingsSubPage.GENERAL -> {
+                    GeneralSettingsSubPage(
+                        vm = vm,
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
 
-            SettingsSubPage.ABOUT -> {
-                AboutSettingsSubPage(
-                    onBack = { subPage = SettingsSubPage.MAIN },
-                )
+                SettingsSubPage.THEME -> {
+                    ThemeSettingsSubPage(
+                        vm = vm,
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
+
+                SettingsSubPage.STYLUS -> {
+                    StylusSettingsSubPage(
+                        vm = vm,
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
+
+                SettingsSubPage.ABOUT -> {
+                    AboutSettingsSubPage(
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
             }
         }
     }
@@ -190,49 +326,45 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
             modifier = Modifier.padding(bottom = 20.dp),
         )
 
-        // Native Android settings row: 通用设置
-        SettingNavRow(
-            iconRes = R.drawable.ic_settings,
-            title = "通用设置",
-            summary = "自动保存时间间隔、提示与撤销历史上限",
-            onClick = { onNavigate(SettingsSubPage.GENERAL) },
-        )
+        GroupedSettingsCard {
+            // 通用设置
+            SettingNavRow(
+                iconRes = R.drawable.ic_settings,
+                title = "通用设置",
+                summary = "自动保存时间间隔、提示与撤销历史上限",
+                onClick = { onNavigate(SettingsSubPage.GENERAL) },
+            )
 
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
-        Spacer(Modifier.height(8.dp))
+            SettingsCardDivider()
 
-        // Native Android settings row: 主题设置
-        SettingNavRow(
-            iconRes = R.drawable.ic_palette,
-            title = "主题设置",
-            summary = "主色调、面板透明度与全屏沉浸模式",
-            onClick = { onNavigate(SettingsSubPage.THEME) },
-        )
+            // 主题设置
+            SettingNavRow(
+                iconRes = R.drawable.ic_palette,
+                title = "主题设置",
+                summary = "主色调、面板透明度与全屏沉浸模式",
+                onClick = { onNavigate(SettingsSubPage.THEME) },
+            )
 
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
-        Spacer(Modifier.height(8.dp))
+            SettingsCardDivider()
 
-        // Native Android settings row: 手写笔设置
-        SettingNavRow(
-            iconRes = R.drawable.ic_pencil,
-            title = "手写笔设置",
-            summary = "笔模式、光标显示、驻停成形与全局压力曲线",
-            onClick = { onNavigate(SettingsSubPage.STYLUS) },
-        )
+            // 手写笔设置
+            SettingNavRow(
+                iconRes = R.drawable.ic_pencil,
+                title = "手写笔设置",
+                summary = "专属手写笔适配、书写震动发声与全局压力曲线",
+                onClick = { onNavigate(SettingsSubPage.STYLUS) },
+            )
 
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.3f)))
-        Spacer(Modifier.height(8.dp))
+            SettingsCardDivider()
 
-        // Native Android settings row: 关于应用
-        SettingNavRow(
-            iconRes = R.drawable.ic_info_circle,
-            title = "关于应用",
-            summary = "版本、作者与系统架构信息",
-            onClick = { onNavigate(SettingsSubPage.ABOUT) },
-        )
+            // 关于应用
+            SettingNavRow(
+                iconRes = R.drawable.ic_info_circle,
+                title = "关于应用",
+                summary = "版本、作者与系统架构信息",
+                onClick = { onNavigate(SettingsSubPage.ABOUT) },
+            )
+        }
 
         Spacer(Modifier.height(100.dp))
     }

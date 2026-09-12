@@ -68,9 +68,8 @@ internal fun NewFolderDialog(
         Box(
             modifier = Modifier
                 .width(320.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(22.dp)
         ) {
             Column {
@@ -90,7 +89,7 @@ internal fun NewFolderDialog(
                         focusedTextColor = colors.text,
                         unfocusedTextColor = colors.text,
                         focusedBorderColor = colors.accent,
-                        unfocusedBorderColor = colors.border,
+                        unfocusedBorderColor = Color.Transparent,
                         focusedContainerColor = colors.panelHi,
                         unfocusedContainerColor = colors.panelHi,
                         cursorColor = colors.accent
@@ -135,9 +134,8 @@ internal fun RenameProjectDialog(
         Box(
             modifier = Modifier
                 .width(320.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(22.dp)
         ) {
             Column {
@@ -156,7 +154,7 @@ internal fun RenameProjectDialog(
                         focusedTextColor = colors.text,
                         unfocusedTextColor = colors.text,
                         focusedBorderColor = colors.accent,
-                        unfocusedBorderColor = colors.border,
+                        unfocusedBorderColor = Color.Transparent,
                         focusedContainerColor = colors.panelHi,
                         unfocusedContainerColor = colors.panelHi,
                         cursorColor = colors.accent
@@ -204,9 +202,8 @@ val context = LocalContext.current
         Box(
             modifier = Modifier
                 .width(320.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(16.dp))
                 .padding(22.dp)
         ) {
             Column {
@@ -225,7 +222,6 @@ val context = LocalContext.current
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(colors.panelHi)
-                                .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                                 .clickable {
                                     targetMoveProjects.forEach { p ->
                                         vm.moveProjectToFolder(p, null)
@@ -253,7 +249,6 @@ val context = LocalContext.current
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(colors.panelHi)
-                                        .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
                                         .clickable {
                                             targetMoveProjects.forEach { p ->
                                                 vm.moveProjectToFolder(p, folderName)
@@ -317,9 +312,8 @@ val context = LocalContext.current
                         indication = null,
                         onClick = {}
                     )
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(colors.panel)
-                    .border(1.dp, colors.border, RoundedCornerShape(18.dp))
                     .padding(22.dp)
             ) {
                 Column {
@@ -415,9 +409,8 @@ val context = LocalContext.current
                         indication = null,
                         onClick = {}
                     )
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(colors.panel)
-                    .border(1.dp, colors.border, RoundedCornerShape(18.dp))
                     .padding(22.dp)
             ) {
                 Column {
