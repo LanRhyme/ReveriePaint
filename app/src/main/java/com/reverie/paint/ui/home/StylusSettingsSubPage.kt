@@ -173,85 +173,11 @@ internal fun StylusSettingsSubPage(
                 options = cursorStyleOptions,
                 onSelect = { vm.updateCursorStyleMode(it) }
             )
-            SettingsCardDivider()
-            SettingSwitchRow(
-                title = "驻停线条成形",
-                summary = "功能重构中，暂未开放",
-                checked = false,
-                enabled = false,
-                onCheckedChange = { }
-            )
         }
 
         Spacer(Modifier.height(18.dp))
 
-        // 2. 快捷手势与按键 (Grouped Rounded Card)
-        SettingCategoryHeader("手势与按键映射")
-        GroupedSettingsCard {
-            val actionOptions = listOf(
-                "切换画笔与橡皮" to "toggle_eraser",
-                "撤销" to "undo",
-                "重做" to "redo",
-                "吸管取色" to "tool_picker",
-                "切换上一工具" to "toggle_last_tool",
-                "快捷调色盘" to "tool_color",
-                "无操作" to "none"
-            )
-            val isSamsung = detectedDevices.any { it.brand == StylusBrand.SAMSUNG_SPEN && (it.isCurrentDeviceSupported || it.isConnected) }
-            if (isSamsung) {
-                val singleTitle = actionOptions.find { it.second == vm.samsungSingleClickAction }?.first ?: "切换画笔与橡皮"
-                SettingDropdownRow(
-                    title = "侧键单击动作",
-                    currentText = singleTitle,
-                    options = actionOptions.map { it.first },
-                    onSelect = { idx ->
-                        vm.updateSamsungSingleClickAction(actionOptions[idx].second)
-                    }
-                )
-                SettingsCardDivider()
-                val doubleTitle = actionOptions.find { it.second == vm.samsungDoubleClickAction }?.first ?: "撤销"
-                SettingDropdownRow(
-                    title = "侧键双击动作",
-                    currentText = doubleTitle,
-                    options = actionOptions.map { it.first },
-                    onSelect = { idx ->
-                        vm.updateSamsungDoubleClickAction(actionOptions[idx].second)
-                    }
-                )
-            } else {
-                val doubleTapTitle = actionOptions.find { it.second == vm.oppoDoubleTapAction }?.first ?: "切换画笔与橡皮"
-                SettingDropdownRow(
-                    title = "笔身双击动作",
-                    currentText = doubleTapTitle,
-                    options = actionOptions.map { it.first },
-                    onSelect = { idx ->
-                        vm.updateOppoDoubleTapAction(actionOptions[idx].second)
-                    }
-                )
-                if (vm.oppoPencilModel.hasSlideGesture) {
-                    SettingsCardDivider()
-                    val slideActionOptions = listOf(
-                        "滑动调节画笔粗细" to "adjust_brush_size",
-                        "滑动调节不透明度" to "adjust_opacity",
-                        "撤销与重做" to "undo_redo",
-                        "无操作" to "none"
-                    )
-                    val slideTitle = slideActionOptions.find { it.second == vm.oppoSlideAction }?.first ?: "滑动调节画笔粗细"
-                    SettingDropdownRow(
-                        title = "笔身触控滑动动作",
-                        currentText = slideTitle,
-                        options = slideActionOptions.map { it.first },
-                        onSelect = { idx ->
-                            vm.updateOppoSlideAction(slideActionOptions[idx].second)
-                        }
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        // 3. 触感反馈与震动 (Grouped Rounded Card)
+        // 2. 触感反馈与震动 (Grouped Rounded Card)
         SettingCategoryHeader("触感反馈与震动")
         GroupedSettingsCard {
             SettingSwitchRow(
@@ -377,7 +303,7 @@ internal fun StylusSettingsSubPage(
                     StylusBrand.OPPO_ONEPLUS -> {
                         SettingStylusDeviceRow(
                             title = device.deviceName,
-                            summary = "笔身双击与滑动触控、内置微震、低延迟预测",
+                            summary = "笔身手势、滑动触控与原笔迹微震专属配置",
                             isCurrentDevice = device.isCurrentDeviceSupported,
                             isConnected = device.isConnected,
                             onClick = { showOppoConfigDialog = true }
@@ -386,7 +312,7 @@ internal fun StylusSettingsSubPage(
                     StylusBrand.SAMSUNG_SPEN -> {
                         SettingStylusDeviceRow(
                             title = device.deviceName,
-                            summary = "侧键单击/双击/长按映射、触觉微震",
+                            summary = "侧键动作映射与触觉微震专属配置",
                             isCurrentDevice = device.isCurrentDeviceSupported,
                             isConnected = device.isConnected,
                             onClick = { showSamsungConfigDialog = true }
@@ -395,7 +321,7 @@ internal fun StylusSettingsSubPage(
                     StylusBrand.GENERIC -> {
                         SettingStylusDeviceRow(
                             title = device.deviceName,
-                            summary = "标准 4096 级压感与倾角协议",
+                            summary = "标准 Android 压感与倾角触控协议",
                             isCurrentDevice = device.isCurrentDeviceSupported,
                             isConnected = device.isConnected,
                             onClick = null
@@ -494,7 +420,7 @@ private fun OppoPencilConfigDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "OPPO / 一加手写笔",
+                        text = "OPPO / 一加手写笔专属设置",
                         color = colors.text,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
@@ -518,15 +444,32 @@ private fun OppoPencilConfigDialog(
 
                 Spacer(Modifier.height(14.dp))
 
-                // 设备硬件规格简报
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.panelHi.copy(alpha = 0.5f))
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Column {
+                // 设备硬件规格与型号选择
+                GroupedSettingsCard(containerColor = colors.panelHi) {
+                    val currentModelText = when (vm.oppoPencilModelMode) {
+                        "PRO" -> "OPPO Pencil 2 Pro / OnePlus Stylo 2"
+                        "STANDARD" -> "标准版手写笔 (无触控条)"
+                        else -> "自动识别 (${vm.detectedOppoPencilModel.editionName})"
+                    }
+                    val modelOptions = listOf(
+                        "AUTO" to "自动识别 (${vm.detectedOppoPencilModel.editionName})",
+                        "PRO" to "OPPO Pencil 2 Pro / OnePlus Stylo 2",
+                        "STANDARD" to "标准版手写笔 (无触控条)"
+                    )
+                    SettingDropdownRow(
+                        title = "设备型号",
+                        currentText = currentModelText,
+                        options = modelOptions.map { it.second },
+                        onSelect = { idx ->
+                            vm.updateOppoPencilModelMode(modelOptions[idx].first)
+                        }
+                    )
+                    SettingsCardDivider()
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = vm.oppoPencilModel.displayName,
@@ -542,19 +485,19 @@ private fun OppoPencilConfigDialog(
                                 fontWeight = FontWeight.Medium
                             )
                         }
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(3.dp))
                         Text(
                             text = vm.oppoPencilModel.desc,
                             color = colors.subText,
                             fontSize = 11.sp,
-                            lineHeight = 15.sp
+                            lineHeight = 16.sp
                         )
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("笔身手势动作")
+                SettingCategoryHeader("手势与按键映射")
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     val currentTitle = actionOptions.find { it.second == vm.oppoDoubleTapAction }?.first ?: "切换画笔与橡皮"
                     SettingDropdownRow(

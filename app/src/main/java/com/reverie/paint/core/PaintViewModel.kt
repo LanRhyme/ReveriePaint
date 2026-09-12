@@ -1001,10 +1001,12 @@ class PaintViewModel : ViewModel() {
     }
 
     fun executeStylusSlide(delta: Float) {
+        // 反转滑动方向以符合自然滑动交互（向笔尾滑动为增加，向笔尖滑动为减少）
+        val effectiveDelta = -delta
         when (oppoSlideAction) {
             "adjust_brush_size" -> {
                 val step = if (brushSize > 60.0) 5.0 else if (brushSize > 20.0) 2.0 else 1.0
-                val newSize = (brushSize + (if (delta > 0) step else -step)).coerceIn(1.0, 500.0)
+                val newSize = (brushSize + (if (effectiveDelta > 0) step else -step)).coerceIn(1.0, 500.0)
                 updateBrushSize(newSize)
                 if (::appContext.isInitialized) {
                     mainHandler.post {
@@ -1014,7 +1016,7 @@ class PaintViewModel : ViewModel() {
             }
             "adjust_opacity" -> {
                 val step = 0.05
-                val newOpacity = (brushOpacity + (if (delta > 0) step else -step)).coerceIn(0.01, 1.0)
+                val newOpacity = (brushOpacity + (if (effectiveDelta > 0) step else -step)).coerceIn(0.01, 1.0)
                 updateBrushOpacity(newOpacity)
                 if (::appContext.isInitialized) {
                     mainHandler.post {
@@ -1023,7 +1025,7 @@ class PaintViewModel : ViewModel() {
                 }
             }
             "undo_redo" -> {
-                if (delta > 0) redo() else undo()
+                if (effectiveDelta > 0) redo() else undo()
             }
         }
     }
