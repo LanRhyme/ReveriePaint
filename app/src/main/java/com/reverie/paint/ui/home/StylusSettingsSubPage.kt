@@ -5,9 +5,6 @@
 package com.reverie.paint.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,14 +12,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.ControlCamera
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,13 +34,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.stylus.StylusBrand
 import com.reverie.paint.ui.home.stylus.CompactPressureCurveCard
@@ -51,6 +51,7 @@ import com.reverie.paint.ui.theme.Theme
 internal fun StylusSettingsSubPage(
     vm: PaintViewModel,
     showBackButton: Boolean = true,
+    compact: Boolean = false,
     onBack: () -> Unit,
 ) {
     val colors = Theme.current
@@ -78,155 +79,147 @@ internal fun StylusSettingsSubPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 680.dp)
-                .padding(horizontal = 20.dp, vertical = 20.dp),
+                .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
         ) {
-            // Back Bar
-            if (showBackButton) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onBack),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_arrow_left),
-                            contentDescription = "返回",
-                            tint = colors.text,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = "手写笔设置",
-                        color = colors.text,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
+            SettingSubPageHeader(
+                title = "手写笔设置",
+                subtitle = "手写笔硬件级适配、触感音效与高精度压感映射",
+                showBackButton = showBackButton,
+                compact = compact,
+                onBack = onBack,
+            )
 
-            // 1. 触控与光标设置 (Grouped Rounded Card)
-            SettingCategoryHeader("触控与光标")
-            GroupedSettingsCard {
-                SettingSwitchRow(
+            // 1. 触控与光标设置
+            SettingCategoryTitle("触控与光标")
+            SettingGroup {
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.Edit,
                     title = "笔模式",
                     summary = "开启后禁止手指绘制，单指可平移画布，双指可缩放与旋转画布",
                     checked = vm.penOnlyMode,
+                    shape = settingGroupShape(0, 5),
                     onCheckedChange = { vm.updatePenOnlyMode(it) },
                 )
-                SettingsCardDivider()
-                SettingSwitchRow(
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.Speed,
                     title = "超低延迟笔迹预测",
                     summary = "采用 120Hz/144Hz 毫秒级瞬态前向预测，笔迹即时紧跟笔尖",
                     checked = vm.stylusStrokePredictionEnabled,
+                    shape = settingGroupShape(1, 5),
                     onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                 )
-                SettingsCardDivider()
-                SettingDropdownRow(
+                SettingDropdownGroupItem(
+                    icon = Icons.Rounded.Brush,
                     title = "画笔光标",
+                    summary = "画笔悬浮或绘制时的光标显示策略",
                     currentText = cursorModeOptions.getOrElse(vm.brushCursorMode) { "不显示" },
                     options = cursorModeOptions,
+                    shape = settingGroupShape(2, 5),
                     onSelect = { vm.updateBrushCursorMode(it) },
                 )
-                SettingsCardDivider()
-                SettingDropdownRow(
+                SettingDropdownGroupItem(
+                    icon = Icons.Rounded.AutoFixHigh,
                     title = "橡皮光标",
+                    summary = "橡皮擦悬浮或擦除时的光标显示策略",
                     currentText = cursorModeOptions.getOrElse(vm.eraserCursorMode) { "绘画和悬空显示" },
                     options = cursorModeOptions,
+                    shape = settingGroupShape(3, 5),
                     onSelect = { vm.updateEraserCursorMode(it) },
                 )
-                SettingsCardDivider()
-                SettingDropdownRow(
+                SettingDropdownGroupItem(
+                    icon = Icons.Rounded.ControlCamera,
                     title = "光标样式",
+                    summary = "准星形态、单点圆环或系统光标",
                     currentText = cursorStyleOptions.getOrElse(vm.cursorStyleMode) { "圆形" },
                     options = cursorStyleOptions,
+                    shape = settingGroupShape(4, 5),
                     onSelect = { vm.updateCursorStyleMode(it) },
                 )
             }
 
-            Spacer(Modifier.height(18.dp))
-
-            // 2. 真实书写音效 (Grouped Rounded Card)
-            SettingCategoryHeader("真实书写音效")
-            GroupedSettingsCard {
-                SettingSwitchRow(
+            // 2. 真实书写音效
+            SettingCategoryTitle("真实书写音效")
+            SettingGroup {
+                val audioTotal = if (vm.stylusAudioEnabled) 3 else 1
+                SettingSwitchGroupItem(
+                    icon = Icons.AutoMirrored.Rounded.VolumeUp,
                     title = "纸张微摩擦音效",
                     summary = "落笔与运笔时模拟真实笔尖在纸张上的微摩擦发声，营造沉浸式触感体验",
                     checked = vm.stylusAudioEnabled,
+                    shape = settingGroupShape(0, audioTotal),
                     onCheckedChange = { vm.updateStylusAudioEnabled(it) },
                 )
                 if (vm.stylusAudioEnabled) {
-                    SettingsCardDivider()
-                    SettingDropdownRow(
+                    SettingDropdownGroupItem(
+                        icon = Icons.Rounded.MusicNote,
                         title = "音效类型",
+                        summary = "不同真实笔尖与纸张材质微触质感",
                         currentText = audioTypeOptions.getOrElse(vm.stylusAudioTypeOrdinal) { "铅笔沙沙 (细腻磨砂)" },
                         options = audioTypeOptions,
+                        shape = settingGroupShape(1, audioTotal),
                         onSelect = { idx ->
                             vm.updateStylusAudioTypeOrdinal(idx)
                         },
                     )
-                    SettingsCardDivider()
-                    SettingSliderRow(
+                    SettingSliderGroupItem(
+                        icon = Icons.AutoMirrored.Rounded.VolumeDown,
                         title = "音效音量",
-                        summary = "${(vm.stylusAudioVolume * 100).toInt()}%",
-                        value = vm.stylusAudioVolume,
+                        summary = "纸张微摩擦声播放音量",
+                        valueText = "${(vm.stylusAudioVolume * 100).toInt()}%",
+                        sliderFraction = vm.stylusAudioVolume,
+                        shape = settingGroupShape(2, audioTotal),
                         onValueChange = { vm.updateStylusAudioVolume(it) },
                     )
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            // 3. 全局压力曲线
+            SettingCategoryTitle("全局压力曲线")
+            SettingGroup {
+                SettingCardBox(shape = settingGroupShape(0, 1)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            SettingIcon(icon = Icons.Rounded.Timeline, tint = colors.icon)
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = "压力曲线映射",
+                                    color = colors.text,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "手感偏硬时可选用「轻压灵敏」预设或微调控制点",
+                                    color = colors.subText,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                )
+                            }
+                        }
 
-            // 3. 全局压力曲线 (Grouped Rounded Card)
-            SettingCategoryHeader("全局压力曲线")
-            GroupedSettingsCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "压力曲线映射",
-                        color = colors.text,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "部分手写笔手感偏硬时，可选择「轻压灵敏」预设或展开微调控制点",
-                        color = colors.subText,
-                        fontSize = 11.sp,
-                        modifier = Modifier.weight(1f),
-                    )
+                        Spacer(Modifier.height(14.dp))
+
+                        // 紧凑只读曲线卡片 (零垂直滚动冲突，点击唤起微调弹窗)
+                        CompactPressureCurveCard(
+                            points = vm.pressureControlPoints,
+                            presetIndex = vm.pressureCurvePreset,
+                            onSelectPreset = { vm.updatePressureCurvePreset(it) },
+                            onOpenEditDialog = { showPressureCurveDialog = true },
+                            onOpenHelpDialog = { showHelpDialog = true },
+                        )
+                    }
                 }
-
-                Spacer(Modifier.height(8.dp))
-
-                // 紧凑只读曲线卡片 (零垂直滚动冲突，点击唤起微调弹窗)
-                CompactPressureCurveCard(
-                    points = vm.pressureControlPoints,
-                    presetIndex = vm.pressureCurvePreset,
-                    onSelectPreset = { vm.updatePressureCurvePreset(it) },
-                    onOpenEditDialog = { showPressureCurveDialog = true },
-                    onOpenHelpDialog = { showHelpDialog = true },
-                )
             }
 
-            Spacer(Modifier.height(18.dp))
-
-            // 4. 已适配的手写笔生态 (专属品牌设备与自动检测置顶 - 移至页面底部)
-            SettingCategoryHeader("已适配的手写笔品牌与设备")
-            GroupedSettingsCard {
+            // 4. 已适配的手写笔品牌与设备
+            SettingCategoryTitle("已适配的手写笔品牌与设备")
+            SettingGroup {
                 detectedDevices.forEachIndexed { index, device ->
-                    if (index > 0) {
-                        SettingsCardDivider()
-                    }
+                    val shape = settingGroupShape(index, detectedDevices.size)
                     when (device.brand) {
                         StylusBrand.OPPO_ONEPLUS -> {
                             SettingStylusDeviceRow(
@@ -234,6 +227,7 @@ internal fun StylusSettingsSubPage(
                                 summary = "笔身手势、触控滑动与原笔迹微震专属配置",
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
+                                shape = shape,
                                 onClick = { activeConfigBrand = StylusBrand.OPPO_ONEPLUS },
                             )
                         }
@@ -243,6 +237,7 @@ internal fun StylusSettingsSubPage(
                                 summary = "侧键动作映射与触觉微震专属配置",
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
+                                shape = shape,
                                 onClick = { activeConfigBrand = StylusBrand.SAMSUNG_SPEN },
                             )
                         }
@@ -252,6 +247,7 @@ internal fun StylusSettingsSubPage(
                                 summary = "标准 Android 压感与倾角触控协议",
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
+                                shape = shape,
                                 onClick = null,
                             )
                         }

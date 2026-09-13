@@ -294,57 +294,69 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
             Modifier
                 .fillMaxSize()
                 .background(colors.bg)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 24.dp),
+                .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = "设置",
-            color = colors.text,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 20.dp),
-        )
-
-        GroupedSettingsCard {
-            // 通用设置
-            SettingNavRow(
-                iconRes = R.drawable.ic_settings,
-                title = "通用设置",
-                summary = "自动保存时间间隔、提示与撤销历史上限",
-                onClick = { onNavigate(SettingsSubPage.GENERAL) },
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
+                .padding(horizontal = 20.dp, vertical = 24.dp),
+        ) {
+            Text(
+                text = "设置",
+                color = colors.text,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "应用偏好设置、界面主题与绘图硬件配置",
+                color = colors.subText,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            SettingsCardDivider()
+            SettingCategoryTitle("偏好与硬件")
+            SettingGroup {
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_settings,
+                    title = "通用设置",
+                    summary = "自动保存时间间隔、提示与撤销历史上限",
+                    shape = settingGroupShape(0, 3),
+                    onClick = { onNavigate(SettingsSubPage.GENERAL) },
+                )
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_palette,
+                    title = "主题设置",
+                    summary = "主色调、面板透明度与全屏沉浸模式",
+                    shape = settingGroupShape(1, 3),
+                    onClick = { onNavigate(SettingsSubPage.THEME) },
+                )
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_pencil,
+                    title = "手写笔设置",
+                    summary = "专属手写笔适配、书写震动发声与全局压力曲线",
+                    shape = settingGroupShape(2, 3),
+                    onClick = { onNavigate(SettingsSubPage.STYLUS) },
+                )
+            }
 
-            // 主题设置
-            SettingNavRow(
-                iconRes = R.drawable.ic_palette,
-                title = "主题设置",
-                summary = "主色调、面板透明度与全屏沉浸模式",
-                onClick = { onNavigate(SettingsSubPage.THEME) },
-            )
+            Spacer(Modifier.height(4.dp))
 
-            SettingsCardDivider()
+            SettingCategoryTitle("软件信息")
+            SettingGroup {
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_info_circle,
+                    title = "关于应用",
+                    summary = "版本、作者与系统架构信息",
+                    badge = "v${com.reverie.paint.BuildConfig.VERSION_NAME}",
+                    shape = settingGroupShape(0, 1),
+                    onClick = { onNavigate(SettingsSubPage.ABOUT) },
+                )
+            }
 
-            // 手写笔设置
-            SettingNavRow(
-                iconRes = R.drawable.ic_pencil,
-                title = "手写笔设置",
-                summary = "专属手写笔适配、书写震动发声与全局压力曲线",
-                onClick = { onNavigate(SettingsSubPage.STYLUS) },
-            )
-
-            SettingsCardDivider()
-
-            // 关于应用
-            SettingNavRow(
-                iconRes = R.drawable.ic_info_circle,
-                title = "关于应用",
-                summary = "版本、作者与系统架构信息",
-                onClick = { onNavigate(SettingsSubPage.ABOUT) },
-            )
+            Spacer(Modifier.height(100.dp))
         }
-
-        Spacer(Modifier.height(100.dp))
     }
 }
