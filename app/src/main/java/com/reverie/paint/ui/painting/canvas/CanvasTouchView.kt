@@ -587,52 +587,75 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         // 1.5 硬件笔尖前向超前预测延伸 (OEM Hardware Stroke Prediction)
         // 实时预测未来 15~20ms 笔尖切线，微羽化延伸消除 144Hz 屏幕 1~2 帧物理上屏延迟
+        // 遵循画世界 Pro 规范：自动排斥带材质/颗粒/低透明度笔刷，限制极短微切线并平滑渐隐
         // =========================================================================
         val predPt = predictedScreenPoint
         val curPos = localCursorPos
-        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
-        if (v.stylusStrokePredictionEnabled && localIsTouching && isDrawingTool && predPt != null && curPos != null) {
+        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER
+        if (v.isCurrentBrushPredictionEligible && localIsTouching && isDrawingTool && predPt != null && curPos != null) {
             try {
                 val dx = predPt.x - curPos.x
                 val dy = predPt.y - curPos.y
                 val dist = hypot(dx, dy)
-                if (dist in 2f..(60f * density) && predictedPressure > 0.03f) {
-                    val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                    val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
-                    val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
-                    val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
-
-                    val isEraser = tool == Tool.ERASER
-                    val baseColor = if (isEraser) {
-                        android.graphics.Color.WHITE
-                    } else {
-                        try {
-                            android.graphics.Color.parseColor(v.brushColor)
-                        } catch (_: Throwable) {
-                            android.graphics.Color.BLACK
+                val maxDistPx = 14f * density
+                val minDistPx = 2.5f * density
+                if (dist in minDistPx..(maxDistPx * 3.5f) && predictedPressure > 0.05f) {
+                    val prevPos = previousSinglePos
+                    var angleOk = true
+                    if (prevPos != Offset.Zero) {
+                        val v1x = curPos.x - prevPos.x
+                        val v1y = curPos.y - prevPos.y
+                        val len1 = hypot(v1x, v1y)
+                        if (len1 > 1.5f) {
+                            val dot = (v1x * dx + v1y * dy) / (len1 * dist)
+                            if (dot < 0.55f) { // 急转弯或大幅变向时抑制直线外推
+                                angleOk = false
+                            }
                         }
                     }
-                    val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
 
-                    val startColor = android.graphics.Color.argb(
-                        (baseAlpha * 0.75f * 255).toInt().coerceIn(0, 255),
-                        android.graphics.Color.red(baseColor),
-                        android.graphics.Color.green(baseColor),
-                        android.graphics.Color.blue(baseColor)
-                    )
-                    val endColor = android.graphics.Color.argb(
-                        (baseAlpha * 0.25f * 255).toInt().coerceIn(0, 255),
-                        android.graphics.Color.red(baseColor),
-                        android.graphics.Color.green(baseColor),
-                        android.graphics.Color.blue(baseColor)
-                    )
-                    tipShaderPaint.strokeWidth = strokeWidth
-                    tipShaderPaint.shader = android.graphics.LinearGradient(
-                        curPos.x, curPos.y, predPt.x, predPt.y,
-                        startColor, endColor,
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                    canvas.drawLine(curPos.x, curPos.y, predPt.x, predPt.y, tipShaderPaint)
+                    if (angleOk) {
+                        val clampDist = dist.coerceAtMost(maxDistPx)
+                        val endX = curPos.x + (dx / dist) * clampDist
+                        val endY = curPos.y + (dy / dist) * clampDist
+
+                        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                        val cursorBrushSize = v.brushSize.toFloat()
+                        val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                        val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
+
+                        val isEraser = tool == Tool.ERASER
+                        val baseColor = if (isEraser) {
+                            android.graphics.Color.WHITE
+                        } else {
+                            try {
+                                android.graphics.Color.parseColor(v.brushColor)
+                            } catch (_: Throwable) {
+                                android.graphics.Color.BLACK
+                            }
+                        }
+                        val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
+
+                        val startColor = android.graphics.Color.argb(
+                            (baseAlpha * 0.55f * 255).toInt().coerceIn(0, 255),
+                            android.graphics.Color.red(baseColor),
+                            android.graphics.Color.green(baseColor),
+                            android.graphics.Color.blue(baseColor)
+                        )
+                        val endColor = android.graphics.Color.argb(
+                            0, // 终点彻底渐隐至 0% 透明度，彻底消除圆形粗钝 Cap 假线感
+                            android.graphics.Color.red(baseColor),
+                            android.graphics.Color.green(baseColor),
+                            android.graphics.Color.blue(baseColor)
+                        )
+                        tipShaderPaint.strokeWidth = strokeWidth
+                        tipShaderPaint.shader = android.graphics.LinearGradient(
+                            curPos.x, curPos.y, endX, endY,
+                            startColor, endColor,
+                            android.graphics.Shader.TileMode.CLAMP
+                        )
+                        canvas.drawLine(curPos.x, curPos.y, endX, endY, tipShaderPaint)
+                    }
                 }
             } catch (_: Throwable) {}
         }
@@ -1050,7 +1073,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     } else {
                         val isEraser = tool == Tool.ERASER
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
-                        if (cursorMode == 1 || cursorMode == 3 || (v.stylusStrokePredictionEnabled && predictedScreenPoint != null)) {
+                        if (cursorMode == 1 || cursorMode == 3 || (v.isCurrentBrushPredictionEligible && predictedScreenPoint != null)) {
                             invalidate()
                         }
                     }
@@ -1730,7 +1753,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 // OEM 硬件前向预测计算 (抵消 144Hz 屏幕 1~2 帧约 14~20ms 物理显示上屏延迟)
-                if (isStylus && v.stylusStrokePredictionEnabled) {
+                if (isStylus && v.isCurrentBrushPredictionEligible) {
                     val op = oplusPredictor
                     if (op != null && op.isValid) {
                         try {

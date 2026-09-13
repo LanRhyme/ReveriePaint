@@ -653,6 +653,69 @@ class PaintViewModel : ViewModel() {
     // 触控预测与输入延迟优化
     var motionPredictorEnabled by mutableStateOf(true)
 
+    /**
+     * 判定当前笔刷是否适用于前向矢量切线预测。
+     * 画世界 Pro / Procreate 规范：
+     * 仅对纯色、实心、无纹理的线稿类基础笔刷启用切线预测；
+     * 自动排除带颗粒纹理、杂色抖动、低透明度罩染、大间距打点、复杂水彩/涂抹/笔刷印章的笔刷，
+     * 避免在有质感的笔迹前方拉出生硬突兀的矢量直线。
+     */
+    val isCurrentBrushPredictionEligible: Boolean
+        get() {
+            if (!stylusStrokePredictionEnabled) return false
+            if (currentToolId != "brush" && currentToolId != "eraser") return false
+
+            // 1. 混合模式与涂抹检查：非 normal/erase 模式或涂抹不进行矢量假线预测
+            if (currentToolId == "smudge") return false
+            if (brushCompositeOp != "normal" && brushCompositeOp != "erase" && brushCompositeOp.isNotEmpty()) return false
+
+            // 2. 纹理与颗粒检查：启用了纹理贴图或散布则不进行假线延伸
+            if (brushTextureEnabled) return false
+            if (brushScatter > 0.01) return false
+            if (brushSpacing > 0.25) return false
+
+            // 3. 透明度与流量检查：低不透明度（如淡彩、喷笔罩染等）不拉实体线
+            if (brushOpacity < 0.65 || (brushFlow > 0.0 && brushFlow < 0.65)) return false
+
+            // 4. 笔刷预设与分组检查：排除天然带纹理、特殊印章或水彩混合类材质笔刷
+            val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
+            val grp = preset?.group?.ifEmpty { null } ?: inferBrushGroup(preset?.name ?: "")
+            val excludedGroups = setOf("铅笔", "水彩", "混合", "绘画", "纹理与排线", "印章与喷溅", "特效与滤镜", "速写", "形状")
+            if (excludedGroups.contains(grp)) return false
+
+            val name = preset?.name ?: ""
+            if (name.contains("Pencil", ignoreCase = true) ||
+                name.contains("Chalk", ignoreCase = true) ||
+                name.contains("Charcoal", ignoreCase = true) ||
+                name.contains("Pastel", ignoreCase = true) ||
+                name.contains("Bristle", ignoreCase = true) ||
+                name.contains("Dry", ignoreCase = true) ||
+                name.contains("Texture", ignoreCase = true) ||
+                name.contains("Wet", ignoreCase = true) ||
+                name.contains("Water", ignoreCase = true) ||
+                name.contains("Stamp", ignoreCase = true) ||
+                name.contains("Spray", ignoreCase = true) ||
+                name.contains("Splat", ignoreCase = true) ||
+                name.contains("Sponge", ignoreCase = true) ||
+                name.contains("Airbrush", ignoreCase = true) ||
+                name.contains("Sketch", ignoreCase = true) ||
+                name.contains("Curve", ignoreCase = true) ||
+                name.contains("Blender", ignoreCase = true) ||
+                name.contains("Smudge", ignoreCase = true) ||
+                name.contains("Rake", ignoreCase = true) ||
+                name.contains("Hatch", ignoreCase = true) ||
+                name.contains("Screentone", ignoreCase = true) ||
+                name.contains("Noise", ignoreCase = true) ||
+                name.contains("Grain", ignoreCase = true) ||
+                name.contains("Blur", ignoreCase = true) ||
+                name.contains("Shade", ignoreCase = true) ||
+                name.contains("Fuzzy", ignoreCase = true)) {
+                return false
+            }
+
+            return true
+        }
+
     // 绘图辅助与参考线状态 (Symmetry, Perspective, Grid)
     var drawingGuide by mutableStateOf(DrawingGuideConfig())
 
