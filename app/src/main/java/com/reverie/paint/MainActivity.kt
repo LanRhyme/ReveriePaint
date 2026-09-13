@@ -99,21 +99,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vm: PaintViewModel = viewModel()
             currentViewModel = vm
-            vm.appContext = applicationContext
-            vm.getOrCreateStylusDriver(applicationContext)
-            vm.updateColorPickerMode(
-                applicationContext
-                    .getSharedPreferences(
-                        "paint_prefs",
-                        android.content.Context.MODE_PRIVATE,
-                    ).getString("colorPickerMode", "SQUARE")
-                    ?: "SQUARE",
-            )
-            // Restore all persisted settings (accent color, opacities, immersive, cutout)
-            vm.syncSettingsFromPrefs()
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                vm.appContext = applicationContext
+                vm.getOrCreateStylusDriver(applicationContext)
+                vm.updateColorPickerMode(
+                    applicationContext
+                        .getSharedPreferences(
+                            "paint_prefs",
+                            android.content.Context.MODE_PRIVATE,
+                        ).getString("colorPickerMode", "SQUARE")
+                        ?: "SQUARE",
+                )
+                // Restore all persisted settings (accent color, opacities, immersive, cutout)
+                vm.syncSettingsFromPrefs()
+                vm.refreshProjects()
+                vm.loadBrushPresets()
+            }
             applyImmersive(vm.immersiveMode, vm.extendToCutout)
-            vm.refreshProjects()
-            vm.loadBrushPresets()
             ReverieApp(vm)
         }
     }

@@ -819,7 +819,11 @@ internal fun PaintViewModel.refreshDisplay() {
     scheduleRender(immediate = true)
 }
 
-internal fun PaintViewModel.loadBrushPresets() {
+private var brushPresetsLoaded = false
+
+internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
+    if (brushPresetsLoaded && !force) return
+    brushPresetsLoaded = true
     loadToolOptions()
     loadViewSettings()
     loadShortcuts()
