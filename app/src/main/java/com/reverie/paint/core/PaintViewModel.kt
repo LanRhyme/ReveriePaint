@@ -2450,27 +2450,17 @@ class PaintViewModel : ViewModel() {
                 }
             }
             pendingDisplay = buf
-
-            // SurfaceView 硬件加速直出：在 renderHandler 线程直接通过 lockHardwareCanvas 提交 GPU 帧
-            val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-            val surfaceRendered = if (touchView != null && touchView.isSurfaceAvailable) {
-                touchView.renderSurfaceFrame()
-                true
-            } else {
-                false
-            }
-
-            // 若处于连续手写笔/手指绘画交互中且 SurfaceView 成功输出，则跳过 UI 主线程与 Compose 重组调度；
-            // 抬笔（touchEnd）或非交互状态（滤镜/撤销/图层变更/Replay）时同步 displayBitmap 保证状态一致
-            val isDrawingActive = touchView?.isInteracting == true
-            if (!surfaceRendered || !isDrawingActive) {
-                mainHandler.post {
-                    if (displayBitmap !== buf) displayBitmap = buf
-                    displayRevision++
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        buf.prepareToDraw()
-                    }
+            // Native wrote the back buffer's pixels on the render thread; the
+            // UI thread only flips the Compose reference and bumps the
+            // revision. A no-op render (nothing painted since the last frame)
+            // returns false and skips this flip entirely.
+            mainHandler.post {
+                if (displayBitmap !== buf) displayBitmap = buf
+                displayRevision++
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    buf.prepareToDraw()
                 }
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidateOnAnimation()
             }
         }
     }

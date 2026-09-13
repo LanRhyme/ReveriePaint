@@ -249,7 +249,7 @@ fun CanvasView(
                     viewW = it.width
                     viewH = it.height
                     vm.setRenderViewport(it.width, it.height)
-                },
+                }.background(Morandi.canvasBg),
     ) {
         CanvasOverlay(
             vm = vm,
