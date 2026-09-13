@@ -23,8 +23,6 @@ class StylusDriver(
     val adapters: List<StylusBrandAdapter> = listOf(
         OppoStylusAdapter(),
         SamsungStylusAdapter(),
-        HuaweiStylusAdapter(),
-        XiaomiStylusAdapter(),
         GenericStylusAdapter(),
     )
 

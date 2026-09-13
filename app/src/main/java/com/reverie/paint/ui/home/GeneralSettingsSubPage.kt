@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,13 +64,18 @@ internal fun GeneralSettingsSubPage(
     )
 
     Column(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(colors.bg)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(colors.bg)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
+                .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
+        ) {
         if (showBackButton) {
             Row(
                 modifier =
@@ -226,5 +232,6 @@ internal fun GeneralSettingsSubPage(
         }
 
         Spacer(Modifier.height(60.dp))
+        }
     }
 }

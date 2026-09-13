@@ -155,59 +155,44 @@ fun SettingsPageContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 6.dp, end = 2.dp, bottom = 16.dp),
+                        .padding(start = 6.dp, end = 6.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = "设置",
                         color = colors.text,
                         fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onExit),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_x),
-                            contentDescription = "关闭",
-                            tint = colors.subText,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
 
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
+                    modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
                 ) {
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_settings,
                         title = "通用设置",
                         isSelected = subPage == SettingsSubPage.GENERAL,
-                        onClick = { subPage = SettingsSubPage.GENERAL }
+                        onClick = { subPage = SettingsSubPage.GENERAL },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_palette,
                         title = "主题设置",
                         isSelected = subPage == SettingsSubPage.THEME,
-                        onClick = { subPage = SettingsSubPage.THEME }
+                        onClick = { subPage = SettingsSubPage.THEME },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_pencil,
                         title = "手写笔设置",
                         isSelected = subPage == SettingsSubPage.STYLUS,
-                        onClick = { subPage = SettingsSubPage.STYLUS }
+                        onClick = { subPage = SettingsSubPage.STYLUS },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_info_circle,
                         title = "关于应用",
                         isSelected = subPage == SettingsSubPage.ABOUT,
-                        onClick = { subPage = SettingsSubPage.ABOUT }
+                        onClick = { subPage = SettingsSubPage.ABOUT },
                     )
                 }
             }
@@ -217,36 +202,30 @@ fun SettingsPageContent(
                 modifier = Modifier
                     .width(1.dp)
                     .fillMaxHeight()
-                    .background(colors.border)
+                    .background(colors.border),
             )
 
-            // Right: Detail Content Pane
+            // Right: Detail Content Pane (Full width to allow swiping anywhere to scroll)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .background(colors.bg),
-                contentAlignment = Alignment.TopCenter
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .widthIn(max = 680.dp)
-                ) {
-                    AnimatedContent(
-                        targetState = subPage,
-                        transitionSpec = {
-                            fadeIn(tween(180)).togetherWith(fadeOut(tween(140)))
-                        },
-                        label = "TabletDetailTransition"
-                    ) { target ->
-                        when (target) {
-                            SettingsSubPage.GENERAL -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
-                            SettingsSubPage.THEME -> ThemeSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
-                            SettingsSubPage.STYLUS -> StylusSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
-                            SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
-                            SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
-                        }
+                AnimatedContent(
+                    targetState = subPage,
+                    transitionSpec = {
+                        fadeIn(tween(180)).togetherWith(fadeOut(tween(140)))
+                    },
+                    label = "TabletDetailTransition",
+                    modifier = Modifier.fillMaxSize(),
+                ) { target ->
+                    when (target) {
+                        SettingsSubPage.GENERAL -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        SettingsSubPage.THEME -> ThemeSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        SettingsSubPage.STYLUS -> StylusSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
+                        SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                     }
                 }
             }

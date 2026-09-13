@@ -99,9 +99,15 @@ fun AboutSettingsSubPage(
         modifier = Modifier
             .fillMaxSize()
             .background(if (compact) Color.Transparent else colors.bg)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = if (compact) 8.dp else 20.dp, vertical = if (compact) 8.dp else 20.dp),
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
+                .padding(horizontal = if (compact) 8.dp else 20.dp, vertical = if (compact) 8.dp else 20.dp),
+        ) {
         // 1. Navigation Header
         if (showBackButton) {
             Row(
@@ -443,6 +449,7 @@ fun AboutSettingsSubPage(
         }
 
         Spacer(Modifier.height(100.dp))
+        }
     }
 
     // 贡献者对话框 (MicYou 浮动气泡动画)

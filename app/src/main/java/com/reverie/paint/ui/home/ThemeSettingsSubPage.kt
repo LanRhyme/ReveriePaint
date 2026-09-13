@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -94,9 +95,15 @@ internal fun ThemeSettingsSubPage(
         modifier = Modifier
             .fillMaxSize()
             .background(colors.bg)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 20.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 680.dp)
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+        ) {
         // Native back bar
         if (showBackButton) {
             Row(
@@ -473,6 +480,7 @@ internal fun ThemeSettingsSubPage(
         }
 
         Spacer(Modifier.height(80.dp))
+        }
     }
 
     if (showCustomColorDialog) {
