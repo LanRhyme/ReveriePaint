@@ -2222,11 +2222,9 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
-        // Render only after real ink landed. Scheduling a +16ms render for
-        // no-flush samples used to steal render-thread time from input,
-        // widening the coalescing window and compounding pen latency.
+        // Render immediately in-place after ink landed to eliminate message queue roundtrip latency
         if (painted) {
-            scheduleRender()
+            doRender()
         }
     }
 
@@ -2375,15 +2373,8 @@ class PaintViewModel : ViewModel() {
 
     internal fun doRender() {
         renderScheduled = false
-        val rh = renderHandler
-        // Input-first: if stroke ops are queued ahead on this thread, let the
-        // stroke extend first and render after without extra artificial timer delay.
-        if (rh != null && pendingCoreOps.get() > 0 && renderDeferCount < 1) {
-            renderDeferCount++
-            rh.post { doRender() }
-            return
-        }
         renderDeferCount = 0
+        val rh = renderHandler
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
@@ -2469,6 +2460,7 @@ class PaintViewModel : ViewModel() {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     buf.prepareToDraw()
                 }
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidateOnAnimation()
             }
         }
     }

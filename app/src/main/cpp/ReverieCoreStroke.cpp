@@ -352,13 +352,6 @@ bool ReverieCore::flushStrokeBatch()
     }
     KoColor koBgColor(qBgColor, cs);
 
-    RPC_LOG("RPC stroke mode=%d isEraser=%d erasing=%d compOp=%s color=(%d,%d,%d,%d) opacity=%.2f preset=%s",
-            int(m_toolMode), isEraserPreset, erasing,
-            painterCompOp.toUtf8().constData(),
-            qColor.red(), qColor.green(), qColor.blue(), qColor.alpha(),
-            m_strokeOpacity,
-            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "null");
-
     // Krita-style: reuse one KisPainter for the whole stroke.
     if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
@@ -474,9 +467,6 @@ bool ReverieCore::flushStrokeBatch()
     }
 
     QRect strokeDirty;
-    RPC_LOG("RPC flush samples=%d preset=%d op=%d hadMove=%d brushSize=%.1f",
-            m_strokeSamples.size(), m_brushPreset != nullptr, m_strokeOp != nullptr,
-            m_strokeHadMove, double(m_brushSize));
     if (m_brushPreset && m_strokeOp) {
         // ---- Real Krita brush engine ----
         // Continuous paintLine through the samples (the op interpolates dabs
@@ -536,12 +526,6 @@ bool ReverieCore::flushStrokeBatch()
         }
         QVector<KisRunnableStrokeJobData *> jobs;
         m_strokeOp->doAsynchronousUpdate(jobs);
-        RPC_LOG("RPC update jobs=%d first=(%.0f,%.0f) last=(%.0f,%.0f)",
-                jobs.size(),
-                double(m_strokeSamples.first().imgPos.x()),
-                double(m_strokeSamples.first().imgPos.y()),
-                double(m_strokeSamples.last().imgPos.x()),
-                double(m_strokeSamples.last().imgPos.y()));
         for (auto *j : jobs) {
             j->run();
             delete j;

@@ -115,6 +115,12 @@ class CanvasTouchView(context: Context) : View(context) {
     private var localIsTouching = false
     private var localPressure = 1f
 
+    // 硬件加速直出渲染 Paint
+    private val directBitmapPaint = Paint().apply {
+        isFilterBitmap = true
+        isDither = true
+    }
+
     // 光标绘制 Paint (超细精细发丝线条)
     private val cursorPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -279,8 +285,6 @@ class CanvasTouchView(context: Context) : View(context) {
     private val tipTimeMs = LongArray(TIP_CAPACITY)
     private var tipCount = 0
 
-    private var predictedScreenPoint: Offset? = null
-    private var predictedPressure: Float = 1f
 
     private val immediateStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -318,7 +322,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun clearTipPoints() {
         tipCount = 0
-        predictedScreenPoint = null
         try {
             oplusPredictor?.reset()
         } catch (_: Throwable) {}
@@ -564,49 +567,26 @@ class CanvasTouchView(context: Context) : View(context) {
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
 
         // =========================================================================
-        // 1. 核心即时质感墨迹与超前预测笔迹 (Zero-Latency Predictive Ink Overlay)
-        // 核心铁律：墨迹覆盖层必须独立于光标设置全天候生效！在 120Hz/144Hz 下实现 0 延迟笔尖贴合
+        // 1. 硬件加速直出 Krita 渲染画布 (消除 Compose 重组调度延迟)
+        // 彻底移除 2D 预测假线与预测圆点，消除假线拖尾；墨迹 100% 来源于 Krita 原生真实渲染
         // =========================================================================
-        if (localIsTouching && strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER) && tipCount >= 1) {
-            try {
-                val isEraser = (tool == Tool.ERASER)
-                val bgHex = if (v.canvasBgColorHex == "DEFAULT" || v.canvasBgColorHex.isBlank()) "#FFFFFF" else v.canvasBgColorHex
-                val strokeColorInt = if (isEraser) {
-                    android.graphics.Color.parseColor(bgHex)
-                } else {
-                    android.graphics.Color.parseColor(v.brushColor)
-                }
-                val fullAlpha = (if (isEraser) 1.0 else (v.brushOpacity * v.brushFlow)).coerceIn(0.01, 1.0).toFloat()
+        if ((tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) &&
+            v.selectionOverlayBitmap == null && tfState?.active != true
+        ) {
+            val bmp = v.displayBitmap ?: docBitmap
+            if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
+                val imgW = bmp.width.toFloat()
+                val imgH = bmp.height.toFloat()
                 val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
-                val baseBrushRadiusScreen = (cursorBrushSize * scale * 0.5f).coerceAtLeast(1.5f)
-
-                immediateStrokePaint.color = strokeColorInt
-                immediateStrokePaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
-                immediateTipPaint.color = strokeColorInt
-                immediateTipPaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
-                immediateTipPaint.style = Paint.Style.FILL
-
-                val lastIdx = tipCount - 1
-                val lastX = tipScreenX[lastIdx]
-                val lastY = tipScreenY[lastIdx]
-                val lastP = tipPressure[lastIdx]
-                val lastPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(lastP) else 1f
-
-                val predScreen = predictedScreenPoint
-                if (predScreen != null) {
-                    // 超前预测笔尖点：仅连接最新物理采样点与预测笔尖，实现零延迟笔尖跟随，绝不绘制覆盖整条历史路径的假粗线
-                    val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
-                    val strokeWidth = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(1.5f)
-                    immediateStrokePaint.strokeWidth = strokeWidth
-                    canvas.drawLine(lastX, lastY, predScreen.x, predScreen.y, immediateStrokePaint)
-                    canvas.drawCircle(predScreen.x, predScreen.y, strokeWidth * 0.5f, immediateTipPaint)
-                } else if (tipCount <= 2) {
-                    // 无预测时，仅在刚落笔第一点绘制即时下墨反馈圆点，避免运笔过程中假线覆盖真实纹理
-                    val strokeWidth = (baseBrushRadiusScreen * 2f * lastPFrac).coerceAtLeast(1.5f)
-                    canvas.drawCircle(lastX, lastY, strokeWidth * 0.5f, immediateTipPaint)
-                }
-            } catch (_: Exception) {}
+                val centerX = viewW / 2f + canvasPanX
+                val centerY = viewH / 2f + canvasPanY
+                canvas.save()
+                canvas.translate(centerX, centerY)
+                canvas.rotate(canvasRotation)
+                canvas.scale(scale, scale)
+                canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+                canvas.restore()
+            }
         }
 
         // =========================================================================
@@ -1683,99 +1663,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 val assistedScreen = if (isAssist) docToScreen(effectiveDocPos) else curScreen
                 addTipPoint(assistedScreen.x, assistedScreen.y, pressure, event.eventTime)
 
-                // 实时前向运动预测计算 (Forward Motion Prediction)
-                if (v.stylusStrokePredictionEnabled && tipCount >= 2) {
-                    var hasPredicted = false
-                    if (oplusPredictor?.isValid == true) {
-                        try {
-                            val hSize = event.historySize
-                            for (hi in 0 until hSize) {
-                                oplusPredictor.pushTouchPoint(
-                                    OplusTouchPointInfo(
-                                        event.getHistoricalX(hi),
-                                        event.getHistoricalY(hi),
-                                        event.getHistoricalPressure(hi),
-                                        event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, hi),
-                                        event.getHistoricalEventTime(hi)
-                                    )
-                                )
-                            }
-                            oplusPredictor.pushTouchPoint(
-                                OplusTouchPointInfo(
-                                    event.x,
-                                    event.y,
-                                    event.pressure,
-                                    event.getAxisValue(MotionEvent.AXIS_TILT),
-                                    event.eventTime
-                                )
-                            )
-                            val pred = oplusPredictor.predictTouchPoint()
-                            if (pred != null && pred.x.isFinite() && pred.y.isFinite()) {
-                                val pScreen = Offset(pred.x, pred.y)
-                                val pAssistedScreen = if (isAssist) docToScreen(applyAssistedDrawing(firstDocPos, screenToDoc(pScreen))) else pScreen
-                                predictedScreenPoint = pAssistedScreen
-                                predictedPressure = if (pred.pressure > 0f) pred.pressure.coerceIn(0.01f, 1f) else pressure
-                                hasPredicted = true
-                            }
-                        } catch (_: Throwable) {}
-                    }
-
-                    if (!hasPredicted && Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
-                        try {
-                            motionPredictor.record(event)
-                            // 预测未来约 16~20ms（120Hz/144Hz 屏幕约 2 帧时间窗口）
-                            // 必须使用纳秒时间戳！
-                            val eventTimeNano = if (Build.VERSION.SDK_INT >= 34) {
-                                val tn = event.eventTimeNanos
-                                if (tn > 0L) tn else android.os.SystemClock.elapsedRealtimeNanos()
-                            } else {
-                                android.os.SystemClock.elapsedRealtimeNanos()
-                            }
-                            val predictedMotion = motionPredictor.predict(eventTimeNano + 20_000_000L)
-                            if (predictedMotion != null) {
-                                val pScreen = Offset(predictedMotion.x, predictedMotion.y)
-                                val pAssistedScreen = if (isAssist) docToScreen(applyAssistedDrawing(firstDocPos, screenToDoc(pScreen))) else pScreen
-                                predictedScreenPoint = pAssistedScreen
-                                predictedPressure = predictedMotion.pressure.coerceIn(0.01f, 1f)
-                                predictedMotion.recycle()
-                                hasPredicted = true
-                            }
-                        } catch (_: Throwable) {}
-                    }
-
-                    if (!hasPredicted) {
-                        val lastIdx = tipCount - 1
-                        val prevIdx = tipCount - 2
-                        val pLastX = tipScreenX[lastIdx]
-                        val pLastY = tipScreenY[lastIdx]
-                        val pLastP = tipPressure[lastIdx]
-                        val pLastT = tipTimeMs[lastIdx]
-
-                        val pPrevX = tipScreenX[prevIdx]
-                        val pPrevY = tipScreenY[prevIdx]
-                        val pPrevP = tipPressure[prevIdx]
-                        val pPrevT = tipTimeMs[prevIdx]
-
-                        val dt = (pLastT - pPrevT).coerceIn(2L, 45L).toFloat()
-                        val vx = (pLastX - pPrevX) / dt
-                        val vy = (pLastY - pPrevY) / dt
-                        val speed = hypot(vx, vy)
-                        // 抬笔预判防冲：压力急剧下降（降至前值 70% 以下）时不进行过冲预测
-                        val isLifting = tipCount >= 3 && pLastP < pPrevP * 0.7f
-                        if (speed > 0.05f && !isLifting) {
-                            val predDt = 16f // 前推约 16ms
-                            val maxDist = 80f * density // 屏幕物理像素限制
-                            val pDx = (vx * predDt).coerceIn(-maxDist, maxDist)
-                            val pDy = (vy * predDt).coerceIn(-maxDist, maxDist)
-                            predictedScreenPoint = Offset(pLastX + pDx, pLastY + pDy)
-                            predictedPressure = pLastP
-                        } else {
-                            predictedScreenPoint = null
-                        }
-                    }
-                } else {
-                    predictedScreenPoint = null
-                }
+                // 触控点记录完成，纯粹依靠底层直出 Krita 渲染墨迹
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
