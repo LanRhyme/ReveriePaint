@@ -6,8 +6,10 @@ package com.reverie.paint.core.stylus
 
 enum class StylusBrand(val displayName: String, val subtitle: String) {
     OPPO_ONEPLUS("OPPO Pencil / 一加智能手写笔", "适配笔身双击、书写震动、拟真发声与低延迟笔迹预测"),
-    SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空按键与书写微震反馈"),
-    GENERIC("通用触控手写笔", "标准压感、倾角检测与防误触"),
+    SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空指令与触觉反馈"),
+    HUAWEI_MPENCIL("华为 M-Pencil", "支持侧边触控手势、星闪NearLink超低延时与高刷采样"),
+    XIAOMI_SMARTPEN("小米 灵感/焦点触控笔", "支持主副按键映射、高刷压感与按键交互"),
+    GENERIC("通用触控手写笔", "标准 Android 压感、倾角检测与防误触"),
 }
 
 enum class StylusAction(val title: String, val actionId: String) {
