@@ -40,9 +40,9 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.stylus.StylusBrand
-import com.reverie.paint.ui.home.stylus.CurvePresetIcon
+import com.reverie.paint.ui.home.stylus.CompactPressureCurveCard
 import com.reverie.paint.ui.home.stylus.OppoStylusConfigDialog
-import com.reverie.paint.ui.home.stylus.PressureCurveEditor
+import com.reverie.paint.ui.home.stylus.PressureCurveDetailDialog
 import com.reverie.paint.ui.home.stylus.PressureCurveHelpDialog
 import com.reverie.paint.ui.home.stylus.SamsungStylusConfigDialog
 import com.reverie.paint.ui.theme.Theme
@@ -57,6 +57,7 @@ internal fun StylusSettingsSubPage(
     val context = LocalContext.current
 
     var showHelpDialog by remember { mutableStateOf(false) }
+    var showPressureCurveDialog by remember { mutableStateOf(false) }
     var activeConfigBrand by remember { mutableStateOf<StylusBrand?>(null) }
 
     val stylusDriver = remember { vm.getOrCreateStylusDriver(context) }
@@ -198,7 +199,7 @@ internal fun StylusSettingsSubPage(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "部分手写笔手感偏硬时，可选择「轻压灵敏」预设或拖动控制点自由调节",
+                        text = "部分手写笔手感偏硬时，可选择「轻压灵敏」预设或展开微调控制点",
                         color = colors.subText,
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f),
@@ -207,64 +208,14 @@ internal fun StylusSettingsSubPage(
 
                 Spacer(Modifier.height(8.dp))
 
-                // Interactive 4x4 Grid Curve Canvas
-                PressureCurveEditor(
+                // 紧凑只读曲线卡片 (零垂直滚动冲突，点击唤起微调弹窗)
+                CompactPressureCurveCard(
                     points = vm.pressureControlPoints,
-                    onPointsChanged = { newPoints ->
-                        vm.updateCustomPressureCurve(newPoints)
-                    },
+                    presetIndex = vm.pressureCurvePreset,
+                    onSelectPreset = { vm.updatePressureCurvePreset(it) },
+                    onOpenEditDialog = { showPressureCurveDialog = true },
+                    onOpenHelpDialog = { showHelpDialog = true },
                 )
-
-                Spacer(Modifier.height(10.dp))
-
-                // Bottom action bar (重置 + 5 预设图标 + 帮助 ?)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panelHi)
-                            .clickable { vm.updatePressureCurvePreset(0) }
-                            .padding(horizontal = 14.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "重置",
-                            color = colors.subText,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CurvePresetIcon(0, vm.pressureCurvePreset == 0) { vm.updatePressureCurvePreset(0) }
-                        CurvePresetIcon(1, vm.pressureCurvePreset == 1) { vm.updatePressureCurvePreset(1) }
-                        CurvePresetIcon(2, vm.pressureCurvePreset == 2) { vm.updatePressureCurvePreset(2) }
-                        CurvePresetIcon(3, vm.pressureCurvePreset == 3) { vm.updatePressureCurvePreset(3) }
-                        CurvePresetIcon(4, vm.pressureCurvePreset == 4) { vm.updatePressureCurvePreset(4) }
-
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .clickable { showHelpDialog = true },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_help_circle),
-                                contentDescription = "帮助",
-                                tint = colors.subText,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -314,6 +265,18 @@ internal fun StylusSettingsSubPage(
 
     if (showHelpDialog) {
         PressureCurveHelpDialog(onDismiss = { showHelpDialog = false })
+    }
+
+    if (showPressureCurveDialog) {
+        PressureCurveDetailDialog(
+            points = vm.pressureControlPoints,
+            presetIndex = vm.pressureCurvePreset,
+            onPointsChanged = { newPoints ->
+                vm.updateCustomPressureCurve(newPoints)
+            },
+            onSelectPreset = { vm.updatePressureCurvePreset(it) },
+            onDismiss = { showPressureCurveDialog = false },
+        )
     }
 
     when (activeConfigBrand) {

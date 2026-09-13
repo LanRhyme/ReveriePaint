@@ -188,6 +188,23 @@ internal fun OppoStylusConfigDialog(
                                 vm.updateOppoSlideAction(slideActionOptions[idx].second)
                             },
                         )
+                        if (vm.oppoSlideAction != "none") {
+                            SettingsCardDivider()
+                            val sensitivityOptions = listOf(
+                                "低灵敏度 (防误触)" to "low",
+                                "标准灵敏度 (推荐)" to "normal",
+                                "高灵敏度 (快速响应)" to "high",
+                            )
+                            val currentSensitivityTitle = sensitivityOptions.find { it.second == vm.oppoSlideSensitivity }?.first ?: "标准灵敏度 (推荐)"
+                            SettingDropdownRow(
+                                title = "滑动灵敏度",
+                                currentText = currentSensitivityTitle,
+                                options = sensitivityOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateOppoSlideSensitivity(sensitivityOptions[idx].second)
+                                },
+                            )
+                        }
                     }
                 }
 

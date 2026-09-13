@@ -27,13 +27,16 @@ class OppoStylusAdapter : StylusBrandAdapter {
     override val brand: StylusBrand = StylusBrand.OPPO_ONEPLUS
 
     companion object {
-        const val ACTION_OPPO_DOUBLE_CLICK = "com.oplus.ipemanager.pencil.double_click"
-        const val ACTION_OPPO_SINGLE_CLICK = "com.oplus.ipemanager.pencil.single_click"
+        const val ACTION_OPPO_DOUBLE_CLICK = "com.oplus.ipemanager.action.PENCIL_DOUBLE_CLICK"
+        const val ACTION_OPPO_SINGLE_CLICK = "com.oplus.ipemanager.action.PENCIL_SINGLE_CLICK"
+        const val ACTION_OPPO_DOUBLE_CLICK_LEGACY = "com.oplus.ipemanager.pencil.double_click"
+        const val ACTION_OPPO_SINGLE_CLICK_LEGACY = "com.oplus.ipemanager.pencil.single_click"
     }
 
     private var isReceiverRegistered = false
     private var isObserverRegistered = false
     private var lastSlideTime: Long = 0L
+    private var accumulatedSlideDelta: Float = 0f
 
     private var currentVm: PaintViewModel? = null
     private var currentFeedbackManager: StylusFeedbackManager? = null
@@ -46,10 +49,10 @@ class OppoStylusAdapter : StylusBrandAdapter {
             val vm = currentVm ?: return
             val fm = currentFeedbackManager
             when (action) {
-                ACTION_OPPO_DOUBLE_CLICK -> {
+                ACTION_OPPO_DOUBLE_CLICK, ACTION_OPPO_DOUBLE_CLICK_LEGACY -> {
                     handleDoubleTap(vm, fm)
                 }
-                ACTION_OPPO_SINGLE_CLICK -> {
+                ACTION_OPPO_SINGLE_CLICK, ACTION_OPPO_SINGLE_CLICK_LEGACY -> {
                     handleSingleClick(vm, fm)
                 }
             }
@@ -81,25 +84,17 @@ class OppoStylusAdapter : StylusBrandAdapter {
         val filter = IntentFilter().apply {
             addAction(ACTION_OPPO_DOUBLE_CLICK)
             addAction(ACTION_OPPO_SINGLE_CLICK)
+            addAction(ACTION_OPPO_DOUBLE_CLICK_LEGACY)
+            addAction(ACTION_OPPO_SINGLE_CLICK_LEGACY)
         }
-        val permission = "com.oplus.ipemanager.permission.receiver.DOUBLE_CLICK"
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(pencilBroadcastReceiver, filter, permission, null, Context.RECEIVER_EXPORTED)
+                context.registerReceiver(pencilBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)
             } else {
-                context.registerReceiver(pencilBroadcastReceiver, filter, permission, null)
+                context.registerReceiver(pencilBroadcastReceiver, filter)
             }
             isReceiverRegistered = true
-        } catch (_: Throwable) {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    context.registerReceiver(pencilBroadcastReceiver, filter, Context.RECEIVER_EXPORTED)
-                } else {
-                    context.registerReceiver(pencilBroadcastReceiver, filter)
-                }
-                isReceiverRegistered = true
-            } catch (_: Throwable) {}
-        }
+        } catch (_: Throwable) {}
     }
 
     private fun registerConnectionObserver(context: Context) {
@@ -184,9 +179,25 @@ class OppoStylusAdapter : StylusBrandAdapter {
             val scrollVal = if (vScroll != 0f) vScroll else hScroll
             if (scrollVal != 0f && vm.oppoPencilModel.hasSlideGesture) {
                 val now = SystemClock.uptimeMillis()
-                if (now - lastSlideTime > 30L) {
+                val debounceMs = when (vm.oppoSlideSensitivity) {
+                    "low" -> 140L
+                    "high" -> 60L
+                    else -> 90L
+                }
+                val threshold = when (vm.oppoSlideSensitivity) {
+                    "low" -> 1.5f
+                    "high" -> 0.4f
+                    else -> 0.8f
+                }
+                if (now - lastSlideTime > 500L) {
+                    accumulatedSlideDelta = 0f
+                }
+                accumulatedSlideDelta += scrollVal
+                if (kotlin.math.abs(accumulatedSlideDelta) >= threshold && now - lastSlideTime > debounceMs) {
+                    val direction = if (accumulatedSlideDelta > 0f) 1f else -1f
+                    accumulatedSlideDelta = 0f
                     lastSlideTime = now
-                    vm.executeStylusSlide(scrollVal)
+                    vm.executeStylusSlide(direction)
                     feedbackManager.triggerActionConfirmation()
                 }
                 return true
@@ -205,7 +216,12 @@ class OppoStylusAdapter : StylusBrandAdapter {
         if (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 val now = SystemClock.uptimeMillis()
-                if (now - lastSlideTime > 30L) {
+                val debounceMs = when (vm.oppoSlideSensitivity) {
+                    "low" -> 160L
+                    "high" -> 70L
+                    else -> 110L
+                }
+                if (now - lastSlideTime > debounceMs) {
                     lastSlideTime = now
                     vm.executeStylusSlide(1f)
                     feedbackManager.triggerActionConfirmation()
@@ -216,7 +232,12 @@ class OppoStylusAdapter : StylusBrandAdapter {
         if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 val now = SystemClock.uptimeMillis()
-                if (now - lastSlideTime > 30L) {
+                val debounceMs = when (vm.oppoSlideSensitivity) {
+                    "low" -> 160L
+                    "high" -> 70L
+                    else -> 110L
+                }
+                if (now - lastSlideTime > debounceMs) {
                     lastSlideTime = now
                     vm.executeStylusSlide(-1f)
                     feedbackManager.triggerActionConfirmation()

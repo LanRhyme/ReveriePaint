@@ -638,6 +638,7 @@ class PaintViewModel : ViewModel() {
         }
     var oppoDoubleTapAction by mutableStateOf("toggle_eraser")
     var oppoSlideAction by mutableStateOf("adjust_brush_size")
+    var oppoSlideSensitivity by mutableStateOf("normal") // "low", "normal", "high"
     var oppoInPenHapticsEnabled by mutableStateOf(true)
     var stylusHapticsEnabled by mutableStateOf(true)
     var stylusHapticsIntensity by mutableFloatStateOf(0.5f)
@@ -991,6 +992,14 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateOppoSlideSensitivity(sensitivity: String) {
+        oppoSlideSensitivity = sensitivity
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("oppoSlideSensitivity", sensitivity).apply()
+        }
+    }
+
     fun updateOppoInPenHapticsEnabled(enabled: Boolean) {
         oppoInPenHapticsEnabled = enabled
         stylusDriver?.syncSettings()
@@ -1003,29 +1012,58 @@ class PaintViewModel : ViewModel() {
     fun executeStylusSlide(delta: Float) {
         // 反转滑动方向以符合自然滑动交互（向笔尾滑动为增加，向笔尖滑动为减少）
         val effectiveDelta = -delta
+        val isIncrease = effectiveDelta > 0
         when (oppoSlideAction) {
             "adjust_brush_size" -> {
-                val step = if (brushSize > 60.0) 5.0 else if (brushSize > 20.0) 2.0 else 1.0
-                val newSize = (brushSize + (if (effectiveDelta > 0) step else -step)).coerceIn(1.0, 500.0)
-                updateBrushSize(newSize)
+                val deltaFrac = when (oppoSlideSensitivity) {
+                    "low" -> 0.015f
+                    "high" -> 0.035f
+                    else -> 0.025f
+                }
+                // 与画布侧边栏滑块对齐，采用对数/指数映射：fraction = ln(size) / ln(500)
+                val currentFrac = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f)
+                val targetFrac = (currentFrac + (if (isIncrease) deltaFrac else -deltaFrac)).coerceIn(0f, 1f)
+                val rawNewSize = kotlin.math.exp(kotlin.math.ln(500.0) * targetFrac.toDouble()).coerceIn(1.0, 500.0)
+                val newSize = if (rawNewSize < 10.0) {
+                    (kotlin.math.round(rawNewSize * 10.0) / 10.0).coerceIn(1.0, 500.0)
+                } else {
+                    kotlin.math.round(rawNewSize).coerceIn(1.0, 500.0)
+                }
+                val finalSize = if (isIncrease && newSize <= brushSize) {
+                    if (brushSize < 10.0) (brushSize + 0.1).coerceAtMost(500.0) else (brushSize + 1.0).coerceAtMost(500.0)
+                } else if (!isIncrease && newSize >= brushSize) {
+                    if (brushSize <= 10.0) (brushSize - 0.1).coerceAtLeast(1.0) else (brushSize - 1.0).coerceAtLeast(1.0)
+                } else {
+                    newSize
+                }
+                updateBrushSize(finalSize)
                 if (::appContext.isInitialized) {
                     mainHandler.post {
-                        showActionToast("画笔粗细: ${newSize.toInt()}px", R.drawable.ic_brush)
+                        val formatted = if (finalSize < 10.0) {
+                            String.format(java.util.Locale.US, "%.1f", finalSize)
+                        } else {
+                            "${finalSize.toInt()}"
+                        }
+                        showActionToast("画笔粗细: ${formatted}px", R.drawable.ic_brush)
                     }
                 }
             }
             "adjust_opacity" -> {
-                val step = 0.05
-                val newOpacity = (brushOpacity + (if (effectiveDelta > 0) step else -step)).coerceIn(0.01, 1.0)
+                val step = when (oppoSlideSensitivity) {
+                    "low" -> 0.02
+                    "high" -> 0.08
+                    else -> 0.05
+                }
+                val newOpacity = (brushOpacity + (if (isIncrease) step else -step)).coerceIn(0.01, 1.0)
                 updateBrushOpacity(newOpacity)
                 if (::appContext.isInitialized) {
                     mainHandler.post {
-                        showActionToast("不透明度: ${(newOpacity * 100).toInt()}%", R.drawable.ic_brush)
+                        showActionToast("不透明度: ${kotlin.math.round(newOpacity * 100).toInt()}%", R.drawable.ic_brush)
                     }
                 }
             }
             "undo_redo" -> {
-                if (effectiveDelta > 0) redo() else undo()
+                if (isIncrease) redo() else undo()
             }
         }
     }
@@ -1424,6 +1462,7 @@ class PaintViewModel : ViewModel() {
             oppoPencilModelMode = prefs.getString("oppoPencilModelMode", "AUTO") ?: "AUTO"
             oppoDoubleTapAction = prefs.getString("oppoDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
             oppoSlideAction = prefs.getString("oppoSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
+            oppoSlideSensitivity = prefs.getString("oppoSlideSensitivity", "normal") ?: "normal"
             oppoInPenHapticsEnabled = prefs.getBoolean("oppoInPenHapticsEnabled", true)
             stylusHapticsEnabled = prefs.getBoolean("stylusHapticsEnabled", true)
             stylusHapticsIntensity = prefs.getFloat("stylusHapticsIntensity", 0.5f)
