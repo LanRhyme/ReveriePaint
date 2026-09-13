@@ -1009,11 +1009,14 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun executeStylusSlide(delta: Float) {
+    fun executeStylusSlide(delta: Float): Boolean {
+        if (oppoSlideAction == "none" || oppoSlideAction.isBlank()) {
+            return false
+        }
         // 反转滑动方向以符合自然滑动交互（向笔尾滑动为增加，向笔尖滑动为减少）
         val effectiveDelta = -delta
         val isIncrease = effectiveDelta > 0
-        when (oppoSlideAction) {
+        return when (oppoSlideAction) {
             "adjust_brush_size" -> {
                 val deltaFrac = when (oppoSlideSensitivity) {
                     "low" -> 0.015f
@@ -1047,6 +1050,7 @@ class PaintViewModel : ViewModel() {
                         showActionToast("画笔粗细: ${formatted}px", R.drawable.ic_brush)
                     }
                 }
+                true
             }
             "adjust_opacity" -> {
                 val step = when (oppoSlideSensitivity) {
@@ -1061,10 +1065,13 @@ class PaintViewModel : ViewModel() {
                         showActionToast("不透明度: ${kotlin.math.round(newOpacity * 100).toInt()}%", R.drawable.ic_brush)
                     }
                 }
+                true
             }
             "undo_redo" -> {
                 if (isIncrease) redo() else undo()
+                true
             }
+            else -> false
         }
     }
 
@@ -1152,6 +1159,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun executeStylusAction(action: com.reverie.paint.core.stylus.StylusAction) {
+        if (action == com.reverie.paint.core.stylus.StylusAction.NONE) return
         executeShortcutAction(action.actionId)
         when (action) {
             com.reverie.paint.core.stylus.StylusAction.TOGGLE_ERASER -> {

@@ -21,7 +21,11 @@ enum class StylusAction(val title: String, val actionId: String) {
 
     companion object {
         fun fromActionId(id: String): StylusAction {
-            return entries.firstOrNull { it.actionId.equals(id, ignoreCase = true) } ?: TOGGLE_ERASER
+            val trimmed = id.trim()
+            if (trimmed.equals("none", ignoreCase = true) || trimmed.isEmpty()) {
+                return NONE
+            }
+            return entries.firstOrNull { it.actionId.equals(trimmed, ignoreCase = true) } ?: TOGGLE_ERASER
         }
     }
 }

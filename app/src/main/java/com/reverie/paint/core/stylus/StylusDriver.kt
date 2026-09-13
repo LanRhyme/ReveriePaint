@@ -119,10 +119,12 @@ class StylusDriver(
 
     fun handleDoubleTap(): Boolean {
         val detected = detectDevices().firstOrNull()
-        val action = when (detected?.brand) {
-            StylusBrand.SAMSUNG_SPEN -> StylusAction.fromActionId(vm.samsungDoubleClickAction)
-            else -> StylusAction.fromActionId(vm.oppoDoubleTapAction)
+        val actionId = when (detected?.brand) {
+            StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
+            else -> vm.oppoDoubleTapAction
         }
+        if (actionId.trim().equals("none", ignoreCase = true)) return false
+        val action = StylusAction.fromActionId(actionId)
         if (action != StylusAction.NONE) {
             feedbackManager.triggerActionConfirmation()
             vm.executeStylusAction(action)
@@ -133,10 +135,12 @@ class StylusDriver(
 
     fun handleSingleClick(): Boolean {
         val detected = detectDevices().firstOrNull()
-        val action = when (detected?.brand) {
-            StylusBrand.SAMSUNG_SPEN -> StylusAction.fromActionId(vm.samsungSingleClickAction)
-            else -> StylusAction.fromActionId(vm.oppoDoubleTapAction)
+        val actionId = when (detected?.brand) {
+            StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
+            else -> vm.oppoDoubleTapAction
         }
+        if (actionId.trim().equals("none", ignoreCase = true)) return false
+        val action = StylusAction.fromActionId(actionId)
         if (action != StylusAction.NONE) {
             feedbackManager.triggerActionConfirmation()
             vm.executeStylusAction(action)

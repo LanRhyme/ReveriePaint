@@ -178,6 +178,10 @@ class OppoStylusAdapter : StylusBrandAdapter {
             val hScroll = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
             val scrollVal = if (vScroll != 0f) vScroll else hScroll
             if (scrollVal != 0f && vm.oppoPencilModel.hasSlideGesture) {
+                if (vm.oppoSlideAction == "none") {
+                    accumulatedSlideDelta = 0f
+                    return true
+                }
                 val now = SystemClock.uptimeMillis()
                 val debounceMs = when (vm.oppoSlideSensitivity) {
                     "low" -> 140L
@@ -197,8 +201,9 @@ class OppoStylusAdapter : StylusBrandAdapter {
                     val direction = if (accumulatedSlideDelta > 0f) 1f else -1f
                     accumulatedSlideDelta = 0f
                     lastSlideTime = now
-                    vm.executeStylusSlide(direction)
-                    feedbackManager.triggerActionConfirmation()
+                    if (vm.executeStylusSlide(direction)) {
+                        feedbackManager.triggerActionConfirmation()
+                    }
                 }
                 return true
             }
@@ -215,32 +220,38 @@ class OppoStylusAdapter : StylusBrandAdapter {
         // Barrel slide key codes emitted by stylus hardware
         if (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
             if (event.action == KeyEvent.ACTION_DOWN) {
-                val now = SystemClock.uptimeMillis()
-                val debounceMs = when (vm.oppoSlideSensitivity) {
-                    "low" -> 160L
-                    "high" -> 70L
-                    else -> 110L
-                }
-                if (now - lastSlideTime > debounceMs) {
-                    lastSlideTime = now
-                    vm.executeStylusSlide(1f)
-                    feedbackManager.triggerActionConfirmation()
+                if (vm.oppoSlideAction != "none") {
+                    val now = SystemClock.uptimeMillis()
+                    val debounceMs = when (vm.oppoSlideSensitivity) {
+                        "low" -> 160L
+                        "high" -> 70L
+                        else -> 110L
+                    }
+                    if (now - lastSlideTime > debounceMs) {
+                        lastSlideTime = now
+                        if (vm.executeStylusSlide(1f)) {
+                            feedbackManager.triggerActionConfirmation()
+                        }
+                    }
                 }
             }
             return true
         }
         if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             if (event.action == KeyEvent.ACTION_DOWN) {
-                val now = SystemClock.uptimeMillis()
-                val debounceMs = when (vm.oppoSlideSensitivity) {
-                    "low" -> 160L
-                    "high" -> 70L
-                    else -> 110L
-                }
-                if (now - lastSlideTime > debounceMs) {
-                    lastSlideTime = now
-                    vm.executeStylusSlide(-1f)
-                    feedbackManager.triggerActionConfirmation()
+                if (vm.oppoSlideAction != "none") {
+                    val now = SystemClock.uptimeMillis()
+                    val debounceMs = when (vm.oppoSlideSensitivity) {
+                        "low" -> 160L
+                        "high" -> 70L
+                        else -> 110L
+                    }
+                    if (now - lastSlideTime > debounceMs) {
+                        lastSlideTime = now
+                        if (vm.executeStylusSlide(-1f)) {
+                            feedbackManager.triggerActionConfirmation()
+                        }
+                    }
                 }
             }
             return true
@@ -256,6 +267,7 @@ class OppoStylusAdapter : StylusBrandAdapter {
     }
 
     fun handleDoubleTap(vm: PaintViewModel, feedbackManager: StylusFeedbackManager?) {
+        if (vm.oppoDoubleTapAction == "none") return
         val action = StylusAction.fromActionId(vm.oppoDoubleTapAction)
         if (action != StylusAction.NONE) {
             feedbackManager?.triggerActionConfirmation()
