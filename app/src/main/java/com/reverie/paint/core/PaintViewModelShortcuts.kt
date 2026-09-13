@@ -132,7 +132,7 @@ internal fun PaintViewModel.loadViewSettings() {
         magnificationInterpolation = o.optBoolean("mag_interpolation", true)
         pixelGridEnabled = o.optBoolean("pixel_grid", true)
         undoToastEnabled = o.optBoolean("undo_toast", true)
-        strokeStabilizer = o.optDouble("stroke_stabilizer", 0.15).toFloat().coerceIn(0f, 1f)
+        strokeStabilizer = o.optDouble("stroke_stabilizer", 0.0).toFloat().coerceIn(0f, 1f)
     } catch (_: Exception) {
     }
 }

@@ -22,6 +22,9 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import com.reverie.paint.ui.painting.brush.BrushTipDecoder
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -29,6 +32,8 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+private const val TIP_CAPACITY = 256
 
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
@@ -255,8 +260,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 v.touchCancel()
                 strokeStarted = false
             }
-            tipHistory.clear()
-            predictedDocPoint = null
+            clearTipPoints()
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
@@ -265,17 +269,64 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    // ---- 实时低延迟笔迹预测渲染 (Zero-Latency Predictive Tip Overlay) ----
-    private class TipPoint(val docX: Float, val docY: Float, val pressure: Float, val timeMs: Long)
-    private val tipHistory = ArrayList<TipPoint>(20)
+    // ---- 实时低延迟笔迹预测与即时墨迹渲染 (Zero-Latency Predictive & Ink Overlay) ----
+    private val tipDocX = FloatArray(TIP_CAPACITY)
+    private val tipDocY = FloatArray(TIP_CAPACITY)
+    private val tipPressure = FloatArray(TIP_CAPACITY)
+    private val tipTimeMs = LongArray(TIP_CAPACITY)
+    private var tipCount = 0
+
     private var predictedDocPoint: Point2D? = null
     private var predictedPressure: Float = 1f
-    private val predictiveStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+
+    private val immediateStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val predictiveStrokePath = android.graphics.Path()
+    private val immediateTipPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val immediateTipMatrix = android.graphics.Matrix()
+
+    private var cachedTipAsset: String? = null
+    private var cachedTipBitmap: Bitmap? = null
+
+    private fun getActiveTipBitmap(v: PaintViewModel): Bitmap? {
+        val asset = v.brushTipAsset
+        if (asset.isBlank()) return null
+        if (asset == cachedTipAsset && cachedTipBitmap != null) {
+            return cachedTipBitmap
+        }
+        cachedTipAsset = asset
+        cachedTipBitmap = BrushTipDecoder.loadTip(context, asset)
+        return cachedTipBitmap
+    }
+
+    private fun clearTipPoints() {
+        tipCount = 0
+        predictedDocPoint = null
+    }
+
+    private fun addTipPoint(docX: Float, docY: Float, pressure: Float, timeMs: Long) {
+        if (tipCount < TIP_CAPACITY) {
+            tipDocX[tipCount] = docX
+            tipDocY[tipCount] = docY
+            tipPressure[tipCount] = pressure
+            tipTimeMs[tipCount] = timeMs
+            tipCount++
+        } else {
+            val keep = TIP_CAPACITY - 32
+            System.arraycopy(tipDocX, 32, tipDocX, 0, keep)
+            System.arraycopy(tipDocY, 32, tipDocY, 0, keep)
+            System.arraycopy(tipPressure, 32, tipPressure, 0, keep)
+            System.arraycopy(tipTimeMs, 32, tipTimeMs, 0, keep)
+            tipDocX[keep] = docX
+            tipDocY[keep] = docY
+            tipPressure[keep] = pressure
+            tipTimeMs[keep] = timeMs
+            tipCount = keep + 1
+        }
+    }
+
     private val motionPredictor = if (Build.VERSION.SDK_INT >= 34) {
         try {
             android.view.MotionPredictor(context)
@@ -554,45 +605,90 @@ class CanvasTouchView(context: Context) : View(context) {
                 } catch (_: Exception) {}
             }
 
-            // 实时低延迟前向预测笔迹绘制 (120Hz/144Hz 硬件加速瞬态覆盖层)
-            if (localIsTouching && strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER) && tipHistory.size >= 2) {
+            // 实时低延迟即时墨迹与前向预测笔迹绘制 (120Hz/144Hz 硬件加速瞬态覆盖层)
+            if (localIsTouching && strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER) && tipCount >= 1) {
                 try {
-                    predictiveStrokePaint.strokeWidth = (cursorBrushSize * scale * pressureFraction).coerceAtLeast(1.5f)
-                    if (isEraser) {
-                        val bgHex = if (v.canvasBgColorHex == "DEFAULT" || v.canvasBgColorHex.isBlank()) "#FFFFFF" else v.canvasBgColorHex
-                        predictiveStrokePaint.color = android.graphics.Color.parseColor(bgHex)
+                    val isEraser = (tool == Tool.ERASER)
+                    val bgHex = if (v.canvasBgColorHex == "DEFAULT" || v.canvasBgColorHex.isBlank()) "#FFFFFF" else v.canvasBgColorHex
+                    val strokeColorInt = if (isEraser) {
+                        android.graphics.Color.parseColor(bgHex)
                     } else {
-                        predictiveStrokePaint.color = android.graphics.Color.parseColor(v.brushColor)
-                        predictiveStrokePaint.alpha = (v.brushOpacity * 255).toInt().coerceIn(0, 255)
+                        android.graphics.Color.parseColor(v.brushColor)
                     }
+                    val fullAlpha = (if (isEraser) 1.0 else (v.brushOpacity * v.brushFlow)).coerceIn(0.01, 1.0).toFloat()
+                    val baseBrushRadiusScreen = (cursorBrushSize * scale * 0.5f).coerceAtLeast(1.5f)
 
-                    val recentCount = minOf(6, tipHistory.size)
-                    val startIdx = tipHistory.size - recentCount
-                    predictiveStrokePath.reset()
-                    val pFirstScreen = docToScreen(Offset(tipHistory[startIdx].docX, tipHistory[startIdx].docY))
-                    predictiveStrokePath.moveTo(pFirstScreen.x, pFirstScreen.y)
+                    val recentCount = minOf(24, tipCount)
+                    val startIdx = tipCount - recentCount
 
-                    var prevScreen = pFirstScreen
-                    for (i in (startIdx + 1) until tipHistory.size) {
-                        val curScreen = docToScreen(Offset(tipHistory[i].docX, tipHistory[i].docY))
-                        val midX = (prevScreen.x + curScreen.x) * 0.5f
-                        val midY = (prevScreen.y + curScreen.y) * 0.5f
-                        predictiveStrokePath.quadTo(prevScreen.x, prevScreen.y, midX, midY)
-                        prevScreen = curScreen
-                    }
+                    val tipBmp = if (!isEraser) getActiveTipBitmap(v) else null
+                    if (tipBmp != null) {
+                        // 带有笔尖纹理贴图的画笔：按间距 stamp 绘制真实笔尖质感
+                        val spacingPx = (baseBrushRadiusScreen * 2f * v.brushSpacing.toFloat().coerceIn(0.05f, 1.0f)).coerceAtLeast(2f)
+                        val angle = (v.brushAngle + v.brushRotation).toFloat()
+                        val ratio = if (v.brushRatio > 0.0) v.brushRatio.toFloat().coerceIn(0.1f, 1f) else 1f
 
-                    val predPt = predictedDocPoint
-                    if (predPt != null) {
-                        val predScreen = docToScreen(Offset(predPt.x, predPt.y))
-                        val midX = (prevScreen.x + predScreen.x) * 0.5f
-                        val midY = (prevScreen.y + predScreen.y) * 0.5f
-                        predictiveStrokePath.quadTo(prevScreen.x, prevScreen.y, midX, midY)
-                        predictiveStrokePath.lineTo(predScreen.x, predScreen.y)
+                        var lastDabScreen: Offset? = null
+                        for (i in startIdx until tipCount) {
+                            val curScreen = docToScreen(Offset(tipDocX[i], tipDocY[i]))
+                            val segFrac = (i - startIdx).toFloat() / recentCount.toFloat()
+                            val fadeFactor = (segFrac * 2.5f).coerceIn(0.15f, 1f)
+                            val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(tipPressure[i]) else 1f
+                            val dabAlpha = (fullAlpha * fadeFactor * (if (v.brushPressureEnabled) (0.25f + 0.75f * pFrac) else 1f)).coerceIn(0.01f, 1f)
+                            val dabW = (baseBrushRadiusScreen * 2f * pFrac).coerceAtLeast(2f)
+                            val dabH = (dabW * ratio).coerceAtLeast(2f)
+
+                            val prevDab = lastDabScreen
+                            if (prevDab == null || hypot(curScreen.x - prevDab.x, curScreen.y - prevDab.y) >= spacingPx) {
+                                immediateTipPaint.colorFilter = PorterDuffColorFilter(strokeColorInt, PorterDuff.Mode.SRC_IN)
+                                immediateTipPaint.alpha = (dabAlpha * 255).toInt().coerceIn(1, 255)
+                                immediateTipMatrix.reset()
+                                immediateTipMatrix.postTranslate(-tipBmp.width / 2f, -tipBmp.height / 2f)
+                                immediateTipMatrix.postScale(dabW / tipBmp.width, dabH / tipBmp.height)
+                                if (angle != 0f) immediateTipMatrix.postRotate(angle, 0f, 0f)
+                                immediateTipMatrix.postTranslate(curScreen.x, curScreen.y)
+                                canvas.drawBitmap(tipBmp, immediateTipMatrix, immediateTipPaint)
+                                lastDabScreen = curScreen
+                            }
+                        }
+                        val predPt = predictedDocPoint
+                        if (predPt != null) {
+                            val predScreen = docToScreen(Offset(predPt.x, predPt.y))
+                            val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                            val dabW = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(2f)
+                            val dabH = (dabW * ratio).coerceAtLeast(2f)
+                            immediateTipPaint.colorFilter = PorterDuffColorFilter(strokeColorInt, PorterDuff.Mode.SRC_IN)
+                            immediateTipPaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
+                            immediateTipMatrix.reset()
+                            immediateTipMatrix.postTranslate(-tipBmp.width / 2f, -tipBmp.height / 2f)
+                            immediateTipMatrix.postScale(dabW / tipBmp.width, dabH / tipBmp.height)
+                            if (angle != 0f) immediateTipMatrix.postRotate(angle, 0f, 0f)
+                            immediateTipMatrix.postTranslate(predScreen.x, predScreen.y)
+                            canvas.drawBitmap(tipBmp, immediateTipMatrix, immediateTipPaint)
+                        }
                     } else {
-                        predictiveStrokePath.lineTo(prevScreen.x, prevScreen.y)
+                        // 标准矢量/圆头笔刷：分段压感连续平滑渲染
+                        immediateStrokePaint.color = strokeColorInt
+                        var prevScreen = docToScreen(Offset(tipDocX[startIdx], tipDocY[startIdx]))
+                        for (i in (startIdx + 1) until tipCount) {
+                            val curScreen = docToScreen(Offset(tipDocX[i], tipDocY[i]))
+                            val segFrac = (i - startIdx).toFloat() / recentCount.toFloat()
+                            val fadeFactor = (segFrac * 2.5f).coerceIn(0.15f, 1f)
+                            val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(tipPressure[i]) else 1f
+                            immediateStrokePaint.strokeWidth = (baseBrushRadiusScreen * 2f * pFrac).coerceAtLeast(1.5f)
+                            immediateStrokePaint.alpha = (fullAlpha * fadeFactor * 255).toInt().coerceIn(1, 255)
+                            canvas.drawLine(prevScreen.x, prevScreen.y, curScreen.x, curScreen.y, immediateStrokePaint)
+                            prevScreen = curScreen
+                        }
+                        val predPt = predictedDocPoint
+                        if (predPt != null) {
+                            val predScreen = docToScreen(Offset(predPt.x, predPt.y))
+                            val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                            immediateStrokePaint.strokeWidth = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(1.5f)
+                            immediateStrokePaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
+                            canvas.drawLine(prevScreen.x, prevScreen.y, predScreen.x, predScreen.y, immediateStrokePaint)
+                        }
                     }
-
-                    canvas.drawPath(predictiveStrokePath, predictiveStrokePaint)
                 } catch (_: Exception) {}
             }
         }
@@ -862,6 +958,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
+                        try {
+                            motionPredictor.record(event)
+                        } catch (_: Throwable) {}
+                    }
                     removeCallbacks(longPressRunnable)
                     longPressToken++
                     isTransformActive = false
@@ -932,8 +1033,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         localIsTouching = false
                         localIsHovering = true
                         isInteracting = false
-                        tipHistory.clear()
-                        predictedDocPoint = null
+                        clearTipPoints()
                         invalidate()
                         return true
                     }
@@ -942,8 +1042,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
-                    tipHistory.clear()
-                    predictedDocPoint = null
+                    clearTipPoints()
                     invalidate()
                 }
             }
@@ -1356,9 +1455,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (tool == Tool.ERASER))
                 }
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
-                tipHistory.clear()
-                tipHistory.add(TipPoint(docPos.x, docPos.y, pressure, android.os.SystemClock.uptimeMillis()))
-                predictedDocPoint = null
+                clearTipPoints()
+                addTipPoint(docPos.x, docPos.y, pressure, android.os.SystemClock.uptimeMillis())
 
                 mirroredBranches.clear()
                 if (hasSymmetry) {
@@ -1567,7 +1665,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
                     }
                     val hTime = try { event.getHistoricalEventTime(i) } catch (_: Throwable) { event.eventTime }
-                    tipHistory.add(TipPoint(hAssisted.x, hAssisted.y, hP, hTime))
+                    addTipPoint(hAssisted.x, hAssisted.y, hP, hTime)
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
@@ -1575,19 +1673,23 @@ class CanvasTouchView(context: Context) : View(context) {
                 for (idx in symPts.indices) {
                     if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
                 }
-                tipHistory.add(TipPoint(effectiveDocPos.x, effectiveDocPos.y, pressure, event.eventTime))
-                while (tipHistory.size > 16) {
-                    tipHistory.removeAt(0)
-                }
+                addTipPoint(effectiveDocPos.x, effectiveDocPos.y, pressure, event.eventTime)
 
                 // 实时前向运动预测计算 (Forward Motion Prediction)
-                if (v.stylusStrokePredictionEnabled && tipHistory.size >= 2) {
+                if (v.stylusStrokePredictionEnabled && tipCount >= 2) {
                     var hasPredicted = false
                     if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
                         try {
                             motionPredictor.record(event)
-                            // 预测未来约 15ms（120Hz/144Hz 屏幕约 1~2 帧时间窗口）
-                            val predictedMotion = motionPredictor.predict(event.eventTime + 15_000_000L)
+                            // 预测未来约 16~20ms（120Hz/144Hz 屏幕约 2 帧时间窗口）
+                            // 必须使用纳秒时间戳！
+                            val eventTimeNano = if (Build.VERSION.SDK_INT >= 34) {
+                                val tn = event.eventTimeNanos
+                                if (tn > 0L) tn else android.os.SystemClock.elapsedRealtimeNanos()
+                            } else {
+                                android.os.SystemClock.elapsedRealtimeNanos()
+                            }
+                            val predictedMotion = motionPredictor.predict(eventTimeNano + 20_000_000L)
                             if (predictedMotion != null) {
                                 val pScreen = Offset(predictedMotion.x, predictedMotion.y)
                                 val pDoc = screenToDoc(pScreen)
@@ -1601,21 +1703,31 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
 
                     if (!hasPredicted) {
-                        val pLast = tipHistory.last()
-                        val pPrev = tipHistory[tipHistory.size - 2]
-                        val dt = (pLast.timeMs - pPrev.timeMs).coerceIn(2L, 45L).toFloat()
-                        val vx = (pLast.docX - pPrev.docX) / dt
-                        val vy = (pLast.docY - pPrev.docY) / dt
+                        val lastIdx = tipCount - 1
+                        val prevIdx = tipCount - 2
+                        val pLastX = tipDocX[lastIdx]
+                        val pLastY = tipDocY[lastIdx]
+                        val pLastP = tipPressure[lastIdx]
+                        val pLastT = tipTimeMs[lastIdx]
+
+                        val pPrevX = tipDocX[prevIdx]
+                        val pPrevY = tipDocY[prevIdx]
+                        val pPrevP = tipPressure[prevIdx]
+                        val pPrevT = tipTimeMs[prevIdx]
+
+                        val dt = (pLastT - pPrevT).coerceIn(2L, 45L).toFloat()
+                        val vx = (pLastX - pPrevX) / dt
+                        val vy = (pLastY - pPrevY) / dt
                         val speed = hypot(vx, vy)
                         // 抬笔预判防冲：压力急剧下降（降至前值 70% 以下）时不进行过冲预测
-                        val isLifting = tipHistory.size >= 3 && pLast.pressure < pPrev.pressure * 0.7f
+                        val isLifting = tipCount >= 3 && pLastP < pPrevP * 0.7f
                         if (speed > 0.02f && !isLifting) {
                             val predDt = 16f // 前推约 16ms
                             val maxDist = (v.brushSize.toFloat() * 1.5f + 20f).coerceIn(8f, 60f)
                             val pDx = (vx * predDt).coerceIn(-maxDist, maxDist)
                             val pDy = (vy * predDt).coerceIn(-maxDist, maxDist)
-                            predictedDocPoint = Point2D(pLast.docX + pDx, pLast.docY + pDy)
-                            predictedPressure = pLast.pressure
+                            predictedDocPoint = Point2D(pLastX + pDx, pLastY + pDy)
+                            predictedPressure = pLastP
                         } else {
                             predictedDocPoint = null
                         }
@@ -1816,8 +1928,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     strokeStarted = false
                 }
                 mirroredBranches.clear()
-                tipHistory.clear()
-                predictedDocPoint = null
+                clearTipPoints()
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {

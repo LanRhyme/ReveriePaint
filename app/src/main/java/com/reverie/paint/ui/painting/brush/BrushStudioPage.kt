@@ -93,7 +93,7 @@ data class BrushTipItem(val filename: String, val name: String, val isCustom: Bo
 /**
  * GBR / PNG / GIH / JPG 笔尖贴图解码工具
  */
-private object BrushTipDecoder {
+internal object BrushTipDecoder {
     private val cache = mutableMapOf<String, Bitmap?>()
 
     fun loadTip(context: Context, filename: String): Bitmap? {

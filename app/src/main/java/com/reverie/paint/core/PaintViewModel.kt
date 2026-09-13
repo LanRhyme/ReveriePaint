@@ -612,8 +612,8 @@ class PaintViewModel : ViewModel() {
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
 
-    // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0)
-    var strokeStabilizer by mutableFloatStateOf(0.15f)
+    // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0, 默认为 0 实现零延迟物理直通)
+    var strokeStabilizer by mutableFloatStateOf(0.0f)
 
     // Keyboard Shortcuts (参考图 2)
     var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
@@ -2377,13 +2377,10 @@ class PaintViewModel : ViewModel() {
         renderScheduled = false
         val rh = renderHandler
         // Input-first: if stroke ops are queued ahead on this thread, let the
-        // stroke extend first and render after (each render waits for the
-        // projection recomposite - blocking it while input waits behind was
-        // felt as lag/stutter during fast scribbling). Bounded to two 4ms
-        // defers so rendering can never starve.
-        if (rh != null && pendingCoreOps.get() > 0 && renderDeferCount < 2) {
+        // stroke extend first and render after without extra artificial timer delay.
+        if (rh != null && pendingCoreOps.get() > 0 && renderDeferCount < 1) {
             renderDeferCount++
-            rh.postDelayed({ doRender() }, 4L)
+            rh.post { doRender() }
             return
         }
         renderDeferCount = 0
