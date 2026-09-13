@@ -244,6 +244,9 @@ internal fun PaintViewModel.touchMove(
     lastStrokeDeltaX = dx
     lastStrokeDeltaY = dy
     val dist = Math.hypot(dx.toDouble(), dy.toDouble())
+    if (dist > 0.5) {
+        disarmStrokeStartKick()
+    }
     var effPressure = computeEffectivePressure(pressure)
 
     // Velocity-based brush size dynamics (calligraphy thinning)

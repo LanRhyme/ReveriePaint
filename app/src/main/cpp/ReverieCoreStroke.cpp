@@ -442,6 +442,12 @@ bool ReverieCore::flushStrokeBatch()
     // (fills with the foreground color) sized to the brush diameter. A
     // trailing single sample of a real stroke is NOT a dot.
     if (m_strokeSamples.size() == 1 && !m_strokeHadMove) {
+        if (m_idleKickPainted) {
+            // Already painted by touchStrokeKickIdle, do not re-dab on pen-up
+            m_strokeSamples.clear();
+            m_strokeCarryCount = 0;
+            return false;
+        }
         const QPointF p = m_strokeSamples.first().imgPos;
         const qreal pressure =
             qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0);
@@ -467,8 +473,10 @@ bool ReverieCore::flushStrokeBatch()
         const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
         markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
-        m_strokeSamples.clear();
-        m_strokeCarryCount = 0;
+        // Retain sample 0 as the starting anchor with m_strokeCarryCount = 1
+        // Do NOT clear m_strokeSamples! If user starts moving after the idle kick,
+        // the first move segment (sample 0 -> sample 1) will be connected via paintLine!
+        m_strokeCarryCount = 1;
         return true;
     }
 
