@@ -24,6 +24,9 @@ import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.view.WindowManager
+import com.oplusos.vfxsdk.forecast.MotionPredictor as OplusMotionPredictor
+import com.oplusos.vfxsdk.forecast.TouchPointInfo as OplusTouchPointInfo
 import com.reverie.paint.ui.painting.brush.BrushTipDecoder
 import kotlin.math.PI
 import kotlin.math.abs
@@ -301,9 +304,24 @@ class CanvasTouchView(context: Context) : View(context) {
         return cachedTipBitmap
     }
 
+    private val isOppoOrOnePlus = Build.MANUFACTURER.contains("oppo", ignoreCase = true) ||
+            Build.MANUFACTURER.contains("oneplus", ignoreCase = true)
+
+    private val oplusPredictor: OplusMotionPredictor? = if (isOppoOrOnePlus) {
+        try {
+            val p = OplusMotionPredictor()
+            if (p.isValid) p else null
+        } catch (_: Throwable) {
+            null
+        }
+    } else null
+
     private fun clearTipPoints() {
         tipCount = 0
         predictedScreenPoint = null
+        try {
+            oplusPredictor?.reset()
+        } catch (_: Throwable) {}
     }
 
     private fun addTipPoint(screenX: Float, screenY: Float, pressure: Float, timeMs: Long) {
@@ -496,6 +514,22 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onAttachedToWindow()
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
+        initOplusPredictor()
+    }
+
+    private fun initOplusPredictor() {
+        val p = oplusPredictor ?: return
+        try {
+            val refreshRate = if (Build.VERSION.SDK_INT >= 30) {
+                display?.mode?.refreshRate ?: 120f
+            } else {
+                @Suppress("DEPRECATION")
+                (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay?.refreshRate ?: 120f
+            }
+            val dm = resources.displayMetrics
+            p.setRefreshRate(refreshRate)
+            p.setDpi(dm.xdpi, dm.ydpi)
+        } catch (_: Throwable) {}
     }
 
     override fun onDetachedFromWindow() {
@@ -507,6 +541,9 @@ class CanvasTouchView(context: Context) : View(context) {
         if (activeTouchView == this) activeTouchView = null
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
         cachedDriver = null
+        try {
+            oplusPredictor?.destroy()
+        } catch (_: Throwable) {}
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
@@ -544,87 +581,30 @@ class CanvasTouchView(context: Context) : View(context) {
                 val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
                 val baseBrushRadiusScreen = (cursorBrushSize * scale * 0.5f).coerceAtLeast(1.5f)
 
-                val tipBmp = if (!isEraser) getActiveTipBitmap(v) else null
-                if (tipBmp != null) {
-                    // 带有笔尖纹理贴图的画笔：按间距 stamp 绘制真实笔尖质感
-                    val spacingPx = (baseBrushRadiusScreen * 2f * v.brushSpacing.toFloat().coerceIn(0.05f, 1.0f)).coerceAtLeast(2f)
-                    val angle = (v.brushAngle + v.brushRotation).toFloat()
-                    val ratio = if (v.brushRatio > 0.0) v.brushRatio.toFloat().coerceIn(0.1f, 1f) else 1f
+                immediateStrokePaint.color = strokeColorInt
+                immediateStrokePaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
+                immediateTipPaint.color = strokeColorInt
+                immediateTipPaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
+                immediateTipPaint.style = Paint.Style.FILL
 
-                    var lastDabX = Float.NaN
-                    var lastDabY = Float.NaN
-                    val startIdx = if (fullAlpha >= 0.85f) 0 else maxOf(0, tipCount - 64)
-                    for (i in startIdx until tipCount) {
-                        val sx = tipScreenX[i]
-                        val sy = tipScreenY[i]
-                        val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(tipPressure[i]) else 1f
-                        val dabAlpha = (fullAlpha * (if (v.brushPressureEnabled) (0.25f + 0.75f * pFrac) else 1f)).coerceIn(0.01f, 1f)
-                        val dabW = (baseBrushRadiusScreen * 2f * pFrac).coerceAtLeast(2f)
-                        val dabH = (dabW * ratio).coerceAtLeast(2f)
+                val lastIdx = tipCount - 1
+                val lastX = tipScreenX[lastIdx]
+                val lastY = tipScreenY[lastIdx]
+                val lastP = tipPressure[lastIdx]
+                val lastPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(lastP) else 1f
 
-                        if (lastDabX.isNaN() || hypot(sx - lastDabX, sy - lastDabY) >= spacingPx) {
-                            immediateTipPaint.colorFilter = PorterDuffColorFilter(strokeColorInt, PorterDuff.Mode.SRC_IN)
-                            immediateTipPaint.alpha = (dabAlpha * 255).toInt().coerceIn(1, 255)
-                            immediateTipMatrix.reset()
-                            immediateTipMatrix.postTranslate(-tipBmp.width / 2f, -tipBmp.height / 2f)
-                            immediateTipMatrix.postScale(dabW / tipBmp.width, dabH / tipBmp.height)
-                            if (angle != 0f) immediateTipMatrix.postRotate(angle, 0f, 0f)
-                            immediateTipMatrix.postTranslate(sx, sy)
-                            canvas.drawBitmap(tipBmp, immediateTipMatrix, immediateTipPaint)
-                            lastDabX = sx
-                            lastDabY = sy
-                        }
-                    }
-                    val predScreen = predictedScreenPoint
-                    if (predScreen != null) {
-                        val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
-                        val dabW = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(2f)
-                        val dabH = (dabW * ratio).coerceAtLeast(2f)
-                        immediateTipPaint.colorFilter = PorterDuffColorFilter(strokeColorInt, PorterDuff.Mode.SRC_IN)
-                        immediateTipPaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
-                        immediateTipMatrix.reset()
-                        immediateTipMatrix.postTranslate(-tipBmp.width / 2f, -tipBmp.height / 2f)
-                        immediateTipMatrix.postScale(dabW / tipBmp.width, dabH / tipBmp.height)
-                        if (angle != 0f) immediateTipMatrix.postRotate(angle, 0f, 0f)
-                        immediateTipMatrix.postTranslate(predScreen.x, predScreen.y)
-                        canvas.drawBitmap(tipBmp, immediateTipMatrix, immediateTipPaint)
-                    }
-                } else {
-                    // 标准矢量/圆头画笔：压感连续平滑变宽线条
-                    immediateStrokePaint.color = strokeColorInt
-                    immediateStrokePaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
-                    immediateTipPaint.color = strokeColorInt
-                    immediateTipPaint.alpha = (fullAlpha * 255).toInt().coerceIn(1, 255)
-                    immediateTipPaint.style = Paint.Style.FILL
-
-                    val startIdx = if (fullAlpha >= 0.85f) 0 else maxOf(0, tipCount - 64)
-                    if (tipCount == 1) {
-                        val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(tipPressure[0]) else 1f
-                        val r = (baseBrushRadiusScreen * pFrac).coerceAtLeast(1.5f)
-                        canvas.drawCircle(tipScreenX[0], tipScreenY[0], r, immediateTipPaint)
-                    } else {
-                        var prevX = tipScreenX[startIdx]
-                        var prevY = tipScreenY[startIdx]
-                        for (i in (startIdx + 1) until tipCount) {
-                            val curX = tipScreenX[i]
-                            val curY = tipScreenY[i]
-                            val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(tipPressure[i]) else 1f
-                            val strokeWidth = (baseBrushRadiusScreen * 2f * pFrac).coerceAtLeast(1.5f)
-                            immediateStrokePaint.strokeWidth = strokeWidth
-                            canvas.drawLine(prevX, prevY, curX, curY, immediateStrokePaint)
-                            canvas.drawCircle(curX, curY, strokeWidth * 0.5f, immediateTipPaint)
-                            prevX = curX
-                            prevY = curY
-                        }
-                        val predScreen = predictedScreenPoint
-                        if (predScreen != null) {
-                            val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
-                            val strokeWidth = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(1.5f)
-                            immediateStrokePaint.strokeWidth = strokeWidth
-                            canvas.drawLine(prevX, prevY, predScreen.x, predScreen.y, immediateStrokePaint)
-                            canvas.drawCircle(predScreen.x, predScreen.y, strokeWidth * 0.5f, immediateTipPaint)
-                        }
-                    }
+                val predScreen = predictedScreenPoint
+                if (predScreen != null) {
+                    // 超前预测笔尖点：仅连接最新物理采样点与预测笔尖，实现零延迟笔尖跟随，绝不绘制覆盖整条历史路径的假粗线
+                    val predPFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                    val strokeWidth = (baseBrushRadiusScreen * 2f * predPFrac).coerceAtLeast(1.5f)
+                    immediateStrokePaint.strokeWidth = strokeWidth
+                    canvas.drawLine(lastX, lastY, predScreen.x, predScreen.y, immediateStrokePaint)
+                    canvas.drawCircle(predScreen.x, predScreen.y, strokeWidth * 0.5f, immediateTipPaint)
+                } else if (tipCount <= 2) {
+                    // 无预测时，仅在刚落笔第一点绘制即时下墨反馈圆点，避免运笔过程中假线覆盖真实纹理
+                    val strokeWidth = (baseBrushRadiusScreen * 2f * lastPFrac).coerceAtLeast(1.5f)
+                    canvas.drawCircle(lastX, lastY, strokeWidth * 0.5f, immediateTipPaint)
                 }
             } catch (_: Exception) {}
         }
@@ -975,6 +955,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (oplusPredictor?.isValid == true) {
+                        try {
+                            oplusPredictor.reset()
+                        } catch (_: Throwable) {}
+                    }
                     if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
                         try {
                             motionPredictor.record(event)
@@ -1701,7 +1686,41 @@ class CanvasTouchView(context: Context) : View(context) {
                 // 实时前向运动预测计算 (Forward Motion Prediction)
                 if (v.stylusStrokePredictionEnabled && tipCount >= 2) {
                     var hasPredicted = false
-                    if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
+                    if (oplusPredictor?.isValid == true) {
+                        try {
+                            val hSize = event.historySize
+                            for (hi in 0 until hSize) {
+                                oplusPredictor.pushTouchPoint(
+                                    OplusTouchPointInfo(
+                                        event.getHistoricalX(hi),
+                                        event.getHistoricalY(hi),
+                                        event.getHistoricalPressure(hi),
+                                        event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, hi),
+                                        event.getHistoricalEventTime(hi)
+                                    )
+                                )
+                            }
+                            oplusPredictor.pushTouchPoint(
+                                OplusTouchPointInfo(
+                                    event.x,
+                                    event.y,
+                                    event.pressure,
+                                    event.getAxisValue(MotionEvent.AXIS_TILT),
+                                    event.eventTime
+                                )
+                            )
+                            val pred = oplusPredictor.predictTouchPoint()
+                            if (pred != null && pred.x.isFinite() && pred.y.isFinite()) {
+                                val pScreen = Offset(pred.x, pred.y)
+                                val pAssistedScreen = if (isAssist) docToScreen(applyAssistedDrawing(firstDocPos, screenToDoc(pScreen))) else pScreen
+                                predictedScreenPoint = pAssistedScreen
+                                predictedPressure = if (pred.pressure > 0f) pred.pressure.coerceIn(0.01f, 1f) else pressure
+                                hasPredicted = true
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    if (!hasPredicted && Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
                         try {
                             motionPredictor.record(event)
                             // 预测未来约 16~20ms（120Hz/144Hz 屏幕约 2 帧时间窗口）
