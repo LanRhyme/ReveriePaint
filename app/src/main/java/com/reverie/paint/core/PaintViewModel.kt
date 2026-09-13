@@ -2437,7 +2437,14 @@ class PaintViewModel : ViewModel() {
         }
 
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidate()
+        val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (tv != null) {
+            tv.postInvalidate()
+        } else {
+            mainHandler.post {
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+            }
+        }
 
         // Notify Compose observers only when replay or reference window is active
         if (referenceWindowOpen || currentPage == Page.REPLAY) {

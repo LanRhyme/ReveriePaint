@@ -483,7 +483,6 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
-        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
 
         // =========================================================================
         // 1. 硬件加速直出 Krita 渲染画布 (消除 Compose 重组调度延迟)
@@ -563,6 +562,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // 3. 光标及对称参考线绘制 (Cursor & Guides)
         // 依据用户的光标模式设置独立渲染
         // =========================================================================
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
         val pos = localCursorPos ?: return
         val isEraser = tool == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode

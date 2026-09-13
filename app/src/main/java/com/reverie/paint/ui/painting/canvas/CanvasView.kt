@@ -257,6 +257,7 @@ fun CanvasView(
                 CanvasTouchView(ctx)
             },
             update = { touchView ->
+                CanvasTouchView.activeTouchView = touchView
                 touchView.vm = vm
                 touchView.tool = tool
                 touchView.tfState = tfState
@@ -300,7 +301,10 @@ fun CanvasView(
                 touchView.gradientType = gradientType
                 touchView.liquifyStrength = liquifyStrength
                 touchView.liquifyBrushSize = liquifyBrushSize
-                touchView.overlayPanelsOpen = overlayPanelsOpen
+                if (touchView.overlayPanelsOpen != overlayPanelsOpen) {
+                    touchView.overlayPanelsOpen = overlayPanelsOpen
+                    touchView.invalidate()
+                }
                 touchView.liquifyMode = liquifyMode
             },
         )
