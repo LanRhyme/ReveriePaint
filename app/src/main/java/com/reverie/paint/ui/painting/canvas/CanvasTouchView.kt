@@ -283,6 +283,17 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // ---- 硬件笔尖前向超前预测 (OEM Hardware Motion Prediction) ----
+    private var oplusPredictor: OplusMotionPredictor? = null
+    private var androidMotionPredictor: Any? = null
+    private var predictedScreenPoint: Offset? = null
+    private var predictedPressure: Float = 1f
+    private val cachedTouchPointInfo = OplusTouchPointInfo()
+    private val tipShaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+
     // 预分配多指触控索引缓冲区 (热路径零分配 §4)
     private val fingerIndices = IntArray(16)
     private var fingerCount = 0
@@ -448,10 +459,40 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onAttachedToWindow()
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_STYLUS)
+                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_TOUCHSCREEN)
+            } catch (_: Throwable) {}
+        }
+        val maxFps = if (Build.VERSION.SDK_INT >= 30) {
+            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+        } else 144f
+        if (oplusPredictor == null) {
+            try {
+                val p = OplusMotionPredictor()
+                if (p.isValid) {
+                    p.setRefreshRate(maxFps)
+                    val dm = resources.displayMetrics
+                    p.setDpi(dm.xdpi, dm.ydpi)
+                    oplusPredictor = p
+                    android.util.Log.i("ReveriePerf", "OplusMotionPredictor initialized successfully! maxFps=$maxFps dpi=${dm.xdpi},${dm.ydpi}")
+                } else {
+                    android.util.Log.w("ReveriePerf", "OplusMotionPredictor is not valid")
+                    p.destroy()
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("ReveriePerf", "Failed to init OplusMotionPredictor", t)
+            }
+        }
+        if (oplusPredictor == null && Build.VERSION.SDK_INT >= 34 && androidMotionPredictor == null) {
+            try {
+                androidMotionPredictor = android.view.MotionPredictor(context)
+            } catch (_: Throwable) {}
+        }
         if (Build.VERSION.SDK_INT >= 30) {
             try {
                 val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
-                val maxFps = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
                 method.invoke(this, maxFps, 0)
             } catch (_: Throwable) {}
         }
@@ -466,6 +507,9 @@ class CanvasTouchView(context: Context) : View(context) {
         if (activeTouchView == this) activeTouchView = null
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
         cachedDriver = null
+        oplusPredictor?.destroy()
+        oplusPredictor = null
+        androidMotionPredictor = null
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
@@ -538,6 +582,59 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             canvas.restore()
+        }
+
+        // =========================================================================
+        // 1.5 硬件笔尖前向超前预测延伸 (OEM Hardware Stroke Prediction)
+        // 实时预测未来 15~20ms 笔尖切线，微羽化延伸消除 144Hz 屏幕 1~2 帧物理上屏延迟
+        // =========================================================================
+        val predPt = predictedScreenPoint
+        val curPos = localCursorPos
+        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
+        if (v.stylusStrokePredictionEnabled && localIsTouching && isDrawingTool && predPt != null && curPos != null) {
+            try {
+                val dx = predPt.x - curPos.x
+                val dy = predPt.y - curPos.y
+                val dist = hypot(dx, dy)
+                if (dist in 2f..(60f * density) && predictedPressure > 0.03f) {
+                    val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                    val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
+                    val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                    val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
+
+                    val isEraser = tool == Tool.ERASER
+                    val baseColor = if (isEraser) {
+                        android.graphics.Color.WHITE
+                    } else {
+                        try {
+                            android.graphics.Color.parseColor(v.brushColor)
+                        } catch (_: Throwable) {
+                            android.graphics.Color.BLACK
+                        }
+                    }
+                    val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
+
+                    val startColor = android.graphics.Color.argb(
+                        (baseAlpha * 0.75f * 255).toInt().coerceIn(0, 255),
+                        android.graphics.Color.red(baseColor),
+                        android.graphics.Color.green(baseColor),
+                        android.graphics.Color.blue(baseColor)
+                    )
+                    val endColor = android.graphics.Color.argb(
+                        (baseAlpha * 0.25f * 255).toInt().coerceIn(0, 255),
+                        android.graphics.Color.red(baseColor),
+                        android.graphics.Color.green(baseColor),
+                        android.graphics.Color.blue(baseColor)
+                    )
+                    tipShaderPaint.strokeWidth = strokeWidth
+                    tipShaderPaint.shader = android.graphics.LinearGradient(
+                        curPos.x, curPos.y, predPt.x, predPt.y,
+                        startColor, endColor,
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
+                    canvas.drawLine(curPos.x, curPos.y, predPt.x, predPt.y, tipShaderPaint)
+                }
+            } catch (_: Throwable) {}
         }
 
         // =========================================================================
@@ -833,8 +930,13 @@ class CanvasTouchView(context: Context) : View(context) {
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && event.actionMasked == MotionEvent.ACTION_DOWN) {
-            requestUnbufferedDispatch(event)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            val mask = event.actionMasked
+            if (mask == MotionEvent.ACTION_DOWN || mask == MotionEvent.ACTION_POINTER_DOWN) {
+                try {
+                    requestUnbufferedDispatch(event)
+                } catch (_: Throwable) {}
+            }
         }
         val pointerCount = event.pointerCount
 
@@ -891,6 +993,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    try {
+                        oplusPredictor?.reset()
+                    } catch (_: Throwable) {}
+                    predictedScreenPoint = null
                     removeCallbacks(longPressRunnable)
                     longPressToken++
                     isTransformActive = false
@@ -937,10 +1043,23 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     localCursorPos = screenPos
                     localIsTouching = true
-                    // 触控移动驱动 UI 绘制 (保障光标与辅助线 120Hz 零延迟跟随)
-                    invalidate()
+                    // 仅在非笔刷工具、光标跟随模式或激活笔尖硬件预测时在 UI 线程重绘
+                    val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
+                    if (!isDrawingTool) {
+                        invalidate()
+                    } else {
+                        val isEraser = tool == Tool.ERASER
+                        val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
+                        if (cursorMode == 1 || cursorMode == 3 || (v.stylusStrokePredictionEnabled && predictedScreenPoint != null)) {
+                            invalidate()
+                        }
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    predictedScreenPoint = null
+                    try {
+                        oplusPredictor?.reset()
+                    } catch (_: Throwable) {}
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     removeCallbacks(longPressRunnable)
                     longPressToken++
@@ -1585,6 +1704,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
                 val isAssist = (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
+                val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
 
                 for (i in 0 until event.historySize) {
                     val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
@@ -1593,19 +1713,75 @@ class CanvasTouchView(context: Context) : View(context) {
                     val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
                     val hTime = event.getHistoricalEventTime(i)
                     v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime)
-                    val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
-                    for (idx in symPts.indices) {
-                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
+                    if (hasSymmetry) {
+                        val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
+                        for (idx in symPts.indices) {
+                            if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
+                        }
                     }
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime)
-                val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
-                for (idx in symPts.indices) {
-                    if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
+                if (hasSymmetry) {
+                    val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
+                    for (idx in symPts.indices) {
+                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
+                    }
                 }
 
-                // 触控点记录完成，纯粹依靠底层直出 Krita 渲染墨迹
+                // OEM 硬件前向预测计算 (抵消 144Hz 屏幕 1~2 帧约 14~20ms 物理显示上屏延迟)
+                if (isStylus && v.stylusStrokePredictionEnabled) {
+                    val op = oplusPredictor
+                    if (op != null && op.isValid) {
+                        try {
+                            for (i in 0 until event.historySize) {
+                                cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
+                                cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
+                                cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
+                                cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
+                                op.pushTouchPoint(cachedTouchPointInfo)
+                            }
+                            cachedTouchPointInfo.x = event.getX(pointerIndex)
+                            cachedTouchPointInfo.y = event.getY(pointerIndex)
+                            cachedTouchPointInfo.pressure = pressure
+                            cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
+                            cachedTouchPointInfo.timestamp = event.eventTime
+                            op.pushTouchPoint(cachedTouchPointInfo)
+
+                            val pred = op.predictTouchPoint()
+                            if (pred != null) {
+                                predictedScreenPoint = Offset(pred.x, pred.y)
+                                predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                            } else {
+                                predictedScreenPoint = null
+                            }
+                        } catch (_: Throwable) {
+                            predictedScreenPoint = null
+                        }
+                    } else if (Build.VERSION.SDK_INT >= 34 && androidMotionPredictor != null) {
+                        val amp = androidMotionPredictor as? android.view.MotionPredictor
+                        if (amp != null) {
+                            try {
+                                amp.record(event)
+                                val predEvent = amp.predict(15_000_000L)
+                                if (predEvent != null) {
+                                    predictedScreenPoint = Offset(predEvent.x, predEvent.y)
+                                    predictedPressure = predEvent.pressure.coerceIn(0.01f, 1f)
+                                    predEvent.recycle()
+                                } else {
+                                    predictedScreenPoint = null
+                                }
+                            } catch (_: Throwable) {
+                                predictedScreenPoint = null
+                            }
+                        }
+                    } else {
+                        predictedScreenPoint = null
+                    }
+                } else {
+                    predictedScreenPoint = null
+                }
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
@@ -1799,6 +1975,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     strokeStarted = false
                 }
                 mirroredBranches.clear()
+                predictedScreenPoint = null
+                try {
+                    oplusPredictor?.reset()
+                } catch (_: Throwable) {}
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {

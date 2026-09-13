@@ -251,12 +251,18 @@ fun CanvasView(
                 }.background(Morandi.canvasBg),
     ) {
         // 原生硬件级触控与画布直出层 (完全隔离 onHover 与 onTouch，驱动 144Hz 画布位图渲染与手势)
+        val layerRev = vm.layerRevision
+        val displayRev = vm.displayRevision
         androidx.compose.ui.viewinterop.AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 CanvasTouchView(ctx)
             },
             update = { touchView ->
+                @Suppress("UNUSED_VARIABLE")
+                val _lr = layerRev
+                @Suppress("UNUSED_VARIABLE")
+                val _dr = displayRev
                 CanvasTouchView.activeTouchView = touchView
                 touchView.vm = vm
                 touchView.tool = tool
@@ -265,19 +271,12 @@ fun CanvasView(
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
-                    val changed = touchView.canvasZoom != zoom.value ||
-                        touchView.canvasRotation != rotation.value ||
-                        touchView.canvasPanX != panX.value ||
-                        touchView.canvasPanY != panY.value ||
-                        touchView.canvasFitScale != fitScale
                     touchView.canvasZoom = zoom.value
                     touchView.canvasRotation = rotation.value
                     touchView.canvasPanX = panX.value
                     touchView.canvasPanY = panY.value
                     touchView.canvasFitScale = fitScale
-                    if (changed) {
-                        touchView.invalidate()
-                    }
+                    touchView.invalidate()
                 }
                 touchView.onTransform = onTransform
                 touchView.onTextRequested = onTextRequested

@@ -2140,16 +2140,15 @@ class PaintViewModel : ViewModel() {
     }
 
     internal fun startRenderThread() {
-        val thread = HandlerThread("reverie-render")
+        val thread = HandlerThread("reverie-render", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
         thread.start()
         renderThread = thread
         renderHandler = Handler(thread.looper)
-        // First runnable on the thread: raise priority so stroke flushes and
-        // projection recomposition win CPU contention over background work.
+        // Ensure priority is set to URGENT_DISPLAY
         val h = renderHandler
         h?.post {
             android.os.Process.setThreadPriority(
-                android.os.Process.THREAD_PRIORITY_DISPLAY
+                android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
             )
         }
     }
@@ -2439,8 +2438,18 @@ class PaintViewModel : ViewModel() {
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
-            tv.postInvalidate()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+                tv.postInvalidateOnAnimation()
+            } else {
+                tv.postInvalidate()
+            }
         } else {
+            mainHandler.post {
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+            }
+        }
+        val isStrokeActive = strokeBatchQueued || (pendingCoreOps.get() > 0)
+        if (!isStrokeActive) {
             mainHandler.post {
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
             }
