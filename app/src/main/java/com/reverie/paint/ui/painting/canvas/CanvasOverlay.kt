@@ -87,16 +87,8 @@ internal fun CanvasOverlay(
         // Hoisted draw paints: the draw lambda runs every frame, so these must
         // not be allocated inside it (grid paint is reconfigured per frame)
         val gridPaint = remember { android.graphics.Paint() }
-        val imagePaint = remember(vm.magnificationInterpolation) {
-            android.graphics.Paint().apply {
-                isFilterBitmap = vm.magnificationInterpolation
-                isAntiAlias = vm.magnificationInterpolation
-                isDither = true
-            }
-        }
         Canvas(Modifier.fillMaxSize()) {
-            val rev = vm.displayRevision
-            val bmp = vm.displayBitmap ?: return@Canvas
+            val bmp = vm.pendingDisplay ?: vm.displayBitmap ?: return@Canvas
             val imgW = bmp.width.toFloat()
             val imgH = bmp.height.toFloat()
             if (imgW <= 0f || imgH <= 0f) return@Canvas
@@ -104,34 +96,10 @@ internal fun CanvasOverlay(
             val scale = (zoom.value * fitScale).coerceAtLeast(0.001f)
             val center = Offset(size.width / 2f + panX.value, size.height / 2f + panY.value)
             withTransform({
-                translate(center.x + 8f, center.y + 8f)
-                rotate(rotation.value, pivot = Offset.Zero)
-                scale(scale, scale, pivot = Offset.Zero)
-            }) {
-                drawRect(
-                    Morandi.canvasShadow,
-                    topLeft = Offset(-imgW / 2f, -imgH / 2f),
-                    size = androidx.compose.ui.geometry.Size(imgW, imgH),
-                )
-            }
-            withTransform({
                 translate(center.x, center.y)
                 rotate(rotation.value, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
             }) {
-                // Draw transparency checkerboard under the canvas image
-                val nativeCanvas = drawContext.canvas.nativeCanvas
-                nativeCanvas.drawRect(
-                    -imgW / 2f,
-                    -imgH / 2f,
-                    imgW / 2f,
-                    imgH / 2f,
-                    checkerboardPaint
-                )
-                
-                // Draw the actual canvas image over the checkerboard
-                nativeCanvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, imagePaint)
-
                 // Pixel grid on high zoom (scale >= 4.0)
                 if (vm.pixelGridEnabled && scale >= 4f) {
                     val halfW = imgW / 2f
@@ -140,14 +108,17 @@ internal fun CanvasOverlay(
                     if (gridAlpha > 0.01f) {
                         // Remembered Paint mutated per frame: allocation-free,
                         // only color/strokeWidth depend on the live zoom scale
+                        val nativeCanvas = drawContext.canvas.nativeCanvas
                         gridPaint.color =
                             android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
                         gridPaint.strokeWidth = 1f / scale
                         gridPaint.style = android.graphics.Paint.Style.STROKE
-                        for (gx in 0..bmp.width) {
+                        val gw = bmp?.width ?: vm.docWidth
+                        val gh = bmp?.height ?: vm.docHeight
+                        for (gx in 0..gw) {
                             nativeCanvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, gridPaint)
                         }
-                        for (gy in 0..bmp.height) {
+                        for (gy in 0..gh) {
                             nativeCanvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, gridPaint)
                         }
                     }

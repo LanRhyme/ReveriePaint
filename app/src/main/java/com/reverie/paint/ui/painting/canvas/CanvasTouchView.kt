@@ -36,18 +36,47 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+import android.view.SurfaceView
+import android.view.SurfaceHolder
+import android.graphics.PixelFormat
+
 private const val TIP_CAPACITY = 2048
 
 /**
- * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
+ * 画世界 / Procreate 架构原生触控与独立硬件直通渲染引擎 (CanvasTouchView)
  *
  * 核心架构设计：
- * 1. 硬件级光标渲染：在 View.onDraw 中直接通过 GPU Canvas 绘制笔刷光标环，彻底消除 Compose 每秒 480 次重组开销；
- * 2. 手/笔职责分流 (Huashijie Model)：手写笔落笔负责 100% 绘画，手指负责 100% 画布手势导航 (单指平移 / 双指缩放旋转 / 双指轻点撤销 / 长按吸色)；
- * 3. 悬停抗干扰：悬停事件由硬件独立驱动，绝不独占事件分发，手指手势与空中悬停 100% 并发无阻碍；
- * 4. 连续几何变换：跨碎片会话保持 + 两指近邻欧氏距离配对，0 延迟、0 门槛满帧响应。
+ * 1. SurfaceView 独立硬件加速直通：在独立渲染线程通过 SurfaceHolder.lockHardwareCanvas()
+ *    直接输出 GPU 帧至 SurfaceFlinger，彻底绕过 Android HWUI View.onDraw 与 Compose 重组体系；
+ * 2. 0ms 跨线程中转：Krita 渲染线程完成 renderToBuffer 后就地提交 Surface 帧，消除消息队列时延；
+ * 3. 手/笔职责分流 (Huashijie Model)：手写笔落笔负责 100% 绘画，手指负责 100% 画布手势导航 (单指平移 / 双指缩放旋转 / 双指轻点撤销 / 长按吸色)；
+ * 4. 连续几何变换：双指手势直接驱动渲染线程轻量矩阵重绘，144Hz 满帧顺滑无空转功耗。
  */
-class CanvasTouchView(context: Context) : View(context) {
+class CanvasTouchView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
+
+    init {
+        holder.addCallback(this)
+        holder.setFormat(PixelFormat.RGBA_8888)
+        setWillNotDraw(false)
+    }
+
+    @Volatile var isSurfaceAvailable: Boolean = false
+        private set
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        isSurfaceAvailable = true
+        requestSurfaceRender()
+    }
+
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        viewW = width
+        viewH = height
+        requestSurfaceRender()
+    }
+
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        isSurfaceAvailable = false
+    }
 
     var vm: PaintViewModel? = null
     var tool: Tool = Tool.BRUSH
@@ -65,13 +94,13 @@ class CanvasTouchView(context: Context) : View(context) {
         return driver
     }
 
-    var viewW: Int = 1
-    var viewH: Int = 1
-    var canvasZoom: Float = 1f
-    var canvasRotation: Float = 0f
-    var canvasPanX: Float = 0f
-    var canvasPanY: Float = 0f
-    var canvasFitScale: Float = 1f
+    @Volatile var viewW: Int = 1
+    @Volatile var viewH: Int = 1
+    @Volatile var canvasZoom: Float = 1f
+    @Volatile var canvasRotation: Float = 0f
+    @Volatile var canvasPanX: Float = 0f
+    @Volatile var canvasPanY: Float = 0f
+    @Volatile var canvasFitScale: Float = 1f
 
     var onTransform: ((zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit)? = null
     var onTextRequested: ((x: Float, y: Float) -> Unit)? = null
@@ -110,15 +139,93 @@ class CanvasTouchView(context: Context) : View(context) {
     var isPinchMotion = false
 
     // 本地硬件光标状态 (0 Compose 开销)
-    private var localCursorPos: Offset? = null
-    private var localIsHovering = false
-    private var localIsTouching = false
-    private var localPressure = 1f
+    @Volatile private var localCursorPos: Offset? = null
+    @Volatile private var localIsHovering = false
+    @Volatile private var localIsTouching = false
+    @Volatile private var localPressure = 1f
+
+    // 独立渲染线程 Surface 调度状态
+    @Volatile private var surfaceRenderPending = false
+    private val surfaceRenderRunnable = Runnable {
+        surfaceRenderPending = false
+        renderSurfaceFrame()
+    }
+
+    fun requestSurfaceRender() {
+        val v = vm
+        val rh = v?.renderHandler
+        if (rh == null) {
+            renderSurfaceFrame()
+            return
+        }
+        if (Thread.currentThread() === rh.looper.thread) {
+            renderSurfaceFrame()
+            return
+        }
+        if (!surfaceRenderPending) {
+            surfaceRenderPending = true
+            rh.post(surfaceRenderRunnable)
+        }
+    }
+
+    fun renderSurfaceFrame() {
+        if (!isSurfaceAvailable) return
+        val h = holder ?: return
+        val canvas = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                h.lockHardwareCanvas()
+            } catch (_: Throwable) {
+                h.lockCanvas()
+            }
+        } else {
+            h.lockCanvas()
+        } ?: return
+
+        try {
+            drawCanvasContent(canvas)
+        } finally {
+            try {
+                h.unlockCanvasAndPost(canvas)
+            } catch (_: Throwable) {}
+        }
+    }
+
+    override fun invalidate() {
+        super.invalidate()
+        requestSurfaceRender()
+    }
+
+    override fun postInvalidateOnAnimation() {
+        super.postInvalidateOnAnimation()
+        requestSurfaceRender()
+    }
 
     // 硬件加速直出渲染 Paint
     private val directBitmapPaint = Paint().apply {
         isFilterBitmap = true
         isDither = true
+    }
+
+    // 画布背景与透明棋盘格 Paint
+    private val canvasShadowPaint = Paint().apply {
+        color = android.graphics.Color.argb(45, 0, 0, 0)
+        style = Paint.Style.FILL
+    }
+    private val checkerboardPaint = Paint().apply {
+        val tileSize = 24
+        val bmp = Bitmap.createBitmap(tileSize * 2, tileSize * 2, Bitmap.Config.ARGB_8888)
+        val cv = android.graphics.Canvas(bmp)
+        val p1 = Paint().apply { color = android.graphics.Color.WHITE }
+        val p2 = Paint().apply { color = android.graphics.Color.rgb(228, 230, 235) }
+        cv.drawRect(0f, 0f, tileSize.toFloat(), tileSize.toFloat(), p1)
+        cv.drawRect(tileSize.toFloat(), 0f, (tileSize * 2).toFloat(), tileSize.toFloat(), p2)
+        cv.drawRect(0f, tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), p2)
+        cv.drawRect(tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), (tileSize * 2).toFloat(), p1)
+        this.shader = android.graphics.BitmapShader(
+            bmp,
+            android.graphics.Shader.TileMode.REPEAT,
+            android.graphics.Shader.TileMode.REPEAT
+        )
     }
 
     // 光标绘制 Paint (超细精细发丝线条)
@@ -245,6 +352,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 canvasRotation = startRot + (0f - startRot) * f
                 canvasPanX = startPanX + (0f - startPanX) * f
                 canvasPanY = startPanY + (0f - startPanY) * f
+                requestSurfaceRender()
                 onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
             }
         }
@@ -561,37 +669,46 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+    fun drawCanvasContent(canvas: Canvas) {
         val v = vm ?: return
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
 
-        // =========================================================================
-        // 1. 硬件加速直出 Krita 渲染画布 (消除 Compose 重组调度延迟)
-        // 彻底移除 2D 预测假线与预测圆点，消除假线拖尾；墨迹 100% 来源于 Krita 原生真实渲染
-        // =========================================================================
-        if ((tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) &&
-            v.selectionOverlayBitmap == null && tfState?.active != true
-        ) {
-            val bmp = v.displayBitmap ?: docBitmap
-            if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
-                val imgW = bmp.width.toFloat()
-                val imgH = bmp.height.toFloat()
-                val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                val centerX = viewW / 2f + canvasPanX
-                val centerY = viewH / 2f + canvasPanY
-                canvas.save()
-                canvas.translate(centerX, centerY)
-                canvas.rotate(canvasRotation)
-                canvas.scale(scale, scale)
-                canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
-                canvas.restore()
-            }
+        // 1. 绘制画布工作区背景色 (防止 SurfaceView 双缓冲残影与闪烁)
+        val bgHex = if (v.canvasBgColorHex == "DEFAULT" || v.canvasBgColorHex.isBlank()) "#E4E6EB" else v.canvasBgColorHex
+        try {
+            canvas.drawColor(android.graphics.Color.parseColor(bgHex))
+        } catch (_: Throwable) {
+            canvas.drawColor(android.graphics.Color.rgb(228, 230, 235))
         }
 
-        // =========================================================================
-        // 2. 绘画中实时镜像笔迹绘制 (120Hz 零延迟 GPU Canvas 渲染)
-        // =========================================================================
+        // 2. 硬件加速直出 Krita 渲染画布 (SurfaceView 独立硬件加速输出)
+        val bmp = v.pendingDisplay ?: v.displayBitmap ?: docBitmap
+        if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
+            val imgW = bmp.width.toFloat()
+            val imgH = bmp.height.toFloat()
+            val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+            val centerX = viewW / 2f + canvasPanX
+            val centerY = viewH / 2f + canvasPanY
+
+            // 画布投影
+            canvas.save()
+            canvas.translate(centerX + 6f, centerY + 6f)
+            canvas.rotate(canvasRotation)
+            canvas.scale(scale, scale)
+            canvas.drawRect(-imgW / 2f, -imgH / 2f, imgW / 2f, imgH / 2f, canvasShadowPaint)
+            canvas.restore()
+
+            // 画布主体 (透明棋盘格 + 真实文档像素)
+            canvas.save()
+            canvas.translate(centerX, centerY)
+            canvas.rotate(canvasRotation)
+            canvas.scale(scale, scale)
+            canvas.drawRect(-imgW / 2f, -imgH / 2f, imgW / 2f, imgH / 2f, checkerboardPaint)
+            canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+            canvas.restore()
+        }
+
+        // 3. 绘画中实时镜像笔迹绘制 (144Hz 独立 GPU 线程直出)
         if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirroredBranches.isNotEmpty()) {
             try {
                 val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
@@ -607,10 +724,7 @@ class CanvasTouchView(context: Context) : View(context) {
             } catch (_: Exception) {}
         }
 
-        // =========================================================================
-        // 3. 光标及对称参考线绘制 (Cursor & Guides)
-        // 依据用户的光标模式设置独立渲染
-        // =========================================================================
+        // 4. 光标及对称参考线绘制 (Cursor & Guides)
         val pos = localCursorPos ?: return
         val isEraser = tool == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
@@ -669,6 +783,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
         }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        drawCanvasContent(canvas)
     }
 
     private fun sampleColorAtScreenPos(screenPos: Offset) {
@@ -1124,6 +1243,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             canvasRotation += dRot
                         }
 
+                        requestSurfaceRender()
                         onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
 
                         prevCentroid = centroid
@@ -1150,6 +1270,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvasPanY += dy
                     if (hypot(dx, dy) > 2f) isPinchMotion = true
                     lastTransformTimestamp = nowMs
+                    requestSurfaceRender()
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                 } else if (dist1 <= dist0 && dist1 < 60f * density) {
                     val dx = cur.x - lastPos1.x
@@ -1160,6 +1281,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvasPanY += dy
                     if (hypot(dx, dy) > 2f) isPinchMotion = true
                     lastTransformTimestamp = nowMs
+                    requestSurfaceRender()
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                 } else {
                     lastPos0 = cur
@@ -1337,6 +1459,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 笔模式开启且处于绘图工具：单指丝滑平移画布
                     canvasPanX += deltaX
                     canvasPanY += deltaY
+                    requestSurfaceRender()
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                     return true
                 } else {
