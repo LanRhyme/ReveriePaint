@@ -234,6 +234,7 @@ internal fun PaintViewModel.touchMove(
     x: Float,
     y: Float,
     pressure: Double = 1.0,
+    inputEventTimeMs: Long = 0L,
 ) {
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
@@ -291,7 +292,7 @@ internal fun PaintViewModel.touchMove(
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    queueStrokeMove(effX, effY, effP)
+    queueStrokeMove(effX, effY, effP, inputEventTimeMs)
 }
 
 internal fun PaintViewModel.touchEnd() {

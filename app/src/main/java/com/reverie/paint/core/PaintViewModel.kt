@@ -2194,8 +2194,12 @@ class PaintViewModel : ViewModel() {
     private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
     private var strokeBatchCount = 0
     @Volatile private var strokeBatchQueued = false
+    @Volatile private var lastQueuedInputEventTime = 0L
+    @Volatile private var lastQueuedUptime = 0L
+    private var perfLogCounter = 0
 
     private val strokeBatchRunnable = Runnable {
+        val tDispatch = android.os.SystemClock.uptimeMillis()
         strokeBatchQueued = false
         val n: Int
         synchronized(strokeBatchLock) {
@@ -2206,19 +2210,34 @@ class PaintViewModel : ViewModel() {
             }
         }
         pendingCoreOps.decrementPositive()
+        val tKritaStart = android.os.SystemClock.uptimeMillis()
         val painted = n > 0 && try {
             ReverieCoreBridge.touchStrokeMoveBatch(strokeDrainCoords, n)
         } catch (_: Throwable) {
             false
         }
+        val dtKrita = android.os.SystemClock.uptimeMillis() - tKritaStart
         // Render immediately in-place after ink landed to eliminate message queue roundtrip latency
         if (painted) {
+            val tRenderStart = android.os.SystemClock.uptimeMillis()
             doRender()
+            val dtRender = android.os.SystemClock.uptimeMillis() - tRenderStart
+            val tDone = android.os.SystemClock.uptimeMillis()
+            val queueWait = tDispatch - lastQueuedUptime
+            val e2e = if (lastQueuedInputEventTime > 0) tDone - lastQueuedInputEventTime else 0L
+            if (++perfLogCounter % 5 == 0) {
+                android.util.Log.i(
+                    "ReveriePerf",
+                    "StrokePerf: n=$n queueWait=${queueWait}ms krita=${dtKrita}ms render=${dtRender}ms e2e=${e2e}ms"
+                )
+            }
         }
     }
 
-    internal fun queueStrokeMove(x: Float, y: Float, p: Double) {
+    internal fun queueStrokeMove(x: Float, y: Float, p: Double, inputEventTimeMs: Long = 0L) {
         val h = renderHandler ?: return
+        lastQueuedInputEventTime = inputEventTimeMs
+        lastQueuedUptime = android.os.SystemClock.uptimeMillis()
         // Airbrush hold-still ticks mirror the latest sample position into
         // their recording; keep these legacy fields in sync.
         pendingSampleX = x.toDouble()

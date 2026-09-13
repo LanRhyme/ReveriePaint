@@ -251,6 +251,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 canvasPanX = startPanX + (0f - startPanX) * f
                 canvasPanY = startPanY + (0f - startPanY) * f
                 onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                invalidate()
             }
         }
         fitAnimator = animator
@@ -832,6 +833,9 @@ class CanvasTouchView(context: Context) : View(context) {
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && event.actionMasked == MotionEvent.ACTION_DOWN) {
+            requestUnbufferedDispatch(event)
+        }
         val pointerCount = event.pointerCount
 
         // 取消 pending 的撤销或会话重置
@@ -933,10 +937,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     localCursorPos = screenPos
                     localIsTouching = true
-                    // 仅非笔刷工具在 UI 线程 invalidate，笔刷工具由渲染线程 postInvalidate 触发真实墨迹重绘
-                    if (tool != Tool.BRUSH && tool != Tool.ERASER && tool != Tool.SMUDGE) {
-                        invalidate()
-                    }
+                    // 触控移动驱动 UI 绘制 (保障光标与辅助线 120Hz 零延迟跟随)
+                    invalidate()
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
@@ -1066,6 +1068,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
 
                         onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        invalidate()
 
                         prevCentroid = centroid
                         prevDistance = distance
@@ -1092,6 +1095,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hypot(dx, dy) > 2f) isPinchMotion = true
                     lastTransformTimestamp = nowMs
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                    invalidate()
                 } else if (dist1 <= dist0 && dist1 < 60f * density) {
                     val dx = cur.x - lastPos1.x
                     val dy = cur.y - lastPos1.y
@@ -1102,6 +1106,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hypot(dx, dy) > 2f) isPinchMotion = true
                     lastTransformTimestamp = nowMs
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                    invalidate()
                 } else {
                     lastPos0 = cur
                     lastTransformTimestamp = nowMs
@@ -1142,12 +1147,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     maxTouchPointers = 0
                     lastPos0 = Offset.Zero
                     lastPos1 = Offset.Zero
+                    invalidate()
                 }
                 MotionEvent.ACTION_CANCEL -> {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
                     isContinuousUndoing = false
                     postDelayed(resetTransformRunnable, 150)
+                    invalidate()
                 }
             }
             return true
@@ -1279,6 +1286,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvasPanX += deltaX
                     canvasPanY += deltaY
                     onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                    invalidate()
                     return true
                 } else {
                     if (isPendingLongPress) {
@@ -1583,14 +1591,15 @@ class CanvasTouchView(context: Context) : View(context) {
                     val hDoc = screenToDoc(hScreen)
                     val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
                     val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
-                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble())
+                    val hTime = event.getHistoricalEventTime(i)
+                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime)
                     val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                     for (idx in symPts.indices) {
                         if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
                     }
                 }
 
-                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
+                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime)
                 val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                 for (idx in symPts.indices) {
                     if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))

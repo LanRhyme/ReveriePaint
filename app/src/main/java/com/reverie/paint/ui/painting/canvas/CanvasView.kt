@@ -264,11 +264,19 @@ fun CanvasView(
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
+                    val changed = touchView.canvasZoom != zoom.value ||
+                        touchView.canvasRotation != rotation.value ||
+                        touchView.canvasPanX != panX.value ||
+                        touchView.canvasPanY != panY.value ||
+                        touchView.canvasFitScale != fitScale
                     touchView.canvasZoom = zoom.value
                     touchView.canvasRotation = rotation.value
                     touchView.canvasPanX = panX.value
                     touchView.canvasPanY = panY.value
                     touchView.canvasFitScale = fitScale
+                    if (changed) {
+                        touchView.invalidate()
+                    }
                 }
                 touchView.onTransform = onTransform
                 touchView.onTextRequested = onTextRequested
