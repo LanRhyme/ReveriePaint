@@ -161,6 +161,16 @@ void ReverieCore::touchStrokeEnd()
         m_redoCount = 0;
     }
 
+    // Propagate final dirty region to the layer device once upon stroke completion
+    KisPaintDeviceSP endDev = pl ? pl->paintDevice() : currentPaintDevice();
+    if (endDev && m_document) {
+        const QRect totalDirty = m_accumulatedStrokeBounds.toAlignedRect().intersected(
+            QRect(0, 0, m_document->width(), m_document->height()));
+        if (!totalDirty.isEmpty()) {
+            endDev->setDirty(totalDirty);
+        }
+    }
+
     m_drawing = false;
 }
 
@@ -458,7 +468,6 @@ bool ReverieCore::flushStrokeBatch()
         // Propagate the tap dot to the projection immediately
         const int tw = int(m_brushSize) + 2;
         const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
-        target->setDirty(tr);
         markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeSamples.clear();
@@ -637,13 +646,9 @@ bool ReverieCore::flushStrokeBatch()
     }
     m_strokeCarryCount = trailing.size();
 
-    // All strokes now paint straight onto the layer: propagate the dirty
-    // region so Krita's projection recomposites it immediately.
+    // Hot path: propagate the dirty region for fast synchronous compositing without
+    // scheduling background jobs in Krita's thread pool during active stroke
     if (!strokeDirty.isNull()) {
-        target->setDirty(strokeDirty);
-        if (pl && pl->hasTemporaryTarget()) {
-            pl->setDirty(strokeDirty);
-        }
         markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }

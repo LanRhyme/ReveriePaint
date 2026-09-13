@@ -116,6 +116,13 @@ class CanvasTouchView(context: Context) : View(context) {
     private var localPressure = 1f
 
     // 硬件加速直出渲染 Paint
+    var checkerboardPaint: Paint? = null
+    private val shadowPaint = Paint().apply {
+        color = android.graphics.Color.argb(0x80, 0, 0, 0)
+    }
+    private val pixelGridPaint = Paint().apply {
+        style = Paint.Style.STROKE
+    }
     private val directBitmapPaint = Paint().apply {
         isFilterBitmap = true
         isDither = true
@@ -568,25 +575,58 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // =========================================================================
         // 1. 硬件加速直出 Krita 渲染画布 (消除 Compose 重组调度延迟)
-        // 彻底移除 2D 预测假线与预测圆点，消除假线拖尾；墨迹 100% 来源于 Krita 原生真实渲染
+        // 统一单点呈现：阴影、透明棋盘格、位图与像素网格硬件加速直出
         // =========================================================================
-        if ((tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE) &&
-            v.selectionOverlayBitmap == null && tfState?.active != true
-        ) {
-            val bmp = v.displayBitmap ?: docBitmap
-            if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
-                val imgW = bmp.width.toFloat()
-                val imgH = bmp.height.toFloat()
-                val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                val centerX = viewW / 2f + canvasPanX
-                val centerY = viewH / 2f + canvasPanY
-                canvas.save()
-                canvas.translate(centerX, centerY)
-                canvas.rotate(canvasRotation)
-                canvas.scale(scale, scale)
-                canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
-                canvas.restore()
+        val bmp = v.displayBitmap ?: docBitmap
+        if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
+            val imgW = bmp.width.toFloat()
+            val imgH = bmp.height.toFloat()
+            val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+            val centerX = viewW / 2f + canvasPanX
+            val centerY = viewH / 2f + canvasPanY
+
+            // 绘制底座投影
+            canvas.save()
+            canvas.translate(centerX + 8f, centerY + 8f)
+            canvas.rotate(canvasRotation)
+            canvas.scale(scale, scale)
+            canvas.drawRect(-imgW / 2f, -imgH / 2f, imgW / 2f, imgH / 2f, shadowPaint)
+            canvas.restore()
+
+            canvas.save()
+            canvas.translate(centerX, centerY)
+            canvas.rotate(canvasRotation)
+            canvas.scale(scale, scale)
+
+            // 绘制透明棋盘格
+            checkerboardPaint?.let { cb ->
+                canvas.drawRect(-imgW / 2f, -imgH / 2f, imgW / 2f, imgH / 2f, cb)
             }
+
+            // 绘制真实画布像素
+            directBitmapPaint.isFilterBitmap = v.magnificationInterpolation
+            directBitmapPaint.isAntiAlias = v.magnificationInterpolation
+            canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+
+            // 像素级网格高倍率缩放展示 (scale >= 4.0)
+            if (v.pixelGridEnabled && scale >= 4f) {
+                val halfW = imgW / 2f
+                val halfH = imgH / 2f
+                val gridAlpha = ((scale - 4f) / 4f).coerceIn(0f, 1f) * 0.15f
+                if (gridAlpha > 0.01f) {
+                    pixelGridPaint.color =
+                        android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
+                    pixelGridPaint.strokeWidth = 1f / scale
+                    for (gx in 0..bmp.width) {
+                        canvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, pixelGridPaint)
+                    }
+                    for (gy in 0..bmp.height) {
+                        canvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, pixelGridPaint)
+                    }
+                }
+            }
+
+            canvas.restore()
         }
 
         // =========================================================================

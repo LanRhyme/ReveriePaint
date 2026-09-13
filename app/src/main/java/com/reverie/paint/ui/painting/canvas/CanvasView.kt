@@ -251,36 +251,7 @@ fun CanvasView(
                     vm.setRenderViewport(it.width, it.height)
                 }.background(Morandi.canvasBg),
     ) {
-        CanvasOverlay(
-            vm = vm,
-            zoom = zoom,
-            rotation = rotation,
-            panX = panX,
-            panY = panY,
-            fitScale = fitScale,
-            tool = tool,
-            tfState = tfState,
-            polyPoints = polyPoints,
-            cropRect = cropRect,
-            liveShapeStart = liveShapeStart,
-            liveShapeEnd = liveShapeEnd,
-            measureStart = measureStart,
-            measureEnd = measureEnd,
-            pickerActive = pickerActive,
-            pickerScreenPos = pickerScreenPos,
-            pickerInitialColor = pickerInitialColor,
-            pickerCurrentColor = pickerCurrentColor,
-            cursorScreenPos = cursorScreenPos,
-            isCursorHovering = isCursorHovering,
-            isCursorTouching = isCursorTouching,
-            livePressure = livePressure,
-            wandFlash = wandFlash,
-            liveSelectionPath = liveSelectionPath,
-            checkerboardPaint = checkerboardPaint,
-        )
-
-
-        // 原生硬件级触控层 (完全隔离 onHover 与 onTouch，驱动 ScaleGestureDetector)
+        // 原生硬件级触控与画布直出层 (完全隔离 onHover 与 onTouch，驱动 144Hz 画布位图渲染与手势)
         androidx.compose.ui.viewinterop.AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -291,6 +262,7 @@ fun CanvasView(
                 touchView.tool = tool
                 touchView.tfState = tfState
                 touchView.docBitmap = bmp
+                touchView.checkerboardPaint = checkerboardPaint
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
@@ -325,6 +297,35 @@ fun CanvasView(
                 touchView.overlayPanelsOpen = overlayPanelsOpen
                 touchView.liquifyMode = liquifyMode
             },
+        )
+
+        // 顶层辅助覆盖层 (选区蚂蚁线/选区蒙版/变换控制点/裁剪线/辅助线)
+        CanvasOverlay(
+            vm = vm,
+            zoom = zoom,
+            rotation = rotation,
+            panX = panX,
+            panY = panY,
+            fitScale = fitScale,
+            tool = tool,
+            tfState = tfState,
+            polyPoints = polyPoints,
+            cropRect = cropRect,
+            liveShapeStart = liveShapeStart,
+            liveShapeEnd = liveShapeEnd,
+            measureStart = measureStart,
+            measureEnd = measureEnd,
+            pickerActive = pickerActive,
+            pickerScreenPos = pickerScreenPos,
+            pickerInitialColor = pickerInitialColor,
+            pickerCurrentColor = pickerCurrentColor,
+            cursorScreenPos = cursorScreenPos,
+            isCursorHovering = isCursorHovering,
+            isCursorTouching = isCursorTouching,
+            livePressure = livePressure,
+            wandFlash = wandFlash,
+            liveSelectionPath = liveSelectionPath,
+            checkerboardPaint = checkerboardPaint,
         )
     }
 }

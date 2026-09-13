@@ -2067,27 +2067,16 @@ class PaintViewModel : ViewModel() {
     // the same bitmap. Three buffers give each demoted bitmap two frame-times
     // of rest before it is written again.
     //
-    // Buffers stay INCREMENTAL: after each render the freshly written region
-    // is blitted from the just-rendered (fully up-to-date) buffer into every
-    // other non-displayed buffer, tracked per-buffer in [bufferMissing].
-    // Displayed/pending buffers accumulate their missing union instead and
-    // need one forceFull render when recycled - without the replication every
-    // frame degenerated into a full-frame render, which saturated the render
-    // thread and made fast scribbling stutter.
-    internal var displayBuffers: Array<Bitmap?> = arrayOfNulls(3)
+    // Double buffering: frontBuffer is read by the UI/view on the main thread;
+    // backBuffer is rendered into by C++ ReverieCore on the render thread.
+    internal var frontBuffer: Bitmap? = null
+    internal var backBuffer: Bitmap? = null
 
-    internal var bufferMissing: Array<android.graphics.Rect?> = arrayOfNulls(3)
-
-    // Reusable canvas, rect and dirty array for zero-allocation back-buffer synchronization
+    // Zero-allocation reusable canvas, rect and dirty array for buffer synchronization
     private val syncCanvas = android.graphics.Canvas()
-    private val renderWrittenRect = android.graphics.Rect()
+    private val lastWrittenRect = android.graphics.Rect()
     private val renderDirty = IntArray(4)
-
-    internal var lastRenderIdx = -1
-
-    // The buffer most recently handed to the main thread for display; still
-    // readable by an in-flight frame, so never render into it either.
-    @Volatile internal var pendingDisplay: Bitmap? = null
+    private var hasWrittenRect = false
 
     @Volatile internal var displayBufferInvalid = false
 
@@ -2378,90 +2367,60 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
-        // Round-robin over the buffers, never touching the displayed or the
-        // pending-display bitmap (both may still be read by Compose)
-        val displayed = displayBitmap
-        var idx = (lastRenderIdx + 1) % displayBuffers.size
-        if (displayBuffers[idx] === displayed || displayBuffers[idx] === pendingDisplay) {
-            idx = (idx + 1) % displayBuffers.size
-        }
-        lastRenderIdx = idx
-        var target = displayBuffers[idx]
-        val sizeMismatch = target == null || target.width != w || target.height != h
+
+        val sizeMismatch = backBuffer == null || backBuffer?.width != w || backBuffer?.height != h
         val reallocated = sizeMismatch || displayBufferInvalid
         if (reallocated) {
-            target = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            displayBuffers[idx] = target
+            frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             displayBufferInvalid = false
+            hasWrittenRect = false
         }
-        // Full frame only when the buffer is brand new or missed updates
-        // while it was displayed (its missing union is non-null)
-        val forceFull = reallocated || bufferMissing[idx] != null
-        val buf = target ?: return
-        val ok = ReverieCoreBridge.renderToBuffer(buf, forceFull, renderDirty)
+
+        val front = frontBuffer
+        val back = backBuffer ?: return
+
+        // Synchronize previous frame's dirty region from front buffer to back buffer
+        if (!reallocated && hasWrittenRect && !lastWrittenRect.isEmpty && front != null) {
+            syncCanvas.setBitmap(back)
+            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, null)
+        }
+
+        val forceFull = reallocated
+        val ok = ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
         if (!ok) {
-            // Skipped because the async projection recomposite is still
-            // running (non-blocking render): retry shortly so the frame
-            // lands as soon as the projection settles, without ever making
-            // queued input ops wait behind a blocking waitForDone
             if (ReverieCoreBridge.renderPendingDirty()) {
                 rh?.postDelayed({ doRender() }, 8L)
             }
             return
         }
-        if (ok) {
-            bufferMissing[idx] = null
-            if (renderDirty[2] > 0 && renderDirty[3] > 0) {
-                renderWrittenRect.set(
-                    renderDirty[0],
-                    renderDirty[1],
-                    renderDirty[0] + renderDirty[2],
-                    renderDirty[1] + renderDirty[3]
-                )
-                // Keep every OTHER buffer in sync: non-displayed ones get the
-                // region blitted straight from the just-rendered buffer (it is
-                // fully up to date), displayed/pending ones just accumulate
-                // their missing union for when they are recycled
-                for (j in displayBuffers.indices) {
-                    if (j == idx) continue
-                    val other = displayBuffers[j] ?: continue
-                    if (other === displayed || other === pendingDisplay) continue
-                    val miss = bufferMissing[j]
-                    syncCanvas.setBitmap(other)
-                    if (miss == null) {
-                        // Up to date except for this render's region
-                        syncCanvas.drawBitmap(buf, renderWrittenRect, renderWrittenRect, null)
-                    } else {
-                        miss.union(renderWrittenRect)
-                        syncCanvas.drawBitmap(buf, miss, miss, null)
-                        bufferMissing[j] = null
-                    }
-                }
-                for (j in displayBuffers.indices) {
-                    val other = displayBuffers[j] ?: continue
-                    if (other === displayed || other === pendingDisplay) {
-                        val m = bufferMissing[j]
-                        if (m != null) {
-                            m.union(renderWrittenRect)
-                        } else {
-                            bufferMissing[j] = android.graphics.Rect(renderWrittenRect)
-                        }
-                    }
-                }
+
+        if (renderDirty[2] > 0 && renderDirty[3] > 0) {
+            lastWrittenRect.set(
+                renderDirty[0],
+                renderDirty[1],
+                renderDirty[0] + renderDirty[2],
+                renderDirty[1] + renderDirty[3]
+            )
+            hasWrittenRect = true
+        } else {
+            hasWrittenRect = false
+        }
+
+        // Swap front and back buffers
+        val rendered = back
+        backBuffer = front
+        frontBuffer = rendered
+
+        mainHandler.post {
+            if (displayBitmap !== rendered) {
+                displayBitmap = rendered
             }
-            pendingDisplay = buf
-            // Native wrote the back buffer's pixels on the render thread; the
-            // UI thread only flips the Compose reference and bumps the
-            // revision. A no-op render (nothing painted since the last frame)
-            // returns false and skips this flip entirely.
-            mainHandler.post {
-                if (displayBitmap !== buf) displayBitmap = buf
-                displayRevision++
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    buf.prepareToDraw()
-                }
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidateOnAnimation()
+            displayRevision++
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                rendered.prepareToDraw()
             }
+            com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidateOnAnimation()
         }
     }
 

@@ -129,6 +129,8 @@ public:
     // Recursive solo composite of [startIdx, endIdx): groups composite their
     // keep-set children into a temp device then apply their own opacity/blend
     void compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full);
+    // Direct sub-region layer compositing for zero-latency in-stroke rendering
+    void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r);
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,
