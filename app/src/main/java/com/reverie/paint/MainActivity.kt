@@ -81,11 +81,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        /**
+         * Lock window display mode to the panel's maximum supported refresh rate (144Hz / 120Hz).
+         * Prevents system VRR from aggressively throttling drawing down to 60Hz.
+         */
+        fun applyHighRefreshRate(activity: android.app.Activity) {
+            val window = activity.window
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    activity.display
+                } else {
+                    @Suppress("DEPRECATION")
+                    activity.windowManager.defaultDisplay
+                }
+                val modes = display?.supportedModes ?: emptyArray()
+                val maxFpsMode = modes.maxByOrNull { it.refreshRate }
+                if (maxFpsMode != null) {
+                    val lp = window.attributes
+                    lp.preferredDisplayModeId = maxFpsMode.modeId
+                    lp.preferredRefreshRate = maxFpsMode.refreshRate
+                    window.attributes = lp
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         activityInstance = this
+        applyHighRefreshRate(this)
         // Give Qt's Android layer a live Activity reference (see
         // ReverieCoreBridge.initQtAndroid) so KF6I18n's context() calls
         // don't crash with a NULL jclass.
@@ -118,6 +143,11 @@ class MainActivity : ComponentActivity() {
             applyImmersive(vm.immersiveMode, vm.extendToCutout)
             ReverieApp(vm)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyHighRefreshRate(this)
     }
 
     override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {

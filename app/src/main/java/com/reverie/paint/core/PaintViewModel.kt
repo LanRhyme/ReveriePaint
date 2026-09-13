@@ -283,10 +283,10 @@ class PaintViewModel : ViewModel() {
     // current brush.
     internal val brushParams: MutableMap<String, BrushParams> = mutableMapOf()
 
-    // Display bitmap (updated in place via renderToBuffer).
-    // neverEqualPolicy: the same Bitmap object is mutated and re-assigned,
-    // so referential equality would never notify Compose to repaint.
-    var displayBitmap by mutableStateOf<Bitmap?>(null, neverEqualPolicy())
+    // Display bitmap (managed as front/back double buffer, updated in place via renderToBuffer).
+    // Decoupled from Compose state: hardware Canvas draws it directly with 0 recomposition overhead.
+    @Volatile
+    var displayBitmap: Bitmap? = null
         internal set
 
     // Layer panel. A revision state forces Compose to re-read the native
@@ -2411,16 +2411,20 @@ class PaintViewModel : ViewModel() {
         val rendered = back
         backBuffer = front
         frontBuffer = rendered
+        displayBitmap = rendered
 
-        mainHandler.post {
-            if (displayBitmap !== rendered) {
-                displayBitmap = rendered
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            rendered.prepareToDraw()
+        }
+
+        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidate()
+
+        // Notify Compose observers only when replay or reference window is active
+        if (referenceWindowOpen || currentPage == Page.REPLAY) {
+            mainHandler.post {
+                displayRevision++
             }
-            displayRevision++
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                rendered.prepareToDraw()
-            }
-            com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidateOnAnimation()
         }
     }
 

@@ -263,12 +263,9 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
     s.imgPos = imgPos;
     s.pressure = pressure;
     m_strokeSamples.append(s);
-    // Time-throttled flushing: one flush per touch-move saturates the render
-    // thread with large brushes (big dabs + big dirty regions). Batch the
-    // samples for ~8ms and flush once per batch; touchStrokeEnd always
-    // flushes the remainder, so nothing is lost on pen-up.
+    // 144Hz / 120Hz 高刷新率自适应刷新门槛：4ms / 32 样本即可刷新，避免 8ms 跨帧导致 144Hz 跳帧
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (now - m_lastFlushMs >= 8 || m_strokeSamples.size() >= 64) {
+    if (now - m_lastFlushMs >= 4 || m_strokeSamples.size() >= 32) {
         m_lastFlushMs = now;
         return flushStrokeBatch();
     }

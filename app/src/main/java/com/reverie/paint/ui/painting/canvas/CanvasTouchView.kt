@@ -36,8 +36,6 @@ import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-private const val TIP_CAPACITY = 2048
-
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
  *
@@ -276,7 +274,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 v.touchCancel()
                 strokeStarted = false
             }
-            clearTipPoints()
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
@@ -285,83 +282,9 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    // ---- 实时超低延迟笔迹预测与即时墨迹渲染 (Zero-Latency Predictive & Ink Overlay) ----
-    private val tipScreenX = FloatArray(TIP_CAPACITY)
-    private val tipScreenY = FloatArray(TIP_CAPACITY)
-    private val tipPressure = FloatArray(TIP_CAPACITY)
-    private val tipTimeMs = LongArray(TIP_CAPACITY)
-    private var tipCount = 0
-
-
-    private val immediateStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-    private val immediateTipPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val immediateTipMatrix = android.graphics.Matrix()
-
-    private var cachedTipAsset: String? = null
-    private var cachedTipBitmap: Bitmap? = null
-
-    private fun getActiveTipBitmap(v: PaintViewModel): Bitmap? {
-        val asset = v.brushTipAsset
-        if (asset.isBlank()) return null
-        if (asset == cachedTipAsset && cachedTipBitmap != null) {
-            return cachedTipBitmap
-        }
-        cachedTipAsset = asset
-        cachedTipBitmap = BrushTipDecoder.loadTip(context, asset)
-        return cachedTipBitmap
-    }
-
-    private val isOppoOrOnePlus = Build.MANUFACTURER.contains("oppo", ignoreCase = true) ||
-            Build.MANUFACTURER.contains("oneplus", ignoreCase = true)
-
-    private val oplusPredictor: OplusMotionPredictor? = if (isOppoOrOnePlus) {
-        try {
-            val p = OplusMotionPredictor()
-            if (p.isValid) p else null
-        } catch (_: Throwable) {
-            null
-        }
-    } else null
-
-    private fun clearTipPoints() {
-        tipCount = 0
-        try {
-            oplusPredictor?.reset()
-        } catch (_: Throwable) {}
-    }
-
-    private fun addTipPoint(screenX: Float, screenY: Float, pressure: Float, timeMs: Long) {
-        if (tipCount < TIP_CAPACITY) {
-            tipScreenX[tipCount] = screenX
-            tipScreenY[tipCount] = screenY
-            tipPressure[tipCount] = pressure
-            tipTimeMs[tipCount] = timeMs
-            tipCount++
-        } else {
-            val keep = 1024
-            System.arraycopy(tipScreenX, 1024, tipScreenX, 0, keep)
-            System.arraycopy(tipScreenY, 1024, tipScreenY, 0, keep)
-            System.arraycopy(tipPressure, 1024, tipPressure, 0, keep)
-            System.arraycopy(tipTimeMs, 1024, tipTimeMs, 0, keep)
-            tipScreenX[keep] = screenX
-            tipScreenY[keep] = screenY
-            tipPressure[keep] = pressure
-            tipTimeMs[keep] = timeMs
-            tipCount = keep + 1
-        }
-    }
-
-    private val motionPredictor = if (Build.VERSION.SDK_INT >= 34) {
-        try {
-            android.view.MotionPredictor(context)
-        } catch (_: Throwable) {
-            null
-        }
-    } else null
+    // 预分配多指触控索引缓冲区 (热路径零分配 §4)
+    private val fingerIndices = IntArray(16)
+    private var fingerCount = 0
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
     data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double)
@@ -524,22 +447,13 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onAttachedToWindow()
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
-        initOplusPredictor()
-    }
-
-    private fun initOplusPredictor() {
-        val p = oplusPredictor ?: return
-        try {
-            val refreshRate = if (Build.VERSION.SDK_INT >= 30) {
-                display?.mode?.refreshRate ?: 120f
-            } else {
-                @Suppress("DEPRECATION")
-                (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay?.refreshRate ?: 120f
-            }
-            val dm = resources.displayMetrics
-            p.setRefreshRate(refreshRate)
-            p.setDpi(dm.xdpi, dm.ydpi)
-        } catch (_: Throwable) {}
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
+                val maxFps = display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+                method.invoke(this, maxFps, 0)
+            } catch (_: Throwable) {}
+        }
     }
 
     override fun onDetachedFromWindow() {
@@ -551,9 +465,6 @@ class CanvasTouchView(context: Context) : View(context) {
         if (activeTouchView == this) activeTouchView = null
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
         cachedDriver = null
-        try {
-            oplusPredictor?.destroy()
-        } catch (_: Throwable) {}
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
@@ -720,7 +631,7 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         pickerScreenPos?.value = samplePos
         val docPos = screenToDoc(samplePos)
-        val bmp = docBitmap
+        val bmp = v.displayBitmap ?: docBitmap
         if (bmp != null && bmp.width > 0 && bmp.height > 0) {
             val docW = if (v.docWidth > 0) v.docWidth else bmp.width
             val docH = if (v.docHeight > 0) v.docHeight else bmp.height
@@ -734,7 +645,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     private fun screenToDoc(screenPos: Offset): Offset {
-        val bmp = docBitmap
+        val bmp = vm?.displayBitmap ?: docBitmap
         val bmpW = bmp?.width ?: vm?.docWidth ?: 1
         val bmpH = bmp?.height ?: vm?.docHeight ?: 1
         return widgetToImage(
@@ -754,7 +665,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     private fun docToScreen(docPos: Offset): Offset {
-        val bmp = docBitmap
+        val bmp = vm?.displayBitmap ?: docBitmap
         val bmpW = bmp?.width ?: vm?.docWidth ?: 1
         val bmpH = bmp?.height ?: vm?.docHeight ?: 1
         val dw = vm?.docWidth ?: bmpW
@@ -927,8 +838,8 @@ class CanvasTouchView(context: Context) : View(context) {
         pendingUndoRunnable?.let { removeCallbacks(it) }
         removeCallbacks(resetTransformRunnable)
 
-        // 分离手写笔 Pointer 与手指 Pointer
-        val fingerPointers = mutableListOf<Int>()
+        // 分离手写笔 Pointer 与手指 Pointer (零堆分配)
+        fingerCount = 0
         var stylusPointerIndex = -1
 
         for (i in 0 until pointerCount) {
@@ -936,12 +847,14 @@ class CanvasTouchView(context: Context) : View(context) {
             if (toolType == MotionEvent.TOOL_TYPE_STYLUS || toolType == MotionEvent.TOOL_TYPE_ERASER) {
                 stylusPointerIndex = i
             } else {
-                fingerPointers.add(i)
+                if (fingerCount < fingerIndices.size) {
+                    fingerIndices[fingerCount++] = i
+                }
             }
         }
 
         // 手写笔触控判定：存在手写笔 Pointer 且没有 2 根及以上手指在做手势导航
-        val isStylusTouch = stylusPointerIndex >= 0 && fingerPointers.size < 2
+        val isStylusTouch = stylusPointerIndex >= 0 && fingerCount < 2
 
         // =========================================================
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
@@ -960,7 +873,6 @@ class CanvasTouchView(context: Context) : View(context) {
             localIsTouching = true
             localIsHovering = false
             localPressure = pressure
-            invalidate()
 
             val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                 v.cursorStyleMode != 4
@@ -975,16 +887,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    if (oplusPredictor?.isValid == true) {
-                        try {
-                            oplusPredictor.reset()
-                        } catch (_: Throwable) {}
-                    }
-                    if (Build.VERSION.SDK_INT >= 34 && motionPredictor != null) {
-                        try {
-                            motionPredictor.record(event)
-                        } catch (_: Throwable) {}
-                    }
                     removeCallbacks(longPressRunnable)
                     longPressToken++
                     isTransformActive = false
@@ -1031,7 +933,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     localCursorPos = screenPos
                     localIsTouching = true
-                    if (strokeStarted && (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE)) {
+                    // 仅非笔刷工具在 UI 线程 invalidate，笔刷工具由渲染线程 postInvalidate 触发真实墨迹重绘
+                    if (tool != Tool.BRUSH && tool != Tool.ERASER && tool != Tool.SMUDGE) {
                         invalidate()
                     }
                 }
@@ -1055,7 +958,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         localIsTouching = false
                         localIsHovering = true
                         isInteracting = false
-                        clearTipPoints()
                         invalidate()
                         return true
                     }
@@ -1064,7 +966,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
-                    clearTipPoints()
                     invalidate()
                 }
             }
@@ -1075,7 +976,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // B. 手指交互流程：画世界 / Procreate 模式 (100% 画布手势导航)
         // =========================================================
         val nowMs = System.currentTimeMillis()
-        val numFingers = fingerPointers.size
+        val numFingers = fingerCount
         maxTouchPointers = maxOf(maxTouchPointers, numFingers)
         isInteracting = true
 
@@ -1086,8 +987,8 @@ class CanvasTouchView(context: Context) : View(context) {
             isPendingLongPress = false
 
             if (numFingers >= 2) {
-                val idx0 = fingerPointers[0]
-                val idx1 = fingerPointers[1]
+                val idx0 = fingerIndices[0]
+                val idx1 = fingerIndices[1]
                 val raw0 = Offset(event.getX(idx0), event.getY(idx0))
                 val raw1 = Offset(event.getX(idx1), event.getY(idx1))
 
@@ -1176,7 +1077,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 // 驱动碎片期（单指短暂存活）：持续补偿平移，零丢帧
                 removeCallbacks(continuousUndoRunnable)
                 removeCallbacks(continuousRedoRunnable)
-                val idx0 = fingerPointers[0]
+                val idx0 = fingerIndices[0]
                 val cur = Offset(event.getX(idx0), event.getY(idx0))
                 val dist0 = hypot(cur.x - lastPos0.x, cur.y - lastPos0.y)
                 val dist1 = hypot(cur.x - lastPos1.x, cur.y - lastPos1.y)
@@ -1253,7 +1154,7 @@ class CanvasTouchView(context: Context) : View(context) {
         }
 
         // 2. 单指手势 (根据 vm.penOnlyMode 切换手指平移 vs 手指作画)
-        val singleFingerIdx = if (fingerPointers.isNotEmpty()) fingerPointers[0] else 0
+        val singleFingerIdx = if (fingerCount > 0) fingerIndices[0] else 0
         val screenPos = Offset(event.getX(singleFingerIdx), event.getY(singleFingerIdx))
         val docPos = screenToDoc(screenPos)
         val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
@@ -1479,8 +1380,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
                 val isAssist = hasSymmetry || (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
                 val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
-                clearTipPoints()
-                addTipPoint(assistedScreen.x, assistedScreen.y, pressure, android.os.SystemClock.uptimeMillis())
 
                 mirroredBranches.clear()
                 if (hasSymmetry) {
@@ -1689,9 +1588,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     for (idx in symPts.indices) {
                         if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
                     }
-                    val hTime = try { event.getHistoricalEventTime(i) } catch (_: Throwable) { event.eventTime }
-                    val hAssistedScreen = if (isAssist) docToScreen(hAssisted) else hScreen
-                    addTipPoint(hAssistedScreen.x, hAssistedScreen.y, hP, hTime)
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble())
@@ -1699,9 +1595,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 for (idx in symPts.indices) {
                     if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
                 }
-                val curScreen = Offset(event.getX(pointerIndex), event.getY(pointerIndex))
-                val assistedScreen = if (isAssist) docToScreen(effectiveDocPos) else curScreen
-                addTipPoint(assistedScreen.x, assistedScreen.y, pressure, event.eventTime)
 
                 // 触控点记录完成，纯粹依靠底层直出 Krita 渲染墨迹
             }
@@ -1897,7 +1790,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     strokeStarted = false
                 }
                 mirroredBranches.clear()
-                clearTipPoints()
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
