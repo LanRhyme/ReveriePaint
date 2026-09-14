@@ -554,58 +554,120 @@ internal fun CustomGradientEditor(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi)
-                    .noRippleClickable { showColorPicker = true }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 左侧取色与色标信息，点击开启取色器
                 Row(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clip(RoundedCornerShape(6.dp))
+                        .noRippleClickable { showColorPicker = true }
+                        .padding(vertical = 2.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Box(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .background(activeStop.color)
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(6.dp)),
                     )
                     Column {
                         Text(
-                            "当前色标: ${(activeStop.pos * 100).roundToInt()}%",
+                            text = "色标 ${(activeStop.pos * 100).roundToInt()}%",
                             color = Morandi.text,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
                         )
-                        Text("点击打开取色面板", color = Morandi.accent, fontSize = 11.sp)
+                        Text(
+                            text = "点击调色",
+                            color = Morandi.accent,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (stops.size > 2) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.panel)
-                                .noRippleClickable {
-                                    stops.remove(activeStop)
-                                    selectedStopId = stops.first().id
-                                    currentOnGradientChanged()
-                                }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text("删除色标", color = Color(0xFFFF5252), fontSize = 11.sp)
-                        }
-                    }
-
-                    Box(
+                // 右侧统一水平操作按钮组 (反转 / 删除色标)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    // 反转渐变
+                    Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (reverse) Morandi.accent else Morandi.panel)
-                            .noRippleClickable(onReverseToggle)
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .background(if (reverse) Morandi.accent.copy(alpha = 0.25f) else Morandi.panel)
+                            .border(
+                                1.dp,
+                                if (reverse) Morandi.accent else Morandi.border.copy(alpha = 0.4f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .clickable(onClick = onReverseToggle)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        Text(if (reverse) "已反转" else "反转", color = if (reverse) Color.White else Morandi.subText, fontSize = 11.sp)
+                        Icon(
+                            painter = painterResource(R.drawable.ic_flip_h),
+                            contentDescription = "反转渐变",
+                            tint = if (reverse) Morandi.accentHi else Morandi.subText,
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            text = "反转",
+                            color = if (reverse) Morandi.accentHi else Morandi.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
+                    }
+
+                    // 删除色标 (至少保留2个色标)
+                    val canDelete = stops.size > 2
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (canDelete) Color(0xFF9E4747).copy(alpha = 0.15f) else Morandi.panel.copy(alpha = 0.4f))
+                            .border(
+                                1.dp,
+                                if (canDelete) Color(0xFFE57373).copy(alpha = 0.3f) else Morandi.border.copy(alpha = 0.2f),
+                                RoundedCornerShape(6.dp),
+                            )
+                            .then(
+                                if (canDelete) {
+                                    Modifier.clickable {
+                                        stops.remove(activeStop)
+                                        selectedStopId = stops.first().id
+                                        currentOnGradientChanged()
+                                    }
+                                } else Modifier
+                            )
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_trash),
+                            contentDescription = "删除色标",
+                            tint = if (canDelete) Color(0xFFE57373) else Morandi.subText.copy(alpha = 0.4f),
+                            modifier = Modifier.size(12.dp),
+                        )
+                        Text(
+                            text = "删除",
+                            color = if (canDelete) Color(0xFFE57373) else Morandi.subText.copy(alpha = 0.4f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false,
+                        )
                     }
                 }
             }

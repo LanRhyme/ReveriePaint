@@ -5,6 +5,9 @@
 package com.reverie.paint.ui.painting.layers
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -264,6 +267,7 @@ internal fun FilterTopPillHUD(
 
     Box(
         modifier = modifier
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
             .shadow(12.dp, pillShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(pillShape)
             .then(
@@ -278,6 +282,7 @@ internal fun FilterTopPillHUD(
         contentAlignment = Alignment.Center,
     ) {
         Row(
+            modifier = Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -287,6 +292,8 @@ internal fun FilterTopPillHUD(
                 color = Morandi.text,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
             )
 
             // 进度微型条 (非曲线/渐变映射/纯开关时显示)
@@ -314,6 +321,8 @@ internal fun FilterTopPillHUD(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.widthIn(min = 36.dp),
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
 
@@ -324,11 +333,10 @@ internal fun FilterTopPillHUD(
                     .background(Morandi.border.copy(alpha = 0.6f))
             )
 
-            // 按住对比原图按钮
+            // 按住对比原图按钮 (无底色极简设计)
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(if (isHoldingCompare) Morandi.accent else Morandi.border.copy(alpha = 0.3f))
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -343,21 +351,23 @@ internal fun FilterTopPillHUD(
                             }
                         }
                     }
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = 6.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Icon(
                     painter = painterResource(if (isHoldingCompare) R.drawable.ic_eye else R.drawable.ic_eye_off),
                     contentDescription = "按住对比原图",
-                    tint = if (isHoldingCompare) Color.White else Morandi.text,
+                    tint = if (isHoldingCompare) Morandi.accentHi else Morandi.text,
                     modifier = Modifier.size(13.dp),
                 )
                 Text(
                     text = if (isHoldingCompare) "原图" else "对比",
-                    color = if (isHoldingCompare) Color.White else Morandi.text,
+                    color = if (isHoldingCompare) Morandi.accentHi else Morandi.text,
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (isHoldingCompare) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
@@ -409,6 +419,7 @@ internal fun FilterBottomDock(
 
     Box(
         modifier = modifier
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
             .shadow(16.dp, dockShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(dockShape)
             .then(
@@ -432,7 +443,11 @@ internal fun FilterBottomDock(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
             ) {
-                val boxWidth = if (filterId == 13) 240.dp else 260.dp
+                val boxWidth = when (filterId) {
+                    13 -> 240.dp
+                    30 -> 280.dp
+                    else -> 260.dp
+                }
                 Column(
                     modifier = Modifier
                         .width(boxWidth)
@@ -458,6 +473,7 @@ internal fun FilterBottomDock(
 
             // 核心水平动作条
             Row(
+                modifier = Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -564,6 +580,7 @@ private fun DockIconPill(
 
     Row(
         modifier = Modifier
+            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
             .clip(CircleShape)
             .background(bg)
             .clickable(onClick = onClick)
@@ -582,6 +599,8 @@ private fun DockIconPill(
             color = contentColor,
             fontSize = 12.sp,
             fontWeight = if (primary || selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
