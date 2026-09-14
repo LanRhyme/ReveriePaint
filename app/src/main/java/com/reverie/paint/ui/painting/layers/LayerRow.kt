@@ -189,15 +189,6 @@ internal fun LayerRow(
             modifier
                 .fillMaxWidth()
                 .height(rowHeight)
-                // Panel background fills the gap that appears on the left when
-                // the inner unit slides left (keeps it consistent with the panel)
-                .background(
-                    animateColorAsState(
-                        targetValue = if (dragOnGroup) Morandi.panelHi else Morandi.panel,
-                        animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
-                        label = "outerBg",
-                    ).value,
-                )
                 // Clip overflow so buttons are hidden at rest
                 .clipToBounds()
                 .pressScale(rowInteraction, pressedScale = 0.97f)
@@ -284,6 +275,7 @@ internal fun LayerRow(
         val selectionBg by animateColorAsState(
             targetValue =
                 when {
+                    dragOnGroup -> Morandi.panelHi
                     selected -> Morandi.accent.copy(alpha = 0.28f)
                     multiSelected -> Morandi.accent.copy(alpha = 0.16f)
                     else -> Color.Transparent
