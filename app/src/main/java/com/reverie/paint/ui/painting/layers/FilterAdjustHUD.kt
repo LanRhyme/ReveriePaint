@@ -34,9 +34,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.reverie.paint.ui.painting.panels.NumericValueInputDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,85 +67,180 @@ data class FilterSession(
     val filterName: String,
 )
 
-/**
- * 获取当前滤镜主参数的展示文案与归一化进度 (0f..1f)
- */
-internal fun getMainParamInfo(filterId: Int, st: FilterAdjustState): Pair<String, Float> {
+internal data class FilterParamDef(
+    val id: Int,
+    val name: String,
+    val range: ClosedFloatingPointRange<Float>,
+    val unit: String,
+    val getter: (FilterAdjustState) -> Float,
+    val setter: (FilterAdjustState, Float) -> Unit,
+    val format: (Float) -> String = {
+        if (unit.isNotEmpty()) "${it.roundToInt()}$unit" else "${it.roundToInt()}"
+    },
+)
+
+internal fun filterParamDefinitions(filterId: Int): List<FilterParamDef> {
     return when (filterId) {
-        2 -> "${st.blurRadius.roundToInt()}px" to (st.blurRadius / 100f).coerceIn(0f, 1f)
-        3 -> "${st.motionDist.roundToInt()}px" to (st.motionDist / 100f).coerceIn(0f, 1f)
-        4 -> "${(st.sharpenAmt * 20f).roundToInt()}%" to (st.sharpenAmt / 5f).coerceIn(0f, 1f)
-        5 -> "${st.mosaicSize.roundToInt()}px" to ((st.mosaicSize - 2f) / 78f).coerceIn(0f, 1f)
-        10 -> "${st.noiseAmt.roundToInt()}%" to (st.noiseAmt / 100f).coerceIn(0f, 1f)
-        0 -> "${if (st.hue >= 0) "+${st.hue.roundToInt()}" else "${st.hue.roundToInt()}"}°" to ((st.hue + 180f) / 360f).coerceIn(0f, 1f)
-        28 -> "${if (st.vibranceAmt >= 0) "+${st.vibranceAmt.roundToInt()}" else "${st.vibranceAmt.roundToInt()}"}%" to ((st.vibranceAmt + 100f) / 200f).coerceIn(0f, 1f)
-        27 -> "${st.shadowBoost.roundToInt()}%" to (st.shadowBoost / 100f).coerceIn(0f, 1f)
-        31 -> "${st.rippleAmp.roundToInt()}px" to (st.rippleAmp / 50f).coerceIn(0f, 1f)
-        32 -> "${st.twirlAngle.roundToInt()}°" to ((st.twirlAngle + 360f) / 720f).coerceIn(0f, 1f)
-        33 -> "${st.surfaceBlurRadius.roundToInt()}px" to (st.surfaceBlurRadius / 30f).coerceIn(0f, 1f)
-        16 -> "${st.thresholdVal.roundToInt()}" to (st.thresholdVal / 255f).coerceIn(0f, 1f)
-        17 -> "${st.posterizeLevels.roundToInt()}阶" to ((st.posterizeLevels - 2f) / 30f).coerceIn(0f, 1f)
-        11 -> "${st.glitchOffset.roundToInt()}px" to (st.glitchOffset / 50f).coerceIn(0f, 1f)
-        9 -> "${String.format(Locale.US, "%.1f", st.embossDepth)}" to ((st.embossDepth - 0.5f) / 9.5f).coerceIn(0f, 1f)
-        8 -> "${(st.sobelStrength * 20f).roundToInt()}%" to (st.sobelStrength / 5f).coerceIn(0f, 1f)
-        18 -> "${st.bloomIntensity.roundToInt()}%" to (st.bloomIntensity / 100f).coerceIn(0f, 1f)
-        19 -> "${st.shadowRadius.roundToInt()}px" to (st.shadowRadius / 50f).coerceIn(0f, 1f)
-        15 -> "${if (st.tempVal >= 0) "+${st.tempVal.roundToInt()}" else "${st.tempVal.roundToInt()}"}" to ((st.tempVal + 100f) / 200f).coerceIn(0f, 1f)
-        24 -> "${String.format(Locale.US, "%.1f", st.exposureVal)} EV" to ((st.exposureVal + 3f) / 6f).coerceIn(0f, 1f)
-        26 -> "${st.defocusRadius.roundToInt()}px" to (st.defocusRadius / 50f).coerceIn(0f, 1f)
-        34 -> "${st.scanlineIntensity.roundToInt()}%" to (st.scanlineIntensity / 100f).coerceIn(0f, 1f)
-        29 -> "${st.colorToAlphaTol.roundToInt()}%" to (st.colorToAlphaTol / 100f).coerceIn(0f, 1f)
-        7 -> "${st.lineartThresh.roundToInt()}" to ((st.lineartThresh - 100f) / 155f).coerceIn(0f, 1f)
-        12 -> "${st.desaturateAmt.roundToInt()}%" to (st.desaturateAmt / 100f).coerceIn(0f, 1f)
-        6 -> "${st.invertAmt.roundToInt()}%" to (st.invertAmt / 100f).coerceIn(0f, 1f)
-        13 -> "曲线" to 0.5f
-        30 -> "渐变映射" to 0.5f
-        else -> "调整中" to 0.5f
+        0 -> listOf(
+            FilterParamDef(0, "色相", -180f..180f, "°", { it.hue }, { st, v -> st.hue = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}°" }),
+            FilterParamDef(1, "饱和度", 0f..2f, "", { it.sat }, { st, v -> st.sat = v }, { String.format(Locale.US, "%.2f", it) }),
+            FilterParamDef(2, "明度", 0f..2f, "", { it.bright }, { st, v -> st.bright = v }, { String.format(Locale.US, "%.2f", it) }),
+            FilterParamDef(3, "对比度", 0f..2f, "", { it.contrast }, { st, v -> st.contrast = v }, { String.format(Locale.US, "%.2f", it) }),
+        )
+        1 -> listOf(
+            FilterParamDef(0, "青 - 红", -100f..100f, "", { it.cr }, { st, v -> st.cr = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+            FilterParamDef(1, "洋红 - 绿", -100f..100f, "", { it.mg }, { st, v -> st.mg = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+            FilterParamDef(2, "黄 - 蓝", -100f..100f, "", { it.yb }, { st, v -> st.yb = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+        )
+        2 -> listOf(
+            FilterParamDef(0, "模糊半径", 1f..100f, "px", { it.blurRadius }, { st, v -> st.blurRadius = v }),
+        )
+        3 -> listOf(
+            FilterParamDef(0, "模糊角度", 0f..360f, "°", { it.motionAngle }, { st, v -> st.motionAngle = v }),
+            FilterParamDef(1, "模糊距离", 1f..100f, "px", { it.motionDist }, { st, v -> st.motionDist = v }),
+        )
+        4 -> listOf(
+            FilterParamDef(0, "锐化强度", 0.1f..5f, "", { it.sharpenAmt }, { st, v -> st.sharpenAmt = v }, { String.format(Locale.US, "%.1f", it) }),
+        )
+        5 -> listOf(
+            FilterParamDef(0, "像素大小", 2f..80f, "px", { it.mosaicSize }, { st, v -> st.mosaicSize = v }),
+        )
+        6 -> listOf(
+            FilterParamDef(0, "反相强度", 0f..100f, "%", { it.invertAmt }, { st, v -> st.invertAmt = v }),
+        )
+        7 -> listOf(
+            FilterParamDef(0, "提取门限", 0f..255f, "", { it.lineartThresh }, { st, v -> st.lineartThresh = v }),
+        )
+        8 -> listOf(
+            FilterParamDef(0, "边缘灵敏度", 0.5f..5f, "", { it.sobelStrength }, { st, v -> st.sobelStrength = v }, { String.format(Locale.US, "%.1f", it) }),
+        )
+        9 -> listOf(
+            FilterParamDef(0, "浮雕深度", 0.5f..10f, "", { it.embossDepth }, { st, v -> st.embossDepth = v }, { String.format(Locale.US, "%.1f", it) }),
+            FilterParamDef(1, "投射角度", 0f..360f, "°", { it.embossAngle }, { st, v -> st.embossAngle = v }),
+        )
+        10 -> listOf(
+            FilterParamDef(0, "杂色数量", 1f..100f, "%", { it.noiseAmt }, { st, v -> st.noiseAmt = v }),
+        )
+        11 -> listOf(
+            FilterParamDef(0, "色散偏移", 1f..50f, "px", { it.glitchOffset }, { st, v -> st.glitchOffset = v }),
+        )
+        12 -> listOf(
+            FilterParamDef(0, "去色强度", 0f..100f, "%", { it.desaturateAmt }, { st, v -> st.desaturateAmt = v }),
+        )
+        14 -> listOf(
+            FilterParamDef(0, "输入黑场", 0f..254f, "", { it.levelBlack }, { st, v -> st.levelBlack = v }),
+            FilterParamDef(1, "输入白场", 1f..255f, "", { it.levelWhite }, { st, v -> st.levelWhite = v }),
+            FilterParamDef(2, "中间调 Gamma", 0.1f..3f, "", { it.levelGamma }, { st, v -> st.levelGamma = v }, { String.format(Locale.US, "%.2f", it) }),
+        )
+        15 -> listOf(
+            FilterParamDef(0, "色温", -100f..100f, "", { it.tempVal }, { st, v -> st.tempVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+            FilterParamDef(1, "色调", -100f..100f, "", { it.tintVal }, { st, v -> st.tintVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+        )
+        16 -> listOf(
+            FilterParamDef(0, "黑白阈值", 1f..255f, "", { it.thresholdVal }, { st, v -> st.thresholdVal = v }),
+        )
+        17 -> listOf(
+            FilterParamDef(0, "分离层数", 2f..32f, "层", { it.posterizeLevels }, { st, v -> st.posterizeLevels = v }),
+        )
+        18 -> listOf(
+            FilterParamDef(0, "发光强度", 0.1f..3f, "", { it.bloomIntensity }, { st, v -> st.bloomIntensity = v }, { String.format(Locale.US, "%.1f", it) }),
+            FilterParamDef(1, "扩散半径", 1f..60f, "px", { it.bloomRadius }, { st, v -> st.bloomRadius = v }),
+            FilterParamDef(2, "亮度门限", 0f..255f, "", { it.bloomThresh }, { st, v -> st.bloomThresh = v }),
+        )
+        19 -> listOf(
+            FilterParamDef(0, "模糊半径", 1f..40f, "px", { it.shadowRadius }, { st, v -> st.shadowRadius = v }),
+            FilterParamDef(1, "投影距离", 0f..50f, "px", { it.shadowDist }, { st, v -> st.shadowDist = v }),
+            FilterParamDef(2, "投影角度", 0f..360f, "°", { it.shadowAngle }, { st, v -> st.shadowAngle = v }),
+            FilterParamDef(3, "不透明度", 0f..1f, "%", { it.shadowOpacity }, { st, v -> st.shadowOpacity = v }, { "${(it * 100).roundToInt()}%" }),
+        )
+        21 -> listOf(
+            FilterParamDef(0, "写生半径", 1f..8f, "px", { it.oilRadius }, { st, v -> st.oilRadius = v }),
+        )
+        22 -> listOf(
+            FilterParamDef(0, "辐射强度", 1f..50f, "", { it.radialBlurAmt }, { st, v -> st.radialBlurAmt = v }),
+        )
+        23 -> listOf(
+            FilterParamDef(0, "单元大小", 4f..24f, "px", { it.halftoneDotSize }, { st, v -> st.halftoneDotSize = v }),
+        )
+        24 -> listOf(
+            FilterParamDef(0, "曝光值", -3f..3f, "EV", { it.exposureVal }, { st, v -> st.exposureVal = v }, { String.format(Locale.US, "%+.1f EV", it) }),
+            FilterParamDef(1, "伽马校正", 0.2f..3f, "", { it.exposureGamma }, { st, v -> st.exposureGamma = v }, { String.format(Locale.US, "%.2f", it) }),
+        )
+        25 -> listOf(
+            FilterParamDef(0, "发光强度", 0.5f..5f, "", { it.edgeGlowStrength }, { st, v -> st.edgeGlowStrength = v }, { String.format(Locale.US, "%.1f", it) }),
+            FilterParamDef(1, "扩散半径", 1f..30f, "px", { it.edgeGlowRadius }, { st, v -> st.edgeGlowRadius = v }),
+        )
+        26 -> listOf(
+            FilterParamDef(0, "散焦半径", 1f..50f, "px", { it.defocusRadius }, { st, v -> st.defocusRadius = v }),
+        )
+        27 -> listOf(
+            FilterParamDef(0, "暗部提亮", 0f..100f, "%", { it.shadowBoost }, { st, v -> st.shadowBoost = v }),
+            FilterParamDef(1, "高光抑制", 0f..100f, "%", { it.highlightReduce }, { st, v -> st.highlightReduce = v }),
+        )
+        28 -> listOf(
+            FilterParamDef(0, "自然饱和度", -100f..100f, "%", { it.vibranceAmt }, { st, v -> st.vibranceAmt = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}%" }),
+        )
+        29 -> listOf(
+            FilterParamDef(0, "颜色容差", 0f..100f, "%", { it.colorToAlphaTol }, { st, v -> st.colorToAlphaTol = v }),
+            FilterParamDef(1, "羽化过渡", 0f..50f, "", { it.colorToAlphaSmooth }, { st, v -> st.colorToAlphaSmooth = v }),
+        )
+        31 -> listOf(
+            FilterParamDef(0, "波动幅度", 1f..30f, "px", { it.rippleAmp }, { st, v -> st.rippleAmp = v }),
+            FilterParamDef(1, "波浪频率", 1f..50f, "", { it.rippleFreq }, { st, v -> st.rippleFreq = v }),
+        )
+        32 -> listOf(
+            FilterParamDef(0, "旋转角度", -360f..360f, "°", { it.twirlAngle }, { st, v -> st.twirlAngle = v }),
+            FilterParamDef(1, "作用半径", 20f..400f, "px", { it.twirlRadius }, { st, v -> st.twirlRadius = v }),
+        )
+        33 -> listOf(
+            FilterParamDef(0, "平滑半径", 1f..15f, "px", { it.surfaceBlurRadius }, { st, v -> st.surfaceBlurRadius = v }),
+            FilterParamDef(1, "边缘阈值", 5f..80f, "", { it.surfaceBlurThresh }, { st, v -> st.surfaceBlurThresh = v }),
+        )
+        34 -> listOf(
+            FilterParamDef(0, "扫描线间距", 2f..12f, "px", { it.scanlineSpacing }, { st, v -> st.scanlineSpacing = v }),
+            FilterParamDef(1, "光栅浓度", 0f..100f, "%", { it.scanlineIntensity }, { st, v -> st.scanlineIntensity = v }),
+        )
+        else -> emptyList()
     }
 }
 
 /**
- * 根据画布滑动增量修改主参数
+ * 获取当前滤镜当前参数的展示文案与归一化进度 (0f..1f)
  */
-internal fun applyMainParamDelta(filterId: Int, st: FilterAdjustState, deltaRatio: Float) {
-    when (filterId) {
-        2 -> st.blurRadius = (st.blurRadius + deltaRatio * 100f).coerceIn(1f, 100f)
-        3 -> st.motionDist = (st.motionDist + deltaRatio * 100f).coerceIn(1f, 100f)
-        4 -> st.sharpenAmt = (st.sharpenAmt + deltaRatio * 5f).coerceIn(0f, 5f)
-        5 -> st.mosaicSize = (st.mosaicSize + deltaRatio * 78f).coerceIn(2f, 80f)
-        10 -> st.noiseAmt = (st.noiseAmt + deltaRatio * 100f).coerceIn(0f, 100f)
-        0 -> st.hue = (st.hue + deltaRatio * 360f).coerceIn(-180f, 180f)
-        28 -> st.vibranceAmt = (st.vibranceAmt + deltaRatio * 200f).coerceIn(-100f, 100f)
-        27 -> st.shadowBoost = (st.shadowBoost + deltaRatio * 100f).coerceIn(0f, 100f)
-        31 -> st.rippleAmp = (st.rippleAmp + deltaRatio * 50f).coerceIn(0f, 50f)
-        32 -> st.twirlAngle = (st.twirlAngle + deltaRatio * 720f).coerceIn(-360f, 360f)
-        33 -> st.surfaceBlurRadius = (st.surfaceBlurRadius + deltaRatio * 30f).coerceIn(1f, 30f)
-        16 -> st.thresholdVal = (st.thresholdVal + deltaRatio * 255f).coerceIn(0f, 255f)
-        17 -> st.posterizeLevels = (st.posterizeLevels + deltaRatio * 30f).coerceIn(2f, 32f)
-        11 -> st.glitchOffset = (st.glitchOffset + deltaRatio * 50f).coerceIn(0f, 50f)
-        9 -> st.embossDepth = (st.embossDepth + deltaRatio * 9.5f).coerceIn(0.5f, 10f)
-        8 -> st.sobelStrength = (st.sobelStrength + deltaRatio * 5f).coerceIn(0.5f, 5f)
-        18 -> st.bloomIntensity = (st.bloomIntensity + deltaRatio * 100f).coerceIn(0f, 100f)
-        19 -> st.shadowRadius = (st.shadowRadius + deltaRatio * 50f).coerceIn(0f, 50f)
-        15 -> st.tempVal = (st.tempVal + deltaRatio * 200f).coerceIn(-100f, 100f)
-        24 -> st.exposureVal = (st.exposureVal + deltaRatio * 6f).coerceIn(-3f, 3f)
-        26 -> st.defocusRadius = (st.defocusRadius + deltaRatio * 50f).coerceIn(1f, 50f)
-        34 -> st.scanlineIntensity = (st.scanlineIntensity + deltaRatio * 100f).coerceIn(0f, 100f)
-        29 -> st.colorToAlphaTol = (st.colorToAlphaTol + deltaRatio * 100f).coerceIn(0f, 100f)
-        7 -> st.lineartThresh = (st.lineartThresh + deltaRatio * 155f).coerceIn(100f, 255f)
-        12 -> st.desaturateAmt = (st.desaturateAmt + deltaRatio * 100f).coerceIn(0f, 100f)
-        6 -> st.invertAmt = (st.invertAmt + deltaRatio * 100f).coerceIn(0f, 100f)
-    }
+internal fun getMainParamInfo(filterId: Int, st: FilterAdjustState, paramIndex: Int = 0): Pair<String, Float> {
+    if (filterId == 13) return "曲线" to 0.5f
+    if (filterId == 30) return "渐变映射" to 0.5f
+    if (filterId == 20) return (if (st.lumOpacityInvert) "反转透明度" else "默认透明度") to 0.5f
+
+    val defs = filterParamDefinitions(filterId)
+    if (defs.isEmpty()) return "调整中" to 0.5f
+    val p = defs.getOrElse(paramIndex) { defs[0] }
+    val cur = p.getter(st)
+    val span = maxOf(0.001f, p.range.endInclusive - p.range.start)
+    val progress = ((cur - p.range.start) / span).coerceIn(0f, 1f)
+    return p.format(cur) to progress
+}
+
+/**
+ * 根据画布滑动增量修改当前参数
+ */
+internal fun applyMainParamDelta(filterId: Int, st: FilterAdjustState, deltaRatio: Float, paramIndex: Int = 0) {
+    val defs = filterParamDefinitions(filterId)
+    if (defs.isEmpty()) return
+    val p = defs.getOrElse(paramIndex) { defs[0] }
+    val cur = p.getter(st)
+    val span = p.range.endInclusive - p.range.start
+    val next = (cur + deltaRatio * span).coerceIn(p.range)
+    p.setter(st, next)
 }
 
 /**
  * 判断是否含有多参数或复杂编辑器（可展开抽屉）
  */
 internal fun hasExpandableControls(filterId: Int): Boolean {
-    return filterId == 13 || filterId == 30 || filterId == 0 || filterId == 1 ||
-        filterId == 14 || filterId == 15 || filterId == 18 || filterId == 19 ||
-        filterId == 24 || filterId == 25 || filterId == 27 || filterId == 29 ||
-        filterId == 31 || filterId == 32 || filterId == 33 || filterId == 34
+    if (filterId == 13 || filterId == 30) return true
+    if (filterId == 7 || filterId == 8 || filterId == 9 || filterId == 20 || filterId == 25 || filterId == 29) return true
+    return filterParamDefinitions(filterId).size > 1
 }
 
 /**
@@ -156,12 +253,14 @@ internal fun FilterTopPillHUD(
     st: FilterAdjustState,
     isHoldingCompare: Boolean,
     onHoldingCompareChange: (Boolean) -> Unit,
+    activeParamIndex: Int = 0,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     opacity: Float = 0.92f,
 ) {
-    val (valText, progress) = getMainParamInfo(filterId, st)
+    val (valText, progress) = getMainParamInfo(filterId, st, activeParamIndex)
     val pillShape = CircleShape
+    val activeParamName = filterParamDefinitions(filterId).getOrNull(activeParamIndex)?.name
 
     Box(
         modifier = modifier
@@ -182,16 +281,16 @@ internal fun FilterTopPillHUD(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // 滤镜名称
+            // 滤镜名称与当前激活参数
             Text(
-                text = filterName,
+                text = if (activeParamName != null) "$filterName · $activeParamName" else filterName,
                 color = Morandi.text,
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
             )
 
-            // 进度微型条 (非曲线/渐变映射时显示)
-            if (filterId != 13 && filterId != 30) {
+            // 进度微型条 (非曲线/渐变映射/纯开关时显示)
+            if (filterId != 13 && filterId != 30 && filterId != 20) {
                 Box(
                     modifier = Modifier
                         .width(72.dp)
@@ -278,13 +377,35 @@ internal fun FilterBottomDock(
     sendPreview: () -> Unit,
     sendCurvesPreview: () -> Unit,
     sendGradientMapPreview: () -> Unit,
+    activeParamIndex: Int = 0,
+    onSelectParam: (Int) -> Unit = {},
+    onSetParamValue: (Int, Float) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     opacity: Float = 0.94f,
 ) {
-    var isExpanded by remember(filterId) { mutableStateOf(false) }
+    val defs = remember(filterId) { filterParamDefinitions(filterId) }
     val hasMore = hasExpandableControls(filterId)
+    val isSingle = defs.size == 1 && !hasMore
+    var isExpanded by remember(filterId) { mutableStateOf(false) }
+    var editingParamIndex by remember { mutableIntStateOf(-1) }
     val dockShape = RoundedCornerShape(20.dp)
+
+    if (editingParamIndex in defs.indices) {
+        val editP = defs[editingParamIndex]
+        NumericValueInputDialog(
+            label = editP.name,
+            currentValue = editP.getter(st),
+            min = editP.range.start,
+            max = editP.range.endInclusive,
+            unitSuffix = editP.unit,
+            onValueConfirmed = { confirmed ->
+                onSetParamValue(editingParamIndex, confirmed)
+                editingParamIndex = -1
+            },
+            onDismiss = { editingParamIndex = -1 }
+        )
+    }
 
     Box(
         modifier = modifier
@@ -311,7 +432,7 @@ internal fun FilterBottomDock(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
             ) {
-                val boxWidth = if (filterId == 13) 240.dp else if (filterId == 30) 280.dp else 280.dp
+                val boxWidth = if (filterId == 13) 240.dp else 260.dp
                 Column(
                     modifier = Modifier
                         .width(boxWidth)
@@ -325,6 +446,9 @@ internal fun FilterBottomDock(
                     FilterAdjustControls(
                         st = st,
                         filterId = filterId,
+                        activeParamIndex = activeParamIndex,
+                        onSelectParam = onSelectParam,
+                        onEditParamValue = { editingParamIndex = it },
                         sendPreview = sendPreview,
                         sendCurvesPreview = sendCurvesPreview,
                         sendGradientMapPreview = sendGradientMapPreview,
@@ -344,11 +468,26 @@ internal fun FilterBottomDock(
                     onClick = onReset,
                 )
 
-                // 展开/收起参数按钮
-                if (hasMore) {
+                // 区分单参数直显 vs 多参数/复杂滤镜
+                if (isSingle) {
+                    val p = defs[0]
                     DockIconPill(
                         iconRes = R.drawable.ic_sliders,
-                        label = if (isExpanded) "收起" else "参数",
+                        label = "${p.name} · ${p.format(p.getter(st))}",
+                        onClick = { editingParamIndex = 0 },
+                    )
+                } else if (hasMore) {
+                    val curParam = defs.getOrNull(activeParamIndex)
+                    val label = when {
+                        isExpanded -> "收起"
+                        filterId == 13 -> "曲线"
+                        filterId == 30 -> "渐变"
+                        curParam != null -> "${curParam.name} · ${curParam.format(curParam.getter(st))}"
+                        else -> "参数"
+                    }
+                    DockIconPill(
+                        iconRes = R.drawable.ic_sliders,
+                        label = label,
                         selected = isExpanded,
                         onClick = { isExpanded = !isExpanded },
                     )
@@ -374,6 +513,31 @@ internal fun FilterBottomDock(
             }
         }
     }
+}
+
+@Composable
+internal fun FilterBottomDock(
+    controller: FilterSessionController,
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
+    opacity: Float = 0.94f,
+) {
+    FilterBottomDock(
+        filterId = controller.session.filterId,
+        st = controller.state,
+        onReset = { controller.reset() },
+        onApply = { controller.commit() },
+        onCancel = { controller.cancel() },
+        sendPreview = { controller.sendPreview() },
+        sendCurvesPreview = { controller.sendCurvesPreview() },
+        sendGradientMapPreview = { controller.sendGradientMapPreview() },
+        activeParamIndex = controller.activeParamIndex,
+        onSelectParam = { controller.activeParamIndex = it },
+        onSetParamValue = { idx, v -> controller.setParamValue(idx, v) },
+        modifier = modifier,
+        hazeState = hazeState,
+        opacity = opacity,
+    )
 }
 
 @Composable
@@ -428,12 +592,16 @@ internal class FilterSessionController(
     val onDismiss: () -> Unit,
 ) {
     val state = FilterAdjustState()
+    var activeParamIndex by mutableIntStateOf(0)
     var isHoldingCompare by mutableStateOf(false)
         private set
     val index = session.indices.firstOrNull() ?: vm.currentLayerIndex
     val isAdj = session.indices.size == 1 && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
     val savedJson = if (isAdj) vm.snapshotAdjustmentConfig(index) else ""
     private var lastPushMs = 0L
+
+    fun activeParamDefs(): List<FilterParamDef> = filterParamDefinitions(session.filterId)
+    fun activeParamDef(): FilterParamDef? = activeParamDefs().getOrNull(activeParamIndex)
 
     fun init() {
         if (isAdj) {
@@ -539,7 +707,14 @@ internal class FilterSessionController(
     }
 
     fun onSlideDelta(deltaRatio: Float) {
-        applyMainParamDelta(session.filterId, state, deltaRatio)
+        applyMainParamDelta(session.filterId, state, deltaRatio, activeParamIndex)
+        sendPreview()
+    }
+
+    fun setParamValue(paramIndex: Int, value: Float) {
+        val defs = filterParamDefinitions(session.filterId)
+        val p = defs.getOrNull(paramIndex) ?: return
+        p.setter(state, value.coerceIn(p.range))
         sendPreview()
     }
 

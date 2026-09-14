@@ -337,16 +337,84 @@ internal fun dispatchFilterPreview(
 
 
 @Composable
+internal fun FilterParamSelectRow(
+    def: FilterParamDef,
+    valueText: String,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onEditValue: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg = if (isSelected) Morandi.accent.copy(alpha = 0.14f) else Color.Transparent
+    val dotColor = if (isSelected) Morandi.accent else Morandi.subText.copy(alpha = 0.4f)
+    val textColor = if (isSelected) Morandi.accentHi else Morandi.text
+    val fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(bg)
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Text(
+                text = def.name,
+                color = textColor,
+                fontSize = 13.sp,
+                fontWeight = fontWeight,
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (isSelected) Morandi.panelHi else Morandi.panel)
+                .border(
+                    width = 0.8.dp,
+                    color = if (isSelected) Morandi.accent.copy(alpha = 0.6f) else Morandi.border,
+                    shape = RoundedCornerShape(6.dp)
+                )
+                .clickable(onClick = onEditValue)
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = valueText,
+                color = if (isSelected) Morandi.accentHi else Morandi.subText,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
 internal fun FilterAdjustControls(
     st: FilterAdjustState,
     filterId: Int,
+    activeParamIndex: Int = 0,
+    onSelectParam: (Int) -> Unit = {},
+    onEditParamValue: (Int) -> Unit = {},
     sendPreview: () -> Unit,
     sendCurvesPreview: () -> Unit,
     sendGradientMapPreview: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         when (filterId) {
             13 -> { // Real 2D Curves Graph
@@ -357,627 +425,197 @@ internal fun FilterAdjustControls(
                     onCurveChanged = { sendCurvesPreview() }
                 )
             }
-                30 -> { // Custom Gradient Map
-                    CustomGradientEditor(
-                        stops = st.customGradStops,
-                        reverse = st.reverseGradient,
-                        onReverseToggle = {
-                            st.reverseGradient = !st.reverseGradient
-                            sendGradientMapPreview()
-                        },
-                        onGradientChanged = { sendGradientMapPreview() }
-                    )
+            30 -> { // Custom Gradient Map
+                CustomGradientEditor(
+                    stops = st.customGradStops,
+                    reverse = st.reverseGradient,
+                    onReverseToggle = {
+                        st.reverseGradient = !st.reverseGradient
+                        sendGradientMapPreview()
+                    },
+                    onGradientChanged = { sendGradientMapPreview() }
+                )
+            }
+            else -> {
+                val defs = filterParamDefinitions(filterId)
+                if (defs.isNotEmpty()) {
+                    defs.forEachIndexed { idx, p ->
+                        FilterParamSelectRow(
+                            def = p,
+                            valueText = p.format(p.getter(st)),
+                            isSelected = activeParamIndex == idx,
+                            onSelect = { onSelectParam(idx) },
+                            onEditValue = { onEditParamValue(idx) },
+                        )
+                    }
                 }
-                27 -> { // Shadows & Highlights
-                    FilterSliderRow(
-                        label = "暗部提亮",
-                        value = st.shadowBoost,
-                        valueRange = 0f..100f,
-                        valueText = "${st.shadowBoost.roundToInt()}%",
-                        onValue = { st.shadowBoost = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "高光抑制",
-                        value = st.highlightReduce,
-                        valueRange = 0f..100f,
-                        valueText = "${st.highlightReduce.roundToInt()}%",
-                        onValue = { st.highlightReduce = it; sendPreview() }
-                    )
-                }
-                28 -> { // Vibrance
-                    FilterSliderRow(
-                        label = "自然饱和度",
-                        value = st.vibranceAmt,
-                        valueRange = -100f..100f,
-                        valueText = "${st.vibranceAmt.roundToInt()}%",
-                        onValue = { st.vibranceAmt = it; sendPreview() }
-                    )
-                }
-                29 -> { // Color to Alpha
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("目标抠像色彩", color = Morandi.text, fontSize = 12.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("白" to 0xFFFFFF, "黑" to 0x000000, "绿" to 0x00FF00, "蓝" to 0x0000FF).forEach { (lbl, col) ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (st.colorToAlphaTarget == col) Morandi.accent else Morandi.panelHi)
-                                        .noRippleClickable {
-                                            st.colorToAlphaTarget = col
-                                            sendPreview()
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(lbl, color = if (st.colorToAlphaTarget == col) Color.White else Morandi.text, fontSize = 11.sp)
+
+                // 针对含有离散选项的滤镜补充控制项
+                when (filterId) {
+                    7 -> { // Lineart Extraction
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("反转线稿色彩 (生成白色线稿)", color = Morandi.text, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (st.lineartWhiteLine) Morandi.accent else Morandi.panelHi)
+                                    .clickable {
+                                        st.lineartWhiteLine = !st.lineartWhiteLine
+                                        sendPreview()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    if (st.lineartWhiteLine) "白色" else "黑色",
+                                    color = if (st.lineartWhiteLine) Color.White else Morandi.subText,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    8 -> { // Sobel
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("边缘提取模式", color = Morandi.text, fontSize = 12.sp)
+                            val sobelModes = listOf("白底黑线", "黑底彩色", "透明线稿")
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Morandi.panelHi)
+                                    .clickable {
+                                        st.sobelMode = (st.sobelMode + 1) % 3
+                                        sendPreview()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    sobelModes.getOrElse(st.sobelMode) { "白底黑线" },
+                                    color = Morandi.accent,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    9 -> { // Emboss / 浮雕
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("保留原色 (彩色浮雕)", color = Morandi.text, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (st.embossPreserveColor) Morandi.accent else Morandi.panelHi)
+                                    .clickable {
+                                        st.embossPreserveColor = !st.embossPreserveColor
+                                        sendPreview()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    if (st.embossPreserveColor) "保留原色" else "经典灰阶",
+                                    color = if (st.embossPreserveColor) Color.White else Morandi.subText,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    20 -> { // Luminance to Opacity
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("反转亮度关系 (暗部不透明)", color = Morandi.text, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (st.lumOpacityInvert) Morandi.accent else Morandi.panelHi)
+                                    .clickable {
+                                        st.lumOpacityInvert = !st.lumOpacityInvert
+                                        sendPreview()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    if (st.lumOpacityInvert) "反转" else "默认",
+                                    color = if (st.lumOpacityInvert) Color.White else Morandi.subText,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    25 -> { // Edge Glow
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("霓虹色彩模式", color = Morandi.text, fontSize = 12.sp)
+                            val hueNames = listOf("原色增强", "赛博青蓝", "霓虹粉紫", "炫彩金黄")
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Morandi.panelHi)
+                                    .clickable {
+                                        st.edgeGlowHue = (st.edgeGlowHue + 1) % 4
+                                        sendPreview()
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    hueNames.getOrElse(st.edgeGlowHue) { "原色增强" },
+                                    color = Morandi.accent,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    29 -> { // Color to Alpha
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("目标抠像色彩", color = Morandi.text, fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                listOf("白" to 0xFFFFFF, "黑" to 0x000000, "绿" to 0x00FF00, "蓝" to 0x0000FF).forEach { (lbl, col) ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (st.colorToAlphaTarget == col) Morandi.accent else Morandi.panelHi)
+                                            .clickable {
+                                                st.colorToAlphaTarget = col
+                                                sendPreview()
+                                            }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    ) {
+                                        Text(lbl, color = if (st.colorToAlphaTarget == col) Color.White else Morandi.text, fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }
                     }
-                    FilterSliderRow(
-                        label = "颜色容差",
-                        value = st.colorToAlphaTol,
-                        valueRange = 0f..100f,
-                        valueText = "${st.colorToAlphaTol.roundToInt()}",
-                        onValue = { st.colorToAlphaTol = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "羽化过渡",
-                        value = st.colorToAlphaSmooth,
-                        valueRange = 0f..50f,
-                        valueText = "${st.colorToAlphaSmooth.roundToInt()}",
-                        onValue = { st.colorToAlphaSmooth = it; sendPreview() }
-                    )
-                }
-                31 -> { // Water Ripple
-                    FilterSliderRow(
-                        label = "波动幅度",
-                        value = st.rippleAmp,
-                        valueRange = 1f..30f,
-                        valueText = "${st.rippleAmp.roundToInt()} px",
-                        onValue = { st.rippleAmp = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "波浪频率",
-                        value = st.rippleFreq,
-                        valueRange = 1f..50f,
-                        valueText = "${st.rippleFreq.roundToInt()}",
-                        onValue = { st.rippleFreq = it; sendPreview() }
-                    )
-                }
-                32 -> { // Twirl / Swirl
-                    FilterSliderRow(
-                        label = "旋涡旋转角度",
-                        value = st.twirlAngle,
-                        valueRange = -360f..360f,
-                        valueText = "${st.twirlAngle.roundToInt()}°",
-                        onValue = { st.twirlAngle = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "旋涡作用半径",
-                        value = st.twirlRadius,
-                        valueRange = 20f..400f,
-                        valueText = "${st.twirlRadius.roundToInt()} px",
-                        onValue = { st.twirlRadius = it; sendPreview() }
-                    )
-                }
-                33 -> { // Surface Blur
-                    FilterSliderRow(
-                        label = "保边平滑半径",
-                        value = st.surfaceBlurRadius,
-                        valueRange = 1f..15f,
-                        valueText = "${st.surfaceBlurRadius.roundToInt()} px",
-                        onValue = { st.surfaceBlurRadius = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "边缘对比阈值",
-                        value = st.surfaceBlurThresh,
-                        valueRange = 5f..80f,
-                        valueText = "${st.surfaceBlurThresh.roundToInt()}",
-                        onValue = { st.surfaceBlurThresh = it; sendPreview() }
-                    )
-                }
-                34 -> { // Scanlines
-                    FilterSliderRow(
-                        label = "扫描线间距",
-                        value = st.scanlineSpacing,
-                        valueRange = 2f..12f,
-                        valueText = "${st.scanlineSpacing.roundToInt()} px",
-                        onValue = { st.scanlineSpacing = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "扫描光栅浓度",
-                        value = st.scanlineIntensity,
-                        valueRange = 0f..100f,
-                        valueText = "${st.scanlineIntensity.roundToInt()}%",
-                        onValue = { st.scanlineIntensity = it; sendPreview() }
-                    )
-                }
-                0 -> { // HSBC
-                    FilterSliderRow(
-                        label = "色相",
-                        value = st.hue,
-                        valueRange = -180f..180f,
-                        valueText = "${st.hue.roundToInt()}",
-                        gradient = Brush.horizontalGradient(
-                            listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
-                        ),
-                        onValue = { st.hue = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "饱和度",
-                        value = st.sat,
-                        valueRange = 0f..2f,
-                        valueText = String.format(Locale.US, "%.1f", st.sat),
-                        gradient = Brush.horizontalGradient(listOf(Color(0xFF888888), Color(0xFFFF4444))),
-                        onValue = { st.sat = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "明度",
-                        value = st.bright,
-                        valueRange = 0f..2f,
-                        valueText = String.format(Locale.US, "%.1f", st.bright),
-                        gradient = Brush.horizontalGradient(listOf(Color.Black, Color.White)),
-                        onValue = { st.bright = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "对比度",
-                        value = st.contrast,
-                        valueRange = 0f..2f,
-                        valueText = String.format(Locale.US, "%.1f", st.contrast),
-                        onValue = { st.contrast = it; sendPreview() }
-                    )
-                }
-                1 -> { // Color Balance
-                    FilterSliderRow(
-                        label = "青 - 红",
-                        value = st.cr,
-                        valueRange = -100f..100f,
-                        valueText = "${st.cr.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color.Cyan, Color.Red)),
-                        onValue = { st.cr = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "洋红 - 绿",
-                        value = st.mg,
-                        valueRange = -100f..100f,
-                        valueText = "${st.mg.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color.Magenta, Color.Green)),
-                        onValue = { st.mg = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "黄 - 蓝",
-                        value = st.yb,
-                        valueRange = -100f..100f,
-                        valueText = "${st.yb.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color.Yellow, Color.Blue)),
-                        onValue = { st.yb = it; sendPreview() }
-                    )
-                }
-                2 -> { // Gaussian Blur
-                    FilterSliderRow(
-                        label = "模糊半径",
-                        value = st.blurRadius,
-                        valueRange = 1f..100f,
-                        valueText = "${st.blurRadius.roundToInt()} px",
-                        onValue = { st.blurRadius = it; sendPreview() }
-                    )
-                }
-                3 -> { // Motion Blur
-                    FilterSliderRow(
-                        label = "模糊角度",
-                        value = st.motionAngle,
-                        valueRange = 0f..360f,
-                        valueText = "${st.motionAngle.roundToInt()}°",
-                        onValue = { st.motionAngle = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "模糊距离",
-                        value = st.motionDist,
-                        valueRange = 1f..100f,
-                        valueText = "${st.motionDist.roundToInt()} px",
-                        onValue = { st.motionDist = it; sendPreview() }
-                    )
-                }
-                4 -> { // Sharpen
-                    FilterSliderRow(
-                        label = "锐化强度",
-                        value = st.sharpenAmt,
-                        valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.US, "%.1f", st.sharpenAmt),
-                        onValue = { st.sharpenAmt = it; sendPreview() }
-                    )
-                }
-                5 -> { // Mosaic
-                    FilterSliderRow(
-                        label = "像素大小",
-                        value = st.mosaicSize,
-                        valueRange = 2f..64f,
-                        valueText = "${st.mosaicSize.roundToInt()} px",
-                        onValue = { st.mosaicSize = it; sendPreview() }
-                    )
-                }
-                10 -> { // Noise
-                    FilterSliderRow(
-                        label = "杂色数量",
-                        value = st.noiseAmt,
-                        valueRange = 1f..100f,
-                        valueText = "${st.noiseAmt.roundToInt()}",
-                        onValue = { st.noiseAmt = it; sendPreview() }
-                    )
-                }
-                11 -> { // Glitch
-                    FilterSliderRow(
-                        label = "色散偏移",
-                        value = st.glitchOffset,
-                        valueRange = 1f..40f,
-                        valueText = "${st.glitchOffset.roundToInt()} px",
-                        onValue = { st.glitchOffset = it; sendPreview() }
-                    )
-                }
-                14 -> { // Levels
-                    FilterSliderRow(
-                        label = "输入黑场",
-                        value = st.levelBlack,
-                        valueRange = 0f..254f,
-                        valueText = "${st.levelBlack.roundToInt()}",
-                        onValue = { st.levelBlack = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "输入白场",
-                        value = st.levelWhite,
-                        valueRange = (st.levelBlack + 1f)..255f,
-                        valueText = "${st.levelWhite.roundToInt()}",
-                        onValue = { st.levelWhite = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "中间调灰度 (Gamma)",
-                        value = st.levelGamma,
-                        valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.US, "%.2f", st.levelGamma),
-                        onValue = { st.levelGamma = it; sendPreview() }
-                    )
-                }
-                15 -> { // Temperature & Tint
-                    FilterSliderRow(
-                        label = "色温 (冷 - 暖)",
-                        value = st.tempVal,
-                        valueRange = -100f..100f,
-                        valueText = "${st.tempVal.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color(0xFF4A90E2), Color(0xFFF5A623))),
-                        onValue = { st.tempVal = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "色调 (绿 - 洋红)",
-                        value = st.tintVal,
-                        valueRange = -100f..100f,
-                        valueText = "${st.tintVal.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color(0xFF50E3C2), Color(0xFFBD10E0))),
-                        onValue = { st.tintVal = it; sendPreview() }
-                    )
-                }
-                16 -> { // Threshold
-                    FilterSliderRow(
-                        label = "黑白阈值",
-                        value = st.thresholdVal,
-                        valueRange = 1f..255f,
-                        valueText = "${st.thresholdVal.roundToInt()}",
-                        gradient = Brush.horizontalGradient(listOf(Color.Black, Color.White)),
-                        onValue = { st.thresholdVal = it; sendPreview() }
-                    )
-                }
-                17 -> { // Posterize
-                    FilterSliderRow(
-                        label = "色阶分离层数",
-                        value = st.posterizeLevels,
-                        valueRange = 2f..32f,
-                        valueText = "${st.posterizeLevels.roundToInt()} 层",
-                        onValue = { st.posterizeLevels = it; sendPreview() }
-                    )
-                }
-                18 -> { // Bloom
-                    FilterSliderRow(
-                        label = "辉光亮度门限",
-                        value = st.bloomThresh,
-                        valueRange = 0f..255f,
-                        valueText = "${st.bloomThresh.roundToInt()}",
-                        onValue = { st.bloomThresh = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "泛光扩散半径",
-                        value = st.bloomRadius,
-                        valueRange = 1f..60f,
-                        valueText = "${st.bloomRadius.roundToInt()} px",
-                        onValue = { st.bloomRadius = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "辉光发光强度",
-                        value = st.bloomIntensity,
-                        valueRange = 0.1f..3.0f,
-                        valueText = String.format(Locale.US, "%.1f", st.bloomIntensity),
-                        onValue = { st.bloomIntensity = it; sendPreview() }
-                    )
-                }
-                19 -> { // Drop Shadow
-                    FilterSliderRow(
-                        label = "投影角度",
-                        value = st.shadowAngle,
-                        valueRange = 0f..360f,
-                        valueText = "${st.shadowAngle.roundToInt()}°",
-                        onValue = { st.shadowAngle = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "投影距离",
-                        value = st.shadowDist,
-                        valueRange = 0f..50f,
-                        valueText = "${st.shadowDist.roundToInt()} px",
-                        onValue = { st.shadowDist = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "阴影模糊半径",
-                        value = st.shadowRadius,
-                        valueRange = 1f..40f,
-                        valueText = "${st.shadowRadius.roundToInt()} px",
-                        onValue = { st.shadowRadius = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "阴影不透明度",
-                        value = st.shadowOpacity,
-                        valueRange = 0f..1f,
-                        valueText = "${(st.shadowOpacity * 100).roundToInt()}%",
-                        onValue = { st.shadowOpacity = it; sendPreview() }
-                    )
-                }
-                20 -> { // Luminance to Opacity
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("反转亮度关系 (暗部不透明)", color = Morandi.text, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (st.lumOpacityInvert) Morandi.accent else Morandi.panelHi)
-                                .noRippleClickable {
-                                    st.lumOpacityInvert = !st.lumOpacityInvert
-                                    sendPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
+                    else -> {
+                        if (defs.isEmpty()) {
                             Text(
-                                if (st.lumOpacityInvert) "反转" else "默认",
-                                color = if (st.lumOpacityInvert) Color.White else Morandi.subText,
-                                fontSize = 11.sp
+                                text = "此滤镜已实时应用至图层预览，点击右上角应用按钮确认",
+                                color = Morandi.subText,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(vertical = 12.dp)
                             )
                         }
                     }
-                }
-                21 -> { // Oil Paint
-                    FilterSliderRow(
-                        label = "写生油画半径",
-                        value = st.oilRadius,
-                        valueRange = 1f..8f,
-                        valueText = "${st.oilRadius.roundToInt()} px",
-                        onValue = { st.oilRadius = it; sendPreview() }
-                    )
-                }
-                22 -> { // Radial / Zoom Blur
-                    FilterSliderRow(
-                        label = "聚焦辐射强度",
-                        value = st.radialBlurAmt,
-                        valueRange = 1f..50f,
-                        valueText = "${st.radialBlurAmt.roundToInt()}",
-                        onValue = { st.radialBlurAmt = it; sendPreview() }
-                    )
-                }
-                23 -> { // Halftone
-                    FilterSliderRow(
-                        label = "网点单元大小",
-                        value = st.halftoneDotSize,
-                        valueRange = 4f..24f,
-                        valueText = "${st.halftoneDotSize.roundToInt()} px",
-                        onValue = { st.halftoneDotSize = it; sendPreview() }
-                    )
-                }
-                24 -> { // Exposure & Gamma
-                    FilterSliderRow(
-                        label = "曝光值 (EV)",
-                        value = st.exposureVal,
-                        valueRange = -3.0f..3.0f,
-                        valueText = String.format(Locale.US, "%+.1f EV", st.exposureVal),
-                        onValue = { st.exposureVal = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "伽马校正",
-                        value = st.exposureGamma,
-                        valueRange = 0.2f..3.0f,
-                        valueText = String.format(Locale.US, "%.2f", st.exposureGamma),
-                        onValue = { st.exposureGamma = it; sendPreview() }
-                    )
-                }
-                25 -> { // Edge Glow
-                    FilterSliderRow(
-                        label = "荧光发光强度",
-                        value = st.edgeGlowStrength,
-                        valueRange = 0.5f..5.0f,
-                        valueText = String.format(Locale.US, "%.1f", st.edgeGlowStrength),
-                        onValue = { st.edgeGlowStrength = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "霓虹扩散半径",
-                        value = st.edgeGlowRadius,
-                        valueRange = 1f..30f,
-                        valueText = "${st.edgeGlowRadius.roundToInt()} px",
-                        onValue = { st.edgeGlowRadius = it; sendPreview() }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("霓虹色彩模式", color = Morandi.text, fontSize = 12.sp)
-                        val hueNames = listOf("原色增强", "赛博青蓝", "霓虹粉紫", "炫彩金黄")
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.panelHi)
-                                .noRippleClickable {
-                                    st.edgeGlowHue = (st.edgeGlowHue + 1) % 4
-                                    sendPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                hueNames.getOrElse(st.edgeGlowHue) { "原色增强" },
-                                color = Morandi.accent,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-                26 -> { // Defocus Blur
-                    FilterSliderRow(
-                        label = "光圈散焦半径",
-                        value = st.defocusRadius,
-                        valueRange = 1f..30f,
-                        valueText = "${st.defocusRadius.roundToInt()} px",
-                        onValue = { st.defocusRadius = it; sendPreview() }
-                    )
-                }
-                6 -> { // Invert
-                    FilterSliderRow(
-                        label = "反相强度",
-                        value = st.invertAmt,
-                        valueRange = 0f..100f,
-                        valueText = "${st.invertAmt.roundToInt()}%",
-                        onValue = { st.invertAmt = it; sendPreview() }
-                    )
-                }
-                7 -> { // Lineart Extraction
-                    FilterSliderRow(
-                        label = "线稿提取门限",
-                        value = st.lineartThresh,
-                        valueRange = 0f..255f,
-                        valueText = "${st.lineartThresh.roundToInt()}",
-                        onValue = { st.lineartThresh = it; sendPreview() }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("反转线稿色彩 (生成白色线稿)", color = Morandi.text, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (st.lineartWhiteLine) Morandi.accent else Morandi.panelHi)
-                                .noRippleClickable {
-                                    st.lineartWhiteLine = !st.lineartWhiteLine
-                                    sendPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                if (st.lineartWhiteLine) "白色" else "黑色",
-                                color = if (st.lineartWhiteLine) Color.White else Morandi.subText,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-                8 -> { // Sobel
-                    FilterSliderRow(
-                        label = "边缘灵敏度",
-                        value = st.sobelStrength,
-                        valueRange = 0.5f..10.0f,
-                        valueText = String.format(Locale.US, "%.1f", st.sobelStrength),
-                        onValue = { st.sobelStrength = it; sendPreview() }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("边缘提取模式", color = Morandi.text, fontSize = 12.sp)
-                        val sobelModes = listOf("白底黑线", "黑底彩色", "透明线稿")
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.panelHi)
-                                .noRippleClickable {
-                                    st.sobelMode = (st.sobelMode + 1) % 3
-                                    sendPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                sobelModes.getOrElse(st.sobelMode) { "白底黑线" },
-                                color = Morandi.accent,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-                9 -> { // Emboss / 浮雕
-                    FilterSliderRow(
-                        label = "浮雕深度",
-                        value = st.embossDepth,
-                        valueRange = 0.5f..10.0f,
-                        valueText = String.format(Locale.US, "%.1f", st.embossDepth),
-                        onValue = { st.embossDepth = it; sendPreview() }
-                    )
-                    FilterSliderRow(
-                        label = "光影投射角度",
-                        value = st.embossAngle,
-                        valueRange = 0f..360f,
-                        valueText = "${st.embossAngle.roundToInt()}°",
-                        onValue = { st.embossAngle = it; sendPreview() }
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("保留原色 (彩色浮雕)", color = Morandi.text, fontSize = 12.sp)
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (st.embossPreserveColor) Morandi.accent else Morandi.panelHi)
-                                .noRippleClickable {
-                                    st.embossPreserveColor = !st.embossPreserveColor
-                                    sendPreview()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                if (st.embossPreserveColor) "保留原色" else "经典灰阶",
-                                color = if (st.embossPreserveColor) Color.White else Morandi.subText,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                }
-                12 -> { // Desaturate
-                    FilterSliderRow(
-                        label = "去色强度",
-                        value = st.desaturateAmt,
-                        valueRange = 0f..100f,
-                        valueText = "${st.desaturateAmt.roundToInt()}%",
-                        onValue = { st.desaturateAmt = it; sendPreview() }
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "此滤镜已实时应用至图层预览，点击右上角应用按钮确认",
-                        color = Morandi.subText,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 12.dp)
-                    )
                 }
             }
+        }
     }
 }

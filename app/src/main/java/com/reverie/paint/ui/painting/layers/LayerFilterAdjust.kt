@@ -119,6 +119,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.painting.panels.NumericValueInputDialog
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -134,6 +135,8 @@ internal fun FilterAdjustPage(
 ) {
     val index = indices.firstOrNull() ?: vm.currentLayerIndex
     val st = remember { FilterAdjustState() }
+    var activeParamIndex by remember { mutableIntStateOf(0) }
+    var editingParamIndex by remember { mutableStateOf<Int?>(null) }
 
     // 调整层模式: 不走像素预览三步 (与 merger 重算互踩), 滑条节流直推层配置
     val isAdj = indices.size == 1 && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
@@ -405,64 +408,33 @@ internal fun FilterAdjustPage(
             FilterAdjustControls(
                 st = st,
                 filterId = filterId,
+                activeParamIndex = activeParamIndex,
+                onSelectParam = { activeParamIndex = it },
+                onEditParamValue = { editingParamIndex = it },
                 sendPreview = ::sendPreview,
                 sendCurvesPreview = ::sendCurvesPreview,
                 sendGradientMapPreview = ::sendGradientMapPreview,
             )
         }
     }
-}
 
-
-@Composable
-internal fun FilterSliderRow(
-    label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    valueText: String,
-    gradient: Brush? = null,
-    onValue: (Float) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(label, color = Morandi.text, fontSize = 12.sp)
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Morandi.panelHi)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(valueText, color = Morandi.subText, fontSize = 11.sp)
-            }
-        }
-        Spacer(Modifier.height(2.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            if (gradient != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(gradient)
-                )
-            }
-            val normVal = (value - valueRange.start) / (valueRange.endInclusive - valueRange.start)
-            ReSlider(
-                value = normVal.coerceIn(0f, 1f),
-                onValue = {
-                    val realVal = valueRange.start + it * (valueRange.endInclusive - valueRange.start)
-                    onValue(realVal)
+    if (editingParamIndex != null) {
+        val defs = filterParamDefinitions(filterId)
+        val editingParam = editingParamIndex?.let { defs.getOrNull(it) }
+        if (editingParam != null) {
+            val curVal = editingParam.getter(st)
+            NumericValueInputDialog(
+                label = editingParam.name,
+                currentValue = curVal,
+                min = editingParam.range.start,
+                max = editingParam.range.endInclusive,
+                unitSuffix = editingParam.unit,
+                onValueConfirmed = { newVal ->
+                    editingParam.setter(st, newVal)
+                    sendPreview()
+                    editingParamIndex = null
                 },
-                modifier = Modifier.fillMaxWidth()
+                onDismiss = { editingParamIndex = null }
             )
         }
     }

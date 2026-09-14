@@ -956,6 +956,7 @@ fun PaintingPage(
                 st = filterController.state,
                 isHoldingCompare = filterController.isHoldingCompare,
                 onHoldingCompareChange = { filterController.updateHoldingCompare(it) },
+                activeParamIndex = filterController.activeParamIndex,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 18.dp)
@@ -965,14 +966,7 @@ fun PaintingPage(
             )
 
             FilterBottomDock(
-                filterId = filterController.session.filterId,
-                st = filterController.state,
-                onReset = { filterController.reset() },
-                onApply = { filterController.commit() },
-                onCancel = { filterController.cancel() },
-                sendPreview = { filterController.sendPreview() },
-                sendCurvesPreview = { filterController.sendCurvesPreview() },
-                sendGradientMapPreview = { filterController.sendGradientMapPreview() },
+                controller = filterController,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 24.dp)

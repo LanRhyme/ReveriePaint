@@ -9,6 +9,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color as AColor
 import android.widget.Toast
+import java.util.Locale
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -303,7 +304,17 @@ fun NumericValueInputDialog(
     onValueConfirmed: (Float) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var text by remember { mutableStateOf(currentValue.roundToInt().toString()) }
+    val isIntegerOnly = remember(min, max, currentValue) {
+        min == min.roundToInt().toFloat() && max == max.roundToInt().toFloat() && currentValue == currentValue.roundToInt().toFloat()
+    }
+    val initialText = remember(currentValue, isIntegerOnly) {
+        if (isIntegerOnly) {
+            currentValue.roundToInt().toString()
+        } else {
+            String.format(Locale.US, "%.2f", currentValue).trimEnd('0').trimEnd('.')
+        }
+    }
+    var text by remember { mutableStateOf(initialText) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -319,8 +330,17 @@ fun NumericValueInputDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val rangeHint = remember(min, max, unitSuffix, isIntegerOnly) {
+                    if (isIntegerOnly) {
+                        "有效范围: ${min.roundToInt()} ~ ${max.roundToInt()}$unitSuffix"
+                    } else {
+                        val minStr = String.format(Locale.US, "%.2f", min).trimEnd('0').trimEnd('.')
+                        val maxStr = String.format(Locale.US, "%.2f", max).trimEnd('0').trimEnd('.')
+                        "有效范围: $minStr ~ $maxStr$unitSuffix"
+                    }
+                }
                 Text(
-                    text = "有效范围: ${min.roundToInt()} ~ ${max.roundToInt()}$unitSuffix",
+                    text = rangeHint,
                     color = Morandi.subText,
                     fontSize = 11.sp
                 )
@@ -353,7 +373,7 @@ fun NumericValueInputDialog(
                         value = text,
                         onValueChange = { input ->
                             val allowed = if (min < 0f) {
-                                (input.isEmpty() || input == "-" || input.toFloatOrNull() != null)
+                                (input.isEmpty() || input == "-" || input == "-." || input.toFloatOrNull() != null)
                             } else {
                                 input.all { it.isDigit() || it == '.' }
                             }
@@ -363,7 +383,7 @@ fun NumericValueInputDialog(
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
-                            keyboardType = if (min < 0f) KeyboardType.Text else KeyboardType.Number,
+                            keyboardType = if (min < 0f) KeyboardType.Text else if (isIntegerOnly) KeyboardType.Number else KeyboardType.Decimal,
                             imeAction = ImeAction.Done
                         ),
                         keyboardActions = KeyboardActions(
