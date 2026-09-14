@@ -536,6 +536,13 @@ fun PaintingPage(
         if (tool !in shapeTools && tool.group != ToolGroup.SHAPES && vm.shapeState.active) {
             vm.commitActiveShape()
         }
+        if (tool != Tool.TEXT && vm.isTypographyEditing) {
+            if (vm.typographyConfig.text.isNotBlank()) {
+                vm.commitTypographyToCanvas()
+            } else {
+                vm.isTypographyEditing = false
+            }
+        }
         if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
             vm.cancelLassoMulti()
         }
@@ -977,6 +984,28 @@ fun PaintingPage(
         ) {
             ShapeToolPanel(
                 vm = vm,
+                hazeState = hazeState,
+            )
+        }
+
+        // ---- Typography / Text tool options panel ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = tool == Tool.TEXT && vm.isTypographyEditing,
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp),
+            enter =
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+        ) {
+            com.reverie.paint.ui.painting.panels.TypographyPanel(
+                vm = vm,
+                onOpenTextDialog = { textDialogPos = vm.typographyConfig.posX to vm.typographyConfig.posY },
                 hazeState = hazeState,
             )
         }
@@ -1591,15 +1620,20 @@ fun PaintingPage(
             )
         }
 
-        // Text tool (Krita style modal dialog)
-        textDialogPos?.let { (tx, ty) ->
-            com.reverie.paint.ui.dialog.KritaTextToolDialog(
-                brushColorHex = vm.brushColor,
-                onConfirm = { txt, fontSize ->
-                    vm.drawText(tx, ty, txt, fontSize)
+        // Text tool editing dialog
+        textDialogPos?.let {
+            com.reverie.paint.ui.painting.panels.TypographyTextDialog(
+                initialText = vm.typographyConfig.text,
+                onConfirm = { newText ->
+                    vm.typographyConfig = vm.typographyConfig.copy(text = newText)
                     textDialogPos = null
                 },
-                onDismiss = { textDialogPos = null },
+                onDismiss = {
+                    textDialogPos = null
+                    if (vm.typographyConfig.text.isBlank()) {
+                        vm.isTypographyEditing = false
+                    }
+                },
             )
         }
 

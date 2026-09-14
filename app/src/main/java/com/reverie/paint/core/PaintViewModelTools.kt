@@ -1630,8 +1630,35 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
         isTypographyEditing = false
         return
     }
-    drawText(cfg.posX, cfg.posY, cfg.text, cfg.fontSize.toDouble())
+
+    val renderResult = TypographyEngine.renderToBitmap(cfg, brushOpacity)
+    if (renderResult == null) {
+        isTypographyEditing = false
+        return
+    }
+    val (textBmp, docLeft, docTop) = renderResult
+
+    if (recorder.recording) {
+        recorder.toolOp(T_TEXT) {
+            it.f32(cfg.posX)
+            it.f32(cfg.posY)
+            it.f32(cfg.fontSize)
+            it.str(cfg.text)
+        }
+    }
+
+    runCore {
+        val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(textBmp)
+        try {
+            ReverieCoreBridge.stampBitmap(docLeft, docTop, stampBmp)
+        } finally {
+            stampBmp.recycle()
+            textBmp.recycle()
+        }
+    }
+
     isTypographyEditing = false
+    showActionToast("文字已生成", R.drawable.ic_check)
 }
 
 internal fun PaintViewModel.commitActiveShape() {
@@ -1640,7 +1667,7 @@ internal fun PaintViewModel.commitActiveShape() {
 
     val type = state.type
     val fillMode = state.fillMode
-    val strokeW = state.strokeWidth
+    val strokeW = if (state.strokeWidth > 0f) state.strokeWidth else brushSize.toFloat().coerceAtLeast(1f)
     val colStr = brushColor
     val parsedCol = try {
         android.graphics.Color.parseColor(colStr)

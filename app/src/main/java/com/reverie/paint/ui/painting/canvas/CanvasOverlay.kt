@@ -996,6 +996,83 @@ internal fun CanvasOverlay(
                     }
                 }
 
+                // Interactive Typography Tool Rendering (Handles + WYSIWYG Preview)
+                if (vm.isTypographyEditing) {
+                    val cfg = vm.typographyConfig
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
+                    val currentScale = zoom.value * fitScale
+
+                    val paint = TypographyEngine.createTextPaint(cfg, vm.brushOpacity)
+                    val targetW = cfg.boxWidth.toInt().coerceAtLeast(60)
+                    val layout = TypographyEngine.createLayout(cfg, paint, targetW)
+                    val w = layout.width.toFloat()
+                    val h = layout.height.toFloat()
+
+                    val tl = bx(Offset(cfg.posX, cfg.posY))
+                    val br = bx(Offset(cfg.posX + w, cfg.posY + h))
+                    val boxCenter = (tl + br) / 2f
+
+                    val drawTextHandle = { center: Offset ->
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.7f),
+                            radius = 7.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                        drawCircle(
+                            color = Morandi.accent,
+                            radius = 5.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 2.dp.toPx() / currentScale,
+                            center = center,
+                        )
+                    }
+
+                    withTransform({
+                        rotate(cfg.rotationDeg, pivot = boxCenter)
+                    }) {
+                        // 1. 文本内容实时渲染 (利用 nativeCanvas)
+                        drawContext.canvas.nativeCanvas.save()
+                        drawContext.canvas.nativeCanvas.translate(tl.x, tl.y)
+                        layout.draw(drawContext.canvas.nativeCanvas)
+                        drawContext.canvas.nativeCanvas.restore()
+
+                        // 2. 文本包围边框 (虚线)
+                        val boxSize = androidx.compose.ui.geometry.Size(
+                            maxOf(1f, br.x - tl.x),
+                            maxOf(1f, br.y - tl.y),
+                        )
+                        drawRect(
+                            color = Morandi.accent.copy(alpha = 0.85f),
+                            topLeft = tl,
+                            size = boxSize,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.2.dp.toPx() / currentScale,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(4.dp.toPx() / currentScale, 4.dp.toPx() / currentScale),
+                                ),
+                            ),
+                        )
+
+                        // 3. 右下角尺寸缩放手柄
+                        drawTextHandle(br)
+
+                        // 4. 顶部旋转手柄
+                        val rotPos = Offset(boxCenter.x, tl.y - 24.dp.toPx() / currentScale)
+                        drawLine(
+                            color = Morandi.accent.copy(alpha = 0.7f),
+                            start = Offset(boxCenter.x, tl.y),
+                            end = rotPos,
+                            strokeWidth = 1.dp.toPx() / currentScale,
+                        )
+                        drawTextHandle(rotPos)
+                    }
+                }
+
                 val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
                 if (selBmp != null) {
                     drawImage(

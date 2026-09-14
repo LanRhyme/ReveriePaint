@@ -158,6 +158,17 @@ class CanvasTouchView(context: Context) : View(context) {
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
 
+    // 文本交互状态
+    private var activeTextHandle: Int = -1
+    private var textDragStartDocPos: Offset = Offset.Zero
+    private var textDragStartCfg: TypographyConfig = TypographyConfig()
+    private var lastTextTapTimeMs: Long = 0L
+    private var lastTextTapDocPos: Offset = Offset.Zero
+
+    // 形状交互状态
+    private var lastShapeTapTimeMs: Long = 0L
+    private var lastShapeTapDocPos: Offset = Offset.Zero
+
     // 多次操作套索状态
     private var lastLassoTapTimeMs = 0L
     private var lastLassoTapDocPos = Offset.Zero
@@ -1570,7 +1581,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 handleShapeDown(docPos)
             }
             Tool.TEXT -> {
-                onTextRequested?.invoke(docPos.x, docPos.y)
+                handleTextDown(docPos)
             }
             Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
                 liveShapeStart?.value = docPos
@@ -1818,6 +1829,9 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
                 handleShapeMove(docPos)
             }
+            Tool.TEXT -> {
+                handleTextMove(docPos)
+            }
             Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
                 shapeEndDocPos = docPos
                 liveShapeEnd?.value = docPos
@@ -2015,6 +2029,9 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
                 handleShapeUp(docPos)
+            }
+            Tool.TEXT -> {
+                handleTextUp(docPos)
             }
             Tool.GRADIENT -> {
                 liveShapeStart?.value = null
@@ -2249,6 +2266,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return
         val state = v.shapeState
         val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+        val hitDist = (28f * density) / currentScale
+        val now = SystemClock.uptimeMillis()
+
         if (state.active) {
             val hit = hitTestShapeHandle(state, docPos, density, currentScale)
             if (hit != ShapeHandleId.NONE) {
@@ -2262,6 +2282,21 @@ class CanvasTouchView(context: Context) : View(context) {
                 state.isCreatingNewNode = false
             } else {
                 if (state.type == ShapeType.POLYLINE || state.type == ShapeType.POLYGON || state.type == ShapeType.BEZIER) {
+                    if (state.nodes.size >= 3) {
+                        val firstPos = state.nodes.first().pos
+                        val isNearFirst = hypot(docPos.x - firstPos.x, docPos.y - firstPos.y) < hitDist
+                        val isDoubleTap = now - lastShapeTapTimeMs < 350L &&
+                            hypot(docPos.x - lastShapeTapDocPos.x, docPos.y - lastShapeTapDocPos.y) < hitDist
+                        if (isNearFirst || isDoubleTap) {
+                            lastShapeTapTimeMs = 0L
+                            state.closed = true
+                            v.commitActiveShape()
+                            return
+                        }
+                    }
+                    lastShapeTapTimeMs = now
+                    lastShapeTapDocPos = docPos
+
                     state.nodes.add(ShapeNode(Point2D(docPos.x, docPos.y)))
                     val newIdx = state.nodes.size - 1
                     state.selectedNodeIndex = newIdx
@@ -2269,8 +2304,18 @@ class CanvasTouchView(context: Context) : View(context) {
                     state.dragStartDocPos = docPos
                     state.isCreatingNewNode = true
                 } else {
-                    state.reset(state.type, docPos)
-                    state.activeHandle = if (state.type == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
+                    // 连续绘制保障：若当前有尺寸有效的前序形状，自动提交上屏
+                    val shapeDist = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y)
+                    if (shapeDist > 4f) {
+                        v.commitActiveShape()
+                    }
+
+                    val targetType = defaultShapeType(tool, state.type)
+                    state.reset(targetType, docPos)
+                    if (state.strokeWidth <= 0f) {
+                        state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
+                    }
+                    state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
                     state.dragStartDocPos = docPos
                     state.dragP1 = docPos
                     state.dragP2 = docPos
@@ -2280,11 +2325,16 @@ class CanvasTouchView(context: Context) : View(context) {
         } else {
             val targetType = defaultShapeType(tool, state.type)
             state.reset(targetType, docPos)
+            if (state.strokeWidth <= 0f) {
+                state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
+            }
             if (targetType == ShapeType.POLYLINE || targetType == ShapeType.POLYGON || targetType == ShapeType.BEZIER) {
                 state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + 0
                 state.selectedNodeIndex = 0
                 state.dragStartDocPos = docPos
                 state.isCreatingNewNode = true
+                lastShapeTapTimeMs = now
+                lastShapeTapDocPos = docPos
             } else {
                 state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
                 state.dragStartDocPos = docPos
@@ -2408,6 +2458,135 @@ class CanvasTouchView(context: Context) : View(context) {
         v.shapeState.activeHandle = ShapeHandleId.NONE
         v.shapeState.dragStartDocPos = Offset.Zero
         v.shapeState.isCreatingNewNode = false
+    }
+
+    private fun hitTestTextHandle(
+        cfg: TypographyConfig,
+        docPos: Offset,
+        density: Float,
+        currentScale: Float,
+    ): Int {
+        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
+        val v = vm ?: return -1
+        val paint = TypographyEngine.createTextPaint(cfg, v.brushOpacity)
+        val targetW = cfg.boxWidth.toInt().coerceAtLeast(60)
+        val layout = TypographyEngine.createLayout(cfg, paint, targetW)
+        val w = layout.width.toFloat()
+        val h = layout.height.toFloat()
+
+        val left = cfg.posX
+        val top = cfg.posY
+        val right = left + w
+        val bottom = top + h
+        val cx = left + w / 2f
+        val cy = top + h / 2f
+
+        val localPt = if (abs(cfg.rotationDeg) > 0.01f) {
+            ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(cx, cy), -cfg.rotationDeg)
+        } else Point2D(docPos.x, docPos.y)
+        val localPos = Offset(localPt.x, localPt.y)
+
+        // 1. 顶部旋转手柄
+        val rotPos = Offset(cx, top - (24f * density) / maxOf(0.01f, currentScale))
+        if (hypot(localPos.x - rotPos.x, localPos.y - rotPos.y) < hitDist) {
+            return -20
+        }
+
+        // 2. 右下角尺寸缩放手柄
+        if (hypot(localPos.x - right, localPos.y - bottom) < hitDist) {
+            return -30
+        }
+
+        // 3. 文本框内部拖拽平移
+        if (localPos.x in (left - hitDist)..(right + hitDist) && localPos.y in (top - hitDist)..(bottom + hitDist)) {
+            return -10
+        }
+
+        return -1
+    }
+
+    private fun handleTextDown(docPos: Offset) {
+        val v = vm ?: return
+        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+        val hitDist = (28f * density) / currentScale
+        val now = SystemClock.uptimeMillis()
+
+        if (v.isTypographyEditing) {
+            val hit = hitTestTextHandle(v.typographyConfig, docPos, density, currentScale)
+            if (hit == -10 && now - lastTextTapTimeMs < 350L &&
+                hypot(docPos.x - lastTextTapDocPos.x, docPos.y - lastTextTapDocPos.y) < hitDist
+            ) {
+                onTextRequested?.invoke(v.typographyConfig.posX, v.typographyConfig.posY)
+                lastTextTapTimeMs = 0L
+                return
+            }
+            lastTextTapTimeMs = now
+            lastTextTapDocPos = docPos
+
+            if (hit != -1) {
+                activeTextHandle = hit
+                textDragStartDocPos = docPos
+                textDragStartCfg = v.typographyConfig
+                return
+            }
+
+            // 点击外部：若当前文本有内容，自动提交
+            if (v.typographyConfig.text.isNotBlank()) {
+                v.commitTypographyToCanvas()
+            }
+        }
+
+        val initFontSize = (v.brushSize * 2.0).toFloat().coerceIn(24f, 160f)
+        v.typographyConfig = v.typographyConfig.copy(
+            text = "",
+            posX = docPos.x,
+            posY = docPos.y,
+            fontSize = initFontSize,
+            boxWidth = 400f,
+            rotationDeg = 0f,
+            textColor = v.brushColor,
+        )
+        v.isTypographyEditing = true
+        activeTextHandle = -1
+        lastTextTapTimeMs = now
+        lastTextTapDocPos = docPos
+        onTextRequested?.invoke(docPos.x, docPos.y)
+    }
+
+    private fun handleTextMove(docPos: Offset) {
+        val v = vm ?: return
+        if (!v.isTypographyEditing || activeTextHandle == -1) return
+
+        when (activeTextHandle) {
+            -10 -> {
+                val delta = docPos - textDragStartDocPos
+                v.typographyConfig = textDragStartCfg.copy(
+                    posX = textDragStartCfg.posX + delta.x,
+                    posY = textDragStartCfg.posY + delta.y,
+                )
+            }
+            -20 -> {
+                val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
+                val layout = TypographyEngine.createLayout(textDragStartCfg, paint, textDragStartCfg.boxWidth.toInt())
+                val cx = textDragStartCfg.posX + layout.width / 2f
+                val cy = textDragStartCfg.posY + layout.height / 2f
+                val angleRad = atan2(docPos.y - cy, docPos.x - cx)
+                val deg = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
+                v.typographyConfig = textDragStartCfg.copy(rotationDeg = deg)
+            }
+            -30 -> {
+                val dx = docPos.x - textDragStartCfg.posX
+                val newW = maxOf(80f, dx)
+                val ratio = (newW / maxOf(80f, textDragStartCfg.boxWidth)).coerceIn(0.4f, 4.0f)
+                val newSize = (textDragStartCfg.fontSize * ratio).coerceIn(12f, 240f)
+                v.typographyConfig = textDragStartCfg.copy(boxWidth = newW, fontSize = newSize)
+            }
+        }
+    }
+
+    private fun handleTextUp(docPos: Offset) {
+        activeTextHandle = -1
+        textDragStartDocPos = Offset.Zero
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
