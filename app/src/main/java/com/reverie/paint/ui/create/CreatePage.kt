@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -577,10 +578,6 @@ fun CreatePage(vm: PaintViewModel) {
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             contentPadding = PaddingValues(bottom = 20.dp)
                         ) {
-                            item(key = "import_image_card") {
-                                ImportImageCard(onImport = { imagePickerLauncher.launch("image/*") })
-                            }
-
                             items(systemPresets, key = { it.id }) { item ->
                                 val isSelected = (widthVal == item.width && heightVal == item.height)
                                 val itemLayers = remember(item.width, item.height) {
@@ -740,10 +737,6 @@ fun CreatePage(vm: PaintViewModel) {
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
                                 contentPadding = PaddingValues(bottom = 12.dp)
                             ) {
-                                item(key = "import_image_card_portrait") {
-                                    ImportImageCard(onImport = { imagePickerLauncher.launch("image/*") })
-                                }
-
                                 items(systemPresets, key = { it.id }) { item ->
                                     val isSelected = (widthVal == item.width && heightVal == item.height)
                                     val itemLayers = remember(item.width, item.height) {
@@ -945,21 +938,63 @@ private fun PaperCanvasPreview(
                 label = "previewAnimH"
             )
 
-            // Pure artist paper representation with soft drop shadow, NO border
-            Box(
-                modifier = Modifier
-                    .size(animW, animH)
-                    .shadow(4.dp, RoundedCornerShape(4.dp))
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.White),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "${widthVal} × ${heightVal}",
-                    color = Color(0xFF222222),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            val fitsInside = targetW >= 96.dp && targetH >= 34.dp
+            val isNarrowTall = targetW < 96.dp && targetH >= 34.dp
+
+            if (fitsInside) {
+                // Regular proportion: thin-bordered frame with centered resolution text
+                Box(
+                    modifier = Modifier
+                        .size(animW, animH)
+                        .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
+                        .background(colors.accent.copy(alpha = 0.06f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${widthVal} × ${heightVal}",
+                        color = colors.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else if (isNarrowTall) {
+                // Narrow tall proportion (e.g. strip comic): resolution text beside the frame
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(animW, animH)
+                            .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
+                            .background(colors.accent.copy(alpha = 0.06f))
+                    )
+                    Text(
+                        text = "${widthVal} × ${heightVal}",
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                // Flat wide proportion: resolution text below the frame
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(animW, animH)
+                            .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
+                            .background(colors.accent.copy(alpha = 0.06f))
+                    )
+                    Text(
+                        text = "${widthVal} × ${heightVal}",
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }
@@ -1420,66 +1455,7 @@ private fun CanvasPresetCard(
     }
 }
 
-@Composable
-private fun ImportImageCard(
-    onImport: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val colors = Theme.current
-    val importSource = remember { MutableInteractionSource() }
-    val isImportPressed by importSource.collectIsPressedAsState()
-    val importScale by animateFloatAsState(
-        targetValue = if (isImportPressed) 0.98f else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        label = "ImportCardScale"
-    )
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .scale(importScale)
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.panel)
-            .clickable(interactionSource = importSource, indication = null) { onImport() }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(colors.accent.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painterResource(R.drawable.ic_image),
-                contentDescription = null,
-                tint = colors.accent,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "从图片新建画布",
-                color = colors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "导入设备中的图片并以此尺寸创建画布",
-                color = colors.subText,
-                fontSize = 11.sp
-            )
-        }
-        Icon(
-            painterResource(R.drawable.ic_chevron),
-            contentDescription = null,
-            tint = colors.subText,
-            modifier = Modifier.size(16.dp)
-        )
-    }
-}
+
 
 @Composable
 private fun SavedPresetsEmptyState(
