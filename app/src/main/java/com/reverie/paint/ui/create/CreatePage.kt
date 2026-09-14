@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -294,7 +295,11 @@ fun CreatePage(vm: PaintViewModel) {
     val colors = Theme.current
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
-    val isTablet = configuration.screenWidthDp >= 640
+
+    // Wide landscape check: only tablet/foldable wide landscape screens use 2-column split view
+    val isWideLandscape = configuration.screenWidthDp >= 720 &&
+            configuration.screenHeightDp >= 500 &&
+            configuration.screenWidthDp > configuration.screenHeightDp
 
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
@@ -329,8 +334,11 @@ fun CreatePage(vm: PaintViewModel) {
     val heightVal = customH.toIntOrNull() ?: deviceH
     val ppiVal = customPpi.toIntOrNull() ?: 300
 
-    // Tab state: 0 = 系统预设, 1 = 保存的预设 (on phone, 2 = 自定义尺寸)
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // Tab state:
+    // In Wide Landscape: presetTab (0 = 系统预设, 1 = 我的预设)
+    // In Portrait / Phone: portraitTab (0 = 常用预设, 1 = 自定义尺寸)
+    var presetTab by remember { mutableIntStateOf(0) }
+    var portraitTab by remember { mutableIntStateOf(0) }
 
     // Custom Presets List loaded from SharedPreferences
     val customPresets = remember {
@@ -357,8 +365,8 @@ fun CreatePage(vm: PaintViewModel) {
     var presetToDelete by remember { mutableStateOf<CanvasPresetItem?>(null) }
 
     BackHandler {
-        if (!isTablet && selectedTab != 0) {
-            selectedTab = 0
+        if (!isWideLandscape && portraitTab != 0) {
+            portraitTab = 0
         } else {
             vm.goHome()
         }
@@ -368,7 +376,7 @@ fun CreatePage(vm: PaintViewModel) {
     if (showSavePresetDialog) {
         AlertDialog(
             onDismissRequest = { showSavePresetDialog = false },
-            title = { Text("保存自定义预设", color = colors.text, fontWeight = FontWeight.Bold) },
+            title = { Text("保存预设", color = colors.text, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Text("为此预设命名：", color = colors.subText, fontSize = 13.sp)
@@ -404,7 +412,7 @@ fun CreatePage(vm: PaintViewModel) {
                         customPresets.add(0, newItem)
                         CustomPresetManager.savePresets(context, customPresets)
                         showSavePresetDialog = false
-                        selectedTab = 1
+                        presetTab = 1
                     },
                     textColor = colors.accent,
                     fontWeight = FontWeight.Bold,
@@ -443,10 +451,17 @@ fun CreatePage(vm: PaintViewModel) {
         )
     }
 
-    val onFlipOrientation = {
+    val onSwapDimensions = {
         val tmp = customW
         customW = customH
         customH = tmp
+    }
+
+    val onOrientationChange: (Boolean) -> Unit = { toLandscape ->
+        val curLandscape = widthVal >= heightVal
+        if (toLandscape != curLandscape) {
+            onSwapDimensions()
+        }
     }
 
     val onStartPainting = {
@@ -464,7 +479,7 @@ fun CreatePage(vm: PaintViewModel) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -472,10 +487,10 @@ fun CreatePage(vm: PaintViewModel) {
                     .size(38.dp)
                     .clip(CircleShape)
                     .background(colors.panelHi.copy(alpha = 0.7f))
-                    .border(1.dp, colors.border.copy(alpha = 0.6f), CircleShape)
+                    .border(1.dp, colors.border.copy(alpha = 0.5f), CircleShape)
                     .clickable {
-                        if (!isTablet && selectedTab != 0) {
-                            selectedTab = 0
+                        if (!isWideLandscape && portraitTab != 0) {
+                            portraitTab = 0
                         } else {
                             vm.goHome()
                         }
@@ -493,7 +508,7 @@ fun CreatePage(vm: PaintViewModel) {
             Spacer(Modifier.width(16.dp))
 
             Text(
-                text = "创建画布",
+                text = "新建画布",
                 color = colors.text,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -506,7 +521,7 @@ fun CreatePage(vm: PaintViewModel) {
                     .height(38.dp)
                     .clip(RoundedCornerShape(19.dp))
                     .background(colors.panelHi.copy(alpha = 0.7f))
-                    .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(19.dp))
+                    .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(19.dp))
                     .clickable { imagePickerLauncher.launch("image/*") }
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center
@@ -519,7 +534,7 @@ fun CreatePage(vm: PaintViewModel) {
                         painterResource(R.drawable.ic_image),
                         contentDescription = "从图片新建",
                         tint = colors.accent,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                     Text(
                         text = "从图片新建",
@@ -531,31 +546,31 @@ fun CreatePage(vm: PaintViewModel) {
             }
         }
 
-        if (isTablet) {
-            // Tablet Split Column Layout
+        if (isWideLandscape) {
+            // Tablet Wide Landscape 2-Column Split View
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
                     .padding(horizontal = 20.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp)
+                horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-                // Left Column: Presets Manager (Weight 1.15f)
+                // Left Column: Presets List
                 Column(
                     modifier = Modifier
                         .weight(1.15f)
                         .fillMaxHeight()
                 ) {
                     SegmentedTabSwitcher(
-                        tabs = listOf("系统预设", "保存的预设"),
-                        selectedIndex = selectedTab.coerceIn(0, 1),
-                        onTabSelected = { selectedTab = it },
+                        tabs = listOf("系统预设", "我的预设"),
+                        selectedIndex = presetTab.coerceIn(0, 1),
+                        onTabSelected = { presetTab = it },
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     Spacer(Modifier.height(14.dp))
 
-                    if (selectedTab == 0) {
+                    if (presetTab == 0) {
                         // System Presets
                         LazyColumn(
                             modifier = Modifier
@@ -621,15 +636,15 @@ fun CreatePage(vm: PaintViewModel) {
                     }
                 }
 
-                // Vertical divider
+                // Subtle Vertical Divider
                 Box(
                     modifier = Modifier
                         .width(1.dp)
                         .fillMaxHeight()
-                        .background(colors.border.copy(alpha = 0.5f))
+                        .background(colors.border.copy(alpha = 0.4f))
                 )
 
-                // Right Column: Live Ratio Preview + Dimensions Fine-tuning + Hardware Board + Action Bar
+                // Right Column: Canvas Inspector
                 Column(
                     modifier = Modifier
                         .weight(1.0f)
@@ -639,12 +654,12 @@ fun CreatePage(vm: PaintViewModel) {
                         modifier = Modifier
                             .weight(1f)
                             .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        CanvasRatioPreviewCard(
+                        PaperCanvasPreview(
                             widthVal = widthVal,
                             heightVal = heightVal,
-                            onFlip = onFlipOrientation
+                            onOrientationChange = onOrientationChange
                         )
 
                         CanvasDimensionsCard(
@@ -653,10 +668,31 @@ fun CreatePage(vm: PaintViewModel) {
                             height = customH,
                             onHeightChange = { customH = it },
                             ppi = customPpi,
-                            onPpiChange = { customPpi = it }
+                            onPpiChange = { customPpi = it },
+                            onSwap = onSwapDimensions
                         )
 
-                        HardwareLayerStatusCard(maxLayers = maxLayers)
+                        // Clean quiet layer stat line
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "预计最大图层",
+                                color = colors.subText,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "最多 $maxLayers 层",
+                                color = colors.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
                         Spacer(Modifier.height(8.dp))
                     }
 
@@ -673,75 +709,52 @@ fun CreatePage(vm: PaintViewModel) {
                 }
             }
         } else {
-            // Phone Responsive Single Column Layout
+            // Dedicated Portrait Layout (Phones & Tablets in Portrait)
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp)
             ) {
-                // Top aspect ratio preview card
-                CanvasRatioPreviewCard(
-                    widthVal = widthVal,
-                    heightVal = heightVal,
-                    onFlip = onFlipOrientation
-                )
-
-                Spacer(Modifier.height(10.dp))
-
-                // Segmented Switcher for Phone: [ 系统预设 | 保存的预设 | 自定义尺寸 ]
+                // Top Segmented Switcher: [ 常用预设 | 自定义尺寸 ]
                 SegmentedTabSwitcher(
-                    tabs = listOf("系统预设", "保存的预设", "自定义尺寸"),
-                    selectedIndex = selectedTab,
-                    onTabSelected = { selectedTab = it },
+                    tabs = listOf("常用预设", "自定义尺寸"),
+                    selectedIndex = portraitTab,
+                    onTabSelected = { portraitTab = it },
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
 
-                when (selectedTab) {
-                    0 -> {
-                        // System Presets
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(bottom = 10.dp)
-                        ) {
-                            item(key = "import_image_card") {
-                                ImportImageCard(onImport = { imagePickerLauncher.launch("image/*") })
-                            }
-                            items(systemPresets, key = { it.id }) { item ->
-                                val isSelected = (widthVal == item.width && heightVal == item.height)
-                                val itemLayers = remember(item.width, item.height) {
-                                    calculateRealMaxLayers(context, item.width, item.height)
-                                }
-                                CanvasPresetCard(
-                                    item = item,
-                                    isSelected = isSelected,
-                                    maxLayers = itemLayers,
-                                    onClick = {
-                                        customW = item.width.toString()
-                                        customH = item.height.toString()
-                                        customPpi = item.defaultPpi.toString()
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    1 -> {
-                        // Saved Presets
-                        if (customPresets.isEmpty()) {
-                            SavedPresetsEmptyState(modifier = Modifier.weight(1f))
-                        } else {
+                if (portraitTab == 0) {
+                    // Portrait Presets View
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        // Sub-switcher between System and Saved presets
+                        SegmentedTabSwitcher(
+                            tabs = listOf("系统预设", "我的预设"),
+                            selectedIndex = presetTab.coerceIn(0, 1),
+                            onTabSelected = { presetTab = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(Modifier.height(10.dp))
+
+                        if (presetTab == 0) {
                             LazyColumn(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(bottom = 10.dp)
+                                contentPadding = PaddingValues(bottom = 12.dp)
                             ) {
-                                items(customPresets, key = { it.id }) { item ->
+                                item(key = "import_image_card_portrait") {
+                                    ImportImageCard(onImport = { imagePickerLauncher.launch("image/*") })
+                                }
+
+                                items(systemPresets, key = { it.id }) { item ->
                                     val isSelected = (widthVal == item.width && heightVal == item.height)
                                     val itemLayers = remember(item.width, item.height) {
                                         calculateRealMaxLayers(context, item.width, item.height)
@@ -754,59 +767,130 @@ fun CreatePage(vm: PaintViewModel) {
                                             customW = item.width.toString()
                                             customH = item.height.toString()
                                             customPpi = item.defaultPpi.toString()
-                                        },
-                                        onDelete = {
-                                            presetToDelete = item
                                         }
                                     )
                                 }
                             }
+                        } else {
+                            if (customPresets.isEmpty()) {
+                                SavedPresetsEmptyState(modifier = Modifier.weight(1f))
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(bottom = 12.dp)
+                                ) {
+                                    items(customPresets, key = { it.id }) { item ->
+                                        val isSelected = (widthVal == item.width && heightVal == item.height)
+                                        val itemLayers = remember(item.width, item.height) {
+                                            calculateRealMaxLayers(context, item.width, item.height)
+                                        }
+                                        CanvasPresetCard(
+                                            item = item,
+                                            isSelected = isSelected,
+                                            maxLayers = itemLayers,
+                                            onClick = {
+                                                customW = item.width.toString()
+                                                customH = item.height.toString()
+                                                customPpi = item.defaultPpi.toString()
+                                            },
+                                            onDelete = {
+                                                presetToDelete = item
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
+
+                        // Bottom Floating Quick Creation Dock in Portrait Presets Mode
+                        PortraitPresetBottomBar(
+                            widthVal = widthVal,
+                            heightVal = heightVal,
+                            maxLayers = maxLayers,
+                            onSwap = onSwapDimensions,
+                            onCustomize = { portraitTab = 1 },
+                            onCreate = onStartPainting,
+                            modifier = Modifier.padding(vertical = 10.dp)
+                        )
                     }
-                    else -> {
-                        // Custom Dimension Editing
+                } else {
+                    // Portrait Custom Dimensions View
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            PaperCanvasPreview(
+                                widthVal = widthVal,
+                                heightVal = heightVal,
+                                onOrientationChange = onOrientationChange
+                            )
+
                             CanvasDimensionsCard(
                                 width = customW,
                                 onWidthChange = { customW = it },
                                 height = customH,
                                 onHeightChange = { customH = it },
                                 ppi = customPpi,
-                                onPpiChange = { customPpi = it }
+                                onPpiChange = { customPpi = it },
+                                onSwap = onSwapDimensions
                             )
-                            HardwareLayerStatusCard(maxLayers = maxLayers)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "预计最大图层",
+                                    color = colors.subText,
+                                    fontSize = 12.sp
+                                )
+                                Text(
+                                    text = "最多 $maxLayers 层",
+                                    color = colors.accent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
                         }
+
+                        CreateCanvasActions(
+                            onSavePreset = {
+                                newPresetName = "预设 ${widthVal}×${heightVal}"
+                                showSavePresetDialog = true
+                            },
+                            onCreate = onStartPainting,
+                            modifier = Modifier.padding(vertical = 10.dp)
+                        )
                     }
                 }
-
-                // Bottom Action Bar on Phone
-                CreateCanvasActions(
-                    onSavePreset = {
-                        newPresetName = "预设 ${widthVal}×${heightVal}"
-                        showSavePresetDialog = true
-                    },
-                    onCreate = onStartPainting,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
             }
         }
     }
 }
 
 @Composable
-private fun CanvasRatioPreviewCard(
+private fun PaperCanvasPreview(
     widthVal: Int,
     heightVal: Int,
-    onFlip: () -> Unit,
+    onOrientationChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
+    val isLandscape = widthVal >= heightVal
     val ratioLabel = remember(widthVal, heightVal) { getAspectRatioLabel(widthVal, heightVal) }
 
     Column(
@@ -814,69 +898,36 @@ private fun CanvasRatioPreviewCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border, RoundedCornerShape(16.dp))
-            .padding(14.dp)
+            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+            .padding(14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Top header of preview card: ratio label and flip button
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(colors.accent)
-                )
-                Text(
-                    text = ratioLabel,
-                    color = colors.text,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
+            Text(
+                text = ratioLabel,
+                color = colors.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
 
-            // Flip orientation button
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.panelHi)
-                    .border(1.dp, colors.border.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
-                    .clickable { onFlip() }
-                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_flip_horizontal),
-                    contentDescription = "对调宽高",
-                    tint = colors.accent,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "对调宽高",
-                    color = colors.text,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
+            OrientationToggle(
+                isLandscape = isLandscape,
+                onToggle = onOrientationChange
+            )
         }
 
         Spacer(Modifier.height(12.dp))
 
-        // Ratio visualization box
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(120.dp)
+                .height(130.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(colors.panelHi.copy(alpha = 0.4f))
-                .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                 .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -905,19 +956,95 @@ private fun CanvasRatioPreviewCard(
                 label = "previewAnimH"
             )
 
+            // Paper sheet presentation with crisp white surface and soft shadow
             Box(
                 modifier = Modifier
                     .size(animW, animH)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.accent.copy(alpha = 0.15f))
-                    .border(1.5.dp, colors.accent, RoundedCornerShape(6.dp)),
+                    .shadow(3.dp, RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.White.copy(alpha = 0.90f))
+                    .border(1.dp, colors.accent.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "${widthVal} × ${heightVal}",
-                    color = colors.text,
+                    color = Color.Black.copy(alpha = 0.75f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrientationToggle(
+    isLandscape: Boolean,
+    onToggle: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = Theme.current
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.panelHi)
+            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isLandscape) colors.accent else Color.Transparent)
+                .clickable { onToggle(true) }
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_flip_horizontal),
+                    contentDescription = null,
+                    tint = if (isLandscape) colors.onAccent else colors.subText,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "横向",
+                    color = if (isLandscape) colors.onAccent else colors.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (!isLandscape) colors.accent else Color.Transparent)
+                .clickable { onToggle(false) }
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_flip_vertical),
+                    contentDescription = null,
+                    tint = if (!isLandscape) colors.onAccent else colors.subText,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "纵向",
+                    color = if (!isLandscape) colors.onAccent else colors.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (!isLandscape) FontWeight.Bold else FontWeight.Medium
                 )
             }
         }
@@ -932,6 +1059,7 @@ private fun CanvasDimensionsCard(
     onHeightChange: (String) -> Unit,
     ppi: String,
     onPpiChange: (String) -> Unit,
+    onSwap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
@@ -940,20 +1068,49 @@ private fun CanvasDimensionsCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
-        Text(
-            text = "尺寸与分辨率",
-            color = colors.text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "尺寸与分辨率",
+                color = colors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colors.panelHi)
+                    .clickable { onSwap() }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_flip_horizontal),
+                    contentDescription = "对调宽高",
+                    tint = colors.accent,
+                    modifier = Modifier.size(12.dp)
+                )
+                Text(
+                    text = "对调",
+                    color = colors.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SizeInputField(
                 label = "宽度",
@@ -973,98 +1130,131 @@ private fun CanvasDimensionsCard(
 
         Spacer(Modifier.height(14.dp))
 
-        Column {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("分辨率 (PPI / DPI)", color = colors.subText, fontSize = 12.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(72, 150, 300, 350).forEach { ppiOption ->
-                        val isSelected = ppi == ppiOption.toString()
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isSelected) colors.accent else colors.panelHi)
-                                .clickable { onPpiChange(ppiOption.toString()) }
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text(
-                                "$ppiOption",
-                                color = if (isSelected) colors.onAccent else colors.text,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("分辨率 (DPI)", color = colors.subText, fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(72, 150, 300, 350).forEach { ppiOption ->
+                    val isSelected = ppi == ppiOption.toString()
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) colors.accent else colors.panelHi)
+                            .clickable { onPpiChange(ppiOption.toString()) }
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            "$ppiOption",
+                            color = if (isSelected) colors.onAccent else colors.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            SizeInputField(
-                label = "自定义 PPI",
-                unit = "DPI",
-                value = ppi,
-                onValueChange = onPpiChange,
-                modifier = Modifier.fillMaxWidth()
-            )
         }
     }
 }
 
 @Composable
-private fun HardwareLayerStatusCard(
+private fun PortraitPresetBottomBar(
+    widthVal: Int,
+    heightVal: Int,
     maxLayers: Int,
+    onSwap: () -> Unit,
+    onCustomize: () -> Unit,
+    onCreate: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
-    val (perfStatus, perfColor) = when {
-        maxLayers >= 100 -> Pair("极佳 · 充裕预算", colors.accent)
-        maxLayers >= 40 -> Pair("良好 · 畅快绘制", colors.text)
-        else -> Pair("适度 · 性能受控", colors.subText)
-    }
-
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(colors.panelHi.copy(alpha = 0.5f))
-            .border(1.dp, colors.border.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-            .padding(14.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.panel)
+            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("色彩空间", color = colors.subText, fontSize = 11.sp)
-                Spacer(Modifier.height(2.dp))
-                Text("sRGB IEC61966-2.1", color = colors.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("内存预算模式", color = colors.subText, fontSize = 11.sp)
-                Spacer(Modifier.height(2.dp))
-                Text("激进模式 (全速)", color = colors.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "${widthVal} × ${heightVal} px",
+                color = colors.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "${if (widthVal >= heightVal) "横向" else "纵向"} · 最多 ${maxLayers}层",
+                color = colors.subText,
+                fontSize = 11.sp
+            )
         }
 
-        Spacer(Modifier.height(10.dp))
-
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column {
-                Text("性能评估", color = colors.subText, fontSize = 11.sp)
-                Spacer(Modifier.height(2.dp))
-                Text(perfStatus, color = perfColor, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(colors.panelHi)
+                    .clickable { onSwap() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_flip_horizontal),
+                    contentDescription = "对调方向",
+                    tint = colors.text,
+                    modifier = Modifier.size(15.dp)
+                )
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("可用运存支持图层", color = colors.subText, fontSize = 11.sp)
-                Spacer(Modifier.height(2.dp))
-                Text("最多 $maxLayers 层", color = colors.accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(colors.panelHi)
+                    .clickable { onCustomize() }
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "微调",
+                    color = colors.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            val createSource = remember { MutableInteractionSource() }
+            val isCreatePressed by createSource.collectIsPressedAsState()
+            val btnScale by animateFloatAsState(
+                targetValue = if (isCreatePressed) 0.96f else 1.0f,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                label = "PortraitCreateScale"
+            )
+
+            Box(
+                modifier = Modifier
+                    .scale(btnScale)
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(19.dp))
+                    .background(colors.accent)
+                    .clickable(interactionSource = createSource, indication = null) { onCreate() }
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "创建画布",
+                    color = colors.onAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -1082,14 +1272,13 @@ private fun CreateCanvasActions(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Save preset button
         Box(
             modifier = Modifier
-                .weight(0.40f)
-                .height(50.dp)
+                .weight(0.38f)
+                .height(48.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(colors.panelHi)
-                .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
                 .clickable { onSavePreset() },
             contentAlignment = Alignment.Center
         ) {
@@ -1101,13 +1290,12 @@ private fun CreateCanvasActions(
                     painterResource(R.drawable.ic_bookmark_plus),
                     contentDescription = null,
                     tint = colors.text,
-                    modifier = Modifier.size(17.dp)
+                    modifier = Modifier.size(16.dp)
                 )
                 Text("保存预设", color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
-        // Confirm Create Button
         val createSource = remember { MutableInteractionSource() }
         val isCreatePressed by createSource.collectIsPressedAsState()
         val btnScale by animateFloatAsState(
@@ -1118,9 +1306,9 @@ private fun CreateCanvasActions(
 
         Box(
             modifier = Modifier
-                .weight(0.60f)
+                .weight(0.62f)
                 .scale(btnScale)
-                .height(50.dp)
+                .height(48.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(colors.accent)
                 .clickable(interactionSource = createSource, indication = null) { onCreate() },
@@ -1149,7 +1337,7 @@ private fun CanvasPresetCard(
     val itemSource = remember { MutableInteractionSource() }
     val isItemPressed by itemSource.collectIsPressedAsState()
     val itemScale by animateFloatAsState(
-        targetValue = if (isItemPressed) 0.97f else 1.0f,
+        targetValue = if (isItemPressed) 0.98f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "PresetItemScale"
     )
@@ -1158,12 +1346,12 @@ private fun CanvasPresetCard(
         modifier = modifier
             .fillMaxWidth()
             .scale(itemScale)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(if (isSelected) colors.panelHi else colors.panel)
             .border(
                 width = if (isSelected) 1.5.dp else 1.dp,
-                color = if (isSelected) colors.accent else colors.border,
-                shape = RoundedCornerShape(14.dp)
+                color = if (isSelected) colors.accent else colors.border.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
             )
             .clickable(interactionSource = itemSource, indication = null) { onClick() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1178,7 +1366,7 @@ private fun CanvasPresetCard(
                     text = item.name,
                     color = if (isSelected) colors.accent else colors.text,
                     fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold
                 )
                 if (item.isCustom) {
                     Box(
@@ -1192,7 +1380,7 @@ private fun CanvasPresetCard(
                 }
             }
             if (item.description.isNotEmpty()) {
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
                     text = item.description,
                     color = colors.subText,
@@ -1208,12 +1396,12 @@ private fun CanvasPresetCard(
             Text(
                 text = "${item.width} × ${item.height}",
                 color = colors.text,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(3.dp))
             Text(
-                text = "${item.defaultPpi} DPI · 最大 ${maxLayers}层",
+                text = "${item.defaultPpi} DPI · ${maxLayers}层",
                 color = colors.subText,
                 fontSize = 11.sp
             )
@@ -1223,10 +1411,9 @@ private fun CanvasPresetCard(
             Spacer(Modifier.width(10.dp))
             Box(
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(30.dp)
                     .clip(CircleShape)
                     .background(colors.panelHi.copy(alpha = 0.7f))
-                    .border(1.dp, colors.border.copy(alpha = 0.5f), CircleShape)
                     .clickable { onDelete() },
                 contentAlignment = Alignment.Center
             ) {
@@ -1234,7 +1421,7 @@ private fun CanvasPresetCard(
                     painter = painterResource(R.drawable.ic_trash),
                     contentDescription = "删除预设",
                     tint = colors.subText,
-                    modifier = Modifier.size(15.dp)
+                    modifier = Modifier.size(14.dp)
                 )
             }
         }
@@ -1250,7 +1437,7 @@ private fun ImportImageCard(
     val importSource = remember { MutableInteractionSource() }
     val isImportPressed by importSource.collectIsPressedAsState()
     val importScale by animateFloatAsState(
-        targetValue = if (isImportPressed) 0.97f else 1.0f,
+        targetValue = if (isImportPressed) 0.98f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "ImportCardScale"
     )
@@ -1258,16 +1445,16 @@ private fun ImportImageCard(
         modifier = modifier
             .fillMaxWidth()
             .scale(importScale)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(colors.panel)
-            .border(1.dp, colors.accent.copy(alpha = 0.5f), RoundedCornerShape(14.dp))
+            .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
             .clickable(interactionSource = importSource, indication = null) { onImport() }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(34.dp)
                 .clip(CircleShape)
                 .background(colors.accent.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
@@ -1276,7 +1463,7 @@ private fun ImportImageCard(
                 painterResource(R.drawable.ic_image),
                 contentDescription = null,
                 tint = colors.accent,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(17.dp)
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -1298,7 +1485,7 @@ private fun ImportImageCard(
             painterResource(R.drawable.ic_chevron),
             contentDescription = null,
             tint = colors.subText,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(15.dp)
         )
     }
 }
@@ -1320,7 +1507,7 @@ private fun SavedPresetsEmptyState(
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(44.dp)
                     .clip(CircleShape)
                     .background(colors.panelHi),
                 contentAlignment = Alignment.Center
@@ -1329,7 +1516,7 @@ private fun SavedPresetsEmptyState(
                     painter = painterResource(R.drawable.ic_bookmark_plus),
                     contentDescription = null,
                     tint = colors.subText,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
             Text(
@@ -1339,7 +1526,7 @@ private fun SavedPresetsEmptyState(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "在参数面板调整尺寸后点击「保存预设」即可在此随时调用",
+                text = "在自定义尺寸中配置好画幅后，点击保存预设即可在此随时调用",
                 color = colors.subText,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center
@@ -1359,10 +1546,10 @@ private fun SegmentedTabSwitcher(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
-            .clip(RoundedCornerShape(19.dp))
+            .height(36.dp)
+            .clip(RoundedCornerShape(18.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border, RoundedCornerShape(19.dp))
+            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
             .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1372,7 +1559,7 @@ private fun SegmentedTabSwitcher(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(15.dp))
                     .background(if (isSelected) colors.accent else Color.Transparent)
                     .clickable { onTabSelected(index) },
                 contentAlignment = Alignment.Center
@@ -1398,8 +1585,8 @@ private fun SizeInputField(
 ) {
     val colors = Theme.current
     Column(modifier = modifier) {
-        Text(label, color = colors.subText, fontSize = 12.sp)
-        Spacer(Modifier.height(6.dp))
+        Text(label, color = colors.subText, fontSize = 11.sp)
+        Spacer(Modifier.height(4.dp))
         OutlinedTextField(
             value = value,
             onValueChange = { v ->
@@ -1414,7 +1601,7 @@ private fun SizeInputField(
             shape = RoundedCornerShape(10.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = colors.accent,
-                unfocusedBorderColor = colors.border,
+                unfocusedBorderColor = colors.border.copy(alpha = 0.7f),
                 focusedContainerColor = colors.panelHi,
                 unfocusedContainerColor = colors.panelHi,
                 cursorColor = colors.accent
