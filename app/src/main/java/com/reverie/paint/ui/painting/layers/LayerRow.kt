@@ -178,10 +178,12 @@ internal fun LayerRow(
     // When the external revealed flag flips (e.g. another row opens and this one
     // should close, or a tap closes it), snap-animate to the correct position.
     LaunchedEffect(revealed) {
-        revealAnim.animateTo(
-            if (revealed) -drawerPx.toFloat() else 0f,
-            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-        )
+        val animSpec = if (revealed) {
+            spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+        } else {
+            spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+        }
+        revealAnim.animateTo(if (revealed) -drawerPx.toFloat() else 0f, animSpec)
     }
 
     Box(
@@ -245,16 +247,15 @@ internal fun LayerRow(
                         if (gestureSwiping) {
                             val currentOffset = revealAnim.value
                             val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
-                            // Always animate to final position: LaunchedEffect(revealed) only
-                            // fires when the boolean flips; if revealed was already true and
-                            // the user right-swiped partway, we must still spring back.
                             val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
-                            scope.launch {
-                                revealAnim.animateTo(
-                                    targetOffset,
-                                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-                                )
+                            // Opening: light bounce for a snappy reveal feel
+                            // Closing / right-swipe springback: no bounce (overdamped)
+                            val animSpec = if (shouldReveal) {
+                                spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                            } else {
+                                spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
                             }
+                            scope.launch { revealAnim.animateTo(targetOffset, animSpec) }
                             if (shouldReveal) onReveal() else onRevealClose()
                         }
                     }
