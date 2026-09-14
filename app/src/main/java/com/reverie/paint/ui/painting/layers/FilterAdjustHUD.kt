@@ -282,7 +282,7 @@ internal fun FilterBottomDock(
     hazeState: HazeState? = null,
     opacity: Float = 0.94f,
 ) {
-    var isExpanded by remember { mutableStateOf(filterId == 13 || filterId == 30) }
+    var isExpanded by remember(filterId) { mutableStateOf(false) }
     val hasMore = hasExpandableControls(filterId)
     val dockShape = RoundedCornerShape(20.dp)
 
@@ -311,13 +311,16 @@ internal fun FilterBottomDock(
                 enter = fadeIn() + expandVertically(),
                 exit = fadeOut() + shrinkVertically(),
             ) {
-                val boxWidth = if (filterId == 13 || filterId == 30) 420.dp else 320.dp
-                Box(
+                val boxWidth = if (filterId == 13) 240.dp else if (filterId == 30) 280.dp else 280.dp
+                Column(
                     modifier = Modifier
                         .width(boxWidth)
-                        .heightIn(max = if (filterId == 13 || filterId == 30) 340.dp else 260.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .heightIn(max = if (filterId == 13) 300.dp else 260.dp)
+                        .then(
+                            if (filterId == 13) Modifier else Modifier.verticalScroll(rememberScrollState())
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     FilterAdjustControls(
                         st = st,

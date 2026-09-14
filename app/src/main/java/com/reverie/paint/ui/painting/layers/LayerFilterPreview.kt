@@ -344,52 +344,19 @@ internal fun FilterAdjustControls(
     sendCurvesPreview: () -> Unit,
     sendGradientMapPreview: () -> Unit,
 ) {
-            when (filterId) {
-                13 -> { // Real 2D Curves Graph
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("RGB" to 0, "红 (R)" to 1, "绿 (G)" to 2, "蓝 (B)" to 3).forEach { (name, ch) ->
-                            val isSel = (st.activeCurveChannel == ch)
-                            val chColor = when (ch) {
-                                1 -> Color(0xFFFF5252)
-                                2 -> Color(0xFF4CAF50)
-                                3 -> Color(0xFF448AFF)
-                                else -> Morandi.accent
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) chColor.copy(alpha = 0.25f) else Morandi.panelHi)
-                                    .border(
-                                        1.dp,
-                                        if (isSel) chColor else Color.Transparent,
-                                        RoundedCornerShape(6.dp)
-                                    )
-                                    .noRippleClickable {
-                                        st.activeCurveChannel = ch
-                                    }
-                                    .padding(vertical = 5.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    name,
-                                    color = if (isSel) chColor else Morandi.subText,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-
-                    RealCurvesGraph(
-                        channelPoints = st.curveChannels,
-                        activeChannel = st.activeCurveChannel,
-                        onCurveChanged = { sendCurvesPreview() }
-                    )
-                }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        when (filterId) {
+            13 -> { // Real 2D Curves Graph
+                RealCurvesGraph(
+                    channelPoints = st.curveChannels,
+                    activeChannel = st.activeCurveChannel,
+                    onChannelChange = { st.activeCurveChannel = it },
+                    onCurveChanged = { sendCurvesPreview() }
+                )
+            }
                 30 -> { // Custom Gradient Map
                     CustomGradientEditor(
                         stops = st.customGradStops,
@@ -1012,4 +979,5 @@ internal fun FilterAdjustControls(
                     )
                 }
             }
+    }
 }

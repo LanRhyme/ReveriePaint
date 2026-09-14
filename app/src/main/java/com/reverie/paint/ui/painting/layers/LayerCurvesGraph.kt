@@ -127,6 +127,7 @@ import kotlin.math.roundToInt
 internal fun RealCurvesGraph(
     channelPoints: SnapshotStateMap<Int, MutableList<Offset>>,
     activeChannel: Int,
+    onChannelChange: (Int) -> Unit = {},
     onCurveChanged: () -> Unit
 ) {
     val points = remember(channelPoints, activeChannel) {
@@ -134,8 +135,9 @@ internal fun RealCurvesGraph(
             mutableStateListOf(Offset(0f, 0f), Offset(255f, 255f))
         }
     }
-    var selectedIndex by remember { mutableIntStateOf(-1) }
+    var selectedIndex by remember(activeChannel) { mutableIntStateOf(-1) }
     val currentOnCurveChanged by rememberUpdatedState(onCurveChanged)
+    val density = LocalDensity.current
 
     val channelColor = when (activeChannel) {
         1 -> Color(0xFFFF5252) // Red
@@ -144,28 +146,75 @@ internal fun RealCurvesGraph(
         else -> Morandi.accent // RGB / Master
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        // 顶部集成通道切换器
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            listOf("RGB" to 0, "红 (R)" to 1, "绿 (G)" to 2, "蓝 (B)" to 3).forEach { (name, ch) ->
+                val isSel = (activeChannel == ch)
+                val chCol = when (ch) {
+                    1 -> Color(0xFFFF5252)
+                    2 -> Color(0xFF4CAF50)
+                    3 -> Color(0xFF448AFF)
+                    else -> Morandi.accent
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSel) chCol.copy(alpha = 0.22f) else Morandi.panelHi)
+                        .border(
+                            1.dp,
+                            if (isSel) chCol else Color.Transparent,
+                            RoundedCornerShape(6.dp)
+                        )
+                        .noRippleClickable {
+                            selectedIndex = -1
+                            onChannelChange(ch)
+                        }
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        name,
+                        color = if (isSel) chCol else Morandi.subText,
+                        fontSize = 11.sp,
+                        fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal
+                    )
+                }
+            }
+        }
+
+        // 紧凑 1:1 正方形曲线交互画布
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1.2f)
+                .aspectRatio(1f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(Morandi.panelHi)
                 .pointerInput(activeChannel) {
+                    val pad = with(density) { 14.dp.toPx() }
+                    val hitRadiusSq = with(density) { 32.dp.toPx() }.let { it * it }
+
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
                         val w = size.width.toFloat()
                         val h = size.height.toFloat()
+                        val plotW = (w - 2 * pad).coerceAtLeast(1f)
+                        val plotH = (h - 2 * pad).coerceAtLeast(1f)
                         val touchOffset = down.position
 
-                        // Touch hit radius: 36dp
-                        val hitRadiusSq = (36f * density).let { it * it }
                         var minD = Float.MAX_VALUE
                         var foundIdx = -1
                         points.forEachIndexed { idx, pt ->
-                            val px = (pt.x / 255f) * w
-                            val py = (1f - pt.y / 255f) * h
+                            val px = pad + (pt.x / 255f) * plotW
+                            val py = pad + (1f - pt.y / 255f) * plotH
                             val dx = touchOffset.x - px
                             val dy = touchOffset.y - py
                             val d = dx * dx + dy * dy
@@ -177,20 +226,22 @@ internal fun RealCurvesGraph(
 
                         var activeIdx = foundIdx
                         if (activeIdx == -1) {
-                            // Add new point at touched location
-                            val newX = ((touchOffset.x / w) * 255f).coerceIn(1f, 254f)
-                            val newY = ((1f - touchOffset.y / h) * 255f).coerceIn(0f, 255f)
-                            val newPt = Offset(newX, newY)
-                            points.add(newPt)
-                            points.sortBy { it.x }
-                            activeIdx = points.indexOf(newPt)
-                            selectedIndex = activeIdx
-                            currentOnCurveChanged()
+                            // 未点中已有控制点，检测是否在绘图区域内添加新点
+                            val curX = (((touchOffset.x - pad) / plotW) * 255f).coerceIn(0f, 255f)
+                            val curY = (((1f - (touchOffset.y - pad) / plotH)) * 255f).coerceIn(0f, 255f)
+                            if (curX in 4f..251f) {
+                                val newPt = Offset(curX, curY)
+                                points.add(newPt)
+                                points.sortBy { it.x }
+                                activeIdx = points.indexOf(newPt)
+                                selectedIndex = activeIdx
+                                currentOnCurveChanged()
+                            }
                         } else {
                             selectedIndex = activeIdx
                         }
 
-                        // Drag loop
+                        // 拖拽手势循环
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -198,10 +249,20 @@ internal fun RealCurvesGraph(
                             change.consume()
 
                             if (activeIdx in points.indices) {
-                                val minX = if (activeIdx == 0) 0f else (points[activeIdx - 1].x + 1f).coerceAtMost(255f)
-                                val maxX = if (activeIdx == points.size - 1) 255f else (points[activeIdx + 1].x - 1f).coerceAtLeast(0f)
-                                val curX = ((change.position.x / w) * 255f).coerceIn(minX, maxX)
-                                val curY = ((1f - change.position.y / h) * 255f).coerceIn(0f, 255f)
+                                val minX = when (activeIdx) {
+                                    0 -> 0f
+                                    else -> (points[activeIdx - 1].x + 1f).coerceAtMost(255f)
+                                }
+                                val maxX = when (activeIdx) {
+                                    points.size - 1 -> 255f
+                                    else -> (points[activeIdx + 1].x - 1f).coerceAtLeast(0f)
+                                }
+                                val curX = when (activeIdx) {
+                                    0 -> 0f
+                                    points.size - 1 -> 255f
+                                    else -> (((change.position.x - pad) / plotW) * 255f).coerceIn(minX, maxX)
+                                }
+                                val curY = (((1f - (change.position.y - pad) / plotH)) * 255f).coerceIn(0f, 255f)
                                 points[activeIdx] = Offset(curX, curY)
                                 currentOnCurveChanged()
                             }
@@ -210,36 +271,65 @@ internal fun RealCurvesGraph(
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
+                val pad = 14.dp.toPx()
+                val plotW = (size.width - 2 * pad).coerceAtLeast(1f)
+                val plotH = (size.height - 2 * pad).coerceAtLeast(1f)
 
-                // 4x4 Grid
+                // 4x4 网格
                 for (i in 1..3) {
-                    val gx = (w / 4f) * i
-                    val gy = (h / 4f) * i
-                    drawLine(Morandi.border.copy(alpha = 0.6f), Offset(gx, 0f), Offset(gx, h), strokeWidth = 1f)
-                    drawLine(Morandi.border.copy(alpha = 0.6f), Offset(0f, gy), Offset(w, gy), strokeWidth = 1f)
+                    val gx = pad + (plotW / 4f) * i
+                    val gy = pad + (plotH / 4f) * i
+                    drawLine(Morandi.border.copy(alpha = 0.5f), Offset(gx, pad), Offset(gx, pad + plotH), strokeWidth = 1f)
+                    drawLine(Morandi.border.copy(alpha = 0.5f), Offset(pad, gy), Offset(pad + plotW, gy), strokeWidth = 1f)
                 }
 
-                // Reference Diagonal Line (y = x)
+                // 对角线参考虚线 (y = x)
                 drawLine(
-                    color = Morandi.subText.copy(alpha = 0.3f),
-                    start = Offset(0f, h),
-                    end = Offset(w, 0f),
-                    strokeWidth = 1.5f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
+                    color = Morandi.subText.copy(alpha = 0.25f),
+                    start = Offset(pad, pad + plotH),
+                    end = Offset(pad + plotW, pad),
+                    strokeWidth = 1.2f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
                 )
 
-                // Render Monotone Spline Curve
-                val lut = calculateMonotoneCubicSplineLUT(points)
+                // 绘制其他非激活通道的淡色参考曲线
+                for (ch in 0..3) {
+                    if (ch == activeChannel) continue
+                    val otherPts = channelPoints[ch] ?: continue
+                    val otherColor = when (ch) {
+                        1 -> Color(0xFFFF5252).copy(alpha = 0.35f)
+                        2 -> Color(0xFF4CAF50).copy(alpha = 0.35f)
+                        3 -> Color(0xFF448AFF).copy(alpha = 0.35f)
+                        else -> Morandi.accent.copy(alpha = 0.25f)
+                    }
+                    val otherPath = Path()
+                    val stepCount = 64
+                    for (s in 0..stepCount) {
+                        val fx = s * 255f / stepCount
+                        val fy = evaluateSteffenSpline(otherPts, fx)
+                        val px = pad + (fx / 255f) * plotW
+                        val py = pad + (1f - fy / 255f) * plotH
+                        if (s == 0) otherPath.moveTo(px, py) else otherPath.lineTo(px, py)
+                    }
+                    drawPath(
+                        path = otherPath,
+                        color = otherColor,
+                        style = Stroke(width = 1.2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    )
+                }
+
+                // 连续浮点 Steffen 样条采样 (消除阶梯锯齿)
                 val curvePath = Path()
                 val fillPath = Path()
-                fillPath.moveTo(0f, h)
+                fillPath.moveTo(pad, pad + plotH)
 
-                for (i in 0..255) {
-                    val px = (i / 255f) * w
-                    val py = (1f - (lut[i].toInt() and 0xFF) / 255f) * h
-                    if (i == 0) {
+                val sampleCount = 100
+                for (s in 0..sampleCount) {
+                    val fx = s * 255f / sampleCount
+                    val fy = evaluateSteffenSpline(points, fx)
+                    val px = pad + (fx / 255f) * plotW
+                    val py = pad + (1f - fy / 255f) * plotH
+                    if (s == 0) {
                         curvePath.moveTo(px, py)
                         fillPath.lineTo(px, py)
                     } else {
@@ -247,49 +337,49 @@ internal fun RealCurvesGraph(
                         fillPath.lineTo(px, py)
                     }
                 }
-                fillPath.lineTo(w, h)
+                fillPath.lineTo(pad + plotW, pad + plotH)
                 fillPath.close()
 
-                // Area gradient fill
+                // 面积渐变填充
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
-                        listOf(channelColor.copy(alpha = 0.25f), channelColor.copy(alpha = 0.02f)),
-                        startY = 0f,
-                        endY = h
+                        listOf(channelColor.copy(alpha = 0.15f), channelColor.copy(alpha = 0.01f)),
+                        startY = pad,
+                        endY = pad + plotH
                     )
                 )
 
-                // Curve stroke line
+                // 曲线平滑描边
                 drawPath(
                     path = curvePath,
                     color = channelColor,
-                    style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                    style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
                 )
 
-                // Control Points
+                // 控制点
                 points.forEachIndexed { idx, pt ->
-                    val cx = (pt.x / 255f) * w
-                    val cy = (1f - pt.y / 255f) * h
+                    val cx = pad + (pt.x / 255f) * plotW
+                    val cy = pad + (1f - pt.y / 255f) * plotH
                     val isSel = (idx == selectedIndex)
 
                     drawCircle(
                         color = if (isSel) channelColor else Morandi.bg,
-                        radius = if (isSel) 7.dp.toPx() else 5.dp.toPx(),
+                        radius = if (isSel) 6.5.dp.toPx() else 4.5.dp.toPx(),
                         center = Offset(cx, cy)
                     )
                     drawCircle(
                         color = if (isSel) Color.White else channelColor,
-                        radius = if (isSel) 4.5.dp.toPx() else 3.5.dp.toPx(),
+                        radius = if (isSel) 4.dp.toPx() else 3.dp.toPx(),
                         center = Offset(cx, cy)
                     )
                 }
             }
         }
 
-        // Coordinate Readout & Actions
+        // 底部紧凑读数与快捷操作
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp, end = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 2.dp, end = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -300,7 +390,7 @@ internal fun RealCurvesGraph(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "输入: ${selPt.x.roundToInt()}  输出: ${selPt.y.roundToInt()}",
+                        "入: ${selPt.x.roundToInt()} 出: ${selPt.y.roundToInt()}",
                         color = Morandi.text,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
@@ -320,11 +410,11 @@ internal fun RealCurvesGraph(
                     }
                 }
             } else {
-                Text("点击添加控制点，拖拽平滑调整", color = Morandi.subText, fontSize = 11.sp)
+                Text("点击添加控制点，拖动平滑调整", color = Morandi.subText, fontSize = 10.sp)
             }
 
             Text(
-                "重置此通道",
+                "重置通道",
                 color = Morandi.accent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,

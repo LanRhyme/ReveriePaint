@@ -57,4 +57,39 @@ class BrushAndCurveLogicTest {
         assertEquals(0.0, computeCurveResponse(-0.5, 0), 1e-6)
         assertEquals(1.0, computeCurveResponse(1.5, 0), 1e-6)
     }
+
+    @Test
+    fun `steffen spline linear identity endpoints produce accurate linear response`() {
+        val points = listOf(
+            androidx.compose.ui.geometry.Offset(0f, 0f),
+            androidx.compose.ui.geometry.Offset(255f, 255f)
+        )
+        for (i in 0..255) {
+            val y = com.reverie.paint.ui.painting.layers.evaluateSteffenSpline(points, i.toFloat())
+            assertEquals(i.toFloat(), y, 1e-3f)
+        }
+    }
+
+    @Test
+    fun `steffen spline monotonic s-curve is strictly non-decreasing and bounded`() {
+        val points = listOf(
+            androidx.compose.ui.geometry.Offset(0f, 0f),
+            androidx.compose.ui.geometry.Offset(64f, 20f),
+            androidx.compose.ui.geometry.Offset(192f, 235f),
+            androidx.compose.ui.geometry.Offset(255f, 255f)
+        )
+        var prevY = -1f
+        for (i in 0..255) {
+            val y = com.reverie.paint.ui.painting.layers.evaluateSteffenSpline(points, i.toFloat())
+            assertTrue("Curve value $y must be >= 0", y >= 0f)
+            assertTrue("Curve value $y must be <= 255", y <= 255f)
+            assertTrue("Steffen spline must be monotonic non-decreasing, but $y < $prevY at x=$i", y >= prevY - 1e-4f)
+            prevY = y
+        }
+
+        val lut = com.reverie.paint.ui.painting.layers.calculateMonotoneCubicSplineLUT(points)
+        assertEquals(256, lut.size)
+        assertEquals(0, lut[0].toInt() and 0xFF)
+        assertEquals(255, lut[255].toInt() and 0xFF)
+    }
 }

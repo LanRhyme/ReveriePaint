@@ -363,74 +363,57 @@ internal fun FiltersPage(
 }
 
 // ---------------------------------------------------------------------------
-// Real Interactive 2D Curves Graph Component
+// Real Interactive 2D Curves Graph Component (Steffen Monotone Cubic Spline)
 // ---------------------------------------------------------------------------
 
-internal fun calculateMonotoneCubicSplineLUT(points: List<Offset>): ByteArray {
-    val sorted = points.sortedBy { it.x }.distinctBy { it.x.toInt() }
-    val lut = ByteArray(256)
-    if (sorted.isEmpty()) {
-        for (i in 0..255) lut[i] = i.toByte()
-        return lut
-    }
-    if (sorted.size == 1) {
-        val y = sorted[0].y.coerceIn(0f, 255f).toInt().toByte()
-        for (i in 0..255) lut[i] = y
-        return lut
-    }
+internal fun evaluateSteffenSpline(points: List<Offset>, curX: Float): Float {
+    val sorted = points.sortedBy { it.x }.distinctBy { (it.x * 10f).roundToInt() }
+    if (sorted.isEmpty()) return curX.coerceIn(0f, 255f)
+    if (sorted.size == 1) return sorted[0].y.coerceIn(0f, 255f)
+    if (curX <= sorted.first().x) return sorted.first().y.coerceIn(0f, 255f)
+    if (curX >= sorted.last().x) return sorted.last().y.coerceIn(0f, 255f)
+
     val n = sorted.size
-    val x = sorted.map { it.x.coerceIn(0f, 255f) }
-    val y = sorted.map { it.y.coerceIn(0f, 255f) }
-    val d = FloatArray(n - 1)
+    val x = FloatArray(n) { sorted[it].x.coerceIn(0f, 255f) }
+    val y = FloatArray(n) { sorted[it].y.coerceIn(0f, 255f) }
+    val h = FloatArray(n - 1) { x[it + 1] - x[it] }
+    val d = FloatArray(n - 1) { if (h[it] != 0f) (y[it + 1] - y[it]) / h[it] else 0f }
+
     val m = FloatArray(n)
-    for (i in 0 until n - 1) {
-        val dx = x[i + 1] - x[i]
-        d[i] = if (dx != 0f) (y[i + 1] - y[i]) / dx else 0f
-    }
     m[0] = d[0]
-    for (i in 1 until n - 1) {
-        m[i] = (d[i - 1] + d[i]) * 0.5f
-    }
     m[n - 1] = d[n - 2]
-    for (i in 0 until n - 1) {
-        if (d[i] == 0f) {
+    for (i in 1 until n - 1) {
+        val hSum = h[i - 1] + h[i]
+        val p = if (hSum != 0f) (d[i - 1] * h[i] + d[i] * h[i - 1]) / hSum else 0f
+        if (d[i - 1] * d[i] <= 0f) {
             m[i] = 0f
-            m[i + 1] = 0f
         } else {
-            val a = m[i] / d[i]
-            val b = m[i + 1] / d[i]
-            val s = a * a + b * b
-            if (s > 9f) {
-                val tau = 3f / kotlin.math.sqrt(s)
-                m[i] = tau * a * d[i]
-                m[i + 1] = tau * b * d[i]
-            }
+            val s = if (d[i] >= 0f) 1f else -1f
+            m[i] = s * minOf(kotlin.math.abs(d[i - 1]), kotlin.math.abs(d[i]), 0.5f * kotlin.math.abs(p))
         }
     }
+
     var seg = 0
+    while (seg < n - 2 && curX > x[seg + 1]) {
+        seg++
+    }
+    val segH = h[seg]
+    val t = if (segH != 0f) (curX - x[seg]) / segH else 0f
+    val t2 = t * t
+    val t3 = t2 * t
+    val h00 = 2f * t3 - 3f * t2 + 1f
+    val h10 = t3 - 2f * t2 + t
+    val h01 = -2f * t3 + 3f * t2
+    val h11 = t3 - t2
+    val valY = h00 * y[seg] + h10 * segH * m[seg] + h01 * y[seg + 1] + h11 * segH * m[seg + 1]
+    return valY.coerceIn(0f, 255f)
+}
+
+internal fun calculateMonotoneCubicSplineLUT(points: List<Offset>): ByteArray {
+    val lut = ByteArray(256)
     for (i in 0..255) {
-        val curX = i.toFloat()
-        if (curX <= x[0]) {
-            lut[i] = y[0].toInt().coerceIn(0, 255).toByte()
-            continue
-        }
-        if (curX >= x[n - 1]) {
-            lut[i] = y[n - 1].toInt().coerceIn(0, 255).toByte()
-            continue
-        }
-        while (seg < n - 2 && curX > x[seg + 1]) {
-            seg++
-        }
-        val h = x[seg + 1] - x[seg]
-        val t = if (h != 0f) (curX - x[seg]) / h else 0f
-        val t2 = t * t
-        val t3 = t2 * t
-        val h00 = 2f * t3 - 3f * t2 + 1f
-        val h10 = t3 - 2f * t2 + t
-        val h01 = -2f * t3 + 3f * t2
-        val h11 = t3 - t2
-        val curY = h00 * y[seg] + h10 * h * m[seg] + h01 * y[seg + 1] + h11 * h * m[seg + 1]
-        lut[i] = curY.toInt().coerceIn(0, 255).toByte()
+        val y = evaluateSteffenSpline(points, i.toFloat())
+        lut[i] = y.roundToInt().coerceIn(0, 255).toByte()
     }
     return lut
 }
