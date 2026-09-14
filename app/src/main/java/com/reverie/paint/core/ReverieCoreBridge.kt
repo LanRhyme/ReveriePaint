@@ -481,6 +481,8 @@ object ReverieCoreBridge {
 
     external fun loadRevp(path: String): Boolean
 
+    external fun loadPsd(path: String): Boolean
+
     external fun saveKra(path: String): Boolean
 
     external fun loadPng(path: String): Boolean

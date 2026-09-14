@@ -460,6 +460,7 @@ public:
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
     bool loadRevp(const QString &path);
+    bool loadPsd(const QString &path);
     bool saveKra(const QString &path);
 
     // Render a single layer's content into an RGBA buffer (w*h*4 bytes,

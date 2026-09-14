@@ -26,6 +26,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import android.graphics.BitmapFactory
+import android.provider.OpenableColumns
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import java.io.File
 import java.util.zip.ZipFile
 
@@ -967,3 +972,168 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
 }
 
 // ---- User-defined brush groups ----------------------------------
+
+/**
+ * Import documents (revp, kra, psd, images) and convert them to .revp projects.
+ */
+fun PaintViewModel.importDocuments(
+    uris: List<android.net.Uri>,
+    context: android.content.Context,
+) {
+    if (uris.isEmpty()) return
+    isBlockingLoading = true
+    blockingLoadingMessage = "正在导入作品..."
+
+    viewModelScope.launch(Dispatchers.IO) {
+        val destDir = currentFolder?.let { File(it.filePath) } ?: projectDir()
+        var successCount = 0
+        var lastImportedName = ""
+
+        for (uri in uris) {
+            try {
+                val originalName = queryFileName(context, uri) ?: "导入作品_${System.currentTimeMillis() % 10000}"
+                val ext = originalName.substringAfterLast('.', "").lowercase()
+                val baseName = originalName.substringBeforeLast('.', originalName)
+
+                val tempFile = File(context.cacheDir, "import_temp_${System.currentTimeMillis()}_${originalName}")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                if (!tempFile.exists() || tempFile.length() == 0L) {
+                    tempFile.delete()
+                    continue
+                }
+
+                // Deduplicate project name in destDir
+                var candidateName = baseName.ifBlank { "导入作品" }
+                var targetFile = File(destDir, "$candidateName.revp")
+                var counter = 1
+                while (targetFile.exists()) {
+                    candidateName = "$baseName ($counter)"
+                    targetFile = File(destDir, "$candidateName.revp")
+                    counter++
+                }
+
+                val success = when (ext) {
+                    "revp" -> {
+                        tempFile.copyTo(targetFile, overwrite = true)
+                        targetFile.exists() && targetFile.length() > 0
+                    }
+                    "kra" -> {
+                        convertViaCore(tempFile, targetFile, candidateName, format = "kra")
+                    }
+                    "psd" -> {
+                        convertViaCore(tempFile, targetFile, candidateName, format = "psd")
+                    }
+                    "png" -> {
+                        convertViaCore(tempFile, targetFile, candidateName, format = "png")
+                    }
+                    "jpg", "jpeg", "webp", "bmp" -> {
+                        val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
+                        if (bmp != null) {
+                            val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
+                            pngTemp.outputStream().use { out ->
+                                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            bmp.recycle()
+                            val ok = convertViaCore(pngTemp, targetFile, candidateName, format = "png")
+                            pngTemp.delete()
+                            ok
+                        } else {
+                            false
+                        }
+                    }
+                    else -> {
+                        val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
+                        if (bmp != null) {
+                            val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
+                            pngTemp.outputStream().use { out ->
+                                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            bmp.recycle()
+                            val ok = convertViaCore(pngTemp, targetFile, candidateName, format = "png")
+                            pngTemp.delete()
+                            ok
+                        } else {
+                            false
+                        }
+                    }
+                }
+
+                tempFile.delete()
+
+                if (success) {
+                    successCount++
+                    lastImportedName = candidateName
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("RP_IMPORT", "Failed to import uri: $uri", e)
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            isBlockingLoading = false
+            refreshProjects()
+            if (successCount > 0) {
+                val msg = if (successCount == 1) "已成功导入: $lastImportedName" else "已成功导入 $successCount 个作品"
+                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(context, "导入失败: 未能识别的文件格式", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+}
+
+private suspend fun PaintViewModel.convertViaCore(
+    srcFile: File,
+    destFile: File,
+    name: String,
+    format: String,
+): Boolean = suspendCancellableCoroutine { cont ->
+    runCore(
+        render = false,
+        after = {
+            cont.resume(destFile.exists() && destFile.length() > 0)
+        },
+    ) {
+        val loaded = when (format) {
+            "psd" -> ReverieCoreBridge.loadPsd(srcFile.absolutePath)
+            "kra" -> ReverieCoreBridge.loadRevp(srcFile.absolutePath)
+            else -> ReverieCoreBridge.loadPng(srcFile.absolutePath)
+        }
+        if (loaded) {
+            val extraJson = """
+            {
+                "strokeCount": 0,
+                "elapsedSeconds": 0,
+                "createdTime": ${System.currentTimeMillis()},
+                "colorMode": "RGB 8位",
+                "layerCount": ${ReverieCoreBridge.layerCount()}
+            }
+            """.trimIndent()
+            ReverieCoreBridge.saveRevp(destFile.absolutePath, extraJson, null)
+        }
+    }
+}
+
+private fun queryFileName(context: android.content.Context, uri: android.net.Uri): String? {
+    if (uri.scheme == "content") {
+        try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx != -1) {
+                        return cursor.getString(idx)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("RP_IMPORT", "queryFileName failed", e)
+        }
+    }
+    return uri.path?.substringAfterLast('/')
+}
+

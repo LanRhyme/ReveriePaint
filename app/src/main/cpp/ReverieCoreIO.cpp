@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <QXmlStreamReader>
 
 bool ReverieCore::savePng(const QString &path)
 {
@@ -415,19 +416,62 @@ bool ReverieCore::loadRevp(const QString &path)
     } else {
         qWarning() << "ReverieCore::loadRevp failed to open meta.json";
     }
+    bool isKraFallback = false;
+    QImage kraMergedImg;
+    int kraW = 0;
+    int kraH = 0;
     if (metaData.isEmpty()) {
-        qWarning() << "ReverieCore::loadRevp metaData is empty";
-        return false;
+        bool hasMerged = store->open("mergedimage.png");
+        if (!hasMerged) {
+            hasMerged = store->open("preview.png");
+        }
+        if (hasMerged) {
+            QByteArray imgData = readAllStoreBytes(store.data());
+            store->close();
+            if (!imgData.isEmpty() && kraMergedImg.loadFromData(imgData, "PNG")) {
+                kraW = kraMergedImg.width();
+                kraH = kraMergedImg.height();
+                if (store->open("maindoc.xml")) {
+                    QByteArray xmlData = readAllStoreBytes(store.data());
+                    store->close();
+                    QXmlStreamReader xml(xmlData);
+                    while (!xml.atEnd() && !xml.hasError()) {
+                        xml.readNext();
+                        if (xml.isStartElement() && xml.name() == QLatin1String("IMAGE")) {
+                            auto attrs = xml.attributes();
+                            if (attrs.hasAttribute("width")) kraW = attrs.value("width").toInt();
+                            if (attrs.hasAttribute("height")) kraH = attrs.value("height").toInt();
+                            break;
+                        }
+                    }
+                }
+                if (kraW > 0 && kraH > 0) {
+                    isKraFallback = true;
+                }
+            }
+        }
+        if (!isKraFallback) {
+            qWarning() << "ReverieCore::loadRevp metaData is empty and no fallback image found";
+            return false;
+        }
     }
 
-    QJsonDocument metaDoc = QJsonDocument::fromJson(metaData);
-    if (!metaDoc.isObject()) {
-        qWarning() << "ReverieCore::loadRevp metaDoc is not object";
-        return false;
+    int w = 1080;
+    int h = 1920;
+    QJsonObject meta;
+    if (isKraFallback) {
+        w = kraW;
+        h = kraH;
+    } else {
+        QJsonDocument metaDoc = QJsonDocument::fromJson(metaData);
+        if (!metaDoc.isObject()) {
+            qWarning() << "ReverieCore::loadRevp metaDoc is not object";
+            return false;
+        }
+        meta = metaDoc.object();
+        w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
+        h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
     }
-    QJsonObject meta = metaDoc.object();
-    const int w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
-    const int h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
     qWarning() << "ReverieCore::loadRevp w:" << w << "h:" << h;
 
     if (w <= 0 || h <= 0) {
@@ -483,7 +527,21 @@ bool ReverieCore::loadRevp(const QString &path)
         }
     }
 
-    if (!treeLoaded) {
+    if (isKraFallback) {
+        KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
+        KoColor white(QColor(Qt::white), cs);
+        bg->original()->fill(QRect(0, 0, w, h), white);
+        bg->original()->setDirty();
+        bg->setUserLocked(true);
+        bg->setAlphaLocked(true);
+        image->addNode(bg, image->rootLayer());
+        bgLayerVisible = true;
+
+        KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("画作"), 255, cs);
+        paint->original()->convertFromQImage(kraMergedImg, 0);
+        paint->original()->setDirty();
+        image->addNode(paint, image->rootLayer());
+    } else if (!treeLoaded) {
     if (layersArray.isEmpty()) {
         KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
         KoColor white(QColor(Qt::white), cs);
@@ -558,6 +616,145 @@ bool ReverieCore::loadRevp(const QString &path)
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
     markDirty();
+    return true;
+}
+
+bool ReverieCore::loadPsd(const QString &path)
+{
+    qWarning() << "ReverieCore::loadPsd START:" << path;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "ReverieCore::loadPsd failed to open file:" << path;
+        return false;
+    }
+
+    PSDHeader header;
+    if (!header.read(file)) {
+        qWarning() << "ReverieCore::loadPsd failed reading header:" << header.error;
+        return false;
+    }
+
+    const int w = header.width;
+    const int h = header.height;
+    if (w <= 0 || h <= 0) {
+        qWarning() << "ReverieCore::loadPsd invalid dimensions w:" << w << "h:" << h;
+        return false;
+    }
+
+    PSDColorModeBlock colorModeBlock(header.colormode);
+    if (!colorModeBlock.read(file)) {
+        qWarning() << "ReverieCore::loadPsd failed reading colormode block:" << colorModeBlock.error;
+        return false;
+    }
+
+    PSDImageResourceSection resourceSection;
+    if (!resourceSection.read(file)) {
+        qWarning() << "ReverieCore::loadPsd failed reading resource section:" << resourceSection.error;
+        return false;
+    }
+
+    // Reset pipeline & stroke batch state
+    m_document.clear();
+    m_undoStore = nullptr;
+    m_selection = KisSelectionSP();
+    m_renderBufW = -1;
+    m_renderBufH = -1;
+    m_dirtyRect = QRect();
+    m_bitmapInited = false;
+    m_lastDirty = QRect();
+    endStrokeBatch();
+    m_strokeDevice = nullptr;
+    m_strokeSamples.clear();
+    m_strokeHadMove = false;
+    m_strokeBatchOpen = false;
+    m_drawing = false;
+    m_snapshotPending = false;
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+    m_undoStore = new KisSurrogateUndoStore();
+    m_redoCount = 0;
+
+    const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
+    if (!cs) {
+        return false;
+    }
+
+    KisImageSP image = new KisImage(m_undoStore, w, h, cs, QStringLiteral("Untitled"));
+    image->setUndoStore(m_undoStore);
+    image->setResolution(72.0, 72.0);
+
+    // ReveriePaint standard white background layer at index 0
+    KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
+    KoColor white(QColor(Qt::white), cs);
+    bg->original()->fill(QRect(0, 0, w, h), white);
+    bg->original()->setDirty();
+    bg->setUserLocked(true);
+    bg->setAlphaLocked(true);
+    image->addNode(bg, image->rootLayer());
+
+    PSDLayerMaskSection layerSection(header);
+    const bool hasLayerSection = layerSection.read(file);
+
+    int loadedLayersCount = 0;
+    if (hasLayerSection && !layerSection.layers.isEmpty()) {
+        for (int i = 0; i < layerSection.layers.size(); ++i) {
+            PSDLayerRecord *rec = layerSection.layers[i];
+            if (!rec) continue;
+
+            // Skip folder/section dividers
+            if (rec->infoBlocks.keys.contains("lsct") &&
+                rec->infoBlocks.sectionDividerType != psd_other) {
+                continue;
+            }
+
+            QString name = rec->layerName.trimmed();
+            if (name.isEmpty() || name == QStringLiteral("UNINITIALIZED")) {
+                name = QString("图层 %1").arg(loadedLayersCount + 1);
+            }
+
+            KisPaintLayerSP layer = new KisPaintLayer(image, name, rec->opacity, cs);
+            if (!layer) continue;
+
+            if (rec->readPixelData(file, layer->paintDevice())) {
+                QString op = psd_blendmode_to_composite_op(rec->blendModeKey);
+                if (!op.isEmpty()) {
+                    layer->setCompositeOpId(op);
+                }
+                layer->setVisible(rec->visible);
+                layer->disableAlphaChannel(rec->clipping > 0);
+                layer->setAlphaLocked(rec->transparencyProtected);
+                image->addNode(layer, image->rootLayer());
+                loadedLayersCount++;
+            }
+        }
+    }
+
+    // Fallback if no individual layers could be read: read flattened composite
+    if (loadedLayersCount == 0) {
+        KisPaintLayerSP flatLayer = new KisPaintLayer(image, QStringLiteral("画作"), 255, cs);
+        PSDImageData imageData(&header);
+        if (imageData.read(file, flatLayer->paintDevice())) {
+            image->addNode(flatLayer, image->rootLayer());
+            loadedLayersCount++;
+        }
+    }
+
+    if (loadedLayersCount == 0) {
+        qWarning() << "ReverieCore::loadPsd failed: no pixel data read";
+        return false;
+    }
+
+    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    m_document = image.data();
+    m_docWidth = w;
+    m_docHeight = h;
+    syncLayersFromImage();
+    recompositeProjection();
+    m_redoCount = 0;
+    m_currentLayer = qBound(0, 1, m_layers.size() - 1);
+    markDirty();
+    qWarning() << "ReverieCore::loadPsd SUCCESS: layers=" << m_layers.size() << "w=" << w << "h=" << h;
     return true;
 }
 

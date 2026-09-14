@@ -7,6 +7,8 @@ package com.reverie.paint.ui.home
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -129,6 +131,15 @@ fun HomePage(vm: PaintViewModel) {
 
     var showMoreMenu by remember { mutableStateOf(false) }
 
+    val importLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenMultipleDocuments(),
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                vm.importDocuments(uris, context)
+            }
+        }
+
     // Long-press Context Menu on card
     var longPressedProject by remember { mutableStateOf<Project?>(null) }
 
@@ -245,6 +256,38 @@ fun HomePage(vm: PaintViewModel) {
             },
             onDismiss = { showBatchDeleteConfirm = false },
         )
+    }
+
+    if (vm.isBlockingLoading && selectedTab == 0) {
+        Dialog(
+            onDismissRequest = {},
+            properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = colors.panel,
+                tonalElevation = 8.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, colors.border),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = colors.accent,
+                        strokeWidth = 2.5.dp,
+                    )
+                    Text(
+                        text = vm.blockingLoadingMessage.ifBlank { "正在处理..." },
+                        color = colors.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
     }
 
     Box(
@@ -479,6 +522,21 @@ fun HomePage(vm: PaintViewModel) {
                                                             colors.panel,
                                                         ).border(1.dp, colors.border, RoundedCornerShape(10.dp)),
                                             ) {
+                                                DropdownMenuItem(
+                                                    text = { Text("导入", color = colors.text) },
+                                                    onClick = {
+                                                        showMoreMenu = false
+                                                        importLauncher.launch(arrayOf("*/*"))
+                                                    },
+                                                    leadingIcon = {
+                                                        Icon(
+                                                            painterResource(R.drawable.ic_import),
+                                                            contentDescription = null,
+                                                            tint = colors.icon,
+                                                            modifier = Modifier.size(18.dp),
+                                                        )
+                                                    },
+                                                )
                                                 DropdownMenuItem(
                                                     text = { Text("选择", color = colors.text) },
                                                     onClick = {

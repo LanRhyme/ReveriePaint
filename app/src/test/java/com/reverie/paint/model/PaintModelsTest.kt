@@ -78,4 +78,17 @@ class PaintModelsTest {
         assertTrue(remaining3.isEmpty())
         assertTrue(segmentCounts.isEmpty())
     }
+
+    @Test
+    fun `import filename deduplication appends progressive index`() {
+        val existingFiles = setOf("我的作品.revp", "我的作品 (1).revp")
+        val baseName = "我的作品"
+        var candidate = baseName
+        var counter = 1
+        while ("$candidate.revp" in existingFiles) {
+            candidate = "$baseName ($counter)"
+            counter++
+        }
+        assertEquals("我的作品 (2)", candidate)
+    }
 }

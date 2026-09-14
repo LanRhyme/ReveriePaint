@@ -98,6 +98,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadRevp(JNIEnv *env, jobject, jst
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadPsd(JNIEnv *env, jobject, jstring path)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const bool ok = core()->loadPsd(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(path, c);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_saveKra(JNIEnv *env, jobject, jstring path)
 {
     const char *c = env->GetStringUTFChars(path, nullptr);
