@@ -78,14 +78,19 @@ private object ThumbnailCache {
             ): Int = bitmap.byteCount / 1024
         }
 
+    fun peek(key: String): android.graphics.Bitmap? {
+        val cached = lruCache.get(key)
+        return if (cached != null && !cached.isRecycled) cached else null
+    }
+
     fun get(
         path: String,
         lastModified: Long,
     ): android.graphics.Bitmap? {
         if (path.isEmpty()) return null
         val key = "$path:$lastModified"
-        val cached = lruCache.get(key)
-        if (cached != null && !cached.isRecycled) return cached
+        val cached = peek(key)
+        if (cached != null) return cached
         val file = File(path)
         if (file.exists()) {
             return try {
@@ -100,6 +105,23 @@ private object ThumbnailCache {
         }
         return null
     }
+}
+
+@Composable
+private fun rememberThumbnail(path: String?, lastModified: Long): android.graphics.Bitmap? {
+    if (path.isNullOrEmpty()) return null
+    val key = "$path:$lastModified"
+    val immediate = remember(key) { ThumbnailCache.peek(key) }
+    if (immediate != null) return immediate
+
+    var bmp by remember(key) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(key) {
+        val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            ThumbnailCache.get(path, lastModified)
+        }
+        bmp = loaded
+    }
+    return bmp
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -807,10 +829,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             },
                                                         ),
                                             ) {
-                                                val thumb =
-                                                    remember(p.previewPath, p.lastModified) {
-                                                        ThumbnailCache.get(p.previewPath, p.lastModified)
-                                                    }
+                                                val thumb = rememberThumbnail(p.previewPath, p.lastModified)
 
                                                 if (p.isFolder) {
                                                     // Procreate-style loose layered fan stack visual with irregular aspect ratios
@@ -818,18 +837,9 @@ fun HomePage(vm: PaintViewModel) {
                                                     val item1 = p.items.getOrNull(1)
                                                     val item2 = p.items.getOrNull(2)
 
-                                                    val thumb0 =
-                                                        remember(item0?.previewPath, item0?.lastModified) {
-                                                            item0?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
-                                                        }
-                                                    val thumb1 =
-                                                        remember(item1?.previewPath, item1?.lastModified) {
-                                                            item1?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
-                                                        }
-                                                    val thumb2 =
-                                                        remember(item2?.previewPath, item2?.lastModified) {
-                                                            item2?.let { ThumbnailCache.get(it.previewPath, it.lastModified) }
-                                                        }
+                                                    val thumb0 = rememberThumbnail(item0?.previewPath, item0?.lastModified ?: 0L)
+                                                    val thumb1 = rememberThumbnail(item1?.previewPath, item1?.lastModified ?: 0L)
+                                                    val thumb2 = rememberThumbnail(item2?.previewPath, item2?.lastModified ?: 0L)
 
                                                     val ratio0 =
                                                         remember(item0?.width, item0?.height) {
@@ -1254,6 +1264,36 @@ fun HomePage(vm: PaintViewModel) {
                                                 }
                                                 if (!p.isFolder) {
                                                     DropdownMenuItem(
+                                                        text = { Text("分享作品", color = colors.text) },
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            shareProjectFile(context, p)
+                                                        },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                painterResource(R.drawable.ic_share),
+                                                                contentDescription = null,
+                                                                tint = colors.icon,
+                                                                modifier = Modifier.size(18.dp),
+                                                            )
+                                                        },
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("创建副本", color = colors.text) },
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            vm.duplicateProject(p)
+                                                        },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                painterResource(R.drawable.ic_copy),
+                                                                contentDescription = null,
+                                                                tint = colors.icon,
+                                                                modifier = Modifier.size(18.dp),
+                                                            )
+                                                        },
+                                                    )
+                                                    DropdownMenuItem(
                                                         text = { Text("移动到画集...", color = colors.text) },
                                                         onClick = {
                                                             longPressedProject = null
@@ -1310,7 +1350,7 @@ fun HomePage(vm: PaintViewModel) {
                         }
                     } // Added closing brace for Column
 
-                    // Floating selection mode action bar (Move, Delete)
+                    // Floating selection mode action bar (Share, Move, Delete)
                     androidx.compose.animation.AnimatedVisibility(
                         visible = isSelectMode && selectedProjects.isNotEmpty(),
                         enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 },
@@ -1330,6 +1370,17 @@ fun HomePage(vm: PaintViewModel) {
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            ReTextButton(
+                                "分享 (${selectedProjects.size})",
+                                {
+                                    shareProjectFiles(context, selectedProjects.toList())
+                                },
+                                icon = R.drawable.ic_share,
+                                textColor = colors.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
                             ReTextButton(
                                 "移动 (${selectedProjects.size})",
                                 {

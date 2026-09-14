@@ -320,6 +320,96 @@ internal fun PaintViewModel.renameProject(
     refreshProjects()
 }
 
+internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project) {
+    if (p.isFolder) return
+    val srcFile = File(p.filePath)
+    if (!srcFile.exists() || srcFile.length() == 0L) return
+
+    val parentDir = srcFile.parentFile ?: projectDir()
+    val baseName = p.name
+    val ext = srcFile.extension
+
+    var candidateName = "$baseName 副本"
+    var targetFile = File(parentDir, "$candidateName.$ext")
+    var counter = 2
+    while (targetFile.exists()) {
+        candidateName = "$baseName 副本 $counter"
+        targetFile = File(parentDir, "$candidateName.$ext")
+        counter++
+    }
+
+    try {
+        srcFile.copyTo(targetFile, overwrite = false)
+        refreshProjects()
+        showActionToast("已创建副本: $candidateName", R.drawable.ic_copy)
+    } catch (e: Exception) {
+        android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
+    }
+}
+
+fun shareProjectFile(context: android.content.Context, p: com.reverie.paint.model.Project) {
+    if (p.isFolder) return
+    val file = File(p.filePath)
+    if (!file.exists()) return
+    try {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        val ext = file.extension.lowercase()
+        val mime = when (ext) {
+            "revp" -> "application/x-reveriepaint"
+            "kra" -> "application/x-krita"
+            "psd" -> "image/vnd.adobe.photoshop"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            else -> "*/*"
+        }
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(intent, "分享作品: ${p.name}"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun shareProjectFiles(context: android.content.Context, projects: List<com.reverie.paint.model.Project>) {
+    val nonFolders = projects.filter { !it.isFolder }
+    if (nonFolders.isEmpty()) return
+    if (nonFolders.size == 1) {
+        shareProjectFile(context, nonFolders[0])
+        return
+    }
+    try {
+        val uris = ArrayList<android.net.Uri>()
+        for (p in nonFolders) {
+            val file = File(p.filePath)
+            if (file.exists()) {
+                uris.add(
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                )
+            }
+        }
+        if (uris.isEmpty()) return
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(intent, "批量分享 (${uris.size} 个作品)"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "批量分享失败: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
 internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.model.Project {
     // Metadata cache: parsing re-opens the ZIP per file per refresh, which
     // adds up quickly with many projects on the home page. The entry is
