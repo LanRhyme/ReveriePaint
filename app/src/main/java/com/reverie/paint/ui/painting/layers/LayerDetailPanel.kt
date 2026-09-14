@@ -429,6 +429,41 @@ internal fun LayerDetailPage(
                 .background(Morandi.border.copy(alpha = 0.5f)),
         )
 
+        // 滤镜与颜色调整 (放在混合模式下方)
+        if (layer?.isGroup != true) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .noRippleClickable(onOpenFilters)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_sliders),
+                    contentDescription = null,
+                    tint = Morandi.icon,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text("滤镜与颜色调整", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Icon(
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
+                    .height(1.dp)
+                    .background(Morandi.border.copy(alpha = 0.5f)),
+            )
+        }
+
         // Opacity slider
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
@@ -587,9 +622,6 @@ internal fun LayerDetailPage(
                     vm.flattenGroup(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
-                OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
-                OpItem(R.drawable.ic_eye, "独显/隔离此图层组") { vm.soloLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
@@ -604,17 +636,11 @@ internal fun LayerDetailPage(
             // Vertical operation list
             Column {
                 OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
-                OpItem(R.drawable.ic_fill, "填充当前前景色") {
-                    vm.fillLayerForeground(index)
-                }
-                OpItem(R.drawable.ic_erase, "清除图层") { vm.clearLayer(index) }
                 OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
                 OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) {
                     vm.removeLayer(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_arrow_up, "上移一层", enabled = index < vm.layers.size - 1) { vm.moveLayerUp(index) }
-                OpItem(R.drawable.ic_arrow_down, "下移一层", enabled = index > 1) { vm.moveLayerDown(index) }
                 if ((layer?.depth ?: 0) > 0) {
                     OpItem(R.drawable.ic_folder, "移出图层组") { vm.moveLayerOut(index) }
                 }
@@ -627,7 +653,6 @@ internal fun LayerDetailPage(
                     vm.mergeDown(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_eye, "独显此图层") { vm.soloLayer(index) }
                 OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
@@ -639,7 +664,6 @@ internal fun LayerDetailPage(
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
                 OpItem(R.drawable.ic_fill, "栅格化为普通图层") { vm.rasterizeLayer(index) }
-                OpItem(R.drawable.ic_sliders, "滤镜与颜色调整") { onOpenFilters() }
             }
         }
     }

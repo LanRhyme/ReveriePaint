@@ -410,13 +410,12 @@ internal fun LayerListView(
             }
 
             TopIcon(
-                resId = R.drawable.ic_lock,
-                desc = "锁定图层",
-                active = selLayer?.locked == true,
-                enabled = !isBg,
+                resId = R.drawable.ic_merge_down,
+                desc = "向下合并",
+                enabled = selectedIndex > 0 && !isBg,
                 onClick = {
-                    if (selectedIndex >= 0 && !isBg) {
-                        vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
+                    if (selectedIndex > 0 && !isBg) {
+                        vm.mergeDown(selectedIndex)
                     }
                 },
             )
@@ -443,12 +442,13 @@ internal fun LayerListView(
                 },
             )
             TopIcon(
-                resId = R.drawable.ic_merge_down,
-                desc = "向下合并",
-                enabled = selectedIndex > 0 && !isBg,
+                resId = R.drawable.ic_lock,
+                desc = "锁定图层",
+                active = selLayer?.locked == true,
+                enabled = !isBg,
                 onClick = {
-                    if (selectedIndex > 0 && !isBg) {
-                        vm.mergeDown(selectedIndex)
+                    if (selectedIndex >= 0 && !isBg) {
+                        vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
                     }
                 },
             )
