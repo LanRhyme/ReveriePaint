@@ -10,7 +10,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -296,7 +295,7 @@ fun CreatePage(vm: PaintViewModel) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
 
-    // Wide landscape check: only tablet/foldable wide landscape screens use 2-column split view
+    // Wide landscape check: only large screens in landscape use 2-column split view
     val isWideLandscape = configuration.screenWidthDp >= 720 &&
             configuration.screenHeightDp >= 500 &&
             configuration.screenWidthDp > configuration.screenHeightDp
@@ -388,10 +387,11 @@ fun CreatePage(vm: PaintViewModel) {
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colors.accent,
-                            unfocusedBorderColor = colors.border,
+                            unfocusedBorderColor = Color.Transparent,
                             focusedContainerColor = colors.panelHi,
                             unfocusedContainerColor = colors.panelHi
                         ),
+                        shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -475,7 +475,7 @@ fun CreatePage(vm: PaintViewModel) {
             .fillMaxSize()
             .background(colors.bg)
     ) {
-        // Minimalist Top Bar
+        // Minimalist Top Bar (Borderless)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -486,8 +486,7 @@ fun CreatePage(vm: PaintViewModel) {
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
-                    .background(colors.panelHi.copy(alpha = 0.7f))
-                    .border(1.dp, colors.border.copy(alpha = 0.5f), CircleShape)
+                    .background(colors.panelHi)
                     .clickable {
                         if (!isWideLandscape && portraitTab != 0) {
                             portraitTab = 0
@@ -520,8 +519,7 @@ fun CreatePage(vm: PaintViewModel) {
                 modifier = Modifier
                     .height(38.dp)
                     .clip(RoundedCornerShape(19.dp))
-                    .background(colors.panelHi.copy(alpha = 0.7f))
-                    .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(19.dp))
+                    .background(colors.panelHi)
                     .clickable { imagePickerLauncher.launch("image/*") }
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.Center
@@ -635,14 +633,6 @@ fun CreatePage(vm: PaintViewModel) {
                         }
                     }
                 }
-
-                // Subtle Vertical Divider
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(colors.border.copy(alpha = 0.4f))
-                )
 
                 // Right Column: Canvas Inspector
                 Column(
@@ -805,7 +795,7 @@ fun CreatePage(vm: PaintViewModel) {
                             }
                         }
 
-                        // Bottom Floating Quick Creation Dock in Portrait Presets Mode
+                        // Bottom Floating Quick Creation Dock in Portrait Presets Mode (Borderless)
                         PortraitPresetBottomBar(
                             widthVal = widthVal,
                             heightVal = heightVal,
@@ -898,8 +888,7 @@ private fun PaperCanvasPreview(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            .padding(14.dp),
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -910,7 +899,7 @@ private fun PaperCanvasPreview(
             Text(
                 text = ratioLabel,
                 color = colors.text,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
 
@@ -920,14 +909,14 @@ private fun PaperCanvasPreview(
             )
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(130.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(colors.panelHi.copy(alpha = 0.4f))
+                .background(colors.panelHi.copy(alpha = 0.5f))
                 .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -956,19 +945,18 @@ private fun PaperCanvasPreview(
                 label = "previewAnimH"
             )
 
-            // Paper sheet presentation with crisp white surface and soft shadow
+            // Pure artist paper representation with soft drop shadow, NO border
             Box(
                 modifier = Modifier
                     .size(animW, animH)
-                    .shadow(3.dp, RoundedCornerShape(4.dp))
+                    .shadow(4.dp, RoundedCornerShape(4.dp))
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Color.White.copy(alpha = 0.90f))
-                    .border(1.dp, colors.accent.copy(alpha = 0.6f), RoundedCornerShape(4.dp)),
+                    .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "${widthVal} × ${heightVal}",
-                    color = Color.Black.copy(alpha = 0.75f),
+                    color = Color(0xFF222222),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -986,20 +974,19 @@ private fun OrientationToggle(
     val colors = Theme.current
     Row(
         modifier = modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .height(34.dp)
+            .clip(RoundedCornerShape(17.dp))
             .background(colors.panelHi)
-            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             .padding(2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(15.dp))
                 .background(if (isLandscape) colors.accent else Color.Transparent)
                 .clickable { onToggle(true) }
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -1010,12 +997,12 @@ private fun OrientationToggle(
                     painter = painterResource(R.drawable.ic_flip_horizontal),
                     contentDescription = null,
                     tint = if (isLandscape) colors.onAccent else colors.subText,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.dp)
                 )
                 Text(
                     text = "横向",
                     color = if (isLandscape) colors.onAccent else colors.subText,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.Medium
                 )
             }
@@ -1024,10 +1011,10 @@ private fun OrientationToggle(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(15.dp))
                 .background(if (!isLandscape) colors.accent else Color.Transparent)
                 .clickable { onToggle(false) }
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -1038,12 +1025,12 @@ private fun OrientationToggle(
                     painter = painterResource(R.drawable.ic_flip_vertical),
                     contentDescription = null,
                     tint = if (!isLandscape) colors.onAccent else colors.subText,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(13.dp)
                 )
                 Text(
                     text = "纵向",
                     color = if (!isLandscape) colors.onAccent else colors.subText,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     fontWeight = if (!isLandscape) FontWeight.Bold else FontWeight.Medium
                 )
             }
@@ -1068,7 +1055,6 @@ private fun CanvasDimensionsCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .padding(16.dp)
     ) {
         Row(
@@ -1141,10 +1127,10 @@ private fun CanvasDimensionsCard(
                     val isSelected = ppi == ppiOption.toString()
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(if (isSelected) colors.accent else colors.panelHi)
                             .clickable { onPpiChange(ppiOption.toString()) }
-                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
                         Text(
                             "$ppiOption",
@@ -1173,9 +1159,9 @@ private fun PortraitPresetBottomBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .shadow(6.dp, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(colors.panel)
-            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1220,7 +1206,7 @@ private fun PortraitPresetBottomBar(
                     .clip(RoundedCornerShape(18.dp))
                     .background(colors.panelHi)
                     .clickable { onCustomize() }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -1275,10 +1261,9 @@ private fun CreateCanvasActions(
         Box(
             modifier = Modifier
                 .weight(0.38f)
-                .height(48.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .height(50.dp)
+                .clip(RoundedCornerShape(16.dp))
                 .background(colors.panelHi)
-                .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
                 .clickable { onSavePreset() },
             contentAlignment = Alignment.Center
         ) {
@@ -1308,8 +1293,8 @@ private fun CreateCanvasActions(
             modifier = Modifier
                 .weight(0.62f)
                 .scale(btnScale)
-                .height(48.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .height(50.dp)
+                .clip(RoundedCornerShape(16.dp))
                 .background(colors.accent)
                 .clickable(interactionSource = createSource, indication = null) { onCreate() },
             contentAlignment = Alignment.Center
@@ -1346,17 +1331,24 @@ private fun CanvasPresetCard(
         modifier = modifier
             .fillMaxWidth()
             .scale(itemScale)
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) colors.panelHi else colors.panel)
-            .border(
-                width = if (isSelected) 1.5.dp else 1.dp,
-                color = if (isSelected) colors.accent else colors.border.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(12.dp)
-            )
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (isSelected) colors.accent.copy(alpha = 0.12f) else colors.panel)
             .clickable(interactionSource = itemSource, indication = null) { onClick() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Subtle left accent bar indicator on select
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(26.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(colors.accent)
+            )
+            Spacer(Modifier.width(10.dp))
+        }
+
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1365,8 +1357,8 @@ private fun CanvasPresetCard(
                 Text(
                     text = item.name,
                     color = if (isSelected) colors.accent else colors.text,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 15.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                 )
                 if (item.isCustom) {
                     Box(
@@ -1384,7 +1376,7 @@ private fun CanvasPresetCard(
                 Text(
                     text = item.description,
                     color = colors.subText,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     maxLines = 1
                 )
             }
@@ -1411,9 +1403,9 @@ private fun CanvasPresetCard(
             Spacer(Modifier.width(10.dp))
             Box(
                 modifier = Modifier
-                    .size(30.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
-                    .background(colors.panelHi.copy(alpha = 0.7f))
+                    .background(colors.panelHi)
                     .clickable { onDelete() },
                 contentAlignment = Alignment.Center
             ) {
@@ -1421,7 +1413,7 @@ private fun CanvasPresetCard(
                     painter = painterResource(R.drawable.ic_trash),
                     contentDescription = "删除预设",
                     tint = colors.subText,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
         }
@@ -1445,16 +1437,15 @@ private fun ImportImageCard(
         modifier = modifier
             .fillMaxWidth()
             .scale(importScale)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(colors.panel)
-            .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
             .clickable(interactionSource = importSource, indication = null) { onImport() }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(34.dp)
+                .size(36.dp)
                 .clip(CircleShape)
                 .background(colors.accent.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
@@ -1463,7 +1454,7 @@ private fun ImportImageCard(
                 painterResource(R.drawable.ic_image),
                 contentDescription = null,
                 tint = colors.accent,
-                modifier = Modifier.size(17.dp)
+                modifier = Modifier.size(18.dp)
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -1485,7 +1476,7 @@ private fun ImportImageCard(
             painterResource(R.drawable.ic_chevron),
             contentDescription = null,
             tint = colors.subText,
-            modifier = Modifier.size(15.dp)
+            modifier = Modifier.size(16.dp)
         )
     }
 }
@@ -1546,10 +1537,9 @@ private fun SegmentedTabSwitcher(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(colors.panel)
-            .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
+            .height(38.dp)
+            .clip(RoundedCornerShape(19.dp))
+            .background(colors.panelHi)
             .padding(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1559,7 +1549,7 @@ private fun SegmentedTabSwitcher(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(15.dp))
+                    .clip(RoundedCornerShape(16.dp))
                     .background(if (isSelected) colors.accent else Color.Transparent)
                     .clickable { onTabSelected(index) },
                 contentAlignment = Alignment.Center
@@ -1585,9 +1575,9 @@ private fun SizeInputField(
 ) {
     val colors = Theme.current
     Column(modifier = modifier) {
-        Text(label, color = colors.subText, fontSize = 11.sp)
+        Text(label, color = colors.subText, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
         Spacer(Modifier.height(4.dp))
-        OutlinedTextField(
+        TextField(
             value = value,
             onValueChange = { v ->
                 if (v.length <= 5) onValueChange(v.filter { it.isDigit() })
@@ -1597,16 +1587,18 @@ private fun SizeInputField(
             trailingIcon = {
                 Text(unit, color = colors.subText, fontSize = 11.sp, modifier = Modifier.padding(end = 12.dp))
             },
-            textStyle = androidx.compose.ui.text.TextStyle(color = colors.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
-            shape = RoundedCornerShape(10.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = colors.accent,
-                unfocusedBorderColor = colors.border.copy(alpha = 0.7f),
+            textStyle = androidx.compose.ui.text.TextStyle(color = colors.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+            shape = RoundedCornerShape(12.dp),
+            colors = TextFieldDefaults.colors(
                 focusedContainerColor = colors.panelHi,
                 unfocusedContainerColor = colors.panelHi,
-                cursorColor = colors.accent
+                disabledContainerColor = colors.panelHi,
+                cursorColor = colors.accent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent
             ),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().height(52.dp)
         )
     }
 }
