@@ -225,6 +225,40 @@ internal class FilterAdjustState {
     var embossPreserveColor by mutableStateOf(true)
     var desaturateAmt by mutableFloatStateOf(100f)
 
+    fun reset() {
+        curveChannels.forEach { (_, list) ->
+            list.clear()
+            list.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
+        }
+        customGradStops.clear()
+        customGradStops.addAll(
+            listOf(
+                CustomGradStop(1L, 0.0f, Color(0xFF2C0B38)),
+                CustomGradStop(2L, 0.35f, Color(0xFFB82E55)),
+                CustomGradStop(3L, 0.7f, Color(0xFFE88A35)),
+                CustomGradStop(4L, 1.0f, Color(0xFFFFF6A5))
+            )
+        )
+        reverseGradient = false
+        hue = 0f; sat = 1f; bright = 1f; contrast = 1f
+        cr = 0f; mg = 0f; yb = 0f
+        blurRadius = 8f; motionAngle = 0f; motionDist = 12f
+        sharpenAmt = 1.0f; mosaicSize = 10f; noiseAmt = 20f; glitchOffset = 8f
+        levelBlack = 0f; levelWhite = 255f; levelGamma = 1.0f
+        tempVal = 0f; tintVal = 0f; thresholdVal = 128f; posterizeLevels = 4f
+        bloomThresh = 40f; bloomRadius = 16f; bloomIntensity = 1.5f
+        shadowAngle = 45f; shadowDist = 12f; shadowRadius = 10f; shadowOpacity = 0.6f
+        oilRadius = 3f; radialBlurAmt = 15f; halftoneDotSize = 10f; exposureVal = 0f; exposureGamma = 1.0f
+        edgeGlowStrength = 2.5f; edgeGlowRadius = 8f; edgeGlowHue = 0; defocusRadius = 8f; lumOpacityInvert = false
+        shadowBoost = 30f; highlightReduce = 30f; vibranceAmt = 40f
+        colorToAlphaTarget = 0xFFFFFF; colorToAlphaTol = 20f; colorToAlphaSmooth = 15f
+        rippleAmp = 10f; rippleFreq = 12f; twirlAngle = 90f; twirlRadius = 150f
+        surfaceBlurRadius = 6f; surfaceBlurThresh = 25f
+        scanlineSpacing = 4f; scanlineIntensity = 40f
+        invertAmt = 100f; lineartThresh = 240f; lineartWhiteLine = false
+        sobelStrength = 2.0f; sobelMode = 0; embossDepth = 2.0f; embossAngle = 45f; embossPreserveColor = true
+        desaturateAmt = 100f
+    }
 }
 
 

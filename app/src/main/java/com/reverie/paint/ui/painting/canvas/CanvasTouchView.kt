@@ -100,6 +100,21 @@ class CanvasTouchView(context: Context) : View(context) {
     @Volatile var overlayPanelsOpen: Boolean = false
     var liquifyMode: Int = 0
 
+    // 滤镜实时调节与手势驱动
+    var filterSessionActive: Boolean = false
+    var onFilterSlideDelta: ((Float) -> Unit)? = null
+    var onFilterHoldingCompare: ((Boolean) -> Unit)? = null
+    private var isFilterComparing = false
+    private var filterTouchStartX = 0f
+    private var filterTouchStartY = 0f
+    private var isFilterDragging = false
+    private val filterLongPressRunnable = Runnable {
+        if (filterSessionActive && !isFilterDragging && !isTransformActive && fingerCount <= 1) {
+            isFilterComparing = true
+            onFilterHoldingCompare?.invoke(true)
+        }
+    }
+
     private val density = context.resources.displayMetrics.density
 
     // 触控交互锁 (手指接触期间，阻止外部 Compose 状态回冲覆盖)
@@ -997,6 +1012,64 @@ class CanvasTouchView(context: Context) : View(context) {
         val isStylusTouch = stylusPointerIndex >= 0 && fingerCount < 2
 
         // =========================================================
+        // 滤镜调节模式手势交互 (单指/笔横划调节参数，长按对比原图；双指保留视口变换)
+        // =========================================================
+        if (filterSessionActive) {
+            if (fingerCount >= 2 || isTransformActive) {
+                removeCallbacks(filterLongPressRunnable)
+                if (isFilterComparing) {
+                    isFilterComparing = false
+                    onFilterHoldingCompare?.invoke(false)
+                }
+            } else {
+                val pIdx = if (isStylusTouch) stylusPointerIndex else (if (fingerCount > 0) fingerIndices[0] else 0)
+                val curX = event.getX(pIdx)
+                val curY = event.getY(pIdx)
+                val nowMs = SystemClock.uptimeMillis()
+
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        touchDownTimeMs = nowMs
+                        filterTouchStartX = curX
+                        filterTouchStartY = curY
+                        previousSinglePos = Offset(curX, curY)
+                        isFilterDragging = false
+                        isFilterComparing = false
+                        removeCallbacks(filterLongPressRunnable)
+                        postDelayed(filterLongPressRunnable, 300)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = curX - previousSinglePos.x
+                        val totalDist = hypot(curX - filterTouchStartX, curY - filterTouchStartY)
+                        val touchSlop = 8f * density
+                        if (totalDist > touchSlop) {
+                            if (!isFilterDragging) {
+                                isFilterDragging = true
+                                removeCallbacks(filterLongPressRunnable)
+                                if (isFilterComparing) {
+                                    isFilterComparing = false
+                                    onFilterHoldingCompare?.invoke(false)
+                                }
+                            }
+                            previousSinglePos = Offset(curX, curY)
+                            val deltaRatio = dx / (viewW.toFloat().coerceAtLeast(200f))
+                            onFilterSlideDelta?.invoke(deltaRatio)
+                        }
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        removeCallbacks(filterLongPressRunnable)
+                        if (isFilterComparing) {
+                            isFilterComparing = false
+                            onFilterHoldingCompare?.invoke(false)
+                        }
+                        isFilterDragging = false
+                    }
+                }
+                return true
+            }
+        }
+
+        // =========================================================
         // A. 手写笔交互流程：100% 负责笔刷绘制与图层编辑
         // =========================================================
         if (isStylusTouch) {
@@ -1288,9 +1361,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (isQuickPinchFit) {
                         animateFitCanvas()
                         v.showActionToast("画布已平滑满屏复位", R.drawable.ic_refresh)
-                    } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
+                    } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
                         v.undo()
-                    } else if (!isContinuousUndoing && !isPinchMotion && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 380L) {
+                    } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 380L) {
                         v.redo()
                     }
 

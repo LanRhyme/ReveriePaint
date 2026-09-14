@@ -109,6 +109,10 @@ import com.reverie.paint.ui.painting.canvas.TransformState
 import com.reverie.paint.ui.painting.canvas.widgetToImage
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.ui.painting.layers.LayerPanel
+import com.reverie.paint.ui.painting.layers.FilterSession
+import com.reverie.paint.ui.painting.layers.FilterSessionController
+import com.reverie.paint.ui.painting.layers.FilterTopPillHUD
+import com.reverie.paint.ui.painting.layers.FilterBottomDock
 import com.reverie.paint.ui.painting.panels.AllToolsPanel
 import com.reverie.paint.ui.painting.panels.ColorPanel
 import com.reverie.paint.ui.painting.panels.CropPanel
@@ -224,6 +228,16 @@ fun PaintingPage(
     var drawingGuidePanelOpen by remember { mutableStateOf(false) }
     // 快捷键打开滤镜页时预选的滤镜分类 id (LayerPanel → FiltersPage)
     var filterCategoryHint by remember { mutableStateOf<String?>(null) }
+    var activeFilterSession by remember { mutableStateOf<FilterSession?>(null) }
+    val filterController = remember(activeFilterSession) {
+        activeFilterSession?.let { session ->
+            FilterSessionController(
+                session = session,
+                vm = vm,
+                onDismiss = { activeFilterSession = null }
+            ).also { it.init() }
+        }
+    }
 
     // 快捷键触发的视口/面板命令 (VM 不持有视口状态, 只发一次性命令 token)
     LaunchedEffect(vm.uiCommandTick) {
@@ -618,6 +632,9 @@ fun PaintingPage(
                 overlayPanelsOpen = brushPanelOpen || layerPanelOpen ||
                     colorPanelOpen || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
+                filterSessionActive = (filterController != null),
+                onFilterSlideDelta = filterController?.let { c -> { delta -> c.onSlideDelta(delta) } },
+                onFilterHoldingCompare = filterController?.let { c -> { holding -> c.updateHoldingCompare(holding) } },
             )
 
             // Diffusion Animation Canvas Overlay
@@ -744,6 +761,7 @@ fun PaintingPage(
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
             when {
+                filterController != null -> filterController.cancel()
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
@@ -772,165 +790,201 @@ fun PaintingPage(
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.ui.platform.LocalDensity provides scaledDensity
         ) {
-            // ---- Top bar ----
-            TopBar(
-            modifier = Modifier.align(Alignment.TopEnd),
-            vm = vm,
-            opacity = vm.uiOpacity,
-            hazeState = hazeState,
-            onBack = requestExit,
-            onRotateCw = {
-                rotation = (rotation + 90) % 360
-                flashIndicator()
-            },
-            onRotateCcw = {
-                rotation = (rotation - 90 + 360) % 360
-                flashIndicator()
-            },
-            onZoomIn = {
-                zoom = (zoom * 1.2f).coerceAtMost(16f)
-                flashIndicator()
-            },
-            onZoomOut = {
-                zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
-                flashIndicator()
-            },
-            onLayers = {
-                layerPanelOpen = true
-                brushPanelOpen = false
-                settingsPanelOpen = false
-                colorPanelOpen = false
-                moreToolsOpen = false
-            },
-            onSettings = {
-                settingsPanelOpen = true
-                layerPanelOpen = false
-                brushPanelOpen = false
-                colorPanelOpen = false
-                moreToolsOpen = false
-                drawingGuidePanelOpen = false
-            },
-        )
+            if (filterController == null) {
+                // ---- Top bar ----
+                TopBar(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    vm = vm,
+                    opacity = vm.uiOpacity,
+                    hazeState = hazeState,
+                    onBack = requestExit,
+                    onRotateCw = {
+                        rotation = (rotation + 90) % 360
+                        flashIndicator()
+                    },
+                    onRotateCcw = {
+                        rotation = (rotation - 90 + 360) % 360
+                        flashIndicator()
+                    },
+                    onZoomIn = {
+                        zoom = (zoom * 1.2f).coerceAtMost(16f)
+                        flashIndicator()
+                    },
+                    onZoomOut = {
+                        zoom = (zoom / 1.2f).coerceAtLeast(0.1f)
+                        flashIndicator()
+                    },
+                    onLayers = {
+                        layerPanelOpen = true
+                        brushPanelOpen = false
+                        settingsPanelOpen = false
+                        colorPanelOpen = false
+                        moreToolsOpen = false
+                    },
+                    onSettings = {
+                        settingsPanelOpen = true
+                        layerPanelOpen = false
+                        brushPanelOpen = false
+                        colorPanelOpen = false
+                        moreToolsOpen = false
+                        drawingGuidePanelOpen = false
+                    },
+                )
 
-        // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
-        if (selectionMenuOpen) {
-            androidx.compose.ui.window.Popup(
-                alignment = Alignment.TopEnd,
-                offset =
-                    androidx.compose.ui.unit
-                        .IntOffset(0, 180),
-            ) {
-                val popupContext = androidx.compose.ui.platform.LocalContext.current
-                Box(
+                // ---- Selection operations menu (全选 / 反选 / 清除选区) ----
+                if (selectionMenuOpen) {
+                    androidx.compose.ui.window.Popup(
+                        alignment = Alignment.TopEnd,
+                        offset =
+                            androidx.compose.ui.unit
+                                .IntOffset(0, 180),
+                    ) {
+                        val popupContext = androidx.compose.ui.platform.LocalContext.current
+                        Box(
+                            modifier =
+                                Modifier
+                                    .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.35f))
+                                    .systemHoverIcon(popupContext)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Morandi.panel)
+                                    .glassBorder(RoundedCornerShape(10.dp)),
+                        ) {
+                            Column {
+                                SelectionMenuItem("选中图层") { vm.selectAllAction() }
+                                SelectionMenuItem("反选") { vm.invertSelectionAction() }
+                                SelectionMenuItem("清除选区", danger = true) { vm.clearSelectionAction() }
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(Morandi.border),
+                                )
+                                SelectionMenuItem("关闭") { selectionMenuOpen = false }
+                            }
+                        }
+                    }
+                }
+
+                // ---- Left tool rail ----
+                ToolRail(
                     modifier =
                         Modifier
-                            .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                            .systemHoverIcon(popupContext)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panel)
-                            .glassBorder(RoundedCornerShape(10.dp)),
-                ) {
-                    Column {
-                        SelectionMenuItem("选中图层") { vm.selectAllAction() }
-                        SelectionMenuItem("反选") { vm.invertSelectionAction() }
-                        SelectionMenuItem("清除选区", danger = true) { vm.clearSelectionAction() }
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(Morandi.border),
-                        )
-                        SelectionMenuItem("关闭") { selectionMenuOpen = false }
-                    }
-                }
-            }
-        }
-
-        // ---- Left tool rail ----
-        ToolRail(
-            modifier =
-                Modifier
-                    .align(Alignment.TopStart)
-                    .padding(top = 48.dp) // Gap from top bar
-                    .fillMaxHeight(),
-            vm = vm,
-            hazeState = hazeState,
-            opacity = vm.uiOpacity.toDouble(),
-            tool = tool,
-            onTool = {
-                when (it) {
-                    Tool.REFERENCE -> {
-                        vm.referenceWindowOpen = !vm.referenceWindowOpen
-                        moreToolsOpen = false
-                    }
-                    Tool.SYMMETRY -> {
-                        vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
-                        drawingGuidePanelOpen = true
-                        vm.applyTool(Tool.BRUSH.id)
-                        moreToolsOpen = false
-                    }
-                    Tool.PERSPECTIVE -> {
-                        vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
-                        drawingGuidePanelOpen = true
-                        vm.applyTool(Tool.BRUSH.id)
-                        moreToolsOpen = false
-                    }
-                    else -> {
-                        vm.applyTool(it.id)
-                        if (it in selectionTools) {
-                            selectionPanelOpen = true
+                            .align(Alignment.TopStart)
+                            .padding(top = 48.dp) // Gap from top bar
+                            .fillMaxHeight(),
+                    vm = vm,
+                    hazeState = hazeState,
+                    opacity = vm.uiOpacity.toDouble(),
+                    tool = tool,
+                    onTool = {
+                        when (it) {
+                            Tool.REFERENCE -> {
+                                vm.referenceWindowOpen = !vm.referenceWindowOpen
+                                moreToolsOpen = false
+                            }
+                            Tool.SYMMETRY -> {
+                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
+                                drawingGuidePanelOpen = true
+                                vm.applyTool(Tool.BRUSH.id)
+                                moreToolsOpen = false
+                            }
+                            Tool.PERSPECTIVE -> {
+                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
+                                drawingGuidePanelOpen = true
+                                vm.applyTool(Tool.BRUSH.id)
+                                moreToolsOpen = false
+                            }
+                            else -> {
+                                vm.applyTool(it.id)
+                                if (it in selectionTools) {
+                                    selectionPanelOpen = true
+                                }
+                                moreToolsOpen = false
+                            }
                         }
+                    },
+                    moreToolsOpen = moreToolsOpen,
+                    onToggleMoreTools = {
+                        brushPanelOpen = false
+                        colorPanelOpen = false
+                        layerPanelOpen = false
+                        settingsPanelOpen = false
+                        moreToolsOpen = !moreToolsOpen
+                    },
+                    brushSize = vm.brushSize,
+                    onBrushSize = { size, commit -> vm.updateBrushSize(size, commit) },
+                    popupOpacity = vm.popupPanelOpacity,
+                    brushOpacity = vm.brushOpacity,
+                    onOpacity = { op, commit -> vm.updateBrushOpacity(op, commit) },
+                    brushColor = vm.brushColor,
+                    onOpenBrush = {
+                        brushPanelOpen = true
+                        colorPanelOpen = false
+                        layerPanelOpen = false
+                        settingsPanelOpen = false
                         moreToolsOpen = false
-                    }
-                }
-            },
-            moreToolsOpen = moreToolsOpen,
-            onToggleMoreTools = {
-                brushPanelOpen = false
-                colorPanelOpen = false
-                layerPanelOpen = false
-                settingsPanelOpen = false
-                moreToolsOpen = !moreToolsOpen
-            },
-            brushSize = vm.brushSize,
-            onBrushSize = { size, commit -> vm.updateBrushSize(size, commit) },
-            popupOpacity = vm.popupPanelOpacity,
-            brushOpacity = vm.brushOpacity,
-            onOpacity = { op, commit -> vm.updateBrushOpacity(op, commit) },
-            brushColor = vm.brushColor,
-            onOpenBrush = {
-                brushPanelOpen = true
-                colorPanelOpen = false
-                layerPanelOpen = false
-                settingsPanelOpen = false
-                moreToolsOpen = false
-            },
-            onOpenColor = {
-                colorPanelOpen = true
-                brushPanelOpen = false
-                layerPanelOpen = false
-                settingsPanelOpen = false
-                moreToolsOpen = false
-            },
-            onColorDropStart = { pos ->
-                colorDropHex = vm.brushColor
-                colorDropPos = pos
-                isColorDropping = true
-            },
-            onColorDropMove = { pos ->
-                colorDropPos = pos
-            },
-            onColorDropEnd = { pos ->
-                handleColorDrop(pos)
-            },
-            onColorDropCancel = {
-                isColorDropping = false
-            },
-        )
+                    },
+                    onOpenColor = {
+                        colorPanelOpen = true
+                        brushPanelOpen = false
+                        layerPanelOpen = false
+                        settingsPanelOpen = false
+                        moreToolsOpen = false
+                    },
+                    onColorDropStart = { pos ->
+                        colorDropHex = vm.brushColor
+                        colorDropPos = pos
+                        isColorDropping = true
+                    },
+                    onColorDropMove = { pos ->
+                        colorDropPos = pos
+                    },
+                    onColorDropEnd = { pos ->
+                        handleColorDrop(pos)
+                    },
+                    onColorDropCancel = {
+                        isColorDropping = false
+                    },
+                )
+            }
+
+        // ---- Filter Fullscreen HUD (Top Pill & Bottom Dock) ----
+        if (filterController != null) {
+            FilterTopPillHUD(
+                filterName = filterController.session.filterName,
+                filterId = filterController.session.filterId,
+                st = filterController.state,
+                isHoldingCompare = filterController.isHoldingCompare,
+                onHoldingCompareChange = { filterController.updateHoldingCompare(it) },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 18.dp)
+                    .zIndex(30f),
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+
+            FilterBottomDock(
+                filterId = filterController.session.filterId,
+                st = filterController.state,
+                onReset = { filterController.reset() },
+                onApply = { filterController.commit() },
+                onCancel = { filterController.cancel() },
+                sendPreview = { filterController.sendPreview() },
+                sendCurvesPreview = { filterController.sendCurvesPreview() },
+                sendGradientMapPreview = { filterController.sendGradientMapPreview() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .zIndex(30f),
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+        }
 
         // ---- Transform tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.TRANSFORM && tfState.active,
+            visible = filterController == null && tool == Tool.TRANSFORM && tfState.active,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -969,7 +1023,7 @@ fun PaintingPage(
 
         // ---- Shape tools options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool in shapeTools || tool.group == ToolGroup.SHAPES,
+            visible = filterController == null && (tool in shapeTools || tool.group == ToolGroup.SHAPES),
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -990,7 +1044,7 @@ fun PaintingPage(
 
         // ---- Typography / Text tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.TEXT && vm.isTypographyEditing,
+            visible = filterController == null && tool == Tool.TEXT && vm.isTypographyEditing,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -1012,7 +1066,7 @@ fun PaintingPage(
 
         // ---- Crop tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.CROP && cropRect != null,
+            visible = filterController == null && tool == Tool.CROP && cropRect != null,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -1046,7 +1100,7 @@ fun PaintingPage(
 
         // ---- Gradient / Fill / Liquify tool options ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.GRADIENT,
+            visible = filterController == null && tool == Tool.GRADIENT,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()),
@@ -1072,7 +1126,7 @@ fun PaintingPage(
         // switches to pure color (100% opacity + Normal + no inherit alpha).
         // Closing solo restores every layer's original state exactly.
         androidx.compose.animation.AnimatedVisibility(
-            visible = vm.soloActive,
+            visible = filterController == null && vm.soloActive,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()) +
@@ -1116,7 +1170,7 @@ fun PaintingPage(
             }
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.FILL,
+            visible = filterController == null && tool == Tool.FILL,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()),
@@ -1136,7 +1190,7 @@ fun PaintingPage(
             )
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool == Tool.LIQUIFY,
+            visible = filterController == null && tool == Tool.LIQUIFY,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()),
@@ -1165,7 +1219,7 @@ fun PaintingPage(
         // Context-sensitive: shown while a selection tool is active, sliding
         // in from the canvas edge; draggable so it never blocks the work
         androidx.compose.animation.AnimatedVisibility(
-            visible = tool in selectionTools,
+            visible = filterController == null && tool in selectionTools,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -1434,6 +1488,11 @@ fun PaintingPage(
                 hazeState = hazeState,
                 initialTargetFilters = targetFilterLayers,
                 initialFilterCategoryId = filterCategoryHint,
+                onStartFilterSession = { session ->
+                    layerPanelOpen = false
+                    targetFilterLayers = null
+                    activeFilterSession = session
+                },
             )
         }
         AnimatedVisibility(

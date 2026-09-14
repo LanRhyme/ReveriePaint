@@ -184,6 +184,7 @@ fun LayerPanel(
     hazeState: HazeState? = null,
     initialTargetFilters: List<Int>? = null,
     initialFilterCategoryId: String? = null,
+    onStartFilterSession: ((FilterSession) -> Unit)? = null,
 ) {
     var view by remember(initialTargetFilters) {
         mutableStateOf<LayerView>(
@@ -305,7 +306,12 @@ fun LayerPanel(
                                 }
                             },
                             onSelectFilter = { filterId, filterName ->
-                                view = LayerView.FilterAdjust(v.indices, filterId, filterName)
+                                if (onStartFilterSession != null) {
+                                    onStartFilterSession(FilterSession(v.indices, filterId, filterName))
+                                    onClose()
+                                } else {
+                                    view = LayerView.FilterAdjust(v.indices, filterId, filterName)
+                                }
                             }
                         )
                     }
