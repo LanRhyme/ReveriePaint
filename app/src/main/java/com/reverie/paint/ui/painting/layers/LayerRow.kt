@@ -189,8 +189,16 @@ internal fun LayerRow(
             modifier
                 .fillMaxWidth()
                 .height(rowHeight)
-                // Clip overflow so the buttons (initially to the right of the
-                // visible area) are hidden until the row slides left
+                // Panel background fills the gap that appears on the left when
+                // the inner unit slides left (keeps it consistent with the panel)
+                .background(
+                    animateColorAsState(
+                        targetValue = if (dragOnGroup) Morandi.panelHi else Morandi.panel,
+                        animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
+                        label = "outerBg",
+                    ).value,
+                )
+                // Clip overflow so buttons are hidden at rest
                 .clipToBounds()
                 .pressScale(rowInteraction, pressedScale = 0.97f)
                 .onGloballyPositioned { c ->
@@ -206,7 +214,6 @@ internal fun LayerRow(
                         val startY = down.position.y
                         val startOffset = revealAnim.value
                         var gestureSwiping = false
-                        var lastDx = 0f
                         var velocityX = 0f
                         var prevX = startX
                         var prevTimeNs = down.uptimeMillis * 1_000_000L
@@ -231,24 +238,32 @@ internal fun LayerRow(
                             if (gestureSwiping) {
                                 change.consume()
                                 if (dx > 0 && startOffset >= -revealThresholdPx) {
-                                    val target = dx.coerceIn(0f, selectMaxPx.toFloat())
-                                    scope.launch { revealAnim.snapTo(target) }
-                                    lastDx = dx
+                                    // Right-swipe from closed: multi-select
+                                    scope.launch { revealAnim.snapTo(dx.coerceIn(0f, selectMaxPx.toFloat())) }
                                     if (dx > revealThresholdPx && !selectTriggered) {
                                         selectTriggered = true
                                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                         onSelect()
                                     }
                                 } else {
-                                    val target = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
-                                    scope.launch { revealAnim.snapTo(target) }
-                                    lastDx = dx
+                                    // Left-swipe to open or right-swipe to close open drawer
+                                    scope.launch { revealAnim.snapTo((startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)) }
                                 }
                             }
                         }
                         if (gestureSwiping) {
                             val currentOffset = revealAnim.value
                             val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
+                            // Always animate to final position: LaunchedEffect(revealed) only
+                            // fires when the boolean flips; if revealed was already true and
+                            // the user right-swiped partway, we must still spring back.
+                            val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
+                            scope.launch {
+                                revealAnim.animateTo(
+                                    targetOffset,
+                                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                                )
+                            }
                             if (shouldReveal) onReveal() else onRevealClose()
                         }
                     }
@@ -262,28 +277,26 @@ internal fun LayerRow(
                     },
                 ),
     ) {
-        // Row content + action buttons as a single unit that shifts left together.
-        // The buttons live at the right edge of the inner Box (offset by drawerPx
-        // relative to the visible area), hidden by the outer clipToBounds at rest.
-        // As revealAnim goes negative the whole unit slides left and the buttons
-        // enter the visible area from the right — instant, no visibility gate.
-        val rowBgColor by animateColorAsState(
+        // Inner unit: row content + buttons slide as one piece.
+        // The inner Box uses a transparent/selection-tinted background so the
+        // outer panel background shows through normally; the outer Box's
+        // Morandi.panel background fills the gap as the unit slides left.
+        val selectionBg by animateColorAsState(
             targetValue =
                 when {
-                    dragOnGroup -> Morandi.panelHi
-                    selected -> Morandi.panel.compositeOver(Morandi.accent.copy(alpha = 0.28f))
-                    multiSelected -> Morandi.panel.compositeOver(Morandi.accent.copy(alpha = 0.16f))
-                    else -> Morandi.panel
+                    selected -> Morandi.accent.copy(alpha = 0.28f)
+                    multiSelected -> Morandi.accent.copy(alpha = 0.16f)
+                    else -> Color.Transparent
                 },
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
-            label = "rowBg",
+            label = "selectionBg",
         )
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .background(rowBgColor)
+                    .background(selectionBg)
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
                     .graphicsLayer { if (isDragging) alpha = 0.4f },
         ) {
@@ -299,9 +312,6 @@ internal fun LayerRow(
                     .height(rowHeight)
                     .padding(horizontal = 4.dp),
             )
-            // Buttons are attached right of the content: positioned at the right
-            // edge of the Box + drawerWidth so they start just off-screen.
-            // They slide into view as the Box shifts left by revealAnim.
             Row(
                 modifier =
                     Modifier
