@@ -768,6 +768,9 @@ internal fun PaintViewModel.goHome() {
     initialStrokeCount = 0
     totalStrokes = 0
     lastAutoSaveTimeMs = 0L
+    // Safety net: clear any stuck loading overlay (e.g. if a runCore op threw
+    // before after() could set isBlockingLoading = false)
+    isBlockingLoading = false
     currentPage = Page.HOME
     refreshProjects()
 }

@@ -2237,14 +2237,17 @@ class PaintViewModel : ViewModel() {
         op: () -> Unit,
     ) {
         val h = renderHandler ?: return
-        // Advisory input-ops counter: doRender defers behind queued ops so
-        // stroke samples extend before the (heavier) render runs
         pendingCoreOps.incrementAndGet()
         h.post {
             pendingCoreOps.decrementPositive()
-            op()
-            if (render) scheduleRender()
-            if (after != null) mainHandler.post { after() }
+            try {
+                op()
+            } catch (t: Throwable) {
+                android.util.Log.e("ReverieCore", "runCore op() threw, still dispatching after()", t)
+            } finally {
+                if (render) scheduleRender()
+                if (after != null) mainHandler.post { after() }
+            }
         }
     }
 
