@@ -68,8 +68,8 @@ internal fun ThemeSettingsSubPage(
     var showCustomCanvasBgDialog by remember { mutableStateOf(false) }
 
     val presetSwatches = listOf(
-        "#5E8BA8", "#0A84FF", "#7C8F9E", "#8D9E8F", "#C9ADA7",
-        "#B4552D", "#5A6E8A", "#9A8F7B", "#A27B8A"
+        "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
+        "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
     )
 
     val canvasPresetSwatches = listOf(

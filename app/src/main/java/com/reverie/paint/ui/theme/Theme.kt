@@ -49,8 +49,8 @@ val MorandiDarkColors =
         bg = Color(0xFF141416), // Procreate deep graphite background
         panel = Color(0xFF1E1E22), // Sleek dark graphite panel (iPadOS dark chrome)
         panelHi = Color(0xFF2A2A2E), // Raised surfaces, cards, slider tracks
-        accent = Color(0xFF5E8BA8), // Morandi signature misty blue
-        accentHi = Color(0xFF7A9FB8),
+        accent = Color(0xFF5A6E8A), // Morandi signature misty blue
+        accentHi = Color(0xFF78889F),
         onAccent = Color(0xFFFFFFFF),
         text = Color(0xFFF5F5F7), // Crisp readable off-white text
         subText = Color(0xFF8E8E93), // Apple secondary label gray
@@ -68,8 +68,8 @@ val MorandiLightColors =
         bg = Color(0xFFF2F2F7), // iOS Grouped Background: refined light gray
         panel = Color(0xFFFFFFFF), // Pure white foreground cards/panels
         panelHi = Color(0xFFE5E5EA), // iOS System Gray 5: Inner card surfaces/pills
-        accent = Color(0xFF5E8BA8), // Morandi signature misty blue
-        accentHi = Color(0xFF4C7590),
+        accent = Color(0xFF5A6E8A), // Morandi signature misty blue
+        accentHi = Color(0xFF4F6179),
         onAccent = Color(0xFFFFFFFF),
         text = Color(0xFF000000), // Crisp deep black text
         subText = Color(0xFF8E8E93), // iOS Secondary Label gray
@@ -111,7 +111,7 @@ fun buildThemeColors(isDark: Boolean, accent: Color): AppColors {
 fun getMonetColors(
     context: Context,
     isDark: Boolean = true,
-    fallbackAccent: Color = Color(0xFF5E8BA8)
+    fallbackAccent: Color = Color(0xFF5A6E8A)
 ): AppColors {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         return try {

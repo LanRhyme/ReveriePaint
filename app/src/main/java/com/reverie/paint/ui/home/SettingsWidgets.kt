@@ -861,7 +861,7 @@ internal fun CustomColorDialog(
                         },
                         prefix = { Text("#", color = colors.subText) },
                         singleLine = true,
-                        placeholder = { Text("5E8BA8", color = colors.subText.copy(alpha = 0.5f)) },
+                        placeholder = { Text("5A6E8A", color = colors.subText.copy(alpha = 0.5f)) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = colors.text,
                             unfocusedTextColor = colors.text,

@@ -75,4 +75,19 @@ class ThemeSettingsTest {
         assertEquals("Text must remain identical to base", darkBase.text, themed.text)
         assertEquals("SubText must remain identical to base", darkBase.subText, themed.subText)
     }
+
+    @Test
+    fun `preset accent swatches list validity and contains default accent 5A6E8A`() {
+        val swatches = listOf(
+            "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
+            "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
+        )
+        assertEquals("First swatch should be default accent #5A6E8A", "#5A6E8A", swatches.first())
+        swatches.forEach { hex ->
+            assertTrue("Hex $hex must start with #", hex.startsWith("#"))
+            assertEquals("Hex $hex must be 7 characters long", 7, hex.length)
+            val hexVal = hex.removePrefix("#").toLongOrNull(16)
+            assertTrue("Hex $hex must be valid hexadecimal number", hexVal != null && hexVal in 0..0xFFFFFF)
+        }
+    }
 }

@@ -5,8 +5,8 @@
 # ReveriePaint
 
 <p>
-  <a href="https://github.com/LanRhyme/ReveriePaint/releases"><img src="https://img.shields.io/github/v/release/LanRhyme/ReveriePaint?color=5E8BA8&style=flat-square" alt="Release"></a>
-  <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2023%2B)-5E8BA8?style=flat-square" alt="Android Version">
+  <a href="https://github.com/LanRhyme/ReveriePaint/releases"><img src="https://img.shields.io/github/v/release/LanRhyme/ReveriePaint?color=5A6E8A&style=flat-square" alt="Release"></a>
+  <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2023%2B)-5A6E8A?style=flat-square" alt="Android Version">
   <img src="https://img.shields.io/badge/Arch-arm64--v8a-7C8F9E?style=flat-square" alt="Architecture">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-8D9E8F?style=flat-square" alt="License"></a>
   <a href="https://afdian.com/a/LanRhyme"><img src="https://img.shields.io/badge/Afdian-@LanRhyme-946ce6?style=flat-square" alt="Afdian"></a>
