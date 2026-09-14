@@ -170,7 +170,16 @@ class MainActivity : ComponentActivity() {
                     intent.getParcelableExtra(Intent.EXTRA_STREAM)
                 }
                 val targetUri = streamUri ?: intent.data ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
-                targetUri?.let { uris.add(it) }
+                if (targetUri != null) {
+                    uris.add(targetUri)
+                } else {
+                    val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim()
+                    if (!text.isNullOrBlank() && (text.startsWith("http://", ignoreCase = true) || text.startsWith("https://", ignoreCase = true))) {
+                        try {
+                            uris.add(Uri.parse(text))
+                        } catch (_: Exception) {}
+                    }
+                }
             }
 
             Intent.ACTION_SEND_MULTIPLE -> {
@@ -207,11 +216,29 @@ class MainActivity : ComponentActivity() {
         window.decorView.setOnDragListener { _, event ->
             when (event.action) {
                 DragEvent.ACTION_DRAG_STARTED -> {
-                    // Accept any drag event carrying clip description
                     event.clipDescription != null
                 }
 
+                DragEvent.ACTION_DRAG_ENTERED,
+                DragEvent.ACTION_DRAG_LOCATION -> {
+                    currentViewModel?.let { vm ->
+                        if (!vm.isDraggingExternal) vm.isDraggingExternal = true
+                    }
+                    true
+                }
+
+                DragEvent.ACTION_DRAG_EXITED -> {
+                    currentViewModel?.isDraggingExternal = false
+                    true
+                }
+
+                DragEvent.ACTION_DRAG_ENDED -> {
+                    currentViewModel?.isDraggingExternal = false
+                    true
+                }
+
                 DragEvent.ACTION_DROP -> {
+                    currentViewModel?.isDraggingExternal = false
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                         requestDragAndDropPermissions(event)
                     }
@@ -219,7 +246,21 @@ class MainActivity : ComponentActivity() {
                     val uris = mutableListOf<Uri>()
                     if (clipData != null) {
                         for (i in 0 until clipData.itemCount) {
-                            clipData.getItemAt(i).uri?.let { uris.add(it) }
+                            val item = clipData.getItemAt(i)
+                            val itemUri = item.uri
+                            if (itemUri != null) {
+                                uris.add(itemUri)
+                            } else {
+                                val text = item.text?.toString()?.trim()
+                                if (!text.isNullOrBlank() && (text.startsWith("http://", ignoreCase = true) ||
+                                        text.startsWith("https://", ignoreCase = true) ||
+                                        text.startsWith("file://", ignoreCase = true) ||
+                                        text.startsWith("content://", ignoreCase = true))) {
+                                    try {
+                                        uris.add(Uri.parse(text))
+                                    } catch (_: Exception) {}
+                                }
+                            }
                         }
                     }
                     if (uris.isNotEmpty()) {

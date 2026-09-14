@@ -128,6 +128,7 @@ internal fun PaintViewModel.addLayer() {
 
 internal fun PaintViewModel.importImageToNewLayer(
     bitmap: Bitmap,
+    layerName: String = "导入图片",
     onComplete: () -> Unit = {},
 ) {
     if (recorder.recording) {
@@ -140,7 +141,7 @@ internal fun PaintViewModel.importImageToNewLayer(
         },
     ) {
         try {
-            ReverieCoreBridge.addLayer("导入图片")
+            ReverieCoreBridge.addLayer(layerName.ifBlank { "导入图片" })
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
                 docH = coreH,

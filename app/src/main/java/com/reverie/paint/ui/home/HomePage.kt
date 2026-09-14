@@ -1370,5 +1370,10 @@ fun HomePage(vm: PaintViewModel) {
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding(),
         )
+
+        com.reverie.paint.ui.components.DragHoverOverlay(
+            visible = vm.isDraggingExternal,
+            hint = "释放以导入作品到画廊",
+        )
     }
 }

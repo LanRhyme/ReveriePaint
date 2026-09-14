@@ -996,7 +996,7 @@ fun PaintViewModel.importDocuments(
                 val baseName = originalName.substringBeforeLast('.', originalName)
 
                 val tempFile = File(context.cacheDir, "import_temp_${System.currentTimeMillis()}_${originalName}")
-                context.contentResolver.openInputStream(uri)?.use { input ->
+                openStreamSafely(context, uri)?.use { input ->
                     tempFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
@@ -1119,6 +1119,17 @@ private suspend fun PaintViewModel.convertViaCore(
     }
 }
 
+internal fun openStreamSafely(context: android.content.Context, uri: android.net.Uri): java.io.InputStream? {
+    return if (uri.scheme == "http" || uri.scheme == "https") {
+        val conn = java.net.URL(uri.toString()).openConnection()
+        conn.connectTimeout = 10000
+        conn.readTimeout = 15000
+        conn.getInputStream()
+    } else {
+        context.contentResolver.openInputStream(uri)
+    }
+}
+
 private fun queryFileName(context: android.content.Context, uri: android.net.Uri): String? {
     if (uri.scheme == "content") {
         try {
@@ -1133,14 +1144,23 @@ private fun queryFileName(context: android.content.Context, uri: android.net.Uri
         } catch (e: Exception) {
             android.util.Log.w("RP_IMPORT", "queryFileName failed", e)
         }
+    } else if (uri.scheme == "http" || uri.scheme == "https") {
+        val raw = uri.path?.substringAfterLast('/')?.substringBefore('?')
+        if (!raw.isNullOrBlank()) {
+            return raw
+        }
+        return "web_image_${System.currentTimeMillis() % 10000}.jpg"
     }
     return uri.path?.substringAfterLast('/')
 }
 
 fun isImageFile(context: android.content.Context, uri: android.net.Uri): Boolean {
     val name = queryFileName(context, uri) ?: uri.path ?: ""
-    val ext = name.substringAfterLast('.', "").lowercase()
+    val ext = name.substringAfterLast('.', "").substringBefore('?').lowercase()
     if (ext in listOf("png", "jpg", "jpeg", "webp", "bmp", "gif")) return true
+    if (uri.scheme == "http" || uri.scheme == "https") {
+        if (uri.toString().contains("image", ignoreCase = true)) return true
+    }
     val mime = try { context.contentResolver.getType(uri) } catch (e: Exception) { null }
     return mime?.startsWith("image/") == true
 }
@@ -1149,15 +1169,34 @@ fun PaintViewModel.importImageUriToNewLayer(
     uri: android.net.Uri,
     context: android.content.Context,
 ) {
+    val fullName = queryFileName(context, uri) ?: "导入图片"
+    val layerName = fullName.substringBeforeLast('.', fullName).take(30).ifBlank { "导入图片" }
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            val bmp = context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream)
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            openStreamSafely(context, uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+
+            var inSample = 1
+            if (options.outWidth > 0 && options.outHeight > 0) {
+                val maxDim = maxOf(options.outWidth, options.outHeight)
+                val targetMax = maxOf(coreW, coreH, 2048) * 2
+                while (maxDim / inSample > targetMax && inSample < 16) {
+                    inSample *= 2
+                }
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = inSample
+            }
+            val bmp = openStreamSafely(context, uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
             }
             if (bmp != null) {
                 withContext(Dispatchers.Main) {
-                    importImageToNewLayer(bmp) {
-                        showActionToast("已插入新图层", R.drawable.ic_check)
+                    importImageToNewLayer(bmp, layerName = layerName) {
+                        showActionToast("已插入新图层: $layerName", R.drawable.ic_check)
                     }
                 }
             } else {
@@ -1167,6 +1206,9 @@ fun PaintViewModel.importImageUriToNewLayer(
             }
         } catch (e: Exception) {
             android.util.Log.e("RP_IMPORT", "importImageUriToNewLayer failed", e)
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(context, "导入图片失败: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }

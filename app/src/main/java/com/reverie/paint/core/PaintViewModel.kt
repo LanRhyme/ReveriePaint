@@ -550,8 +550,16 @@ class PaintViewModel : ViewModel() {
             val newBitmaps = mutableListOf<Bitmap>()
             for (uri in uris) {
                 try {
-                    appContext.contentResolver.openInputStream(uri)?.use { stream ->
-                        val bmp = android.graphics.BitmapFactory.decodeStream(stream)
+                    val stream = if (uri.scheme == "http" || uri.scheme == "https") {
+                        val conn = java.net.URL(uri.toString()).openConnection()
+                        conn.connectTimeout = 10000
+                        conn.readTimeout = 15000
+                        conn.getInputStream()
+                    } else {
+                        appContext.contentResolver.openInputStream(uri)
+                    }
+                    stream?.use { s ->
+                        val bmp = android.graphics.BitmapFactory.decodeStream(s)
                         if (bmp != null) {
                             newBitmaps.add(bmp)
                         }
@@ -2576,6 +2584,7 @@ class PaintViewModel : ViewModel() {
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
     var pendingExternalImageUri by mutableStateOf<android.net.Uri?>(null)
+    var isDraggingExternal by mutableStateOf(false)
 
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context

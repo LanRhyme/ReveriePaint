@@ -729,6 +729,11 @@ fun PaintingPage(
             )
         }
 
+        com.reverie.paint.ui.components.DragHoverOverlay(
+            visible = vm.isDraggingExternal,
+            hint = "释放以导入图层或参考图",
+        )
+
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
             when {
