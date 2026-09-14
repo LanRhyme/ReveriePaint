@@ -18,6 +18,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.graphics.compositeOver
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -69,10 +71,10 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -150,14 +152,10 @@ internal fun LayerRow(
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible
-    var swiping by remember { mutableStateOf(false) }
-    var fingerDx by remember { mutableStateOf(0f) }
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val dragThresholdPx = with(density) { 8.dp.roundToPx() }
-    // A swipe must travel this far to reveal the drawer (prevents accidental
-    // triggers from small horizontal wiggles)
+    // A swipe must travel this far to reveal the drawer
     val revealThresholdPx = with(density) { 20.dp.roundToPx() }
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     // Right-swipe (multi-select) follow distance cap before the row springs back
@@ -166,28 +164,23 @@ internal fun LayerRow(
     var rowBottom by remember { mutableStateOf(0f) }
     val rowInteraction = remember { MutableInteractionSource() }
 
-    // Row slide offset in px. While swiping it snapTo()s the finger (instant
-    // follow, no lag); on release it animates to the revealed/closed position.
-    // A single Animatable for both phases means no value jump on release (the
-    // "bounces back then slides out" feel came from switching between the raw
-    // finger offset and a separately-animated fraction starting at 0).
+    // Coroutine scope used to drive revealAnim directly from gesture callbacks —
+    // no LaunchedEffect follow-loop, zero scheduling delay, 1:1 finger tracking
+    val scope = rememberCoroutineScope()
+
+    // Row slide offset in px. snapTo() is called directly in the gesture handler
+    // (via scope.launch) for instant follow; on release animateTo() springs back
+    // or fully opens. One Animatable covers both phases, so there is no value
+    // jump at finger lift.
     val revealAnim = remember { Animatable(0f) }
 
-    LaunchedEffect(swiping, revealed) {
-        if (swiping) {
-            // follow the finger frame by frame (instant, no lag)
-            while (true) {
-                revealAnim.snapTo(fingerDx)
-                withFrameNanos {}
-            }
-        } else {
-            // Spring with a light bounce so a right-swipe select (and the
-            // drawer close) springs back instead of sliding flat
-            revealAnim.animateTo(
-                if (revealed) -drawerPx.toFloat() else 0f,
-                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-            )
-        }
+    // When the external revealed flag flips (e.g. another row opens and this one
+    // should close, or a tap closes it), snap-animate to the correct position.
+    LaunchedEffect(revealed) {
+        revealAnim.animateTo(
+            if (revealed) -drawerPx.toFloat() else 0f,
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+        )
     }
 
     Box(
@@ -201,18 +194,20 @@ internal fun LayerRow(
                     rowBottom = c.boundsInRoot().bottom
                     onBounds(rowTop, rowBottom)
                 }
-                // Swipe-left reveals the action drawer (full event loop,
-                // requireUnconsumed=false so it always sees the down even if
-                // combinedClickable consumed it; only consumes moves once a
-                // horizontal swipe is detected, which cancels the clickable)
                 .pointerInput(index, isBg) {
                     if (isBg) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
                         val startY = down.position.y
+                        // Offset when the finger went down (handles drag-to-close
+                        // from an already-open drawer)
+                        val startOffset = revealAnim.value
                         var gestureSwiping = false
                         var lastDx = 0f
+                        var velocityX = 0f
+                        var prevX = startX
+                        var prevTimeNs = down.uptimeMillis * 1_000_000L
                         var selectTriggered = false
                         while (true) {
                             val event = awaitPointerEvent()
@@ -220,52 +215,50 @@ internal fun LayerRow(
                             if (change == null || change.changedToUpIgnoreConsumed()) break
                             val dx = change.position.x - startX
                             val dy = change.position.y - startY
+                            // Simple exponential velocity estimate (px/s, capped)
+                            val nowNs = change.uptimeMillis * 1_000_000L
+                            val dt = ((nowNs - prevTimeNs) / 1_000_000f).coerceAtLeast(1f)
+                            velocityX = ((change.position.x - prevX) / dt * 1000f)
+                                .coerceIn(-5000f, 5000f)
+                            prevX = change.position.x
+                            prevTimeNs = nowNs
+
                             if (!gestureSwiping) {
-                                // Only treat it as a swipe when the movement is
-                                // clearly horizontal (prevents vertical list
-                                // scrolling and small wiggles from revealing)
-                                // Horizontal-dominant at dx > dy*0.7: the old 1.2x
-                                // slope rejected slightly-diagonal finger swipes, so
-                                // the second row's multi-select never fired (users
-                                // had no idea - selection silently stayed at one)
                                 if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 0.7f) {
                                     gestureSwiping = true
-                                    // Flip the outer remember state so the
-                                    // LaunchedEffect follow-loop (snapTo the
-                                    // finger each frame) actually runs - the
-                                    // gesture's local var shadows it otherwise
-                                    swiping = true
                                 }
                             }
                             if (gestureSwiping) {
                                 change.consume()
-                                if (dx > 0) {
-                                    // Right-swipe: follow the finger, then
-                                    // toggle multi-select once past the
-                                    // threshold; on release the row springs
-                                    // back (bounce) to the closed position
-                                    fingerDx = dx.coerceIn(0f, selectMaxPx.toFloat())
+                                if (dx > 0 && startOffset >= -revealThresholdPx) {
+                                    // Right-swipe from closed: multi-select toggle
+                                    val target = dx.coerceIn(0f, selectMaxPx.toFloat())
+                                    scope.launch { revealAnim.snapTo(target) }
+                                    lastDx = dx
                                     if (dx > revealThresholdPx && !selectTriggered) {
                                         selectTriggered = true
                                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                         onSelect()
                                     }
                                 } else {
+                                    // Left-swipe to reveal OR right-swipe to close an open drawer
+                                    val target = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
+                                    scope.launch { revealAnim.snapTo(target) }
                                     lastDx = dx
-                                    // follow the finger, clamped to the drawer width
-                                    fingerDx = dx.coerceIn(-drawerPx.toFloat(), 0f)
                                 }
                             }
                         }
                         if (gestureSwiping) {
-                            // reveal only on a deliberate swipe past the
-                            // threshold; otherwise the row animates back
-                            if (lastDx < -revealThresholdPx) {
+                            // Fling/threshold judgment: open if swiped far left (>40% of
+                            // drawer) OR fast left fling; close on right fling or short swipe
+                            val currentOffset = revealAnim.value
+                            val shouldReveal =
+                                currentOffset < -drawerPx * 0.4f || velocityX < -500f
+                            if (shouldReveal) {
                                 onReveal()
                             } else {
                                 onRevealClose()
                             }
-                            swiping = false
                         }
                     }
                 }.combinedClickable(
@@ -273,46 +266,52 @@ internal fun LayerRow(
                     indication = null,
                     onClick = { onClick() },
                     onLongClick = {
-                        // 画世界 Pro style: vibrate then drag
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDragStart()
                     },
                 ),
     ) {
-        // Action drawer: three actions (copy / solo / delete), composed only
-        // while revealed so a closed row neither renders nor hits the buttons;
-        // the row slides away (offset) and the drawer fades in.
-        // Drawer with real enter AND exit animations: slides in from the
-        // right edge while fading on reveal, and slides back out while fading
-        // when closed (synchronized with the row slide via tween(220))
-        AnimatedVisibility(
-            visible = revealed,
-            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(tween(160)),
-            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(tween(160)),
+        // ── Bottom layer: action drawer (copy / solo / delete) ──────────────
+        // Always rendered so buttons are visible the instant the foreground row
+        // starts sliding left. No AnimatedVisibility gate means no delayed
+        // fade-in after the swipe distance threshold.
+        Row(
             modifier =
                 Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .width(drawerWidth)
-                    .zIndex(2f),
+                    .width(drawerWidth),
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
-                    vm.copyLayer(index)
-                    onRevealClose()
-                }
-                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
-                    vm.soloLayer(index)
-                    onRevealClose()
-                }
-                DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
-                    if (!isBg) vm.removeLayer(index)
-                    onRevealClose()
-                }
+            DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
+                vm.copyLayer(index)
+                onRevealClose()
+            }
+            DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
+                vm.soloLayer(index)
+                onRevealClose()
+            }
+            DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
+                if (!isBg) vm.removeLayer(index)
+                onRevealClose()
             }
         }
 
-        // Row visuals (indent guides, collapse arrow, eye, thumbnail, name, status)
+        // ── Top (foreground) layer: row visuals ─────────────────────────────
+        // Must have an opaque background so it fully covers the drawer buttons
+        // while not swiped. The background is a blend of Morandi.panel with the
+        // selection/drag highlight color so the panel base color is never
+        // transparent (which would expose the drawer at rest).
+        val rowBgColor by animateColorAsState(
+            targetValue =
+                when {
+                    dragOnGroup -> Morandi.panelHi
+                    selected -> Morandi.panel.compositeOver(Morandi.accent.copy(alpha = 0.28f))
+                    multiSelected -> Morandi.panel.compositeOver(Morandi.accent.copy(alpha = 0.16f))
+                    else -> Morandi.panel
+                },
+            animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
+            label = "rowBg",
+        )
         LayerRowContent(
             vm = vm,
             layer = layer,
@@ -324,30 +323,9 @@ internal fun LayerRow(
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .background(
-                        animateColorAsState(
-                            targetValue =
-                                when {
-                                    dragOnGroup -> Morandi.panelHi
-
-                                    selected -> Morandi.accent.copy(alpha = 0.28f)
-
-                                    multiSelected -> Morandi.accent.copy(alpha = 0.16f)
-
-                                    // rows are transparent by default; the
-                                    // panel itself is translucent
-                                    else -> Color.Transparent
-                                },
-                            animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
-                            label = "rowBg",
-                        ).value,
-                    )
-                    // follow the finger while swiping; animate to the
-                    // revealed/closed position on release (revealAnim covers
-                    // both, so there is no value jump between the phases)
+                    .zIndex(1f)
+                    .background(rowBgColor)
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
-                    // while dragging: dim the in-list row (the floating copy in
-                    // the overlay is the visible one)
                     .graphicsLayer { if (isDragging) alpha = 0.4f }
                     .padding(horizontal = 4.dp),
         )
