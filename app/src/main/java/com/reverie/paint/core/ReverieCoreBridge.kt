@@ -565,7 +565,7 @@ object ReverieCoreBridge {
     /** NodeType 值域: 0paint/1group/2fill/3adjust/5clone/10-13四mask, 越界-1 */
     external fun layerNodeType(index: Int): Int
 
-    /** 创建真 KisAdjustmentLayer（滤镜类型为 reverie-f<filterType>，参数 p1-p4） */
+    /** 创建真 KisAdjustmentLayer（滤镜类型为 reverie-f<filterType>，参数 p1-p4，可选 lut） */
     external fun createAdjustmentLayer(
         name: String,
         filterType: Int,
@@ -573,9 +573,21 @@ object ReverieCoreBridge {
         p2: Double,
         p3: Double,
         p4: Double,
+        lut: ByteArray? = null,
     ): Boolean
 
-    /** 更新调整层滤镜配置并入撤销栈；lut 仅曲线 LUT(768B)/渐变映射(1024B)时非空 */
+    /** 预览调整层滤镜配置（不入撤销栈，用于滑块拖拽实时渲染） */
+    external fun previewAdjustmentLayerConfig(
+        index: Int,
+        filterType: Int,
+        p1: Double,
+        p2: Double,
+        p3: Double,
+        p4: Double,
+        lut: ByteArray? = null,
+    ): Boolean
+
+    /** 更新调整层滤镜配置并入撤销栈；lut 仅曲线 LUT(768B)/渐变映射(1024B)时非空；origConfigJson 为进入面板前的配置快照 */
     external fun setAdjustmentLayerConfig(
         index: Int,
         filterType: Int,
@@ -583,7 +595,8 @@ object ReverieCoreBridge {
         p2: Double,
         p3: Double,
         p4: Double,
-        lut: ByteArray?,
+        lut: ByteArray? = null,
+        origConfigJson: String? = null,
     ): Boolean
 
     /** 读取调整层当前配置 JSON（{"type","p1"-"p4","lut":base64}），非调整层返回空串 */

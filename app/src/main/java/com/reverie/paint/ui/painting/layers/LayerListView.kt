@@ -325,15 +325,13 @@ internal fun LayerListView(
         val haptic = LocalHapticFeedback.current
         val selLayer = vm.layers.getOrNull(selectedIndex)
         val isBg = selLayer?.isBackground ?: true
+        val isFilter = selLayer?.nodeType == 3 || selLayer?.name?.contains("滤镜") == true
 
         // Top actions: + new paint layer | folder group | more layers (menu) | lock layer | lock alpha | clip mask | merge down
         Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 6.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             TopIcon(
                 resId = R.drawable.ic_plus,
@@ -373,23 +371,19 @@ internal fun LayerListView(
                         },
                     )
                     DropdownMenuItem(
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("滤镜图层", color = Morandi.subText.copy(alpha = 0.5f), fontSize = 13.sp)
-                                Spacer(Modifier.width(6.dp))
-                                Text("(暂未开放)", color = Morandi.subText.copy(alpha = 0.4f), fontSize = 11.sp)
-                            }
-                        },
+                        text = { Text("滤镜图层", color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painterResource(R.drawable.ic_image_adjust),
                                 null,
-                                tint = Morandi.icon.copy(alpha = 0.4f),
+                                tint = Morandi.icon,
                                 modifier = Modifier.size(16.dp),
                             )
                         },
-                        enabled = false,
-                        onClick = {},
+                        onClick = {
+                            showNewLayerMenu = false
+                            onOpenCreateFilter()
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("盖印可见图层", color = Morandi.text, fontSize = 13.sp) },
@@ -412,9 +406,9 @@ internal fun LayerListView(
             TopIcon(
                 resId = R.drawable.ic_merge_down,
                 desc = "向下合并",
-                enabled = selectedIndex > 0 && !isBg,
+                enabled = selectedIndex > 0 && !isBg && !isFilter,
                 onClick = {
-                    if (selectedIndex > 0 && !isBg) {
+                    if (selectedIndex > 0 && !isBg && !isFilter) {
                         vm.mergeDown(selectedIndex)
                     }
                 },
@@ -423,9 +417,9 @@ internal fun LayerListView(
                 resId = R.drawable.ic_grid,
                 desc = "锁定透明度",
                 active = selLayer?.alphaLocked == true,
-                enabled = !isBg,
+                enabled = !isBg && !isFilter,
                 onClick = {
-                    if (selectedIndex >= 0 && !isBg) {
+                    if (selectedIndex >= 0 && !isBg && !isFilter) {
                         vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
                     }
                 },
@@ -497,14 +491,23 @@ internal fun LayerListView(
                                         if (topVisual < bottomVisual && topVisual in displayList.indices) {
                                             val upperLayer = displayList[topVisual]
                                             val isBg = upperLayer.index == 0 || upperLayer.name == "背景"
+                                            val isFilter = upperLayer.nodeType == 3 || upperLayer.name.contains("滤镜")
                                             if (!isBg) {
-                                                pinchTriggered = true
-                                                lastMergeTime = now
-                                                p1.consume()
-                                                p2.consume()
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                vm.mergeDown(upperLayer.index)
-                                                vm.showActionToast("双指捏合：已向下合并图层", com.reverie.paint.R.drawable.ic_merge_down)
+                                                if (isFilter) {
+                                                    pinchTriggered = true
+                                                    lastMergeTime = now
+                                                    p1.consume()
+                                                    p2.consume()
+                                                    vm.showActionToast("滤镜图层不支持向下合并，请使用栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
+                                                } else {
+                                                    pinchTriggered = true
+                                                    lastMergeTime = now
+                                                    p1.consume()
+                                                    p2.consume()
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    vm.mergeDown(upperLayer.index)
+                                                    vm.showActionToast("双指捏合：已向下合并图层", com.reverie.paint.R.drawable.ic_merge_down)
+                                                }
                                             }
                                         }
                                     }

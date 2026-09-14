@@ -152,7 +152,7 @@ internal fun PaintViewModel.touchStart(
         }
     }
     val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
-    if (curLayer?.name?.contains("滤镜") == true) {
+    if (curLayer?.nodeType == 3 || curLayer?.name?.contains("滤镜") == true) {
         showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
         return false
     }

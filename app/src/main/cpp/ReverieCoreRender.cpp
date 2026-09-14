@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "ReverieCoreFilterKernels.h"
 #include <android/log.h>
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
@@ -564,6 +565,79 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             painter.bitBlt(r.topLeft(), tmp, r);
             painter.end();
             i = j;
+        } else if (e.nodeType == NodeTypeAdjustment) {
+            KisAdjustmentLayer *adj = dynamic_cast<KisAdjustmentLayer *>(e.node);
+            const quint8 op = e.node->opacity();
+            KisFilterConfigurationSP config = adj ? adj->filter() : nullptr;
+            if (adj && config && op > 0) {
+                QVariant v;
+                const int type = config->getProperty("reverieType", v) ? v.toInt() : 0;
+                const double p1 = config->getProperty("p1", v) ? v.toDouble() : 0.0;
+                const double p2 = config->getProperty("p2", v) ? v.toDouble() : 0.0;
+                const double p3 = config->getProperty("p3", v) ? v.toDouble() : 0.0;
+                const double p4 = config->getProperty("p4", v) ? v.toDouble() : 0.0;
+                const bool hasLut = config->getProperty("lut", v);
+                const QByteArray lut = hasLut ? v.toByteArray() : QByteArray();
+
+                const int margin = reverieFilterMargin(type);
+                const QRect docRect(0, 0, m_document->width(), m_document->height());
+                const QRect work = r.adjusted(-margin, -margin, margin, margin).intersected(docRect);
+
+                if (!work.isEmpty()) {
+                    QImage img(work.width(), work.height(), QImage::Format_ARGB32_Premultiplied);
+                    if (!img.isNull()) {
+                        out->readBytes(img.bits(), work.x(), work.y(), work.width(), work.height());
+
+                        QImage origCopy;
+                        if (op < 255) {
+                            origCopy = img.copy();
+                        }
+
+                        if (type == 13 && lut.size() >= 768) {
+                            const quint8 *base = reinterpret_cast<const quint8 *>(lut.constData());
+                            reverieApplyCurvesLutKernel(img, base, base + 256, base + 512);
+                        } else if (type == 30 && lut.size() >= 1024) {
+                            qint32 gradientLut[256];
+                            memcpy(gradientLut, lut.constData(), sizeof(gradientLut));
+                            reverieApplyGradientMapKernel(img, gradientLut);
+                        } else {
+                            reverieApplyScalarKernel(img, type, p1, p2, p3, p4);
+                        }
+
+                        if (op < 255 && !origCopy.isNull()) {
+                            const int h = img.height();
+                            const int w = img.width();
+                            const int alpha = op;
+                            const int invAlpha = 255 - alpha;
+                            for (int y = 0; y < h; ++y) {
+                                quint8 *dstP = img.scanLine(y);
+                                const quint8 *srcP = origCopy.constScanLine(y);
+                                for (int x = 0; x < w * 4; ++x) {
+                                    dstP[x] = static_cast<quint8>((dstP[x] * alpha + srcP[x] * invAlpha) / 255);
+                                }
+                            }
+                        }
+
+                        if (margin == 0) {
+                            out->writeBytes(img.constBits(), work.x(), work.y(), work.width(), work.height());
+                        } else {
+                            const QRect targetR = r.intersected(docRect);
+                            if (!targetR.isEmpty()) {
+                                const int sx = targetR.x() - work.x();
+                                const int sy = targetR.y() - work.y();
+                                QImage cropped(targetR.width(), targetR.height(), img.format());
+                                for (int row = 0; row < cropped.height(); ++row) {
+                                    memcpy(cropped.scanLine(row),
+                                           img.scanLine(sy + row) + sx * 4,
+                                           size_t(cropped.width()) * 4);
+                                }
+                                out->writeBytes(cropped.constBits(), targetR.x(), targetR.y(), cropped.width(), cropped.height());
+                            }
+                        }
+                    }
+                }
+            }
+            ++i;
         } else {
             KisPaintDeviceSP dev = layerPaintDeviceFor(e);
             if (dev) {

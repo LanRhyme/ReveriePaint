@@ -425,7 +425,7 @@ fun PaintingPage(
             activeLayer?.isGroup == true ->
                 vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
 
-            activeLayer?.name?.contains("滤镜") == true ->
+            activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true ->
                 vm.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
 
             activeLayer?.locked == true ->

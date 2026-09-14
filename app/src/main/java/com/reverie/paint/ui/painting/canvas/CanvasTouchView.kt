@@ -1594,6 +1594,10 @@ class CanvasTouchView(context: Context) : View(context) {
             v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
             return
         }
+        if ((activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true) && isDrawingTool) {
+            v.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
+            return
+        }
         if (activeLayer?.locked == true && (isDrawingTool || tool == Tool.LIQUIFY)) {
             v.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
             return

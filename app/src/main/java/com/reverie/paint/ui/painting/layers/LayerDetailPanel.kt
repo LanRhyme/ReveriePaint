@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.layers
 
+import com.reverie.paint.model.AdjustmentConfigCodec
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -146,10 +147,11 @@ internal fun LayerDetailPage(
     onBack: () -> Unit,
     onOpenBlendModes: () -> Unit,
     onOpenFilters: () -> Unit,
+    onOpenFilterAdjust: (Int, String) -> Unit = { _, _ -> onOpenFilters() },
     onRename: (String) -> Unit,
 ) {
     val layer = vm.layers.firstOrNull { it.index == index }
-    val isBg = layer?.isBackground ?: true
+    val isBg = layer?.isBackground == true
     val name = layer?.name ?: ""
     if (layer?.isBackground == true) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -302,8 +304,8 @@ internal fun LayerDetailPage(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        val isFillLayer = name.contains("填充")
-        val isFilterLayer = name.contains("滤镜")
+        val isFillLayer = (layer?.nodeType == 2) || name.contains("填充")
+        val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜")
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }
@@ -367,7 +369,15 @@ internal fun LayerDetailPage(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.accent.copy(alpha = 0.15f))
-                        .noRippleClickable(onOpenFilters)
+                        .noRippleClickable {
+                            val json = vm.snapshotAdjustmentConfig(index)
+                            val cfg = AdjustmentConfigCodec.decodeJson(json)
+                            if (cfg != null) {
+                                onOpenFilterAdjust(cfg.type, filterNameOf(cfg.type))
+                            } else {
+                                onOpenFilters()
+                            }
+                        }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -412,17 +422,27 @@ internal fun LayerDetailPage(
                 tint = Morandi.icon,
                 modifier = Modifier.size(18.dp),
             )
-            Text("混合模式", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
             Text(
-                vm.blendModes.firstOrNull { it.first == layer?.blendMode }?.second ?: layer?.blendMode ?: "正常",
+                "混合模式",
+                color = Morandi.text,
+                fontSize = 13.sp,
+                modifier = Modifier.weight(1f),
+            )
+            val curBlendName = if (layer?.blendMode == "copy") {
+                "正常"
+            } else {
+                vm.blendModes.firstOrNull { it.first == layer?.blendMode }?.second ?: layer?.blendMode ?: "正常"
+            }
+            Text(
+                curBlendName,
                 color = Morandi.subText,
                 fontSize = 13.sp,
             )
             Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = Morandi.subText, modifier = Modifier.size(16.dp))
         }
 
-        // 滤镜与颜色调整 (紧跟在混合模式下方, 无多余分隔线)
-        if (layer?.isGroup != true) {
+        // 滤镜与颜色调整 (非滤镜图层时显示)
+        if (layer?.isGroup != true && !isFilterLayer) {
             Row(
                 modifier =
                     Modifier
@@ -537,10 +557,65 @@ internal fun LayerDetailPage(
         )
 
         var showGroupPicker by remember { mutableStateOf(false) }
+        var showRasterizeConfirm by remember { mutableStateOf(false) }
         val availableGroups =
             remember(vm.layers) {
                 vm.layers.filter { it.isGroup && it.index != index }
             }
+
+        if (showRasterizeConfirm) {
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showRasterizeConfirm = false }) {
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth(0.9f)
+                            .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Morandi.panel)
+                            .glassBorder(RoundedCornerShape(14.dp))
+                            .padding(18.dp),
+                ) {
+                    Column {
+                        Text("栅格化滤镜图层", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "栅格化会将此滤镜效果永久烘焙合入下方图层并转换为普通绘画图层，此操作不可逆（但可通过撤销恢复）。是否继续？",
+                            color = Morandi.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panelHi)
+                                        .clickable { showRasterizeConfirm = false }
+                                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                            ) {
+                                Text("取消", color = Morandi.text, fontSize = 13.sp)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.accent)
+                                        .clickable {
+                                            showRasterizeConfirm = false
+                                            vm.rasterizeLayer(index)
+                                            onBack()
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                            ) {
+                                Text("确定栅格化", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (showGroupPicker) {
             androidx.compose.ui.window.Dialog(onDismissRequest = { showGroupPicker = false }) {
@@ -639,23 +714,33 @@ internal fun LayerDetailPage(
                 if (availableGroups.isNotEmpty()) {
                     OpItem(R.drawable.ic_folder, "移入图层组") { showGroupPicker = true }
                 }
-                OpItem(R.drawable.ic_flip_h, "水平翻转") { vm.flipLayerHorizontal(index) }
-                OpItem(R.drawable.ic_flip_v, "垂直翻转") { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0) {
+                OpItem(R.drawable.ic_flip_h, "水平翻转", enabled = !isFilterLayer) { vm.flipLayerHorizontal(index) }
+                OpItem(R.drawable.ic_flip_v, "垂直翻转", enabled = !isFilterLayer) { vm.flipLayerVertical(index) }
+                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0 && !isFilterLayer) {
                     vm.mergeDown(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_select, "从图层创建选区") { vm.selectionFromLayer(index) }
+                OpItem(R.drawable.ic_select, "从图层创建选区", enabled = !isFilterLayer) { vm.selectionFromLayer(index) }
                 OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg && !isFilterLayer) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
                 OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
-                OpItem(R.drawable.ic_fill, "栅格化为普通图层") { vm.rasterizeLayer(index) }
+                val canRasterize = isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup)
+                if (canRasterize) {
+                    OpItem(R.drawable.ic_fill, "栅格化为普通图层") {
+                        if (isFilterLayer) {
+                            showRasterizeConfirm = true
+                        } else {
+                            vm.rasterizeLayer(index)
+                            onBack()
+                        }
+                    }
+                }
             }
         }
     }

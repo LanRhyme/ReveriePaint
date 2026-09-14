@@ -39,12 +39,12 @@ internal fun PaintViewModel.addAdjustmentLayer(
         notifyLayerChanged()
         onCreated(currentLayerIndex)
     }) {
-        ReverieCoreBridge.createAdjustmentLayer(name, filterType, p1, p2, p3, p4)
+        ReverieCoreBridge.createAdjustmentLayer(name, filterType, p1, p2, p3, p4, lut)
     }
 }
 
 /**
- * 面板滑条实时预览: 只把参数推入层配置触发 merger 重算, 不录事件、不动临时字段。
+ * 面板滑条实时预览: 只把参数推入层配置触发 merger 重算, 不录事件、不入撤销栈。
  * 调整层模式不走像素预览三步 (与 merger 重算互踩)。
  */
 internal fun PaintViewModel.previewAdjustmentConfig(
@@ -56,14 +56,14 @@ internal fun PaintViewModel.previewAdjustmentConfig(
     p4: Double,
     lut: ByteArray? = null,
 ) {
-    runCore(render = false) {
-        ReverieCoreBridge.setAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut)
+    runCore {
+        ReverieCoreBridge.previewAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut)
     }
 }
 
 /**
- * 把调整面板当前参数提交为持久配置 (✓ 按钮): 记录事件 + 推入引擎。
- * 参数由面板直接给出 (标量类来自 adjustParamsOf, LUT 类打包字节)。
+ * 把调整面板当前参数提交为持久配置 (✓ 按钮): 记录事件 + 推入引擎撤销栈。
+ * origConfigJson 为进入面板前的配置快照, 确保撤销时完整回退到编辑前。
  */
 internal fun PaintViewModel.commitAdjustmentConfig(
     index: Int,
@@ -73,6 +73,7 @@ internal fun PaintViewModel.commitAdjustmentConfig(
     p3: Double,
     p4: Double,
     lut: ByteArray? = null,
+    origConfigJson: String? = null,
 ) {
     if (recorder.recording) {
         recorder.layerOp(
@@ -82,17 +83,17 @@ internal fun PaintViewModel.commitAdjustmentConfig(
         )
     }
     runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.setAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut)
+        ReverieCoreBridge.setAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut, origConfigJson)
     }
 }
 
 /**
- * 取消编辑: 把进入面板时的配置快照原样推回 (不录事件)。
+ * 取消编辑: 把进入面板时的配置快照原样推回 (不录事件、不入撤销栈)。
  */
 internal fun PaintViewModel.restoreAdjustmentConfig(index: Int, savedJson: String) {
     val cfg = AdjustmentConfigCodec.decodeJson(savedJson) ?: return
-    runCore(render = false) {
-        ReverieCoreBridge.setAdjustmentLayerConfig(index, cfg.type, cfg.p1, cfg.p2, cfg.p3, cfg.p4, cfg.lut)
+    runCore {
+        ReverieCoreBridge.previewAdjustmentLayerConfig(index, cfg.type, cfg.p1, cfg.p2, cfg.p3, cfg.p4, cfg.lut)
     }
 }
 

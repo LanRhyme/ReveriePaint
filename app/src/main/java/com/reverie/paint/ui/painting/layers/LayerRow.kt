@@ -448,12 +448,29 @@ internal fun LayerRowContent(
                 ),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())
-            vm.thumbFor(layer.index, layer.name)?.let { thumb ->
-                Image(
-                    bitmap = thumb.asImageBitmap(),
-                    contentDescription = "图层缩略图",
-                    modifier = Modifier.fillMaxSize(),
-                )
+            val isFilter = layer.nodeType == 3 || layer.name.contains("滤镜")
+            if (isFilter) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Morandi.accent.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_image_adjust),
+                        contentDescription = "滤镜图层",
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else {
+                vm.thumbFor(layer.index, layer.name)?.let { thumb ->
+                    Image(
+                        bitmap = thumb.asImageBitmap(),
+                        contentDescription = "图层缩略图",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
         Column(Modifier.weight(1f)) {
@@ -461,14 +478,14 @@ internal fun LayerRowContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (layer.name.contains("填充")) {
+                if (layer.nodeType == 2 || layer.name.contains("填充")) {
                     Icon(
                         painterResource(R.drawable.ic_fill),
                         contentDescription = "填充图层",
                         tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
-                } else if (layer.name.contains("滤镜")) {
+                } else if (layer.nodeType == 3 || layer.name.contains("滤镜")) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
                         contentDescription = "滤镜图层",
@@ -488,12 +505,12 @@ internal fun LayerRowContent(
             val blendName =
                 vm.blendModes.firstOrNull { it.first == layer.blendMode }?.second
                     ?: layer.blendMode
-            val isSpecial = layer.name.contains("填充") || layer.name.contains("滤镜")
+            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || layer.name.contains("填充") || layer.name.contains("滤镜")
             val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
             if (modified) {
                 val tag = when {
-                    layer.name.contains("填充") -> "填充 · "
-                    layer.name.contains("滤镜") -> "滤镜 · "
+                    layer.nodeType == 2 || layer.name.contains("填充") -> "填充 · "
+                    layer.nodeType == 3 || layer.name.contains("滤镜") -> "滤镜 · "
                     else -> ""
                 }
                 Text(

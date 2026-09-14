@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.layers
 
+import com.reverie.paint.model.AdjustmentConfigCodec
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -134,13 +135,20 @@ internal fun FilterAdjustPage(
     onDone: () -> Unit,
 ) {
     val index = indices.firstOrNull() ?: vm.currentLayerIndex
-    val st = remember { FilterAdjustState() }
-    var activeParamIndex by remember { mutableIntStateOf(0) }
-    var editingParamIndex by remember { mutableStateOf<Int?>(null) }
-
     // 调整层模式: 不走像素预览三步 (与 merger 重算互踩), 滑条节流直推层配置
     val isAdj = indices.size == 1 && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
     val savedJson = remember(isAdj) { if (isAdj) vm.snapshotAdjustmentConfig(index) else "" }
+    val st = remember {
+        val s = FilterAdjustState()
+        if (isAdj && savedJson.isNotEmpty()) {
+            AdjustmentConfigCodec.decodeJson(savedJson)?.let { cfg ->
+                applyConfigToState(cfg, s)
+            }
+        }
+        s
+    }
+    var activeParamIndex by remember { mutableIntStateOf(0) }
+    var editingParamIndex by remember { mutableStateOf<Int?>(null) }
     var lastPushMs by remember { mutableStateOf(0L) }
 
     /** 把曲线面板当前样条打包成 768B RGB LUT (调整层配置用)。 */
@@ -192,12 +200,12 @@ internal fun FilterAdjustPage(
         vm.applyGradientMapPreview(indices, lut)
     }
 
-    fun sendPreview() {
+    fun sendPreview(force: Boolean = false) {
         if (!st.isPreview && !isAdj) return
         // 调整层模式节流: 滑条高频回调直推 merger 会过载
-        if (isAdj) {
+        if (isAdj && !force) {
             val now = System.currentTimeMillis()
-            if (now - lastPushMs < 120) return
+            if (now - lastPushMs < 35) return
             lastPushMs = now
         }
         when (filterId) {
@@ -221,7 +229,7 @@ internal fun FilterAdjustPage(
     LaunchedEffect(Unit) {
         if (isAdj) {
             // 创建流已带初始参数; 进入面板把面板当前值再对齐一次 (不落像素)
-            sendPreview()
+            sendPreview(force = true)
         } else {
             vm.beginFilterPreview(indices)
             sendPreview()
@@ -255,12 +263,13 @@ internal fun FilterAdjustPage(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val eyeVisible = if (isAdj) (vm.layers.getOrNull(index)?.visible ?: st.isPreview) else st.isPreview
                 // Eye (Preview Toggle)
                 Box(
                     modifier = Modifier
                         .size(28.dp)
                         .clip(RoundedCornerShape(6.dp))
-                        .background(if (st.isPreview) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
+                        .background(if (eyeVisible) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
                         .noRippleClickable {
                             st.isPreview = !st.isPreview
                             if (isAdj) {
@@ -275,9 +284,9 @@ internal fun FilterAdjustPage(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painterResource(if (st.isPreview) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                        painterResource(if (eyeVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
                         contentDescription = "预览",
-                        tint = if (st.isPreview) Morandi.accent else Morandi.subText,
+                        tint = if (eyeVisible) Morandi.accent else Morandi.subText,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -364,16 +373,17 @@ internal fun FilterAdjustPage(
                             val isAdjNow = isAdj && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
                             if (isAdjNow) {
                                 when (filterId) {
-                                    13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
+                                    13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768(), origConfigJson = savedJson)
                                     30 -> {
                                         val lut = generateGradientLUTFromStops(st.customGradStops, st.reverseGradient)
-                                        vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
+                                        vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut), origConfigJson = savedJson)
                                     }
                                     else -> {
                                         val ap = adjustParamsOf(st, filterId)
                                         vm.commitAdjustmentConfig(
                                             index, filterId,
                                             ap?.p1 ?: 0.0, ap?.p2 ?: 0.0, ap?.p3 ?: 0.0, ap?.p4 ?: 0.0,
+                                            origConfigJson = savedJson,
                                         )
                                     }
                                 }

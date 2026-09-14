@@ -181,7 +181,7 @@ bool ReverieCore::mergeDown(int index)
         return false;
     }
     LayerEntry &e = m_layers[index];
-    if (e.isGroup || e.locked) {
+    if (e.isGroup || e.locked || e.nodeType == NodeTypeAdjustment) {
         return false;
     }
     // Target: nearest paint layer below (groups cannot be bitBlt targets)
@@ -536,6 +536,57 @@ bool ReverieCore::rasterizeLayer(int index)
     if (!image) return false;
     KisNodeSP node(m_layers[index].node);
     if (!node) return false;
+
+    if (m_layers[index].nodeType == NodeTypeAdjustment) {
+        const int iw = image->width();
+        const int ih = image->height();
+        const QRect fullRect(0, 0, iw, ih);
+
+        // 栅格化滤镜图层: 找到其在当前父容器下的起始有效内容层 (排除底层背景层 0)
+        int startIdx = 1;
+        KisNodeSP parent = node->parent();
+        if (parent && parent.data() != image->rootLayer().data()) {
+            for (int k = 0; k < index; ++k) {
+                if (m_layers[k].node == parent.data()) {
+                    startIdx = k + 1;
+                    break;
+                }
+            }
+        }
+
+        KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
+        compDev->clear(fullRect);
+        compositeLayersRange(compDev, startIdx, index + 1, fullRect);
+
+        KisPaintLayerSP paintLayer = new KisPaintLayer(
+            image,
+            m_layers[index].name + QStringLiteral(" (栅格化)"),
+            255,
+            image->colorSpace()
+        );
+        const QRect ext = compDev->exactBounds();
+        if (!ext.isEmpty()) {
+            KisPainter::copyAreaOptimized(ext.topLeft(), compDev, paintLayer->paintDevice(), ext);
+            paintLayer->paintDevice()->setDirty(ext);
+        }
+        paintLayer->setCompositeOpId(COMPOSITE_OVER);
+
+        KisNodeSP above = node->prevSibling();
+
+        beginUndoMacro(QStringLiteral("栅格化滤镜图层"));
+        for (int k = index; k >= startIdx; --k) {
+            pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[k].node)));
+        }
+        pushUndoCommand(new KisImageLayerAddCommand(image, paintLayer, parent, above));
+        endUndoMacro();
+
+        recompositeProjection();
+        syncLayersFromImage();
+        const int idx = indexOfNode(paintLayer.data());
+        if (idx >= 0) m_currentLayer = idx;
+        markDirty();
+        return true;
+    }
 
     KisPaintLayerSP paintLayer = new KisPaintLayer(image, m_layers[index].name + QStringLiteral(" (栅格化)"), m_layers[index].node->opacity(), image->colorSpace());
     if (KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index])) {

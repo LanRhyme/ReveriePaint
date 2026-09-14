@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.layers
 
+import com.reverie.paint.model.AdjustmentConfigCodec
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -308,6 +309,89 @@ internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams?
             else -> return null // 13 / 30 为 LUT 型, 走专用通道
     }
     return p
+}
+
+internal fun filterNameOf(filterId: Int): String {
+    return when (filterId) {
+        0 -> "色相 / 饱和度 / 明度 / 对比度"
+        1 -> "色彩平衡"
+        2 -> "高斯模糊"
+        3 -> "动感模糊"
+        4 -> "锐化"
+        5 -> "马赛克 / 像素化"
+        6 -> "反相 (底片效果)"
+        7 -> "亮度转透明度 (提取线稿)"
+        8 -> "查找边缘 (Sobel)"
+        9 -> "浮雕效果"
+        10 -> "杂色 / 噪点"
+        11 -> "色散错位 (Glitch)"
+        12 -> "去色 (灰度化)"
+        13 -> "曲线 (颜色调整)"
+        14 -> "色阶"
+        15 -> "色温与色调"
+        16 -> "阈值 (黑白二值化)"
+        17 -> "色调分离"
+        18 -> "泛光 / 辉光 (Bloom)"
+        19 -> "投影效果 (Drop Shadow)"
+        20 -> "亮度转不透明度"
+        21 -> "油画效果 (Kuwahara)"
+        22 -> "径向/缩放模糊"
+        23 -> "半色调网点"
+        24 -> "曝光度与伽马"
+        25 -> "边缘霓虹发光"
+        26 -> "散焦模糊 (镜头光圈)"
+        27 -> "阴影与高光"
+        28 -> "自然饱和度 (Vibrance)"
+        29 -> "颜色转透明度 (抠图)"
+        30 -> "渐变映射 (自定义调色板)"
+        31 -> "水波纹 / 涟漪扭曲"
+        32 -> "旋涡扭曲 (Swirl)"
+        33 -> "保边平滑 (Surface Blur)"
+        34 -> "扫描线与 CRT 风格"
+        else -> "滤镜"
+    }
+}
+
+internal fun applyConfigToState(cfg: AdjustmentConfigCodec.Config, st: FilterAdjustState) {
+    val p1 = cfg.p1.toFloat()
+    val p2 = cfg.p2.toFloat()
+    val p3 = cfg.p3.toFloat()
+    val p4 = cfg.p4.toFloat()
+    when (cfg.type) {
+        0 -> { st.hue = p1; st.sat = p2; st.bright = p3; st.contrast = p4 }
+        1 -> { st.cr = p1; st.mg = p2; st.yb = p3 }
+        2 -> { st.blurRadius = p1 }
+        3 -> { st.motionAngle = p1; st.motionDist = p2 }
+        4 -> { st.sharpenAmt = p1 }
+        5 -> { st.mosaicSize = p1 }
+        6 -> { st.invertAmt = p1 }
+        7 -> { st.lineartThresh = p1; st.lineartWhiteLine = p2 > 0.5f }
+        8 -> { st.sobelStrength = p1; st.sobelMode = p2.toInt() }
+        9 -> { st.embossDepth = p1; st.embossAngle = p2; st.embossPreserveColor = p3 > 0.5f }
+        10 -> { st.noiseAmt = p1 }
+        11 -> { st.glitchOffset = p1 }
+        12 -> { st.desaturateAmt = p1 }
+        14 -> { st.levelBlack = p1; st.levelWhite = p2; st.levelGamma = p3 }
+        15 -> { st.tempVal = p1; st.tintVal = p2 }
+        16 -> { st.thresholdVal = p1 }
+        17 -> { st.posterizeLevels = p1 }
+        18 -> { st.bloomThresh = p1; st.bloomRadius = p2; st.bloomIntensity = p3 }
+        19 -> { st.shadowAngle = p1; st.shadowDist = p2; st.shadowRadius = p3; st.shadowOpacity = p4 }
+        20 -> { st.lumOpacityInvert = p1 > 0.5f }
+        21 -> { st.oilRadius = p1 }
+        22 -> { st.radialBlurAmt = p1 }
+        23 -> { st.halftoneDotSize = p1 }
+        24 -> { st.exposureVal = p1; st.exposureGamma = p2 }
+        25 -> { st.edgeGlowStrength = p1; st.edgeGlowRadius = p2; st.edgeGlowHue = p3.toInt() }
+        26 -> { st.defocusRadius = p1 }
+        27 -> { st.shadowBoost = p1; st.highlightReduce = p2 }
+        28 -> { st.vibranceAmt = p1 }
+        29 -> { st.colorToAlphaTarget = p1.toInt(); st.colorToAlphaTol = p2; st.colorToAlphaSmooth = p3 }
+        31 -> { st.rippleAmp = p1; st.rippleFreq = p2 }
+        32 -> { st.twirlAngle = p1; st.twirlRadius = p2 }
+        33 -> { st.surfaceBlurRadius = p1; st.surfaceBlurThresh = p2 }
+        34 -> { st.scanlineSpacing = p1; st.scanlineIntensity = p2 }
+    }
 }
 
 /**

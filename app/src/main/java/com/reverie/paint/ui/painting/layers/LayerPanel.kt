@@ -281,6 +281,14 @@ fun LayerPanel(
                             onBack = { view = LayerView.List },
                             onOpenBlendModes = { view = LayerView.BlendModes(v.index) },
                             onOpenFilters = { view = LayerView.Filters(v.index) },
+                            onOpenFilterAdjust = { filterId, filterName ->
+                                if (onStartFilterSession != null) {
+                                    onStartFilterSession(FilterSession(listOf(v.index), filterId, filterName))
+                                    onClose()
+                                } else {
+                                    view = LayerView.FilterAdjust(listOf(v.index), filterId, filterName)
+                                }
+                            },
                             onRename = { renameRequest = it },
                         )
                     }
@@ -328,8 +336,53 @@ fun LayerPanel(
                     }
 
                     is LayerView.FiltersCreate -> {
-                        // 滤镜图层功能暂时下线 (回滚), 路由保留兜底
-                        view = LayerView.List
+                        FiltersPage(
+                            vm = vm,
+                            indices = emptyList(),
+                            initialCategoryId = initialFilterCategoryId,
+                            onBack = { view = LayerView.List },
+                            onSelectFilter = { filterId, filterName ->
+                                val st = FilterAdjustState()
+                                val ap = adjustParamsOf(st, filterId)
+                                val lut: ByteArray? = when (filterId) {
+                                    13 -> {
+                                        val out = ByteArray(768)
+                                        for (i in 0..255) {
+                                            out[i] = i.toByte()
+                                            out[256 + i] = i.toByte()
+                                            out[512 + i] = i.toByte()
+                                        }
+                                        out
+                                    }
+                                    30 -> {
+                                        val defaultStops = listOf(
+                                            CustomGradStop(1L, 0.0f, Color(0xFF2C0B38)),
+                                            CustomGradStop(2L, 0.35f, Color(0xFFB82E55)),
+                                            CustomGradStop(3L, 0.7f, Color(0xFFE88A35)),
+                                            CustomGradStop(4L, 1.0f, Color(0xFFFFF6A5)),
+                                        )
+                                        packIntsLE1024(generateGradientLUTFromStops(defaultStops, false))
+                                    }
+                                    else -> null
+                                }
+                                vm.addAdjustmentLayer(
+                                    name = "滤镜 · $filterName",
+                                    filterType = filterId,
+                                    p1 = ap?.p1 ?: 0.0,
+                                    p2 = ap?.p2 ?: 0.0,
+                                    p3 = ap?.p3 ?: 0.0,
+                                    p4 = ap?.p4 ?: 0.0,
+                                    lut = lut,
+                                ) { newIdx ->
+                                    if (onStartFilterSession != null) {
+                                        onStartFilterSession(FilterSession(listOf(newIdx), filterId, filterName))
+                                        onClose()
+                                    } else {
+                                        view = LayerView.FilterAdjust(listOf(newIdx), filterId, filterName)
+                                    }
+                                }
+                            }
+                        )
                     }
                 }
             }

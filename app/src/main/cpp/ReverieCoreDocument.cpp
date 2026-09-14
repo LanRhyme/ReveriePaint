@@ -88,6 +88,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     image->setResolution(72.0, 72.0);
 
     image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    registerCoreFilters();
 
     // Background layer (transparent, locked): index 0, controls projection background
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);

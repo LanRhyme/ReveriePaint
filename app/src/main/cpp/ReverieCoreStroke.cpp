@@ -749,18 +749,37 @@ void ReverieCore::undo()
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
     }
+
+    QVector<KisNode *> oldNodes;
+    oldNodes.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldNodes.append(e.node);
+    }
+
+    const KUndo2Command *cmd = m_undoStore->presentCommand();
+    const bool isStructuralCmd = dynamic_cast<const KisImageLayerAddCommand *>(cmd) != nullptr ||
+                                 dynamic_cast<const KisImageLayerRemoveCommand *>(cmd) != nullptr ||
+                                 dynamic_cast<const KisImageLayerMoveCommand *>(cmd) != nullptr;
+
     m_undoStore->undo();
     ++m_redoCount;
     syncLayersFromImage();
-    for (int i = 0; i < m_layers.size(); ++i) {
-        if (KisLayer *l = dynamic_cast<KisLayer *>(m_layers[i].node)) {
-            if (KisPaintDeviceSP dev = l->paintDevice()) {
-                dev->setDirty();
+
+    bool structureChanged = isStructuralCmd || oldNodes.size() != m_layers.size();
+    if (!structureChanged) {
+        for (int i = 0; i < oldNodes.size(); ++i) {
+            if (oldNodes[i] != m_layers[i].node) {
+                structureChanged = true;
+                break;
             }
         }
-        bumpLayerThumbGen(m_layers[i].node);
     }
-    recompositeProjection();
+
+    if (structureChanged) {
+        recompositeProjection();
+    } else {
+        m_document->waitForDone();
+    }
     markDirty();
     m_snapshotPending = false;
 }
@@ -770,18 +789,32 @@ void ReverieCore::redo()
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
     }
+
+    QVector<KisNode *> oldNodes;
+    oldNodes.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldNodes.append(e.node);
+    }
+
     m_undoStore->redo();
     --m_redoCount;
     syncLayersFromImage();
-    for (int i = 0; i < m_layers.size(); ++i) {
-        if (KisLayer *l = dynamic_cast<KisLayer *>(m_layers[i].node)) {
-            if (KisPaintDeviceSP dev = l->paintDevice()) {
-                dev->setDirty();
+
+    bool structureChanged = oldNodes.size() != m_layers.size();
+    if (!structureChanged) {
+        for (int i = 0; i < oldNodes.size(); ++i) {
+            if (oldNodes[i] != m_layers[i].node) {
+                structureChanged = true;
+                break;
             }
         }
-        bumpLayerThumbGen(m_layers[i].node);
     }
-    recompositeProjection();
+
+    if (structureChanged) {
+        recompositeProjection();
+    } else {
+        m_document->waitForDone();
+    }
     markDirty();
     m_snapshotPending = false;
 }

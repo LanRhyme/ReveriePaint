@@ -162,10 +162,16 @@ public:
     bool addLayerWithType(const QString &name, int type, quint32 fillColor = 0xFFFFFFFF);
     // 非破坏性调整图层 (KisAdjustmentLayer, 滤镜 ID reverie-f<type>)
     bool createAdjustmentLayer(const QString &name, int filterType,
-                               double p1 = 0.0, double p2 = 0.0, double p3 = 0.0, double p4 = 0.0);
+                               double p1 = 0.0, double p2 = 0.0, double p3 = 0.0, double p4 = 0.0,
+                               const QByteArray &lut = QByteArray());
+    bool previewAdjustmentLayerConfig(int index, int filterType,
+                                      double p1, double p2, double p3, double p4,
+                                      const QByteArray &lut = QByteArray());
     bool setAdjustmentLayerConfig(int index, int filterType,
                                   double p1, double p2, double p3, double p4,
-                                  const QByteArray &lut = QByteArray());
+                                  const QByteArray &lut = QByteArray(),
+                                  bool recordUndo = true,
+                                  const QString &origConfigJson = QString());
     QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);

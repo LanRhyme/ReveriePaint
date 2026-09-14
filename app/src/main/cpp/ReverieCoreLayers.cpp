@@ -24,20 +24,28 @@ bool ReverieCore::isLayerEditable(int index) const
     if (index < 0 || index >= m_layers.size()) {
         return false;
     }
-    const LayerEntry &e = m_layers[index];
-    return !(e.isGroup || e.background || e.locked);
+    const auto &e = m_layers[index];
+    return !(e.isGroup || e.background || e.locked || e.nodeType == NodeTypeAdjustment);
 }
 
-KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &e) const
+KisPaintDeviceSP ReverieCore::layerPaintDeviceFor(const LayerEntry &entry) const
 {
-    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
-        return pl->paintDevice();
-    } else if (KisMask *m = dynamic_cast<KisMask *>(e.node)) {
-        return m->paintDevice();
-    } else if (KisLayer *l = dynamic_cast<KisLayer *>(e.node)) {
-        return l->paintDevice() ? l->paintDevice() : l->projection();
+    if (!entry.node || entry.nodeType == NodeTypeAdjustment) {
+        return nullptr;
     }
-    return KisPaintDeviceSP();
+    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(entry.node)) {
+        return pl->paintDevice();
+    }
+    if (dynamic_cast<KisAdjustmentLayer *>(entry.node)) {
+        return nullptr;
+    }
+    if (KisMask *m = dynamic_cast<KisMask *>(entry.node)) {
+        return m->paintDevice();
+    }
+    if (KisLayer *l = dynamic_cast<KisLayer *>(entry.node)) {
+        return l->projection();
+    }
+    return nullptr;
 }
 
 
@@ -350,6 +358,11 @@ void ReverieCore::removeLayer(int index)
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
     recompositeProjection();
     syncLayersFromImage();
+    if (m_currentLayer >= m_layers.size()) {
+        m_currentLayer = qMax(0, m_layers.size() - 1);
+    } else if (m_currentLayer == index) {
+        m_currentLayer = qMax(0, index - 1);
+    }
     markDirty();
 }
 
@@ -423,8 +436,7 @@ void ReverieCore::setLayerVisible(int index, bool visible)
             const KoColorSpace *cs = m_document->colorSpace();
             m_document->setDefaultProjectionColor(visible ? KoColor(Qt::white, cs) : KoColor(Qt::transparent, cs));
         }
-        m_layers[index].node->setDirty(
-            QRect(0, 0, m_document->width(), m_document->height()));
+        recompositeProjection();
         markDirty();
     }
 }
@@ -499,7 +511,11 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
     const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
     // Krita-native undo: the opacity command redo() applies the value
     pushUndoCommand(new KisNodeOpacityCommand(KisNodeSP(m_layers[index].node), o));
-    m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+    if (m_layers[index].nodeType == NodeTypeAdjustment) {
+        recompositeProjection();
+    } else {
+        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+    }
     markDirty();
 }
 
@@ -515,7 +531,11 @@ void ReverieCore::setLayerOpacityDirect(int index, qreal opacity)
     const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
     if (m_layers[index].node->opacity() != o) {
         m_layers[index].node->setOpacity(o);
-        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+        if (m_layers[index].nodeType == NodeTypeAdjustment) {
+            recompositeProjection();
+        } else {
+            m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+        }
         markDirty();
     }
 }
@@ -528,8 +548,12 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
     if (m_layers[index].node) {
         // Krita-native undo: the composite-op command redo() applies the op
         pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), opId));
-        m_layers[index].node->setDirty(
-            QRect(0, 0, m_document->width(), m_document->height()));
+        if (m_layers[index].nodeType == NodeTypeAdjustment) {
+            recompositeProjection();
+        } else {
+            m_layers[index].node->setDirty(
+                QRect(0, 0, m_document->width(), m_document->height()));
+        }
         markBlendChanged(index);
     }
 }

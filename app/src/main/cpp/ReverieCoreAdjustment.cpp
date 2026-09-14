@@ -20,8 +20,10 @@
 KisFilterConfigurationSP ReverieCore::reverieMakeConfig(int filterType, double p1, double p2, double p3, double p4,
                                            const QByteArray &lut)
 {
-    KisFilterSP filter = KisFilterRegistry::instance()->get(QString("reverie-f%1").arg(filterType));
+    registerCoreFilters();
+    KisFilterSP filter = KisFilterRegistry::instance()->get(QStringLiteral("reverie-f%1").arg(filterType));
     if (!filter) {
+        RPC_LOG("reverieMakeConfig: filter reverie-f%d not found", filterType);
         return nullptr;
     }
     KisFilterConfigurationSP config = filter->factoryConfiguration(KisGlobalResourcesInterface::instance());
@@ -33,11 +35,12 @@ KisFilterConfigurationSP ReverieCore::reverieMakeConfig(int filterType, double p
     if (!lut.isEmpty()) {
         config->setProperty("lut", lut);
     }
-    return config;
+    return config->cloneWithResourcesSnapshot();
 }
 
 bool ReverieCore::createAdjustmentLayer(const QString &name, int filterType,
-                                        double p1, double p2, double p3, double p4)
+                                        double p1, double p2, double p3, double p4,
+                                        const QByteArray &lut)
 {
     KisImageSP image = m_document;
     if (!image) {
@@ -51,7 +54,7 @@ bool ReverieCore::createAdjustmentLayer(const QString &name, int filterType,
     if (finalName.isEmpty()) {
         finalName = QString("调整图层 %1").arg(count);
     }
-    KisFilterConfigurationSP config = reverieMakeConfig(filterType, p1, p2, p3, p4, QByteArray());
+    KisFilterConfigurationSP config = reverieMakeConfig(filterType, p1, p2, p3, p4, lut);
     if (!config) {
         return false;
     }
@@ -84,11 +87,18 @@ public:
         , m_layer(layer)
         , m_old(oldCfg)
         , m_new(newCfg)
+        , m_firstRedo(true)
     {
     }
 
     void redo() override
     {
+        // KUndo2QStack::push calls redo() while m_image->barrierLock() is held.
+        // Calling waitForDone() during initial push causes an infinite deadlock.
+        if (m_firstRedo) {
+            m_firstRedo = false;
+            return;
+        }
         if (m_layer && m_new) {
             m_layer->setFilter(m_new);
             refresh();
@@ -116,12 +126,15 @@ private:
     QPointer<KisAdjustmentLayer> m_layer;
     KisFilterConfigurationSP m_old;
     KisFilterConfigurationSP m_new;
+    bool m_firstRedo;
 };
 } // namespace
 
 bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
                                            double p1, double p2, double p3, double p4,
-                                           const QByteArray &lut)
+                                           const QByteArray &lut,
+                                           bool recordUndo,
+                                           const QString &origConfigJson)
 {
     if (index < 0 || index >= m_layers.size()) {
         return false;
@@ -146,10 +159,54 @@ bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
         return true;
     }
 
+    if (!recordUndo) {
+        layer->setFilter(newCfg);
+        if (m_document) {
+            m_document->refreshGraphAsync();
+            m_document->waitForDone();
+        }
+        markDirty();
+        return true;
+    }
+
+    // 若给出了面板进入时的原始快照 JSON, 优先以该原始快照作为 undo 的 oldCfg,
+    // 使得拖动滑块完成后的单个 Undo 能够直接完整回退到进入面板前的状态
+    if (!origConfigJson.isEmpty()) {
+        QJsonParseError err;
+        QJsonDocument doc = QJsonDocument::fromJson(origConfigJson.toUtf8(), &err);
+        if (err.error == QJsonParseError::NoError && doc.isObject()) {
+            QJsonObject o = doc.object();
+            const int oType = o["type"].toInt();
+            const double op1 = o["p1"].toDouble();
+            const double op2 = o["p2"].toDouble();
+            const double op3 = o["p3"].toDouble();
+            const double op4 = o["p4"].toDouble();
+            QByteArray oLut;
+            if (o.contains("lut")) {
+                oLut = QByteArray::fromBase64(o["lut"].toString().toLatin1());
+            }
+            if (KisFilterConfigurationSP origCfg = reverieMakeConfig(oType, op1, op2, op3, op4, oLut)) {
+                oldCfg = origCfg;
+            }
+        }
+    }
+
+    layer->setFilter(newCfg);
     pushUndoCommand(new ReverieAdjustmentConfigCommand(m_document, layer, oldCfg, newCfg));
+    if (m_document) {
+        m_document->refreshGraphAsync();
+        m_document->waitForDone();
+    }
     syncLayersFromImage();
     markDirty();
     return true;
+}
+
+bool ReverieCore::previewAdjustmentLayerConfig(int index, int filterType,
+                                               double p1, double p2, double p3, double p4,
+                                               const QByteArray &lut)
+{
+    return setAdjustmentLayerConfig(index, filterType, p1, p2, p3, p4, lut, false);
 }
 
 QString ReverieCore::getAdjustmentLayerConfig(int index)

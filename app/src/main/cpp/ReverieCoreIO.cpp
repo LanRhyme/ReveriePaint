@@ -269,7 +269,7 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     QVector<QPair<int, QImage>> layerImages;
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
-        if (e.isGroup) continue;
+        if (e.isGroup || e.nodeType == NodeTypeAdjustment) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) continue;
 
@@ -350,7 +350,7 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
     QVector<QPair<int, QImage>> layerImages;
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
-        if (e.isGroup) continue;
+        if (e.isGroup || e.nodeType == NodeTypeAdjustment) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) continue;
 
@@ -876,7 +876,7 @@ bool ReverieCore::saveKra(const QString &path)
     // 4. Save layer image devices as PNGs
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
-        if (e.isGroup) continue;
+        if (e.isGroup || e.nodeType == NodeTypeAdjustment) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) continue;
 
@@ -996,6 +996,9 @@ bool ReverieCore::loadPng(const QString &path)
 bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride)
 {
     if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0) {
+        return false;
+    }
+    if (m_layers[index].nodeType == NodeTypeAdjustment) {
         return false;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);

@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.layers
 
+import com.reverie.paint.model.AdjustmentConfigCodec
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -610,13 +611,19 @@ internal class FilterSessionController(
     val vm: PaintViewModel,
     val onDismiss: () -> Unit,
 ) {
-    val state = FilterAdjustState()
-    var activeParamIndex by mutableIntStateOf(0)
-    var isHoldingCompare by mutableStateOf(false)
-        private set
     val index = session.indices.firstOrNull() ?: vm.currentLayerIndex
     val isAdj = session.indices.size == 1 && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
     val savedJson = if (isAdj) vm.snapshotAdjustmentConfig(index) else ""
+    val state = FilterAdjustState().apply {
+        if (isAdj && savedJson.isNotEmpty()) {
+            AdjustmentConfigCodec.decodeJson(savedJson)?.let { cfg ->
+                applyConfigToState(cfg, this)
+            }
+        }
+    }
+    var activeParamIndex by mutableIntStateOf(0)
+    var isHoldingCompare by mutableStateOf(false)
+        private set
     private var lastPushMs = 0L
 
     fun activeParamDefs(): List<FilterParamDef> = filterParamDefinitions(session.filterId)
@@ -689,23 +696,24 @@ internal class FilterSessionController(
 
     private fun applyComparePreview() {
         if (isAdj) {
-            // 对比原图: 调整图层设为原图状态 (HSV identity: 0, 1.0, 1.0, 1.0)
-            vm.previewAdjustmentConfig(index, 0, 0.0, 1.0, 1.0, 1.0)
+            vm.runCore {
+                ReverieCoreBridge.setLayerVisible(index, false)
+            }
         } else {
             // 普通图层: 利用 m_filterBackups 做原图写入与投影刷新
             vm.applyFilterPreview(session.indices, 0, 0.0, 1.0, 1.0, 1.0)
         }
     }
 
-    fun sendPreview() {
+    fun sendPreview(force: Boolean = false) {
         if (!state.isPreview && !isAdj) return
         if (isHoldingCompare) {
             applyComparePreview()
             return
         }
-        if (isAdj) {
+        if (isAdj && !force) {
             val now = System.currentTimeMillis()
-            if (now - lastPushMs < 120) return
+            if (now - lastPushMs < 35) return
             lastPushMs = now
         }
         when (session.filterId) {
@@ -734,23 +742,31 @@ internal class FilterSessionController(
         val defs = filterParamDefinitions(session.filterId)
         val p = defs.getOrNull(paramIndex) ?: return
         p.setter(state, value.coerceIn(p.range))
-        sendPreview()
+        sendPreview(force = true)
     }
 
     fun updateHoldingCompare(holding: Boolean) {
         if (isHoldingCompare != holding) {
             isHoldingCompare = holding
-            sendPreview()
+            if (isAdj && !holding) {
+                vm.runCore {
+                    ReverieCoreBridge.setLayerVisible(index, true)
+                }
+            }
+            sendPreview(force = true)
         }
     }
 
     fun reset() {
         state.reset()
-        sendPreview()
+        sendPreview(force = true)
     }
 
     fun cancel() {
         if (isAdj) {
+            vm.runCore {
+                ReverieCoreBridge.setLayerVisible(index, true)
+            }
             vm.restoreAdjustmentConfig(index, savedJson)
         } else {
             vm.cancelFilter(session.indices)
@@ -762,16 +778,17 @@ internal class FilterSessionController(
         val isAdjNow = isAdj && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
         if (isAdjNow) {
             when (session.filterId) {
-                13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
+                13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768(), origConfigJson = savedJson)
                 30 -> {
                     val lut = generateGradientLUTFromStops(state.customGradStops, state.reverseGradient)
-                    vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
+                    vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut), origConfigJson = savedJson)
                 }
                 else -> {
                     val ap = adjustParamsOf(state, session.filterId)
                     vm.commitAdjustmentConfig(
                         index, session.filterId,
                         ap?.p1 ?: 0.0, ap?.p2 ?: 0.0, ap?.p3 ?: 0.0, ap?.p4 ?: 0.0,
+                        origConfigJson = savedJson,
                     )
                 }
             }
