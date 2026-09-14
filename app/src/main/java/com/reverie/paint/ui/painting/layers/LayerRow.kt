@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
@@ -188,6 +189,9 @@ internal fun LayerRow(
             modifier
                 .fillMaxWidth()
                 .height(rowHeight)
+                // Clip overflow so the buttons (initially to the right of the
+                // visible area) are hidden until the row slides left
+                .clipToBounds()
                 .pressScale(rowInteraction, pressedScale = 0.97f)
                 .onGloballyPositioned { c ->
                     rowTop = c.boundsInRoot().top
@@ -200,8 +204,6 @@ internal fun LayerRow(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
                         val startY = down.position.y
-                        // Offset when the finger went down (handles drag-to-close
-                        // from an already-open drawer)
                         val startOffset = revealAnim.value
                         var gestureSwiping = false
                         var lastDx = 0f
@@ -215,11 +217,9 @@ internal fun LayerRow(
                             if (change == null || change.changedToUpIgnoreConsumed()) break
                             val dx = change.position.x - startX
                             val dy = change.position.y - startY
-                            // Simple exponential velocity estimate (px/s, capped)
                             val nowNs = change.uptimeMillis * 1_000_000L
                             val dt = ((nowNs - prevTimeNs) / 1_000_000f).coerceAtLeast(1f)
-                            velocityX = ((change.position.x - prevX) / dt * 1000f)
-                                .coerceIn(-5000f, 5000f)
+                            velocityX = ((change.position.x - prevX) / dt * 1000f).coerceIn(-5000f, 5000f)
                             prevX = change.position.x
                             prevTimeNs = nowNs
 
@@ -231,7 +231,6 @@ internal fun LayerRow(
                             if (gestureSwiping) {
                                 change.consume()
                                 if (dx > 0 && startOffset >= -revealThresholdPx) {
-                                    // Right-swipe from closed: multi-select toggle
                                     val target = dx.coerceIn(0f, selectMaxPx.toFloat())
                                     scope.launch { revealAnim.snapTo(target) }
                                     lastDx = dx
@@ -241,7 +240,6 @@ internal fun LayerRow(
                                         onSelect()
                                     }
                                 } else {
-                                    // Left-swipe to reveal OR right-swipe to close an open drawer
                                     val target = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
                                     scope.launch { revealAnim.snapTo(target) }
                                     lastDx = dx
@@ -249,16 +247,9 @@ internal fun LayerRow(
                             }
                         }
                         if (gestureSwiping) {
-                            // Fling/threshold judgment: open if swiped far left (>40% of
-                            // drawer) OR fast left fling; close on right fling or short swipe
                             val currentOffset = revealAnim.value
-                            val shouldReveal =
-                                currentOffset < -drawerPx * 0.4f || velocityX < -500f
-                            if (shouldReveal) {
-                                onReveal()
-                            } else {
-                                onRevealClose()
-                            }
+                            val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
+                            if (shouldReveal) onReveal() else onRevealClose()
                         }
                     }
                 }.combinedClickable(
@@ -271,36 +262,11 @@ internal fun LayerRow(
                     },
                 ),
     ) {
-        // ── Bottom layer: action drawer (copy / solo / delete) ──────────────
-        // Always rendered so buttons are visible the instant the foreground row
-        // starts sliding left. No AnimatedVisibility gate means no delayed
-        // fade-in after the swipe distance threshold.
-        Row(
-            modifier =
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .fillMaxHeight()
-                    .width(drawerWidth),
-        ) {
-            DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
-                vm.copyLayer(index)
-                onRevealClose()
-            }
-            DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
-                vm.soloLayer(index)
-                onRevealClose()
-            }
-            DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
-                if (!isBg) vm.removeLayer(index)
-                onRevealClose()
-            }
-        }
-
-        // ── Top (foreground) layer: row visuals ─────────────────────────────
-        // Must have an opaque background so it fully covers the drawer buttons
-        // while not swiped. The background is a blend of Morandi.panel with the
-        // selection/drag highlight color so the panel base color is never
-        // transparent (which would expose the drawer at rest).
+        // Row content + action buttons as a single unit that shifts left together.
+        // The buttons live at the right edge of the inner Box (offset by drawerPx
+        // relative to the visible area), hidden by the outer clipToBounds at rest.
+        // As revealAnim goes negative the whole unit slides left and the buttons
+        // enter the visible area from the right — instant, no visibility gate.
         val rowBgColor by animateColorAsState(
             targetValue =
                 when {
@@ -312,23 +278,52 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "rowBg",
         )
-        LayerRowContent(
-            vm = vm,
-            layer = layer,
-            selected = selected,
-            collapsed = collapsed,
-            index = index,
-            onToggleCollapse = onToggleCollapse,
+        Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .zIndex(1f)
                     .background(rowBgColor)
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
-                    .graphicsLayer { if (isDragging) alpha = 0.4f }
+                    .graphicsLayer { if (isDragging) alpha = 0.4f },
+        ) {
+            LayerRowContent(
+                vm = vm,
+                layer = layer,
+                selected = selected,
+                collapsed = collapsed,
+                index = index,
+                onToggleCollapse = onToggleCollapse,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
                     .padding(horizontal = 4.dp),
-        )
+            )
+            // Buttons are attached right of the content: positioned at the right
+            // edge of the Box + drawerWidth so they start just off-screen.
+            // They slide into view as the Box shifts left by revealAnim.
+            Row(
+                modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset { IntOffset(drawerPx, 0) }
+                        .width(drawerWidth)
+                        .fillMaxHeight(),
+            ) {
+                DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
+                    vm.copyLayer(index)
+                    onRevealClose()
+                }
+                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
+                    vm.soloLayer(index)
+                    onRevealClose()
+                }
+                DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
+                    if (!isBg) vm.removeLayer(index)
+                    onRevealClose()
+                }
+            }
+        }
     }
 }
 
