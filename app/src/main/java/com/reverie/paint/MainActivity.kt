@@ -4,7 +4,10 @@
 
 package com.reverie.paint
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.view.DragEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.togetherWith
@@ -139,9 +142,96 @@ class MainActivity : ComponentActivity() {
                 vm.syncSettingsFromPrefs()
                 vm.refreshProjects()
                 vm.loadBrushPresets()
+                handleIncomingIntent(intent)
             }
             applyImmersive(vm.immersiveMode, vm.extendToCutout)
             ReverieApp(vm)
+        }
+        setupDragAndDrop()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action ?: return
+        val uris = mutableListOf<Uri>()
+
+        when (action) {
+            Intent.ACTION_SEND -> {
+                val streamUri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                val targetUri = streamUri ?: intent.data ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                targetUri?.let { uris.add(it) }
+            }
+
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val streamUris = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                }
+                if (!streamUris.isNullOrEmpty()) {
+                    uris.addAll(streamUris)
+                } else {
+                    val clipData = intent.clipData
+                    if (clipData != null) {
+                        for (i in 0 until clipData.itemCount) {
+                            clipData.getItemAt(i).uri?.let { uris.add(it) }
+                        }
+                    }
+                }
+            }
+
+            Intent.ACTION_VIEW -> {
+                val viewUri = intent.data ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                viewUri?.let { uris.add(it) }
+            }
+        }
+
+        if (uris.isNotEmpty()) {
+            currentViewModel?.handleIncomingUris(uris, this)
+        }
+    }
+
+    private fun setupDragAndDrop() {
+        window.decorView.setOnDragListener { _, event ->
+            when (event.action) {
+                DragEvent.ACTION_DRAG_STARTED -> {
+                    // Accept any drag event carrying clip description
+                    event.clipDescription != null
+                }
+
+                DragEvent.ACTION_DROP -> {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        requestDragAndDropPermissions(event)
+                    }
+                    val clipData = event.clipData
+                    val uris = mutableListOf<Uri>()
+                    if (clipData != null) {
+                        for (i in 0 until clipData.itemCount) {
+                            clipData.getItemAt(i).uri?.let { uris.add(it) }
+                        }
+                    }
+                    if (uris.isNotEmpty()) {
+                        currentViewModel?.handleIncomingUris(uris, this)
+                        true
+                    } else {
+                        false
+                    }
+                }
+
+                else -> true
+            }
         }
     }
 

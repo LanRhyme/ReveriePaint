@@ -720,9 +720,19 @@ fun PaintingPage(
             )
         }
 
+        val droppedImageUri = vm.pendingExternalImageUri
+        if (droppedImageUri != null) {
+            ExternalImageImportDialog(
+                uri = droppedImageUri,
+                vm = vm,
+                onDismiss = { vm.pendingExternalImageUri = null },
+            )
+        }
+
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
             when {
+                vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
                 brushPanelOpen -> brushPanelOpen = false

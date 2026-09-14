@@ -1137,3 +1137,55 @@ private fun queryFileName(context: android.content.Context, uri: android.net.Uri
     return uri.path?.substringAfterLast('/')
 }
 
+fun isImageFile(context: android.content.Context, uri: android.net.Uri): Boolean {
+    val name = queryFileName(context, uri) ?: uri.path ?: ""
+    val ext = name.substringAfterLast('.', "").lowercase()
+    if (ext in listOf("png", "jpg", "jpeg", "webp", "bmp", "gif")) return true
+    val mime = try { context.contentResolver.getType(uri) } catch (e: Exception) { null }
+    return mime?.startsWith("image/") == true
+}
+
+fun PaintViewModel.importImageUriToNewLayer(
+    uri: android.net.Uri,
+    context: android.content.Context,
+) {
+    viewModelScope.launch(Dispatchers.IO) {
+        try {
+            val bmp = context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            }
+            if (bmp != null) {
+                withContext(Dispatchers.Main) {
+                    importImageToNewLayer(bmp) {
+                        showActionToast("已插入新图层", R.drawable.ic_check)
+                    }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "无法解码图片数据", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("RP_IMPORT", "importImageUriToNewLayer failed", e)
+        }
+    }
+}
+
+fun PaintViewModel.handleIncomingUris(
+    uris: List<android.net.Uri>,
+    context: android.content.Context,
+) {
+    if (uris.isEmpty()) return
+    if (currentPage == Page.PAINTING) {
+        if (uris.size == 1 && isImageFile(context, uris[0])) {
+            pendingExternalImageUri = uris[0]
+        } else {
+            importDocuments(uris, context)
+            showActionToast("已在后台导入至画廊", R.drawable.ic_import)
+        }
+    } else {
+        importDocuments(uris, context)
+    }
+}
+
+

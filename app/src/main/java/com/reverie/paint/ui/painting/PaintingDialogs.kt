@@ -266,3 +266,130 @@ internal fun DiscardConfirmDialog(
             }
         }
 }
+
+@Composable
+fun ExternalImageImportDialog(
+    uri: android.net.Uri,
+    vm: PaintViewModel,
+    onDismiss: () -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+        ),
+    ) {
+        androidx.compose.material3.Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Morandi.panel,
+            border = androidx.compose.foundation.BorderStroke(1.dp, Morandi.border),
+            shadowElevation = 16.dp,
+            modifier = Modifier.width(360.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_image),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "外部图片导入",
+                        color = Morandi.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = "检测到从外部拖入或分享的图片，请选择处理方式：",
+                    color = Morandi.subText,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Spacer(Modifier.height(20.dp))
+
+                // 选项一：插入为新图层
+                ReTextButton(
+                    text = "插入为新图层",
+                    onClick = {
+                        onDismiss()
+                        vm.importImageUriToNewLayer(uri, context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = R.drawable.ic_layers,
+                    containerColor = Morandi.accent,
+                    contentColor = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                // 选项二：载入为参考图
+                ReTextButton(
+                    text = "载入参考图窗口",
+                    onClick = {
+                        onDismiss()
+                        vm.importReferenceImageFromUri(uri)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = R.drawable.ic_eye,
+                    containerColor = Morandi.panelHi,
+                    contentColor = Morandi.text,
+                    fontSize = 14.sp,
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                // 选项三：导入为新工程
+                ReTextButton(
+                    text = "导入为画廊新作品",
+                    onClick = {
+                        onDismiss()
+                        vm.importDocuments(listOf(uri), context)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = R.drawable.ic_import,
+                    containerColor = Morandi.panelHi,
+                    contentColor = Morandi.text,
+                    fontSize = 14.sp,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                // 取消
+                ReTextButton(
+                    text = "取消",
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    containerColor = Color.Transparent,
+                    contentColor = Morandi.subText,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+    }
+}
+
