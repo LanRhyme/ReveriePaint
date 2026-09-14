@@ -6,8 +6,8 @@ package com.reverie.paint.ui.painting.layers
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -267,7 +267,6 @@ internal fun FilterTopPillHUD(
 
     Box(
         modifier = modifier
-            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
             .shadow(12.dp, pillShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(pillShape)
             .then(
@@ -282,7 +281,7 @@ internal fun FilterTopPillHUD(
         contentAlignment = Alignment.Center,
     ) {
         Row(
-            modifier = Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f)),
+            modifier = Modifier.animateContentSize(tween(durationMillis = 180, easing = FastOutSlowInEasing)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -419,7 +418,6 @@ internal fun FilterBottomDock(
 
     Box(
         modifier = modifier
-            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
             .shadow(16.dp, dockShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(dockShape)
             .then(
@@ -431,7 +429,7 @@ internal fun FilterBottomDock(
             )
             .glassBorder(dockShape)
             .padding(10.dp),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -473,7 +471,7 @@ internal fun FilterBottomDock(
 
             // 核心水平动作条
             Row(
-                modifier = Modifier.animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f)),
+                modifier = Modifier.animateContentSize(tween(durationMillis = 180, easing = FastOutSlowInEasing)),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -490,6 +488,7 @@ internal fun FilterBottomDock(
                     DockIconPill(
                         iconRes = R.drawable.ic_sliders,
                         label = "${p.name} · ${p.format(p.getter(st))}",
+                        modifier = Modifier.widthIn(min = 84.dp),
                         onClick = { editingParamIndex = 0 },
                     )
                 } else if (hasMore) {
@@ -505,6 +504,7 @@ internal fun FilterBottomDock(
                         iconRes = R.drawable.ic_sliders,
                         label = label,
                         selected = isExpanded,
+                        modifier = Modifier.widthIn(min = if (isExpanded) 68.dp else 84.dp),
                         onClick = { isExpanded = !isExpanded },
                     )
                 }
@@ -563,6 +563,7 @@ private fun DockIconPill(
     primary: Boolean = false,
     danger: Boolean = false,
     selected: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val bg = when {
@@ -579,14 +580,13 @@ private fun DockIconPill(
     }
 
     Row(
-        modifier = Modifier
-            .animateContentSize(spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.85f))
+        modifier = modifier
             .clip(CircleShape)
             .background(bg)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
     ) {
         Icon(
             painter = painterResource(iconRes),
