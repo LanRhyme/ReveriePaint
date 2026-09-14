@@ -73,12 +73,8 @@ internal fun CanvasTabPage(
 ) {
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var saveAsName by remember { mutableStateOf(vm.docName) }
-    var showNewCanvasDialog by remember { mutableStateOf(false) }
     var showCanvasResizeDialog by remember { mutableStateOf(false) }
-    var showProfileDialog by remember { mutableStateOf(false) }
 
-    var newW by remember { mutableStateOf("1080") }
-    var newH by remember { mutableStateOf("1920") }
     var resizeW by remember { mutableStateOf(vm.docWidth.toString()) }
     var resizeH by remember { mutableStateOf(vm.docHeight.toString()) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -164,87 +160,7 @@ internal fun CanvasTabPage(
         }
     }
 
-    // Custom Styled Dialog: New Canvas
-    if (showNewCanvasDialog) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { showNewCanvasDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "新建画布",
-                        color = Morandi.text,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        androidx.compose.material3.OutlinedTextField(
-                            value = newW,
-                            onValueChange = { newW = it },
-                            singleLine = true,
-                            label = { Text("宽度", color = Morandi.subText, fontSize = 12.sp) },
-                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Morandi.text,
-                                unfocusedTextColor = Morandi.text,
-                                focusedBorderColor = Morandi.accent,
-                                unfocusedBorderColor = Morandi.border,
-                                focusedContainerColor = Morandi.panelHi,
-                                unfocusedContainerColor = Morandi.panelHi,
-                                cursorColor = Morandi.accent
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                        androidx.compose.material3.OutlinedTextField(
-                            value = newH,
-                            onValueChange = { newH = it },
-                            singleLine = true,
-                            label = { Text("高度", color = Morandi.subText, fontSize = 12.sp) },
-                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Morandi.text,
-                                unfocusedTextColor = Morandi.text,
-                                focusedBorderColor = Morandi.accent,
-                                unfocusedBorderColor = Morandi.border,
-                                focusedContainerColor = Morandi.panelHi,
-                                unfocusedContainerColor = Morandi.panelHi,
-                                cursorColor = Morandi.accent
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        ReTextButton("取消", { showNewCanvasDialog = false }, textColor = Morandi.subText)
-                        Spacer(Modifier.width(8.dp))
-                        ReTextButton(
-                            "创建",
-                            onClick = {
-                            val w = newW.toIntOrNull() ?: 1080
-                            val h = newH.toIntOrNull() ?: 1920
-                            vm.startPainting(w, h, "画布_${System.currentTimeMillis() % 1000}")
-                            showNewCanvasDialog = false
-                            onClose()
-                        },
-                            textColor = Morandi.accent,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-        }
-    }
+
 
     // Custom Styled Dialog: Resize Canvas
     if (showCanvasResizeDialog) {
@@ -337,50 +253,7 @@ internal fun CanvasTabPage(
 
 
 
-    // Custom Styled Dialog: Color Profile
-    if (showProfileDialog) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { showProfileDialog = false }) {
-            Box(
-                modifier = Modifier
-                    .width(320.dp)
-                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(16.dp))
-                    .padding(20.dp)
-            ) {
-                Column {
-                    Text(
-                        text = "色彩描述文件",
-                        color = Morandi.text,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panelHi)
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SettingInfoRow("色彩空间", "sRGB IEC61966-2.1")
-                        SettingInfoRow("通道位深", "8位整数 (8-bit)")
-                        SettingInfoRow("色彩模式", "RGB + Alpha 通道")
-                        SettingInfoRow("颜色引擎", "Krita Pigment Engine")
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        ReTextButton("确定", { showProfileDialog = false }, textColor = Morandi.accent, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-    }
+
 
     Column(
         modifier = Modifier
@@ -417,10 +290,10 @@ internal fun CanvasTabPage(
         
         Spacer(Modifier.height(12.dp))
 
-        // Action Grid (Equal 4-column modern card buttons)
+        // Action Grid (Equal 4-column modern card buttons, 2 rows of 4)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             ReMenuItem(R.drawable.ic_save, "保存", {
                 onClose()
@@ -432,27 +305,28 @@ internal fun CanvasTabPage(
                 saveAsName = vm.docName + "_copy"
                 showSaveAsDialog = true
             }, modifier = Modifier.weight(1f))
-            ReMenuItem(R.drawable.ic_file_repair, "修复草稿", {
-                vm.recompositeProjection()
-                android.widget.Toast.makeText(context, "已刷新并重构画布合成缓存", android.widget.Toast.LENGTH_SHORT).show()
-            }, modifier = Modifier.weight(1f))
-            ReMenuItem(R.drawable.ic_file_new, "新建画布", {
-                showNewCanvasDialog = true
-            }, modifier = Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
             ReMenuItem(R.drawable.ic_canvas_resize, "画布调整", {
                 resizeW = vm.docWidth.toString()
                 resizeH = vm.docHeight.toString()
                 showCanvasResizeDialog = true
             }, modifier = Modifier.weight(1f))
+            ReMenuItem(R.drawable.ic_image, "导入图片", {
+                imagePickerLauncher.launch("image/*")
+            }, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             ReMenuItem(R.drawable.ic_image_adjust, "滤镜", {
                 onClose()
                 onOpenFilters?.invoke(vm.editTargetLayers())
+            }, modifier = Modifier.weight(1f))
+            ReMenuItem(R.drawable.ic_stamp, "画布盖印", {
+                vm.stampVisibleLayers()
+                android.widget.Toast.makeText(context, "已盖印可见图层至新图层", android.widget.Toast.LENGTH_SHORT).show()
+                onClose()
             }, modifier = Modifier.weight(1f))
             ReMenuItem(R.drawable.ic_flip_horizontal, "水平翻转", {
                 vm.flipCanvasHorizontal()
@@ -462,24 +336,6 @@ internal fun CanvasTabPage(
                 vm.flipCanvasVertical()
                 onClose()
             }, modifier = Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            ReMenuItem(R.drawable.ic_stamp, "画布盖印", {
-                vm.stampVisibleLayers()
-                android.widget.Toast.makeText(context, "已盖印可见图层至新图层", android.widget.Toast.LENGTH_SHORT).show()
-                onClose()
-            }, modifier = Modifier.weight(1f))
-            ReMenuItem(R.drawable.ic_color_profile, "颜色配置", {
-                showProfileDialog = true
-            }, modifier = Modifier.weight(1f))
-            ReMenuItem(R.drawable.ic_image, "导入图片", {
-                imagePickerLauncher.launch("image/*")
-            }, modifier = Modifier.weight(1f))
-            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }

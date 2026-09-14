@@ -421,15 +421,7 @@ internal fun LayerDetailPage(
             Icon(painterResource(R.drawable.ic_chevron), contentDescription = null, tint = Morandi.subText, modifier = Modifier.size(16.dp))
         }
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .height(1.dp)
-                .background(Morandi.border.copy(alpha = 0.5f)),
-        )
-
-        // 滤镜与颜色调整 (放在混合模式下方)
+        // 滤镜与颜色调整 (紧跟在混合模式下方, 无多余分隔线)
         if (layer?.isGroup != true) {
             Row(
                 modifier =
@@ -454,15 +446,15 @@ internal fun LayerDetailPage(
                     modifier = Modifier.size(16.dp),
                 )
             }
-
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp)
-                    .height(1.dp)
-                    .background(Morandi.border.copy(alpha = 0.5f)),
-            )
         }
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
+                .height(1.dp)
+                .background(Morandi.border.copy(alpha = 0.5f)),
+        )
 
         // Opacity slider
         Row(
