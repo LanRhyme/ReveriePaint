@@ -83,10 +83,48 @@ android {
         }
     }
 
+    val keystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+        ?: (project.findProperty("ANDROID_KEYSTORE_PATH") as? String)
+        ?: localProps.getProperty("ANDROID_KEYSTORE_PATH")
+
+    val keystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+        ?: (project.findProperty("ANDROID_KEYSTORE_PASSWORD") as? String)
+        ?: localProps.getProperty("ANDROID_KEYSTORE_PASSWORD")
+
+    val keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+        ?: (project.findProperty("ANDROID_KEY_ALIAS") as? String)
+        ?: localProps.getProperty("ANDROID_KEY_ALIAS")
+
+    val keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+        ?: (project.findProperty("ANDROID_KEY_PASSWORD") as? String)
+        ?: localProps.getProperty("ANDROID_KEY_PASSWORD")
+
+    val hasReleaseSigning =
+        !keystorePath.isNullOrEmpty() &&
+        !keystorePassword.isNullOrEmpty() &&
+        !keyAlias.isNullOrEmpty() &&
+        !keyPassword.isNullOrEmpty() &&
+        file(keystorePath).isFile
+
+    signingConfigs {
+        create("release") {
+            if (hasReleaseSigning) {
+                storeFile = file(keystorePath!!)
+                storePassword = keystorePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 
