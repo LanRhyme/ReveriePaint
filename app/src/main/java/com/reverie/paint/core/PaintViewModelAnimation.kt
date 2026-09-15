@@ -118,6 +118,18 @@ internal class AnimationState {
     var pendingAddedFrame: Int = -1
 
     /**
+     * 落笔自动建帧的落点 (图层索引 + 帧号), 供主线程判断"这次落笔改了结构"。
+     *
+     * 与 [pendingAddedFrame] 一样是渲染线程写 / 主线程读的一次性传递, 刻意
+     * 不做成 Compose state: 它只在一次落笔的首尾被读写, 不该触发重组。
+     */
+    @Volatile
+    var pendingAutoFrameLayer: Int = -1
+
+    @Volatile
+    var pendingAutoFrameTime: Int = -1
+
+    /**
      * 缩略图刷新触发器。笔画落笔 / 图层内容变化时自增 (而 revision 只在
      * 关键帧结构变化时自增), 让时间轴知道该重画帧块里的画面。
      */
@@ -480,6 +492,42 @@ internal fun PaintViewModel.animationAddKeyframe(
                 ReverieCoreBridge.addKeyframe(layer, time)
             }
         if (ok) anim.pendingAddedFrame = time
+    }
+}
+
+/**
+ * 落笔前保证当前轨道在**当前帧**上有关键帧, 没有就地补一个空白帧。
+ *
+ * 这是"在空白区域作画自动建帧"的引擎侧实现: 时间轴里一格没有关键帧时,
+ * 该格显示的是前一帧的 hold 画面 (Krita 的曝光语义), 用户在那格里下笔若
+ * 不做处理, 墨迹会直接烙在**被 hold 的那一帧**上, 从而污染前面所有帧 ——
+ * 这是逐帧动画里最难查的一类 bug。因此必须在笔尖落下前先把帧"分"出来。
+ *
+ * 与 [animationAddKeyframe] 的区别:
+ *  - 本函数**只要当前位置没有帧就补**, 且**绝不移动播放头**, 也不找空位;
+ *    只有真的新建了帧才回调 [onAdded] (此时轨道关键帧结构已变, 需要刷新缓存)。
+ *  - 只在**当前帧确实没有关键帧**且轨道已开启动画时动作, 否则完全零开销,
+ *    静态绘画 / 已有帧上作画的路径不受任何影响。
+ *
+ * **必须在 reverie-render 线程调用** (内部走 JNI 查询 + selectedTrackIndex 回退)。
+ * 投递顺序: 它排在 touchStrokeStart 之前, 同一 FIFO 队列保证建帧先于落笔。
+ */
+internal fun PaintViewModel.animationEnsureKeyframeForPaint(
+    onAdded: (() -> Unit)? = null,
+) {
+    if (!anim.enabled) return
+    if (anim.isPlaying) return
+    runCore(render = false, after = onAdded) {
+        val layer = selectedTrackIndex()
+        if (layer < 0) return@runCore
+        // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启
+        if (!ReverieCoreBridge.layerAnimated(layer)) return@runCore
+        val time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
+        if (ReverieCoreBridge.hasKeyframe(layer, time)) return@runCore
+        if (ReverieCoreBridge.addKeyframe(layer, time)) {
+            anim.pendingAutoFrameLayer = layer
+            anim.pendingAutoFrameTime = time
+        }
     }
 }
 

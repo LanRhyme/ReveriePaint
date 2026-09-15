@@ -7,7 +7,9 @@ package com.reverie.paint.ui.painting.animation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
@@ -33,6 +35,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
@@ -92,6 +98,7 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSectionTitle
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.core.refreshFrameThumbs
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
@@ -204,16 +211,21 @@ internal fun AnimationTimelinePanel(
 
     // 外层 Column: 设置浮窗作为独立卡片悬在时间轴面板**上方** (不占面板高度)
     Column(modifier = modifier.fillMaxWidth()) {
+        // 设置浮窗贴右侧: 时间轴面板右端即屏幕右侧, 与顶栏/右侧面板同一竖向
+        // 轴线; 从右侧滑入也让"点齿轮 -> 右侧展开"的空间关系自明
         AnimatedVisibility(
             visible = vm.anim.toolbarExpanded && mode == "custom",
-            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
-            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
+            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it / 2 }),
+            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it / 2 }),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            AnimationSettingsCard(
-                vm = vm,
-                hazeState = hazeState,
-                onClose = { vm.anim.toolbarExpanded = false },
-            )
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                AnimationSettingsCard(
+                    vm = vm,
+                    hazeState = hazeState,
+                    onClose = { vm.anim.toolbarExpanded = false },
+                )
+            }
         }
 
         TimelinePanelSurface(
@@ -614,6 +626,10 @@ private fun TimelineTrackArea(
     val showThumbs = vm.anim.showThumbnails
     // 缩略图位图固定 7:5 (与帧格同比例, 引擎 KeepAspectRatio 后铺满)
     val thumbAspect = FRAME_THUMB_W.toFloat() / FRAME_THUMB_H.toFloat()
+    // 选中块的加粗描边: 在 composable 作用域按密度换算成 px 后带进 DrawScope,
+    // 避免在每帧绘制里重复算 dp->px
+    val selBorderPx = with(LocalDensity.current) { 3.5.dp.toPx() }
+    val selGlowPx = with(LocalDensity.current) { 7.dp.toPx() }
 
     Canvas(
         modifier = modifier
@@ -698,14 +714,27 @@ private fun TimelineTrackArea(
                                 )
                             }
                         }
-                        // 当前曝光块: 主题色描边高亮 (不填充)
+                        // 当前曝光块: 主题色描边高亮 (不填充)。
+                        // 描边压在内侧 (inset = 线宽/2) 才能保证粗边不被块外裁掉;
+                        // 再叠一层同色外发光, 让选中块在缩略图噪声里也能一眼认出
                         if (active) {
+                            val bw = selBorderPx
                             drawRoundRect(
-                                color = Morandi.accent,
+                                color = Morandi.accent.copy(alpha = 0.28f),
                                 topLeft = Offset(cellX, cellY),
                                 size = Size(cellW, cellH),
+                                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                style = Stroke(width = selGlowPx),
+                            )
+                            drawRoundRect(
+                                color = Morandi.accent,
+                                topLeft = Offset(cellX + bw / 2f, cellY + bw / 2f),
+                                size = Size(
+                                    (cellW - bw).coerceAtLeast(1f),
+                                    (cellH - bw).coerceAtLeast(1f),
+                                ),
                                 cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
-                                style = Stroke(width = 2f),
+                                style = Stroke(width = bw),
                             )
                         }
                     }
@@ -780,7 +809,7 @@ private fun AnimationSettingsCard(
     val alpha = vm.popupPanelOpacity
     Column(
         modifier = Modifier
-            .padding(start = 8.dp, bottom = 8.dp)
+            .padding(end = 8.dp, bottom = 8.dp)
             .shadow(16.dp, shape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(shape)
             .then(
@@ -825,9 +854,13 @@ private fun TimelineSettings(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(bottom = 4.dp)) {
+        // 帧率输入弹窗的开关, 由下面"帧率"一行里的数值文案触发
+        var showFpsInput by remember { mutableStateOf(false) }
+
         ReSectionTitle(text = "播放", modifier = Modifier.padding(start = 12.dp))
 
-        // 帧率
+        // 帧率: [−] 数值 [+] 三件套, 数值本身可点 —— 点开数字键盘直接输入,
+        // 长按 ± 的逐点微调适合小改, 直接输入适合 12 -> 24 这类大跨度调整
         CompactSettingRow(label = "帧率") {
             ReIconButton(
                 icon = R.drawable.ic_minus,
@@ -836,19 +869,38 @@ private fun TimelineSettings(
                 size = 28.dp,
                 iconSize = 14.dp,
             )
-            Text(
-                text = "${vm.anim.framerate} fps",
-                color = Morandi.text,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.width(56.dp),
-            )
+            Box(
+                modifier = Modifier
+                    .width(58.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .clickable { showFpsInput = true }
+                    .padding(vertical = 3.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "${vm.anim.framerate} fps",
+                    color = Morandi.text,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
             ReIconButton(
                 icon = R.drawable.ic_plus,
                 desc = "提高帧率",
                 onTap = { vm.animationSetFramerate(vm.anim.framerate + 1) },
                 size = 28.dp,
                 iconSize = 14.dp,
+            )
+        }
+
+        if (showFpsInput) {
+            FpsInputDialog(
+                initial = vm.anim.framerate,
+                onDismiss = { showFpsInput = false },
+                onConfirm = {
+                    vm.animationSetFramerate(it)
+                    showFpsInput = false
+                },
             )
         }
 
@@ -963,6 +1015,77 @@ private fun CompactSettingRow(
         Text(text = label, color = Morandi.text, fontSize = 13.sp)
         Row(verticalAlignment = Alignment.CenterVertically, content = trailing)
     }
+}
+
+/**
+ * 帧率输入弹窗: 调起数字键盘直接输入。
+ *
+ * 输入框拿到焦点即自动弹出键盘 (TextFieldValue 初值带选区, 用户输入即覆盖),
+ * 因此不需要用户再点一次输入框; 未点确定就关掉则不改动帧率。
+ */
+@Composable
+private fun FpsInputDialog(
+    initial: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial.toString()) }
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("帧率", color = Morandi.text, fontSize = 15.sp) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = text,
+                    onValueChange = { raw ->
+                        // 只接受数字, 且把长度卡在 3 位 (240 fps 已是上限)
+                        text = raw.filter { it.isDigit() }.take(3)
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors =
+                        androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Morandi.accent,
+                            unfocusedBorderColor = Morandi.border,
+                            focusedContainerColor = Morandi.panel,
+                            unfocusedContainerColor = Morandi.panel,
+                            cursorColor = Morandi.accent,
+                            focusedTextColor = Morandi.text,
+                            unfocusedTextColor = Morandi.text,
+                        ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester),
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "可输入 1 ~ 240, 每秒帧数",
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                )
+            }
+        },
+        confirmButton = {
+            ReTextButton(
+                "确定",
+                onClick = {
+                    val v = text.toIntOrNull() ?: initial
+                    onConfirm(v.coerceIn(1, 240))
+                },
+                textColor = Morandi.accent,
+            )
+        },
+        dismissButton = {
+            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+        },
+        containerColor = Morandi.panelHi,
+    )
 }
 
 /** 洋葱皮前后帧数: 前缀 + [−] 值 [+], 紧凑排布省横向空间 */

@@ -217,6 +217,13 @@ internal fun PaintViewModel.touchStart(
     smoothedStrokeX = x
     smoothedStrokeY = y
     smoothedStrokePressure = effPressure
+    // 动画项目: 当前帧没有关键帧时, 先把这一帧"分"出来再落笔。
+    // 不做这步的话墨迹会烙在**被 hold 的前一帧**上, 污染前面所有帧。
+    // 投递在 touchStrokeStart 之前, 同一 FIFO 队列保证建帧先于第一条笔迹。
+    // 非动画项目 / 已有帧 / 未开动画的轨道都是零开销直接返回。
+    if (anim.enabled) {
+        animationEnsureKeyframeForPaint(onAdded = { syncAnimationFromNativeAfter() })
+    }
     runCore {
         ReverieCoreBridge.setToolMode(mode)
         ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
