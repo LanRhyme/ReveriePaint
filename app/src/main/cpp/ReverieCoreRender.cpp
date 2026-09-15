@@ -739,7 +739,19 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                 if (KisPaintLayer *plOnion = dynamic_cast<KisPaintLayer *>(e.node)) {
                     if (plOnion->onionSkinEnabled()) {
                         // 返回 nullptr 表示"这个图层此刻没有可显示的邻帧"
-                        // (只有一个关键帧 / 配置全关), 走普通路径
+                        // (只有一个关键帧 / 配置全关), 走普通路径。
+                        //
+                        // 注意: extent 表是 strokeOnionProjection 里的**惰性缓存**,
+                        // invalidateStrokeOnionCache() (切帧/改配置/结构变化) 会把
+                        // 它整个清掉。条目不存在时必须先调一次 strokeOnionProjection
+                        // 把 extent/投影算出来 —— 否则就是"extent 空 → 不调用 →
+                        // 永远空"的死锁, 表现为切帧后笔画期间洋葱皮整个消失
+                        // (抬笔走 Krita 投影路径才回来)。无通道/单帧图层在这里
+                        // 提前退出且不落条目, 但那几次虚调用 + 计数没有分配,
+                        // 每渲染帧付出完全可接受。
+                        if (!m_strokeOnionCacheExtent.contains(i)) {
+                            strokeOnionProjection(i);
+                        }
                         const QRect onionExt = strokeOnionExtent(i);
                         if (!onionExt.isEmpty() && onionExt.intersects(r)) {
                             src = strokeOnionProjection(i);

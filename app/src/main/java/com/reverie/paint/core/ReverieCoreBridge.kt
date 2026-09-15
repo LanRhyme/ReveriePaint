@@ -285,6 +285,19 @@ object ReverieCoreBridge {
     /** 帧缩略图缓存代际: 变化即表示 UI 侧 (图层, 帧号) 缓存整体过期。 */
     external fun keyframeThumbGen(): Long
 
+    /**
+     * 取走并清空帧缩略图"精准失效"脏帧集合, 交替 [layer0, time0, layer1, ...]。
+     * 命中的帧必须重渲染, 其余帧在代际未变时照常复用。
+     * 只能在 reverie-render 线程调用。
+     */
+    external fun takeDirtyKeyframeThumbs(): IntArray
+
+    /**
+     * 播放期洋葱皮抑制: true = 播放开始 (隐藏洋葱皮), false = 暂停/停止 (还原)。
+     * 只能在 reverie-render 线程调用 (与其他引擎调用同线程串行)。
+     */
+    external fun setOnionSkinSuppressed(suppressed: Boolean)
+
     external fun setToolMode(mode: Int)
 
     external fun drawPolygon(

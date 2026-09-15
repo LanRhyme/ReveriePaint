@@ -2619,6 +2619,17 @@ class PaintViewModel : ViewModel() {
         }
         layers = list
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
+
+        // 时间轴"选中轨道"与当前图层强制对齐 (修"创建帧错乱"):
+        // selectedTrack 旧实现只在时间轴 tap 时写入且**永不重置** —— 用户在
+        // 时间轴点过任意一行后, 去图层面板切了别的图层再点"新建帧"/落笔
+        // 自动建帧, 帧会建到上次点过的那条轨道上 (selectedTrackIndex()
+        // 优先读它)。UI 上选中轨道与当前图层本来就是同时设置 (轨道区 tap
+        // 两处都写), 这里把图层面板改层 / undo 删层 / 切换文档等路径也
+        // 收敛到同一状态, 帧的落轨依据从此只有 currentLayerIndex。
+        if (anim.enabled && anim.selectedTrack != currentLayerIndex) {
+            anim.selectedTrack = currentLayerIndex
+        }
     }
 
     internal fun isAppContextReady(): Boolean = ::appContext.isInitialized

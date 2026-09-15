@@ -384,7 +384,9 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         }
         // 洋葱皮开关: per-paint-layer 属性, 单独持久化 (重进画布后需还原)
         if (const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(e.node)) {
-            if (pl->onionSkinEnabled()) {
+            // 抑制窗口 (播放) 里 node property 已被压掉, 序列化走逻辑状态,
+            // 否则播放中的 autosave 会把各层洋葱皮永久存成 false
+            if (onionSkinLogicalEnabled(pl)) {
                 layerObj["onionskin"] = true;
             }
         }
@@ -529,7 +531,9 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         }
         // 洋葱皮开关: per-paint-layer 属性, 单独持久化 (重进画布后需还原)
         if (const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(e.node)) {
-            if (pl->onionSkinEnabled()) {
+            // 抑制窗口 (播放) 里 node property 已被压掉, 序列化走逻辑状态,
+            // 否则播放中的 autosave 会把各层洋葱皮永久存成 false
+            if (onionSkinLogicalEnabled(pl)) {
                 layerObj["onionskin"] = true;
             }
         }

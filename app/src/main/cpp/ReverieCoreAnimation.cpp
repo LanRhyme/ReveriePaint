@@ -331,15 +331,27 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
     // 这里显式作废最稳妥
     invalidateStrokeOnionCache();
 
-    // 应用到所有位图图层 (洋葱皮是 per-paint-layer 开关) 并刷新投影
+    // 记住全局开关的生效值, 供 applyOnionSkinGate 在换层/结构重排时重放
+    m_onionSkinActive = effective;
+    applyOnionSkinGate(true);
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+}
+
+// 把洋葱皮"渲染门"落实到各图层。per-layer node property (onionskin) 是
+// Krita 投影路径 (copyOriginalToProjection) 与自研笔触叠加路径
+// (compositeLayersRange / strokeOnionProjection) 共同的开关, 所以门在这
+// 一处收紧, 两条渲染路径同时生效。目标值 = 全局生效值 && 未被播放抑制
+// && 是当前选中轨道 —— 洋葱皮只渲染用户正在画的那条轨道, 播放期间全部
+// 压掉, 其他轨道不出邻帧叠影。
+void ReverieCore::applyOnionSkinGate(bool refreshCaches)
+{
     for (int i = 0; i < m_layers.size(); ++i) {
         KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[i].node);
         if (!pl) continue;
+        const bool target = m_onionSkinActive && !m_onionSkinSuppressed && (i == m_currentLayer);
         const bool wasEnabled = pl->onionSkinEnabled();
-        if (wasEnabled != effective) {
-            pl->setOnionSkinEnabled(effective);
-        }
-        if (effective || wasEnabled) {
+        if (wasEnabled != target) {
+            pl->setOnionSkinEnabled(target);
             // configChanged() 只让缓存**在下次校验时**失效, 而
             // KisOnionSkinCache::checkCacheValid 的判据是 currentTime /
             // configSeqNo / channelHash 三者 —— 图层开关本身不在其中。
@@ -353,9 +365,12 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
             // 轨道的所有关键帧求并集, 逐帧作画时轨道几百帧, 开启一次就是一次
             // O(N) 扫全轨道 —— 用户拖滑块调参数时会连续触发, 是实打实的卡顿源。
             pl->setDirty(KisOnionSkinCompositor::instance()->calculateExtent(pl->paintDevice()));
+        } else if (refreshCaches && target) {
+            // 开关没动、但配置内容 (帧数/透明度/着色) 变了: 缓存与脏区照刷
+            pl->flushOnionSkinCache();
+            pl->setDirty(KisOnionSkinCompositor::instance()->calculateExtent(pl->paintDevice()));
         }
     }
-    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
 }
 
 bool ReverieCore::anyLayerOnionSkin() const
@@ -365,6 +380,41 @@ bool ReverieCore::anyLayerOnionSkin() const
         if (pl && pl->onionSkinEnabled()) return true;
     }
     return false;
+}
+
+void ReverieCore::setOnionSkinSuppressed(bool suppressed)
+{
+    if (m_onionSkinSuppressed == suppressed) return;
+    m_onionSkinSuppressed = suppressed;
+
+    if (suppressed) {
+        // 记录压掉前的逻辑状态, 抑制窗口内的序列化 (onionSkinLogicalEnabled)
+        // 靠它。只记录不搬运 —— 每层 property 的实际压掉交给下面的
+        // applyOnionSkinGate (它感知 m_onionSkinSuppressed, 目标值全 false)。
+        // 开启时清掉历史残留 (换文档后旧图层指针的条目), 从头记录。
+        m_onionSuppressedPrev.clear();
+        for (int i = 0; i < m_layers.size(); ++i) {
+            KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[i].node);
+            if (pl) m_onionSuppressedPrev.insert(pl, pl->onionSkinEnabled());
+        }
+    } else {
+        // 恢复不逐层按表还原: 播放期间用户可能换过轨道, 按表还原会把门留在
+        // 旧层上。清表后由 applyOnionSkinGate 按"当前层 + 全局开关"重放。
+        m_onionSuppressedPrev.clear();
+    }
+
+    invalidateStrokeOnionCache();
+    applyOnionSkinGate(false);
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+}
+
+bool ReverieCore::onionSkinLogicalEnabled(const KisPaintLayer *pl) const
+{
+    if (m_onionSkinSuppressed) {
+        // 压掉期间 node property 已是 false, 返回压掉前的逻辑状态
+        return m_onionSuppressedPrev.value(const_cast<KisPaintLayer *>(pl), false);
+    }
+    return pl->onionSkinEnabled();
 }
 
 void ReverieCore::onionSkinTintColors(int *backwardArgb, int *forwardArgb) const
@@ -507,7 +557,8 @@ bool ReverieCore::addKeyframe(int layerIndex, int time)
     channel->addKeyframe(time, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    // 新建的是空白帧: 其它帧的缩略图不受影响, 不作全局失效。
+    // 新帧自身没有缓存条目, UI 侧会自然渲染它 (引擎 miss -> 透明图)。
     return true;
 }
 
@@ -529,7 +580,7 @@ bool ReverieCore::addDuplicateKeyframe(int layerIndex, int time)
     }
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    dirtyKeyframeThumb(layerIndex, time);  // 只有目标帧是新内容
     return true;
 }
 
@@ -544,7 +595,9 @@ bool ReverieCore::removeKeyframe(int layerIndex, int time)
     channel->removeKeyframe(time, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    // 精准作废被删帧: 引擎缓存清条目 + 发脏帧信号 (同帧号随后重建帧 /
+    // UI 侧丢弃旧位图), 其它帧内容不变, 不作全局失效。
+    dirtyKeyframeThumb(layerIndex, time);
     return true;
 }
 
@@ -559,7 +612,7 @@ bool ReverieCore::copyKeyframe(int layerIndex, int fromTime, int toTime)
     KisKeyframeChannel::copyKeyframe(channel, fromTime, channel, toTime, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    dirtyKeyframeThumb(layerIndex, toTime);  // 源帧不变, 只有目标帧是新内容
     return true;
 }
 
@@ -573,7 +626,7 @@ bool ReverieCore::cloneKeyframe(int layerIndex, int fromTime, int toTime)
     channel->cloneKeyframe(fromTime, toTime, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    dirtyKeyframeThumb(layerIndex, toTime);  // 共享像素: 源帧内容未变
     return true;
 }
 
@@ -599,7 +652,10 @@ bool ReverieCore::moveKeyframe(int layerIndex, int fromTime, int toTime)
 
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
-    bumpKeyframeThumbGen();
+    // 移动语义: 原位置的帧没了, 目标位置内容更新 (拖拽覆盖时 toTime 旧帧
+    // 一并作废)。两个位置都精准失效, 其余帧照常复用。
+    dirtyKeyframeThumb(layerIndex, fromTime);
+    dirtyKeyframeThumb(layerIndex, toTime);
     return true;
 }
 
@@ -722,6 +778,25 @@ bool ReverieCore::setSelectedKeyframesDuration(int layerIndex, const QVector<int
 // ============================================================
 // 帧缩略图 (时间轴帧块内绘制)
 // ============================================================
+
+void ReverieCore::dirtyKeyframeThumb(int layerIndex, int time)
+{
+    const quint64 key = (quint64(quint32(layerIndex)) << 32) | quint32(time);
+    m_keyframeThumbCache.remove(key);
+    m_dirtyKeyframeThumbs.insert(key);
+}
+
+QVector<int> ReverieCore::takeDirtyKeyframeThumbs()
+{
+    QVector<int> out;
+    out.reserve(m_dirtyKeyframeThumbs.size() * 2);
+    for (quint64 key : qAsConst(m_dirtyKeyframeThumbs)) {
+        out.append(int(quint32(key >> 32)));
+        out.append(int(quint32(key & 0xFFFFFFFFULL)));
+    }
+    m_dirtyKeyframeThumbs.clear();
+    return out;
+}
 
 bool ReverieCore::renderKeyframeThumb(
     int layerIndex, int time, int w, int h, void *dstPixels, int dstStride)

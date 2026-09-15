@@ -19,6 +19,7 @@
 #include <QString>
 #include <QHash>
 #include <QMutex>
+#include <QSet>
 
 #include <kis_types.h>
 #include <brushengine/kis_paintop.h>
@@ -228,6 +229,21 @@ public:
     bool anyLayerOnionSkin() const;
     // 读回当前全局洋葱皮配置 (打开项目后 UI 还原色板/强度用)。
     // 输出参数按 ARGB 传回, 与 configureOnionSkin 的入参同一格式。
+    // 播放期间临时压掉洋葱皮: 只动 per-layer node property (渲染门, 经
+    // applyOnionSkinGate), **不碰 KisImageConfig** (不写盘)。压掉前的各层
+    // 状态记在 m_onionSuppressedPrev (仅供抑制窗口内的序列化读取), 恢复
+    // 时由渲染门按"当前层 + 全局开关"重放 (播放期间可能换过轨道, 按表
+    // 还原会把门留在旧层); .revp/autosave 序列化必须走
+    // onionSkinLogicalEnabled(), 否则播放窗口里的 autosave 会把 false 存档。
+    void setOnionSkinSuppressed(bool suppressed);
+    // 序列化用: 抑制期间返回压掉前的逻辑状态, 平时返回 node property
+    bool onionSkinLogicalEnabled(const KisPaintLayer *pl) const;
+    // 把洋葱皮"渲染门" (per-layer node property) 落实到各图层: 目标值 =
+    // m_onionSkinActive && !m_onionSkinSuppressed && (i == m_currentLayer)
+    // —— 洋葱皮只渲染当前选中轨道, 播放抑制期间全部压掉。
+    // configureOnionSkin 传 true (配置内容变了, 未变化的层也要刷缓存与脏区);
+    // 换层 / 结构重排 / 抑制开关传 false (只搬开关, 未变化的层零开销)。
+    void applyOnionSkinGate(bool refreshCaches);
     void onionSkinTintColors(int *backwardArgb, int *forwardArgb) const;
     int onionSkinTintFactor() const;   // 0~255 (Krita 原生值, 非百分比)
     // 丢弃所有洋葱皮图层的缓存并重算脏区。
@@ -295,6 +311,20 @@ public:
         // 后者由 channelHash 自然失效, 强行 flush 会触发全量重合成。
         invalidateStrokeOnionCache();
     }
+
+    // 帧缩略图**精准失效**: 单帧内容变化 (落笔 / 帧增删改 / 复制) 时只作废
+    // 这一个 (图层, 帧) 的缓存, 其余帧照常复用。全局代际 (bumpKeyframeThumbGen)
+    // 只留给文档级/结构级变化 (加载 / 导入 / undo / 图层增删重排 / 整轨重排)
+    // —— 缓存键含图层索引, 结构变化会让索引错位, 必须整体失效。
+    //
+    // 背景 (性能): 旧实现里抬笔也走全局 bump, 时间轴打开时每画一笔就把
+    // 所有图层所有帧的缩略图全部重渲染 (每张 = new KisPaintDevice +
+    // writeToDevice + convertToQImage + smooth scale), 是逐帧作画最大的
+    // 隐藏开销。UI 侧经 takeDirtyKeyframeThumbs() 取走脏帧并只重渲染它们。
+    void dirtyKeyframeThumb(int layerIndex, int time);
+    // 取走并清空脏帧集合, 交替 [layer0, time0, layer1, time1, ...]。
+    // 只能在 reverie-render 线程调用 (与所有写入方同线程串行)。
+    QVector<int> takeDirtyKeyframeThumbs();
 
     // Filters (interactive preview & commit, single & multi-layer)
     void applyFilter(int index, int filterId);
@@ -664,6 +694,16 @@ private:
     };
     QHash<quint64, KeyframeThumbCache> m_keyframeThumbCache;
     quint64 m_keyframeThumbGen = 1;
+    // 精准失效集合: 与全局代际互补 (见 dirtyKeyframeThumb 注释)
+    QSet<quint64> m_dirtyKeyframeThumbs;
+    // 播放期洋葱皮抑制 (见 setOnionSkinSuppressed)。prev 的 key 用图层
+    // 指针: 播放期间结构不变指针稳定; 换文档后旧指针自然不再匹配任何
+    // 当前层, 恢复 no-op, 残留条目在下次 suppress(true) 时清掉。
+    bool m_onionSkinSuppressed = false;
+    QHash<KisPaintLayer *, bool> m_onionSuppressedPrev;
+    // 洋葱皮全局开关的生效值 (configureOnionSkin 写入), applyOnionSkinGate
+    // 据此 + 当前层索引算每层的目标状态; 换层/结构重排时重放渲染门。
+    bool m_onionSkinActive = false;
 
     // 导入资源 (音频/视频等二进制), 保存 .revp 时写入 assets/ 条目
     QMap<QString, QByteArray> m_revAssets;

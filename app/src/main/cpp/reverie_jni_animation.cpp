@@ -116,6 +116,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_flushOnionSkinCaches(JNIEnv *, job
     core()->flushOnionSkinCaches();
 }
 
+// 播放期洋葱皮抑制: 播放开始置 true (隐藏洋葱皮), 暂停/停止置 false (还原)。
+// 状态真身在 C++ (m_onionSkinSuppressed), Kotlin 侧只在正确时机调用。
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setOnionSkinSuppressed(
+    JNIEnv *, jobject, jboolean suppressed)
+{
+    core()->setOnionSkinSuppressed(suppressed == JNI_TRUE);
+}
+
 // 导入资源列表 (名称数组)
 JNIEXPORT jobjectArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_revAssetNames(JNIEnv *env, jobject)
@@ -301,6 +310,21 @@ JNIEXPORT jlong JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_keyframeThumbGen(JNIEnv *, jobject)
 {
     return jlong(core()->keyframeThumbGen());
+}
+
+// 取走并清空帧缩略图"精准失效"脏帧集合, 交替 [layer0, time0, layer1, ...]。
+// UI 侧 refreshFrameThumbs 时调用: 命中脏集合的帧强制重渲染,
+// 其余帧在代际未变时照常复用 (避免落笔后全量重渲染所有缩略图)。
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_takeDirtyKeyframeThumbs(JNIEnv *env, jobject)
+{
+    const QVector<int> dirty = core()->takeDirtyKeyframeThumbs();
+    jintArray arr = env->NewIntArray(jsize(dirty.size()));
+    if (arr == nullptr) return nullptr;
+    if (!dirty.isEmpty()) {
+        env->SetIntArrayRegion(arr, 0, jsize(dirty.size()), dirty.constData());
+    }
+    return arr;
 }
 
 // 把位图作为关键帧导入指定轨道的指定帧 (图像/视频抽帧导入用)。

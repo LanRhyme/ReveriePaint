@@ -397,6 +397,14 @@ void ReverieCore::setCurrentLayer(int index)
         return;
     }
     m_currentLayer = index;
+    if (m_onionSkinActive) {
+        // 洋葱皮只渲染当前选中轨道: 换层后把渲染门搬到新层 (旧层擦掉叠影,
+        // 新层画出叠影)。笔触洋葱皮缓存按图层索引作 key, 换层后同一索引
+        // 指向别的图层, 必须整体作废。
+        applyOnionSkinGate(false);
+        invalidateStrokeOnionCache();
+        markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    }
 }
 
 QString ReverieCore::layerName(int index) const

@@ -323,6 +323,12 @@ void ReverieCore::syncLayersFromImage()
             computeSoloKeep();
         }
     }
+    // 图层结构重同步的公共出口 (增/删/重排/undo): 帧缩略图缓存键含**图层
+    // 索引**, 结构变化会让索引错位 (张冠李戴), 必须整体失效。只改像素的
+    // 高频路径 (落笔) 不走这里, 那边用 dirtyKeyframeThumb 精准失效。
+    bumpKeyframeThumbGen();
+    // 结构重排可能让"当前层"索引变化, 重放洋葱皮渲染门 (只搬开关, 零开销)
+    applyOnionSkinGate(false);
 }
 
 void ReverieCore::bumpLayerThumbGen(KisNode *node)
@@ -336,8 +342,12 @@ void ReverieCore::bumpLayerThumbGen(KisNode *node)
         KisNodeSP p = n->parent();
         n = p ? p.data() : nullptr;
     }
-    // 笔画落笔同样使帧缩略图失效 (帧块里显示的是该帧当前画面)
-    bumpKeyframeThumbGen();
+    // 笔画落笔同样使帧缩略图失效 (帧块里显示的是该帧当前画面)。
+    //
+    // 精准失效: 落笔只改**当前图层的当前帧**, 作废全部帧是逐帧作画最大的
+    // 隐藏开销 (时间轴打开时每抬一笔就把所有缩略图重渲染一遍)。图层结构
+    // 变化 (索引会错位) 的整体失效已由 syncLayersFromImage 出口负责。
+    dirtyKeyframeThumb(m_currentLayer, animationCurrentTime());
 }
 
 

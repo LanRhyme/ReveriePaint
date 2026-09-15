@@ -526,7 +526,19 @@ internal fun PaintViewModel.animationAddKeyframe(
             } else {
                 ReverieCoreBridge.addKeyframe(layer, time)
             }
-        if (ok) anim.pendingAddedFrame = time
+        if (ok) {
+            // 引擎播放头立刻跟到新帧 (不等 after/sync): 新帧可能落在
+            // currentTime 之后 ("当前帧已有帧时自动落到下一个空位"), 引擎
+            // 时间不动的话 UI 当前帧与引擎 currentTime 分叉 —— 设备的写入
+            // 目标帧是 activeKeyframeAt(currentTime) 动态求值的
+            // (kis_paint_device.cc Private::currentFrameId), 落笔会画进旧帧;
+            // 而迟到的时间切换若落在笔画事务中途, 会触发
+            // KisTransactionData::endTransaction 的"时间不得中途变更"断言,
+            // 整笔丢弃 (用户看到"创建帧后第一次落笔画不上")。在这里同步切好,
+            // 引擎与 UI 从此一致, 后续不会再有中途切时间。
+            ReverieCoreBridge.setAnimationCurrentTime(time, false)
+            anim.pendingAddedFrame = time
+        }
     }
 }
 
@@ -659,7 +671,12 @@ internal fun PaintViewModel.animationPlay() {
     anim.playGen++
     val gen = anim.playGen
     startAnimAudio()
-    renderHandler?.post { animationStep(gen) }
+    renderHandler?.post {
+        // 播放时不显示洋葱皮: 与引擎同线程串行下发, 保证第一帧渲染前生效;
+        // 暂停/停止经 animationPause 投递还原。
+        ReverieCoreBridge.setOnionSkinSuppressed(true)
+        animationStep(gen)
+    }
 }
 
 /** 暂停播放 (自增代际令牌使挂起的步进失效) */
@@ -668,6 +685,9 @@ internal fun PaintViewModel.animationPause() {
     anim.isPlaying = false
     anim.playGen++
     stopAnimAudio()
+    // 恢复洋葱皮: 与引擎同线程串行, 排在已入队的播放步进之后 (FIFO 保证
+    // 不会出现"恢复后仍有一帧播放渲染"的乱序)。
+    renderHandler?.post { ReverieCoreBridge.setOnionSkinSuppressed(false) }
 }
 
 // ============================================================
@@ -831,13 +851,28 @@ internal fun PaintViewModel.refreshFrameThumbs() {
     runCore(after = {}) {
         val gen = ReverieCoreBridge.keyframeThumbGen()
         val sameGen = gen == currentGen
+        // 取走"精准失效"脏帧 (落笔 / 帧增删改 / 复制)。这些高频路径不再
+        // bump 全局代际, 所以代际一致时除了脏帧之外全部照常复用 ——
+        // 旧实现里每抬一笔就把所有图层所有帧的缩略图全部重渲染一遍。
+        val dirtyArr = ReverieCoreBridge.takeDirtyKeyframeThumbs()
+        val dirty = HashSet<Long>(dirtyArr.size / 2)
+        var di = 0
+        while (di + 1 < dirtyArr.size) {
+            dirty.add(frameThumbKey(dirtyArr[di], dirtyArr[di + 1]))
+            di += 2
+        }
         val merged = HashMap<Long, Bitmap>(existing)
         var rendered = 0
         var failed = 0
+        // 脏帧内容已变: 先把 UI 侧旧位图剔掉。在可见范围内的脏帧由下面的
+        // 循环重渲染; 不在范围内的 (用户滚走了) 也要保证滚回来时不命中
+        // stale 旧图 —— 引擎缓存条目已被 dirtyKeyframeThumb 删除, 这里
+        // 丢掉 UI 侧副本后, 下次进入视口自然走渲染。
+        if (dirty.isNotEmpty()) merged.keys.removeAll(dirty)
         for ((layerIndex, time) in visible) {
             val key = frameThumbKey(layerIndex, time)
-            // 代际一致时沿用旧位图, 只在内容变了以后重画
-            if (sameGen && merged[key]?.isRecycled == false) continue
+            // 代际一致且不是脏帧时沿用旧位图, 只在内容变了以后重画
+            if (sameGen && key !in dirty && merged[key]?.isRecycled == false) continue
             val bmp = Bitmap.createBitmap(FRAME_THUMB_W, FRAME_THUMB_H, Bitmap.Config.ARGB_8888)
             if (ReverieCoreBridge.renderKeyframeThumb(layerIndex, time, bmp)) {
                 merged[key] = bmp
@@ -847,8 +882,9 @@ internal fun PaintViewModel.refreshFrameThumbs() {
                 bmp.recycle()
             }
         }
-        // 代际未变又没有新渲染: 无需回写, 避免无谓重组
-        if (sameGen && rendered == 0) return@runCore
+        // 代际未变、没有新渲染、也没有脏帧剔留: 无需回写, 避免无谓重组
+        // (dirty 非空时 merged 已被修改, 必须回写让 UI 侧丢掉旧位图)
+        if (sameGen && rendered == 0 && dirty.isEmpty()) return@runCore
 
         val snapshot =
             if (merged.size <= MAX_FRAME_THUMBS) {
