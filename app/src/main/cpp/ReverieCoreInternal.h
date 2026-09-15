@@ -106,6 +106,9 @@
 #include <kis_layer.h>
 #include <KoCompositeOpRegistry.h>
 #include <kis_paint_layer.h>
+#include <kis_keyframe_channel.h>
+#include <kis_raster_keyframe_channel.h>
+#include <kis_paint_device_frames_interface.h>
 #include <kis_group_layer.h>
 #include <kis_layer.h>
 #include <kis_node.h>

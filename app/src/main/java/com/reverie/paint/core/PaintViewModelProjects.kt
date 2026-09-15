@@ -438,6 +438,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
     var previewPath = ""
     var hasRec = false
     var masterPath = ""
+    var isAnimation = false
 
     val ext = f.extension.lowercase()
     if (ext == "revp" || ext == "kra") {
@@ -456,6 +457,10 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     colorModeStr = json.optString("colorMode", "RGB 8位")
                     layerCount = json.optJSONArray("layers")?.length() ?: 1
                     masterPath = json.optString("masterFilePath", "")
+                    // 动画项目: 任一图层带关键帧通道 (meta.layers[].animated)
+                    isAnimation = json.optJSONArray("layers")?.let { arr ->
+                        (0 until arr.length()).any { arr.optJSONObject(it)?.optBoolean("animated", false) == true }
+                    } ?: false
                 }
                 val prevEntry = zip.getEntry("thumbnail.png") ?: zip.getEntry("preview.png")
                 if (prevEntry != null) {
@@ -502,6 +507,7 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
             hasRecording = hasRec,
             isAutoSaved = isAutoSaveFile,
             masterFilePath = masterPath,
+            isAnimation = isAnimation,
         ).also { p ->
             projectMetaCache[f.absolutePath] = ProjectMetaCacheEntry(f.lastModified(), f.length(), p)
         }

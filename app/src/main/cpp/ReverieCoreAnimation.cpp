@@ -25,6 +25,8 @@
 #include <kis_keyframe_channel.h>
 #include <kis_raster_keyframe_channel.h>
 #include <kis_time_span.h>
+#include <kis_onion_skin_compositor.h>
+#include <kis_image_config.h>
 #include <kis_undo_adapter.h>
 #include <kundo2command.h>
 #include <kundo2magicstring.h>
@@ -206,6 +208,93 @@ void ReverieCore::setAnimationPlaybackRange(int start, int end)
     if (!image || start < 0 || end < start) return;
     // KisTimeSpan 的 (start, end) 构造函数是私有的, 必须走工厂方法
     image->animationInterface()->setActivePlaybackRange(KisTimeSpan::fromTimeToTime(start, end));
+}
+
+// ============================================================
+// 洋葱皮
+// ============================================================
+
+void ReverieCore::configureOnionSkin(bool enabled, int prev, int next)
+{
+    KisImageSP image = m_document;
+    if (!image) return;
+
+    prev = qBound(0, prev, 10);
+    next = qBound(0, next, 10);
+
+    // 全局配置: 帧数/每帧状态与透明度。index 0 是当前帧, 作为整体缩放系数。
+    // 前后帧数不对称时取 max, 单侧多余帧用 state=false 关掉。
+    {
+        KisImageConfig config(true);
+        const int skins = qMax(prev, next);
+        config.setNumberOfOnionSkins(qMax(1, skins));
+        config.setOnionSkinState(0, true);
+        config.setOnionSkinOpacity(0, 255);
+        for (int i = 0; i < skins; ++i) {
+            const bool bOn = enabled && i < prev;
+            const bool fOn = enabled && i < next;
+            config.setOnionSkinState(-(i + 1), bOn);
+            config.setOnionSkinState(i + 1, fOn);
+            const int bOp = bOn ? int(255.0 * (prev - i) / qMax(1, prev)) : 0;
+            const int fOp = fOn ? int(255.0 * (next - i) / qMax(1, next)) : 0;
+            config.setOnionSkinOpacity(-(i + 1), bOp);
+            config.setOnionSkinOpacity(i + 1, fOp);
+        }
+    }
+    // 重读配置并广播 sigOnionSkinChanged (已连接的图层会自行刷新缓存)
+    KisOnionSkinCompositor::instance()->configChanged();
+
+    // 应用到所有位图图层 (洋葱皮是 per-paint-layer 开关) 并刷新投影
+    for (int i = 0; i < m_layers.size(); ++i) {
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[i].node);
+        if (!pl) continue;
+        const bool wasEnabled = pl->onionSkinEnabled();
+        if (wasEnabled != enabled) {
+            pl->setOnionSkinEnabled(enabled);
+        }
+        if (enabled || wasEnabled) {
+            // 开启时扩大脏区把洋葱皮画出来; 关闭时缩小 extent 擦掉残留
+            pl->setDirty(KisOnionSkinCompositor::instance()->calculateExtent(pl->paintDevice()));
+        }
+    }
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+}
+
+// ============================================================
+// 导入
+// ============================================================
+
+bool ReverieCore::importKeyframeFromBitmap(int layerIndex, int time, int w, int h, void *pixels, int stride)
+{
+    KisImageSP image = m_document;
+    if (!image || layerIndex < 0 || layerIndex >= m_layers.size() || !pixels || w <= 0 || h <= 0) {
+        return false;
+    }
+    KisRasterKeyframeChannel *channel = rasterChannelOf(m_layers[layerIndex].node, true);
+    if (!channel) return false;
+
+    if (time > 0 && !channel->keyframeAt(time)) {
+        if (!addKeyframe(layerIndex, time)) return false;
+    }
+    KisRasterKeyframeSP key = channel->keyframeAt<KisRasterKeyframe>(time);
+    if (!key) return false;
+
+    // Android Bitmap 锁出的内存是 ARGB_8888 premultiplied = RGBA8888_Premultiplied 字节序
+    const QImage img(static_cast<const uchar *>(pixels), w, h, stride, QImage::Format_RGBA8888_Premultiplied);
+    KisPaintDeviceSP tmp = new KisPaintDevice(channel->paintDevice()->colorSpace());
+    tmp->convertFromQImage(img, nullptr);
+    channel->paintDevice()->framesInterface()->uploadFrame(key->frameID(), tmp);
+    channel->paintDevice()->setDirty();
+
+    bumpKeyframeThumbGen();
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    return true;
+}
+
+void ReverieCore::storeRevAsset(const QString &name, const QByteArray &data)
+{
+    if (name.isEmpty() || data.isEmpty()) return;
+    m_revAssets[name] = data;
 }
 
 // ============================================================

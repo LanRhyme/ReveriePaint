@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -65,7 +68,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationAddKeyframe
 import com.reverie.paint.core.animationRemoveKeyframe
+import com.reverie.paint.core.animationImportAudio
+import com.reverie.paint.core.animationImportImages
+import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSeek
+import com.reverie.paint.core.animationSetFramerate
+import com.reverie.paint.core.animationSetOnionSkin
+import com.reverie.paint.core.animationSetOnionSkinFrames
 import com.reverie.paint.core.animationTogglePlay
 import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
@@ -278,6 +287,9 @@ internal fun AnimationTimelinePanel(
                     )
                 }
 
+                if (vm.anim.toolbarExpanded) {
+                    TimelineSettings(vm = vm, modifier = Modifier.fillMaxWidth())
+                }
                 TimelineControls(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
             }
         }
@@ -658,6 +670,196 @@ private fun TimelineControls(
             color = Morandi.subText,
             fontSize = 10.sp,
         )
+        Spacer(modifier = Modifier.width(8.dp))
+        GlyphButton(
+            onClick = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
+        ) {
+            if (vm.anim.toolbarExpanded) drawGlyphClose() else drawGlyphSettings()
+        }
+    }
+}
+
+// ============================================================
+// 设置面板 (帧率 / 洋葱皮 / 缩略图)
+// ============================================================
+
+@Composable
+private fun TimelineSettings(
+    vm: PaintViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .background(Morandi.panelHi.copy(alpha = 0.35f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        // 帧率
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "帧率",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.width(52.dp),
+            )
+            GlyphButton(onClick = { vm.animationSetFramerate(vm.anim.framerate - 1) }) { drawGlyphMinus() }
+            Text(
+                text = "${vm.anim.framerate} fps",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
+            GlyphButton(onClick = { vm.animationSetFramerate(vm.anim.framerate + 1) }) { drawGlyphPlus() }
+            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // 洋葱皮
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "洋葱皮",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.width(52.dp),
+            )
+            Switch(
+                checked = vm.anim.onionSkin,
+                onCheckedChange = { vm.animationSetOnionSkin(it) },
+                modifier = Modifier.scale(0.72f),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(text = "前", color = Morandi.subText, fontSize = 11.sp)
+            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev - 1, vm.anim.onionNext) }) {
+                drawGlyphMinus()
+            }
+            Text(
+                text = "${vm.anim.onionPrev}",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev + 1, vm.anim.onionNext) }) {
+                drawGlyphPlus()
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(text = "后", color = Morandi.subText, fontSize = 11.sp)
+            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev, vm.anim.onionNext - 1) }) {
+                drawGlyphMinus()
+            }
+            Text(
+                text = "${vm.anim.onionNext}",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev, vm.anim.onionNext + 1) }) {
+                drawGlyphPlus()
+            }
+            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // 缩略图
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "缩略图",
+                color = Morandi.text,
+                fontSize = 11.sp,
+                modifier = Modifier.width(52.dp),
+            )
+            Switch(
+                checked = vm.anim.showThumbnails,
+                onCheckedChange = { vm.anim.showThumbnails = it },
+                modifier = Modifier.scale(0.72f),
+            )
+            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // 导入
+        TimelineImportRow(vm = vm)
+    }
+}
+
+@Composable
+private fun TimelineImportRow(vm: PaintViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var importing by remember { mutableStateOf(false) }
+
+    val imagePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            importing = true
+            vm.animationImportImages(uris) {
+                importing = false
+            }
+        }
+    }
+    val videoPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) {
+            importing = true
+            vm.animationImportVideo(uri, vm.anim.framerate) {
+                importing = false
+            }
+        }
+    }
+    val audioPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) {
+            val ext = context.contentResolver.getType(uri)
+                ?.substringAfter('/')?.takeIf { it.length <= 5 } ?: "bin"
+            vm.animationImportAudio(uri, "audio_${System.currentTimeMillis()}.$ext")
+        }
+    }
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "导入",
+            color = Morandi.text,
+            fontSize = 11.sp,
+            modifier = Modifier.width(52.dp),
+        )
+        ImportChip(
+            text = "图像帧",
+            enabled = !importing,
+        ) { imagePicker.launch(arrayOf("image/*")) }
+        Spacer(modifier = Modifier.width(8.dp))
+        ImportChip(
+            text = "视频",
+            enabled = !importing,
+        ) { videoPicker.launch("video/*") }
+        Spacer(modifier = Modifier.width(8.dp))
+        ImportChip(
+            text = "音频",
+            enabled = !importing,
+        ) { audioPicker.launch("audio/*") }
+        if (importing) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = "导入中…",
+                color = Morandi.subText,
+                fontSize = 10.sp,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ImportChip(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Morandi.panelHi.copy(alpha = 0.7f))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(text = text, color = Morandi.text, fontSize = 10.sp)
     }
 }
 
@@ -726,6 +928,29 @@ private fun DrawScope.drawGlyphNext() {
 private fun DrawScope.drawGlyphPlus() {
     drawLine(Morandi.text, Offset(size.width * 0.5f, size.height * 0.18f), Offset(size.width * 0.5f, size.height * 0.82f), strokeWidth = 2f)
     drawLine(Morandi.text, Offset(size.width * 0.18f, size.height * 0.5f), Offset(size.width * 0.82f, size.height * 0.5f), strokeWidth = 2f)
+}
+
+private fun DrawScope.drawGlyphMinus() {
+    drawLine(Morandi.text, Offset(size.width * 0.18f, size.height * 0.5f), Offset(size.width * 0.82f, size.height * 0.5f), strokeWidth = 2f)
+}
+
+// 设置 (三条滑杆)
+private fun DrawScope.drawGlyphSettings() {
+    val knob = Size(size.height * 0.22f, size.height * 0.22f)
+    val rows = listOf(0.24f, 0.5f, 0.76f)
+    val knobs = listOf(0.62f, 0.34f, 0.7f)
+    rows.forEachIndexed { i, y ->
+        val cy = size.height * y
+        drawLine(Morandi.text, Offset(size.width * 0.15f, cy), Offset(size.width * 0.85f, cy), strokeWidth = 1.6f)
+        val kx = size.width * knobs[i] - knob.width / 2f
+        drawRoundRect(Morandi.text, Offset(kx, cy - knob.height / 2f), knob, CornerRadius(knob.width / 2f))
+    }
+}
+
+// 关闭 (X)
+private fun DrawScope.drawGlyphClose() {
+    drawLine(Morandi.text, Offset(size.width * 0.22f, size.height * 0.22f), Offset(size.width * 0.78f, size.height * 0.78f), strokeWidth = 2f)
+    drawLine(Morandi.text, Offset(size.width * 0.78f, size.height * 0.22f), Offset(size.width * 0.22f, size.height * 0.78f), strokeWidth = 2f)
 }
 
 private fun DrawScope.drawGlyphDuplicate() {

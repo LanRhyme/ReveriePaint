@@ -805,6 +805,8 @@ fun CreatePage(vm: PaintViewModel) {
                             onSwap = onSwapDimensions,
                             onCustomize = { portraitTab = 1 },
                             onCreate = onStartPainting,
+                            animationCanvas = animationCanvas,
+                            onAnimationCanvasChange = { animationCanvas = it },
                             modifier = Modifier.padding(vertical = 10.dp)
                         )
                     }
@@ -1199,6 +1201,8 @@ private fun PortraitPresetBottomBar(
     onSwap: () -> Unit,
     onCustomize: () -> Unit,
     onCreate: () -> Unit,
+    animationCanvas: Boolean = false,
+    onAnimationCanvasChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
@@ -1230,6 +1234,32 @@ private fun PortraitPresetBottomBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (animationCanvas) colors.accent else colors.panelHi)
+                    .clickable { onAnimationCanvasChange(!animationCanvas) }
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.ic_clock),
+                        contentDescription = "动画画布",
+                        tint = if (animationCanvas) colors.onAccent else colors.text,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (animationCanvas) "动画" else "静态",
+                        color = if (animationCanvas) colors.onAccent else colors.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .size(36.dp)

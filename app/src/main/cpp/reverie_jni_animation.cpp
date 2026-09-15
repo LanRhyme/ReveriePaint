@@ -77,6 +77,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setAnimationPlaybackRange(JNIEnv *
     core()->setAnimationPlaybackRange(start, end);
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkin(JNIEnv *, jobject, jboolean enabled, jint prev, jint next)
+{
+    core()->configureOnionSkin(enabled == JNI_TRUE, prev, next);
+}
+
 // ============================================================
 // Track: 图层即轨道
 // ============================================================
@@ -235,6 +241,40 @@ JNIEXPORT jlong JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_keyframeThumbGen(JNIEnv *, jobject)
 {
     return jlong(core()->keyframeThumbGen());
+}
+
+// 把位图作为关键帧导入指定轨道的指定帧 (图像/视频抽帧导入用)。
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_importKeyframeFromBitmap(
+    JNIEnv *env, jobject, jint layerIndex, jint time, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    const bool ok = core()->importKeyframeFromBitmap(
+        layerIndex, time, info.width, info.height, pixels, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// 存入导入资源 (音频等二进制), 保存 .revp 时写入 assets/<name>
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_storeRevAsset(JNIEnv *env, jobject, jstring name, jbyteArray data)
+{
+    if (!name || !data) return;
+    const jsize len = env->GetArrayLength(data);
+    if (len <= 0) return;
+    const char *nameChars = env->GetStringUTFChars(name, nullptr);
+    QByteArray buf(len, 0);
+    env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte *>(buf.data()));
+    core()->storeRevAsset(QString::fromUtf8(nameChars), buf);
+    env->ReleaseStringUTFChars(name, nameChars);
 }
 
 } // extern "C"

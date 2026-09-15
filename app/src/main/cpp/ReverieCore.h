@@ -209,6 +209,18 @@ public:
     void animationPlaybackRange(int *start, int *end) const;
     void setAnimationPlaybackRange(int start, int end);
 
+    // --- Onion skin: 洋葱皮 ---
+    // 全局配置 (KisImageConfig) + 应用到所有动画位图图层并刷新投影。
+    // enabled=false 仅关闭图层开关, prev/next 仍写入配置
+    void configureOnionSkin(bool enabled, int prev, int next);
+
+    // --- Import: 导入 ---
+    // 把位图像素 (ARGB_8888 premultiplied) 作为关键帧写入 [layerIndex,time];
+    // 帧不存在时自动创建。像素走 rawY 同源通道, 不触碰文档 currentTime
+    bool importKeyframeFromBitmap(int layerIndex, int time, int w, int h, void *pixels, int stride);
+    // 导入资源 (保存 .revp 时写入 assets/<name>), 加载 .revp 时还原
+    void storeRevAsset(const QString &name, const QByteArray &data);
+
     // --- Track: 图层即轨道 ---
     bool layerAnimated(int index) const;           // 已有 keyframe channel
     bool layerAnimatable(int index) const;         // 具备开启动画的资格
@@ -613,6 +625,9 @@ private:
     };
     QHash<quint64, KeyframeThumbCache> m_keyframeThumbCache;
     quint64 m_keyframeThumbGen = 1;
+
+    // 导入资源 (音频/视频等二进制), 保存 .revp 时写入 assets/ 条目
+    QMap<QString, QByteArray> m_revAssets;
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;

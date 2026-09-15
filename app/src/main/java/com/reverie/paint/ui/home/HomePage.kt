@@ -1139,6 +1139,36 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
+                                                        // Animation badge (动画项目)
+                                                        if (!p.isFolder && p.isAnimation) {
+                                                            Box(
+                                                                modifier =
+                                                                    Modifier
+                                                                        .align(Alignment.TopEnd)
+                                                                        .padding(6.dp)
+                                                                        .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
+                                                                        .clip(RoundedCornerShape(12.dp))
+                                                                        .background(Color.Black.copy(alpha = 0.55f))
+                                                                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                                                            ) {
+                                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                    Icon(
+                                                                        painterResource(R.drawable.ic_clock),
+                                                                        contentDescription = null,
+                                                                        tint = Color.White,
+                                                                        modifier = Modifier.size(10.dp),
+                                                                    )
+                                                                    Spacer(Modifier.width(3.dp))
+                                                                    Text(
+                                                                        text = "动画",
+                                                                        color = Color.White,
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+
                                                         // Selection checkmark
                                                         if (isSelectMode) {
                                                             Box(

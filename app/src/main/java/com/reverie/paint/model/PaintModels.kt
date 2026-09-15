@@ -108,6 +108,8 @@ data class Project(
     val isAutoSaved: Boolean = false,
     /** Associated master project file path if this is an autosave draft */
     val masterFilePath: String = "",
+    /** Whether the project is an animation canvas (含动画时间轴, meta.layers[].animated) */
+    val isAnimation: Boolean = false,
 )
 
 /** A canvas size preset for the create page */

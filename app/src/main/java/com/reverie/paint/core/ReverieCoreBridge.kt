@@ -154,6 +154,23 @@ object ReverieCoreBridge {
         end: Int,
     )
 
+    external fun configureOnionSkin(
+        enabled: Boolean,
+        prev: Int,
+        next: Int,
+    )
+
+    external fun importKeyframeFromBitmap(
+        layerIndex: Int,
+        time: Int,
+        bitmap: Bitmap,
+    ): Boolean
+
+    external fun storeRevAsset(
+        name: String,
+        data: ByteArray,
+    )
+
     external fun layerAnimated(index: Int): Boolean
 
     external fun layerAnimatable(index: Int): Boolean

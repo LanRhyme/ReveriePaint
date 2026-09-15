@@ -174,11 +174,31 @@ bool ReverieCore::exportPsd(const QString &path)
 
 namespace {
 
+// 动画关键帧的导出单元: (图层索引, 帧号) -> 整幅画布 PNG
+struct RevpKeyframe {
+    int layer;
+    int time;
+    QImage img;
+};
+
+// 图层 -> 栅格关键帧通道 (与 ReverieCoreAnimation.cpp 的 rasterChannelOf 同义,
+// 这里自带一份避免跨翻译单元依赖)。create=true 即"开启动画", 幂等安全;
+// 仅 KisPaintLayer 支持 Raster 通道, 其余图层类型返回空指针。
+KisRasterKeyframeChannel *revpRasterChannel(KisNode *node, bool create)
+{
+    if (!node) return nullptr;
+    if (!dynamic_cast<KisPaintLayer *>(node)) return nullptr;
+    return dynamic_cast<KisRasterKeyframeChannel *>(
+        node->getKeyframeChannel(KisKeyframeChannel::Raster.id(), create));
+}
+
 bool writeRevpStore(const QString &path,
                     const QJsonObject &meta,
                     const QString &layersXml,
                     const QImage &comp,
                     const QVector<QPair<int, QImage>> &layerImages,
+                    const QVector<RevpKeyframe> &keyframeImages,
+                    const QMap<QString, QByteArray> &assets,
                     const QByteArray &recordingBlob)
 {
     const QString tmpPath = path + ".tmp";
@@ -239,7 +259,30 @@ bool writeRevpStore(const QString &path,
         }
     }
 
-    // 4. Recording
+    // 4. Animation keyframe frames (每动画图层每关键帧一整幅画布 PNG)
+    for (const auto &kf : keyframeImages) {
+        const QString fn = QString("frame_%1_%2.png")
+                               .arg(kf.layer, 3, 10, QChar('0'))
+                               .arg(kf.time, 5, 10, QChar('0'));
+        if (store->open(fn)) {
+            QByteArray kBytes;
+            QBuffer kBuf(&kBytes);
+            kBuf.open(QIODevice::WriteOnly);
+            kf.img.save(&kBuf, "PNG");
+            store->write(kBytes);
+            store->close();
+        }
+    }
+
+    // 5. Imported assets (音频/视频等二进制资源, 文件名即资源名)
+    for (auto it = assets.constBegin(); it != assets.constEnd(); ++it) {
+        if (store->open("assets/" + it.key())) {
+            store->write(it.value());
+            store->close();
+        }
+    }
+
+    // 6. Recording
     if (!recordingBlob.isEmpty()) {
         if (store->open("recording")) {
             store->write(recordingBlob);
@@ -326,9 +369,35 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+
+        // 动画轨道: 记录关键帧时间列表 (时间轴画廊标识也依赖它)
+        KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
+        if (kfCh) {
+            QList<int> times = kfCh->allKeyframeTimes().values();
+            std::sort(times.begin(), times.end());
+            if (!times.isEmpty()) {
+                layerObj["animated"] = true;
+                QJsonArray kArr;
+                for (int t : times) kArr.append(t);
+                layerObj["keyframes"] = kArr;
+            }
+        }
         layersArray.append(layerObj);
     }
     meta["layers"] = layersArray;
+
+    // 动画元信息 (以引擎为唯一真身; 无动画文档这里只有默认帧率, 无害)
+    {
+        QJsonObject animObj;
+        animObj["framerate"] = animationFramerate();
+        int pbStart = 0;
+        int pbEnd = 0;
+        animationPlaybackRange(&pbStart, &pbEnd);
+        animObj["playbackStart"] = pbStart;
+        animObj["playbackEnd"] = pbEnd;
+        animObj["currentTime"] = animationCurrentTime();
+        meta["animation"] = animObj;
+    }
 
     QString xml;
     writeLayersXml(&xml);
@@ -350,7 +419,40 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         layerImages.append(qMakePair(i, layerImg));
     }
 
-    return writeRevpStore(path, meta, xml, comp, layerImages, recordingBlob);
+    // 动画关键帧画面: 每个动画图层的每个关键帧整幅画布导出
+    QVector<RevpKeyframe> keyframeImages;
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup || e.nodeType == NodeTypeAdjustment) continue;
+        KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
+        if (!kfCh) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+        QList<int> times = kfCh->allKeyframeTimes().values();
+        std::sort(times.begin(), times.end());
+        for (int t : times) {
+            KisPaintDeviceSP tmp = new KisPaintDevice(dev->colorSpace());
+            kfCh->writeToDevice(t, tmp);
+            QImage img = tmp->convertToQImage(nullptr, 0, 0, image->width(), image->height());
+            if (!img.isNull()) {
+                RevpKeyframe kf;
+                kf.layer = i;
+                kf.time = t;
+                kf.img = img;
+                keyframeImages.append(kf);
+            }
+        }
+    }
+
+    QJsonArray assetNames;
+    for (auto it = m_revAssets.constBegin(); it != m_revAssets.constEnd(); ++it) {
+        assetNames.append(it.key());
+    }
+    if (!assetNames.isEmpty()) {
+        meta["assets"] = assetNames;
+    }
+
+    return writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, m_revAssets, recordingBlob);
 }
 
 bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJson, const QByteArray &recordingBlob)
@@ -406,9 +508,35 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+
+        // 动画轨道: 关键帧时间列表
+        KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
+        if (kfCh) {
+            QList<int> times = kfCh->allKeyframeTimes().values();
+            std::sort(times.begin(), times.end());
+            if (!times.isEmpty()) {
+                layerObj["animated"] = true;
+                QJsonArray kArr;
+                for (int t : times) kArr.append(t);
+                layerObj["keyframes"] = kArr;
+            }
+        }
         layersArray.append(layerObj);
     }
     meta["layers"] = layersArray;
+
+    // 动画元信息 (引擎为真身)
+    {
+        QJsonObject animObj;
+        animObj["framerate"] = animationFramerate();
+        int pbStart = 0;
+        int pbEnd = 0;
+        animationPlaybackRange(&pbStart, &pbEnd);
+        animObj["playbackStart"] = pbStart;
+        animObj["playbackEnd"] = pbEnd;
+        animObj["currentTime"] = animationCurrentTime();
+        meta["animation"] = animObj;
+    }
 
     QString xml;
     writeLayersXml(&xml);
@@ -433,9 +561,57 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         layerImages.append(qMakePair(i, layerImg));
     }
 
+    // 关键帧: 调用线程只做瓦片拷贝 (writeToDevice 到独立设备), PNG 转换放写盘线程
+    struct RevpKeyframeDevice {
+        int layer;
+        int time;
+        KisPaintDeviceSP dev;
+    };
+    QVector<RevpKeyframeDevice> kfDevices;
+    const int docW = image->width();
+    const int docH = image->height();
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const LayerEntry &e = m_layers[i];
+        if (e.isGroup || e.nodeType == NodeTypeAdjustment) continue;
+        KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
+        if (!kfCh) continue;
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+        QList<int> times = kfCh->allKeyframeTimes().values();
+        std::sort(times.begin(), times.end());
+        for (int t : times) {
+            KisPaintDeviceSP tmp = new KisPaintDevice(dev->colorSpace());
+            kfCh->writeToDevice(t, tmp);
+            RevpKeyframeDevice kfd;
+            kfd.layer = i;
+            kfd.time = t;
+            kfd.dev = tmp;
+            kfDevices.append(kfd);
+        }
+    }
+
+    QJsonArray assetNames;
+    for (auto it = m_revAssets.constBegin(); it != m_revAssets.constEnd(); ++it) {
+        assetNames.append(it.key());
+    }
+    if (!assetNames.isEmpty()) {
+        meta["assets"] = assetNames;
+    }
+    const QMap<QString, QByteArray> assetsCopy = m_revAssets;
+
     s_savingRevpAsync.store(true);
-    std::thread([path, meta, xml, comp, layerImages, recordingBlob]() {
-        const bool ok = writeRevpStore(path, meta, xml, comp, layerImages, recordingBlob);
+    std::thread([path, meta, xml, comp, layerImages, kfDevices, docW, docH, assetsCopy, recordingBlob]() {
+        QVector<RevpKeyframe> keyframeImages;
+        for (const auto &kfd : kfDevices) {
+            RevpKeyframe kf;
+            kf.layer = kfd.layer;
+            kf.time = kfd.time;
+            kf.img = kfd.dev->convertToQImage(nullptr, 0, 0, docW, docH);
+            if (!kf.img.isNull()) {
+                keyframeImages.append(kf);
+            }
+        }
+        const bool ok = writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, assetsCopy, recordingBlob);
         s_savingRevpAsync.store(false);
         qDebug() << "saveRevpAsync finished, result=" << ok << "path=" << path;
     }).detach();
@@ -681,6 +857,88 @@ bool ReverieCore::loadRevp(const QString &path)
     m_docWidth = w;
     m_docHeight = h;
     syncLayersFromImage();
+
+    // ---- 动画恢复: 帧率/播放范围/关键帧通道 (仅 revp 新格式) ----
+    // 必须在图层已挂到 image 之后创建通道 (keyframeChannelHasBeenAdded
+    // 依赖 graphListener), 此处 addNode 均已完成
+    if (!isKraFallback && meta.contains("animation")) {
+        QJsonObject animObj = meta["animation"].toObject();
+        const int fps = animObj["framerate"].toInt(0);
+        const int pbStart = animObj["playbackStart"].toInt(0);
+        const int pbEnd = animObj["playbackEnd"].toInt(0);
+        const int curTime = animObj["currentTime"].toInt(0);
+
+        const QJsonArray layersMeta = meta["layers"].toArray();
+        for (int i = 0; i < layersMeta.size(); ++i) {
+            QJsonObject layerObj = layersMeta[i].toObject();
+            if (!layerObj["animated"].toBool(false)) continue;
+            const QJsonArray timesArr = layerObj["keyframes"].toArray();
+            if (timesArr.isEmpty()) continue;
+
+            // layers.xml 树加载时索引可能与 meta 错位, 优先按图层名匹配
+            const QString name = layerObj["name"].toString();
+            int layerIdx = -1;
+            for (int j = 0; j < m_layers.size(); ++j) {
+                if (m_layers[j].name == name) {
+                    layerIdx = j;
+                    break;
+                }
+            }
+            if (layerIdx < 0) layerIdx = layerObj["index"].toInt(i);
+            KisNode *node = (layerIdx >= 0 && layerIdx < m_layers.size())
+                                ? m_layers[layerIdx].node : nullptr;
+            if (!node) continue;
+            KisRasterKeyframeChannel *channel = revpRasterChannel(node, true);
+            if (!channel) continue;
+
+            const int metaIdx = layerObj["index"].toInt(i);
+            for (int k = 0; k < timesArr.size(); ++k) {
+                const int t = timesArr[k].toInt();
+                if (t < 0) continue;
+                if (t > 0 && !channel->keyframeAt(t)) {
+                    // 加载期不需要撤销记录 (undo store 尚为空)
+                    channel->addKeyframe(t, nullptr);
+                }
+                const QString fn = QString("frame_%1_%2.png")
+                                       .arg(metaIdx, 3, 10, QChar('0'))
+                                       .arg(t, 5, 10, QChar('0'));
+                if (!store->open(fn)) continue;
+                QByteArray fData = readAllStoreBytes(store.data());
+                store->close();
+                QImage fImg;
+                if (fData.isEmpty() || !fImg.loadFromData(fData, "PNG")) continue;
+
+                KisRasterKeyframeSP key = channel->keyframeAt<KisRasterKeyframe>(t);
+                if (!key) continue;
+                KisPaintDeviceSP tmp = new KisPaintDevice(cs);
+                tmp->convertFromQImage(fImg, nullptr);
+                channel->paintDevice()->framesInterface()->uploadFrame(key->frameID(), tmp);
+                channel->paintDevice()->setDirty();
+            }
+        }
+
+        if (fps > 0) setAnimationFramerate(fps);
+        if (pbEnd > pbStart) setAnimationPlaybackRange(pbStart, pbEnd);
+        if (curTime > 0) setAnimationCurrentTime(curTime, false);
+        bumpKeyframeThumbGen();
+    }
+
+    // ---- 导入资源还原: assets/<name> -> m_revAssets (随下次保存写回) ----
+    if (!isKraFallback) {
+        m_revAssets.clear();
+        const QJsonArray assetArr = meta["assets"].toArray();
+        for (int i = 0; i < assetArr.size(); ++i) {
+            const QString assetName = assetArr[i].toString();
+            if (assetName.isEmpty()) continue;
+            if (!store->open("assets/" + assetName)) continue;
+            const QByteArray aData = readAllStoreBytes(store.data());
+            store->close();
+            if (!aData.isEmpty()) {
+                m_revAssets[assetName] = aData;
+            }
+        }
+    }
+
     recompositeProjection();
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
