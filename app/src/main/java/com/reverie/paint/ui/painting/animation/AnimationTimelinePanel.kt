@@ -4,6 +4,11 @@
 
 package com.reverie.paint.ui.painting.animation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -42,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -60,6 +66,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -89,6 +96,7 @@ import com.reverie.paint.core.refreshFrameThumbs
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
 import com.reverie.paint.ui.theme.Glass
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
@@ -194,13 +202,83 @@ internal fun AnimationTimelinePanel(
     // 拖动期间换实色: 毛玻璃对每帧高度变化重采样会闪, 松手恢复玻璃
     val useHaze = hazeState != null && !dragging
 
+    // 外层 Column: 设置浮窗作为独立卡片悬在时间轴面板**上方** (不占面板高度)
+    Column(modifier = modifier.fillMaxWidth()) {
+        AnimatedVisibility(
+            visible = vm.anim.toolbarExpanded && mode == "custom",
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 3 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 3 }),
+        ) {
+            AnimationSettingsCard(
+                vm = vm,
+                hazeState = hazeState,
+                onClose = { vm.anim.toolbarExpanded = false },
+            )
+        }
+
+        TimelinePanelSurface(
+            vm = vm,
+            hazeState = hazeState,
+            panelHeight = panelHeight,
+            useHaze = useHaze,
+            panelAlpha = panelAlpha,
+            rowDp = rowDp,
+            rowPx = rowPx,
+            maxScrollY = maxScrollY,
+            scrollY = scrollY,
+            onScrollYChange = { scrollY = it },
+            onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
+            mode = mode,
+            onModeChange = { mode = it },
+            panelHeightPx = panelHeightPx,
+            onPanelHeightPxChange = { panelHeightPx = it },
+            dragging = dragging,
+            onDraggingChange = { dragging = it },
+            d = d,
+            minPx = minPx,
+            maxPx = maxPx,
+            mediumHeightDp = mediumHeightDp,
+        )
+    }
+}
+
+/**
+ * 时间轴面板本体。
+ *
+ * 从 [AnimationTimelinePanel] 拆出来只为让设置浮窗能作为独立兄弟节点排在上方;
+ * 拖动/形态相关状态仍由父级持有 (回调上抛), 保证拖动手势的生命周期与原来一致。
+ */
+@Composable
+private fun TimelinePanelSurface(
+    vm: PaintViewModel,
+    hazeState: HazeState?,
+    panelHeight: Dp,
+    useHaze: Boolean,
+    panelAlpha: Float,
+    rowDp: Dp,
+    rowPx: Float,
+    maxScrollY: Float,
+    scrollY: Float,
+    onScrollYChange: (Float) -> Unit,
+    onToggleSettings: () -> Unit,
+    mode: String,
+    onModeChange: (String) -> Unit,
+    panelHeightPx: Float,
+    onPanelHeightPxChange: (Float) -> Unit,
+    dragging: Boolean,
+    onDraggingChange: (Boolean) -> Unit,
+    d: Float,
+    minPx: Float,
+    maxPx: Float,
+    mediumHeightDp: Dp,
+) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .height(panelHeight)
             // 无圆角: 与左侧滑块工具条同底色平齐融合
             .then(
-                if (useHaze) {
+                if (useHaze && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.barStyle(panelAlpha))
                 } else {
                     Modifier.background(Morandi.panel.copy(alpha = panelAlpha))
@@ -211,14 +289,14 @@ internal fun AnimationTimelinePanel(
             onTap = {
                 when (mode) {
                     "bar", "mini" -> {
-                        mode = "custom"
-                        panelHeightPx = (mediumHeightDp.value * d).coerceIn(minPx, maxPx)
+                        onModeChange("custom")
+                        onPanelHeightPxChange((mediumHeightDp.value * d).coerceIn(minPx, maxPx))
                     }
-                    else -> mode = "mini"
+                    else -> onModeChange("mini")
                 }
             },
             onDragStart = {
-                dragging = true
+                onDraggingChange(true)
                 // 一次性冻结: 非 custom 形态先按当前显示高度切到 custom 布局,
                 // 之后整段拖动只调高度。手势用屏幕绝对坐标, 布局移动不影响
                 // 后续 delta, 因此这里不需要任何补偿
@@ -227,25 +305,26 @@ internal fun AnimationTimelinePanel(
                         "mini" -> (HANDLE_H.value + rowDp.value + CONTROL_H.value) * d
                         else -> HANDLE_H.value * d
                     }
-                    panelHeightPx = oldPx.coerceIn(minPx, maxPx).roundToInt().toFloat()
-                    mode = "custom"
+                    onPanelHeightPxChange(oldPx.coerceIn(minPx, maxPx).roundToInt().toFloat())
+                    onModeChange("custom")
                 }
             },
             onDragEnd = {
-                dragging = false
+                onDraggingChange(false)
                 // 松手才吸附: 拖得足够扁就收成小横条
-                if (panelHeightPx <= BAR_SNAP_DP * d) mode = "bar"
+                if (panelHeightPx <= BAR_SNAP_DP * d) onModeChange("bar")
             },
-            onDragCancel = { dragging = false },
+            onDragCancel = { onDraggingChange(false) },
             onDrag = { fingerPx ->
                 // fingerPx 是**手指在屏幕上的真实位移** (rawY 差分), 直接作用到高度;
                 // 向下拖(>0) 压扁
-                panelHeightPx = (panelHeightPx - fingerPx).coerceIn(minPx, maxPx)
-                    .roundToInt().toFloat()
+                onPanelHeightPxChange(
+                    (panelHeightPx - fingerPx).coerceIn(minPx, maxPx).roundToInt().toFloat(),
+                )
             },
             onDoubleTap = {
-                mode = "custom"
-                panelHeightPx = ((MAX_PANEL_H - 60f) * d).coerceIn(minPx, maxPx)
+                onModeChange("custom")
+                onPanelHeightPxChange(((MAX_PANEL_H - 60f) * d).coerceIn(minPx, maxPx))
             },
             modifier = Modifier.fillMaxWidth().height(HANDLE_H),
         )
@@ -288,28 +367,16 @@ internal fun AnimationTimelinePanel(
                         vm = vm,
                         rowPx = rowPx,
                         scrollY = scrollY,
-                        onScrollYChange = { scrollY = it.coerceIn(0f, maxScrollY) },
+                        onScrollYChange = { onScrollYChange(it.coerceIn(0f, maxScrollY)) },
                         modifier = Modifier.weight(1f).fillMaxSize(),
                     )
                 }
 
-                if (vm.anim.toolbarExpanded) {
-                    TimelineSettings(vm = vm, modifier = Modifier.fillMaxWidth())
-                }
+                // 设置已改为独立浮窗 (见 AnimationSettingsCard), 不再占面板高度
                 TimelineControls(
                     vm = vm,
                     modifier = Modifier.fillMaxWidth().height(CONTROL_H),
-                    onToggleSettings = {
-                        val open = !vm.anim.toolbarExpanded
-                        vm.anim.toolbarExpanded = open
-                        // 展开设置需要空间: 面板太扁时先长高, 免得轨道区被压成 0
-                        if (open) {
-                            val needPx = 380f * d
-                            if (panelHeightPx < needPx) {
-                                panelHeightPx = needPx.coerceIn(minPx, maxPx)
-                            }
-                        }
-                    },
+                    onToggleSettings = onToggleSettings,
                 )
             }
         }
@@ -702,19 +769,62 @@ private fun TimelineControls(
 // 设置面板 (帧率 / 洋葱皮 / 缩略图)
 // ============================================================
 
+/** 动画设置浮窗: 独立卡片悬在时间轴面板上方 (不占面板高度, 不挤压轨道区) */
+@Composable
+private fun AnimationSettingsCard(
+    vm: PaintViewModel,
+    hazeState: HazeState?,
+    onClose: () -> Unit,
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val alpha = vm.popupPanelOpacity
+    Column(
+        modifier = Modifier
+            .padding(start = 8.dp, bottom = 8.dp)
+            .shadow(16.dp, shape, spotColor = Color.Black.copy(alpha = 0.45f))
+            .clip(shape)
+            .then(
+                if (vm.blurBackground && hazeState != null) {
+                    Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(alpha))
+                } else {
+                    Modifier.background(Morandi.panel.copy(alpha = alpha))
+                },
+            )
+            .glassBorder(shape)
+            .width(320.dp)
+            .padding(bottom = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 4.dp, top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "动画设置",
+                color = Morandi.text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            ReIconButton(
+                icon = R.drawable.ic_x,
+                desc = "关闭设置",
+                onTap = onClose,
+                size = 30.dp,
+                iconSize = 15.dp,
+            )
+        }
+        TimelineSettings(vm = vm)
+    }
+}
+
 @Composable
 private fun TimelineSettings(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.padding(bottom = 4.dp)) {
-        // 与轨道区之间一条细线: 设置区是"面板内的第二层", 不用底色堆叠
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(Morandi.border.copy(alpha = 0.5f)),
-        )
         ReSectionTitle(text = "播放", modifier = Modifier.padding(start = 12.dp))
 
         // 帧率
