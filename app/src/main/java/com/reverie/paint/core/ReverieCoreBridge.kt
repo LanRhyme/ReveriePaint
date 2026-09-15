@@ -485,6 +485,8 @@ object ReverieCoreBridge {
 
     external fun saveKra(path: String): Boolean
 
+    external fun setAuthorProfile(json: String): Boolean
+
     external fun loadPng(path: String): Boolean
 
     external fun renderLayerThumb(

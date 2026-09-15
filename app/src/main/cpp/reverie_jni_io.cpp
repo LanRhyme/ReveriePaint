@@ -123,4 +123,17 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadPng(JNIEnv *env, jobject, jstr
     env->ReleaseStringUTFChars(path, c);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setAuthorProfile(JNIEnv *env, jobject, jstring json)
+{
+    if (!json) {
+        core()->setAuthorProfile(QString());
+        return JNI_TRUE;
+    }
+    const char *c = env->GetStringUTFChars(json, nullptr);
+    core()->setAuthorProfile(QString::fromUtf8(c));
+    env->ReleaseStringUTFChars(json, c);
+    return JNI_TRUE;
+}
 }

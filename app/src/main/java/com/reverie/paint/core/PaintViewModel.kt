@@ -448,6 +448,27 @@ class PaintViewModel : ViewModel() {
         } catch (_: Exception) {}
     }
 
+    // 作者档案 (Dublin Core / Krita 兼容元数据)
+    var authorProfile by mutableStateOf(com.reverie.paint.model.AuthorProfile())
+        internal set
+
+    fun updateAuthorProfile(profile: com.reverie.paint.model.AuthorProfile) {
+        authorProfile = profile
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("author_profile_json", profile.toJson())
+                .apply()
+        }
+        syncAuthorProfileToCore()
+    }
+
+    fun syncAuthorProfileToCore() {
+        runCore(render = false) {
+            ReverieCoreBridge.setAuthorProfile(authorProfile.toJson())
+        }
+    }
+
     fun persistReferenceImages() {
         if (!::appContext.isInitialized) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -1591,6 +1612,10 @@ class PaintViewModel : ViewModel() {
             autoSaveToastEnabled = prefs.getBoolean("autoSaveToastEnabled", true)
             maxUndoSteps = prefs.getInt("maxUndoSteps", 50).coerceIn(10, 200)
             promptSaveOnExit = prefs.getBoolean("promptSaveOnExit", true)
+
+            val authorJson = prefs.getString("author_profile_json", null)
+            authorProfile = com.reverie.paint.model.AuthorProfile.fromJson(authorJson)
+            syncAuthorProfileToCore()
 
             brushColor = prefs.getString("brushColor", "#000000") ?: "#000000"
             brushSecondaryColor = prefs.getString("brushSecondaryColor", "#ffffff") ?: "#ffffff"

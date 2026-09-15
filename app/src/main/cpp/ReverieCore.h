@@ -469,6 +469,28 @@ public:
     bool loadPsd(const QString &path);
     bool saveKra(const QString &path);
 
+    // 作者档案配置 (Krita / Dublin Core 兼容)
+    struct AuthorProfile {
+        bool enabled = false;
+        QString name;
+        QString nickname;
+        QString organization;
+        QString email;
+        QString website;
+        QString copyright;
+
+        bool isEmpty() const {
+            return name.trimmed().isEmpty() &&
+                   nickname.trimmed().isEmpty() &&
+                   organization.trimmed().isEmpty() &&
+                   email.trimmed().isEmpty() &&
+                   website.trimmed().isEmpty() &&
+                   copyright.trimmed().isEmpty();
+        }
+    };
+    void setAuthorProfile(const QString &jsonStr);
+    const AuthorProfile &authorProfile() const { return m_authorProfile; }
+
     // Render a single layer's content into an RGBA buffer (w*h*4 bytes,
     // row stride dstStride) as a thumbnail: transparent background, keep
     // aspect ratio, centered. Returns true on success.
@@ -731,6 +753,8 @@ private:
 
     // Wrap a command push through the image's undo adapter and clear redo
     void pushUndoCommand(KUndo2Command *cmd);
+
+    AuthorProfile m_authorProfile;
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;

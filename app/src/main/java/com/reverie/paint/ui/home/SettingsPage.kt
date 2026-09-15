@@ -81,6 +81,7 @@ enum class SettingsSubPage {
     GENERAL,
     THEME,
     STYLUS,
+    AUTHOR,
     ABOUT,
 }
 
@@ -97,6 +98,7 @@ fun SettingsPageContent(
         mutableStateOf(
             if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS
             else if (vm.settingsInitialSubPage == "GENERAL") SettingsSubPage.GENERAL
+            else if (vm.settingsInitialSubPage == "AUTHOR") SettingsSubPage.AUTHOR
             else if (isTabletLandscape) SettingsSubPage.GENERAL
             else SettingsSubPage.MAIN,
         )
@@ -117,6 +119,9 @@ fun SettingsPageContent(
             vm.settingsInitialSubPage = "MAIN"
         } else if (vm.settingsInitialSubPage == "THEME") {
             subPage = SettingsSubPage.THEME
+            vm.settingsInitialSubPage = "MAIN"
+        } else if (vm.settingsInitialSubPage == "AUTHOR") {
+            subPage = SettingsSubPage.AUTHOR
             vm.settingsInitialSubPage = "MAIN"
         } else if (vm.settingsInitialSubPage == "ABOUT") {
             subPage = SettingsSubPage.ABOUT
@@ -189,6 +194,12 @@ fun SettingsPageContent(
                         onClick = { subPage = SettingsSubPage.STYLUS },
                     )
                     SettingMasterNavRow(
+                        iconRes = R.drawable.ic_author,
+                        title = "作者档案",
+                        isSelected = subPage == SettingsSubPage.AUTHOR,
+                        onClick = { subPage = SettingsSubPage.AUTHOR },
+                    )
+                    SettingMasterNavRow(
                         iconRes = R.drawable.ic_info_circle,
                         title = "关于应用",
                         isSelected = subPage == SettingsSubPage.ABOUT,
@@ -224,6 +235,7 @@ fun SettingsPageContent(
                         SettingsSubPage.GENERAL -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.THEME -> ThemeSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.STYLUS -> StylusSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        SettingsSubPage.AUTHOR -> AuthorSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
                         SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                     }
@@ -270,6 +282,13 @@ fun SettingsPageContent(
 
                 SettingsSubPage.STYLUS -> {
                     StylusSettingsSubPage(
+                        vm = vm,
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
+
+                SettingsSubPage.AUTHOR -> {
+                    AuthorSettingsSubPage(
                         vm = vm,
                         onBack = { subPage = SettingsSubPage.MAIN },
                     )
@@ -339,6 +358,19 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
                     summary = "专属手写笔适配、书写震动发声与全局压力曲线",
                     shape = settingGroupShape(2, 3),
                     onClick = { onNavigate(SettingsSubPage.STYLUS) },
+                )
+            }
+
+            Spacer(Modifier.height(4.dp))
+
+            SettingCategoryTitle("创作与版权")
+            SettingGroup {
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_author,
+                    title = "作者档案",
+                    summary = "创作者署名、团队机构与导出作品默认版权声明",
+                    shape = settingGroupShape(0, 1),
+                    onClick = { onNavigate(SettingsSubPage.AUTHOR) },
                 )
             }
 

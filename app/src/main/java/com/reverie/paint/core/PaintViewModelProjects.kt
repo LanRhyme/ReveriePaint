@@ -604,12 +604,19 @@ internal fun PaintViewModel.refreshProjects() {
 internal fun PaintViewModel.exportDocument(
     format: String,
     targetFile: java.io.File,
+    embedAuthor: Boolean = true,
     onSuccess: (java.io.File) -> Unit,
     onError: (String) -> Unit = {},
 ) {
     val fmt = format.lowercase()
     runCore(render = false) {
-        val ok =
+        if (!embedAuthor || !authorProfile.enabled) {
+            ReverieCoreBridge.setAuthorProfile("")
+        } else {
+            ReverieCoreBridge.setAuthorProfile(authorProfile.toJson())
+        }
+
+        val ok = try {
             when (fmt) {
                 "png" -> {
                     ReverieCoreBridge.savePng(targetFile.absolutePath)
@@ -628,6 +635,9 @@ internal fun PaintViewModel.exportDocument(
                 }
 
                 "revp" -> {
+                    val authorSnippet = if (embedAuthor && authorProfile.enabled && authorProfile.isNotEmpty()) {
+                        ", \"author\": ${authorProfile.toJson()}"
+                    } else ""
                     val extraJson =
                         """
                         {
@@ -636,6 +646,7 @@ internal fun PaintViewModel.exportDocument(
                             "createdTime": $canvasCreatedTime,
                             "colorMode": "$colorMode",
                             "layerCount": ${layers.size}
+                            $authorSnippet
                         }
                         """.trimIndent()
                     ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson, recorder.serialize())
@@ -686,6 +697,11 @@ internal fun PaintViewModel.exportDocument(
                     ReverieCoreBridge.savePng(targetFile.absolutePath)
                 }
             }
+        } finally {
+            if (authorProfile.enabled) {
+                ReverieCoreBridge.setAuthorProfile(authorProfile.toJson())
+            }
+        }
         mainHandler.post {
             if (ok && targetFile.exists() && targetFile.length() > 0) {
                 onSuccess(targetFile)
@@ -701,6 +717,7 @@ internal fun PaintViewModel.exportDocument(
  */
 internal fun PaintViewModel.exportImageToGallery(
     format: String,
+    embedAuthor: Boolean = true,
     onSuccess: (android.net.Uri) -> Unit,
     onError: (String) -> Unit = {},
 ) {
@@ -723,6 +740,7 @@ internal fun PaintViewModel.exportImageToGallery(
     exportDocument(
         format = ext,
         targetFile = tempFile,
+        embedAuthor = embedAuthor,
         onSuccess = { file ->
             try {
                 val resolver = appContext.contentResolver

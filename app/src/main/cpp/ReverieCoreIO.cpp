@@ -10,15 +10,60 @@
 #include "ReverieCoreInternal.h"
 #include <QXmlStreamReader>
 
+void ReverieCore::setAuthorProfile(const QString &jsonStr)
+{
+    m_authorProfile = AuthorProfile();
+    if (jsonStr.trimmed().isEmpty()) {
+        return;
+    }
+    QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
+    if (!doc.isObject()) {
+        return;
+    }
+    QJsonObject obj = doc.object();
+    m_authorProfile.enabled = obj.value("enabled").toBool(true);
+    m_authorProfile.name = obj.value("name").toString();
+    m_authorProfile.nickname = obj.value("nickname").toString();
+    m_authorProfile.organization = obj.value("organization").toString();
+    m_authorProfile.email = obj.value("email").toString();
+    m_authorProfile.website = obj.value("website").toString();
+    m_authorProfile.copyright = obj.value("copyright").toString();
+}
+
 bool ReverieCore::savePng(const QString &path)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
         return false;
     }
-    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
     if (img.isNull()) {
         return false;
+    }
+    if (m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QString author = m_authorProfile.name.trimmed();
+        if (author.isEmpty()) author = m_authorProfile.nickname.trimmed();
+        if (!author.isEmpty()) {
+            img.setText("Author", author);
+            img.setText("Artist", author);
+        }
+        if (!m_authorProfile.copyright.trimmed().isEmpty()) {
+            img.setText("Copyright", m_authorProfile.copyright.trimmed());
+        }
+        if (!m_authorProfile.organization.trimmed().isEmpty()) {
+            img.setText("Organization", m_authorProfile.organization.trimmed());
+        }
+        QString contact;
+        if (!m_authorProfile.website.trimmed().isEmpty()) contact += m_authorProfile.website.trimmed();
+        if (!m_authorProfile.email.trimmed().isEmpty()) {
+            if (!contact.isEmpty()) contact += " | ";
+            contact += m_authorProfile.email.trimmed();
+        }
+        if (!contact.isEmpty()) {
+            img.setText("Contact", contact);
+        }
+        img.setText("Software", "ReveriePaint");
+        img.setText("Creation Time", QDateTime::currentDateTime().toString(Qt::ISODate));
     }
     return img.save(path, "PNG");
 }
@@ -39,6 +84,18 @@ bool ReverieCore::exportJpg(const QString &path, int quality)
     QPainter p(&rgbImg);
     p.drawImage(0, 0, img);
     p.end();
+    if (m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QString author = m_authorProfile.name.trimmed();
+        if (author.isEmpty()) author = m_authorProfile.nickname.trimmed();
+        if (!author.isEmpty()) {
+            rgbImg.setText("Author", author);
+            rgbImg.setText("Artist", author);
+        }
+        if (!m_authorProfile.copyright.trimmed().isEmpty()) {
+            rgbImg.setText("Copyright", m_authorProfile.copyright.trimmed());
+        }
+        rgbImg.setText("Software", "ReveriePaint");
+    }
     return rgbImg.save(path, "JPEG", qBound(1, quality, 100));
 }
 
@@ -238,6 +295,18 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
                 meta[it.key()] = it.value();
             }
         }
+    }
+
+    // Author metadata
+    if (!meta.contains("author") && m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QJsonObject authorObj;
+        authorObj["name"] = m_authorProfile.name;
+        authorObj["nickname"] = m_authorProfile.nickname;
+        authorObj["organization"] = m_authorProfile.organization;
+        authorObj["email"] = m_authorProfile.email;
+        authorObj["website"] = m_authorProfile.website;
+        authorObj["copyright"] = m_authorProfile.copyright;
+        meta["author"] = authorObj;
     }
 
     // Layer metadata array
@@ -851,6 +920,60 @@ bool ReverieCore::saveKra(const QString &path)
         store->close();
     }
 
+    // 2.1 documentinfo.xml - Calligra / Krita Dublin Core metadata
+    if (m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        const QString docTitle = image->objectName().isEmpty() ? QStringLiteral("Artwork") : image->objectName();
+        const QString nowIso = QDateTime::currentDateTime().toString(Qt::ISODate);
+        const QString creator = m_authorProfile.nickname.isEmpty() ? m_authorProfile.name : m_authorProfile.nickname;
+
+        auto escapeXml = [](QString s) -> QString {
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;");
+        };
+
+        const QString docInfo = QStringLiteral(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<!DOCTYPE document-info PUBLIC \"-//KDE//DTD document-info 1.0//EN\" \"http://www.calligra.org/DTD/document-info-1.0.dtd\">\n"
+            "<document-info xmlns=\"http://www.calligra.org/DTD/document-info\">\n"
+            " <about>\n"
+            "  <title>%1</title>\n"
+            "  <description></description>\n"
+            "  <subject></subject>\n"
+            "  <abstract></abstract>\n"
+            "  <keyword></keyword>\n"
+            "  <initial-creator>%2</initial-creator>\n"
+            "  <editing-cycles>1</editing-cycles>\n"
+            "  <editing-time>0</editing-time>\n"
+            "  <date>%3</date>\n"
+            "  <creation-date>%4</creation-date>\n"
+            "  <license>%5</license>\n"
+            " </about>\n"
+            " <author>\n"
+            "  <full-name>%6</full-name>\n"
+            "  <creator>%7</creator>\n"
+            "  <position></position>\n"
+            "  <company>%8</company>\n"
+            "  <email>%9</email>\n"
+            "  <telephone></telephone>\n"
+            "  <contact>%10</contact>\n"
+            " </author>\n"
+            "</document-info>\n"
+        ).arg(escapeXml(docTitle))
+         .arg(escapeXml(creator))
+         .arg(nowIso)
+         .arg(nowIso)
+         .arg(escapeXml(m_authorProfile.copyright))
+         .arg(escapeXml(m_authorProfile.name))
+         .arg(escapeXml(creator))
+         .arg(escapeXml(m_authorProfile.organization))
+         .arg(escapeXml(m_authorProfile.email))
+         .arg(escapeXml(m_authorProfile.website));
+
+        if (store->open("documentinfo.xml")) {
+            store->write(docInfo.toUtf8());
+            store->close();
+        }
+    }
+
     // 3. Merged Preview & mergedimage.png
     const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
     if (!comp.isNull()) {
@@ -938,6 +1061,17 @@ bool ReverieCore::saveKra(const QString &path)
         layersArray.append(layerObj);
     }
     meta["layers"] = layersArray;
+
+    if (m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QJsonObject authorObj;
+        authorObj["name"] = m_authorProfile.name;
+        authorObj["nickname"] = m_authorProfile.nickname;
+        authorObj["organization"] = m_authorProfile.organization;
+        authorObj["email"] = m_authorProfile.email;
+        authorObj["website"] = m_authorProfile.website;
+        authorObj["copyright"] = m_authorProfile.copyright;
+        meta["author"] = authorObj;
+    }
 
     if (store->open("meta.json")) {
         QJsonDocument doc(meta);

@@ -80,6 +80,7 @@ internal fun ExportTabPage(
 ) {
     var selectedFormat by remember { mutableStateOf("PNG") }
     var isExporting by remember { mutableStateOf(false) }
+    var embedAuthor by remember { mutableStateOf(vm.authorProfile.enabled) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val exportFormats = remember {
@@ -231,6 +232,53 @@ internal fun ExportTabPage(
             }
         }
 
+        // 嵌入作者元数据卡片
+        if (vm.authorProfile.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Morandi.panelHi)
+                    .clickable { embedAuthor = !embedAuthor }
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_author),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "嵌入作者元数据",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        val authorSummary = vm.authorProfile.name.ifBlank { vm.authorProfile.nickname }
+                        if (authorSummary.isNotBlank()) {
+                            Text(
+                                text = "创作者: $authorSummary",
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
+                            )
+                        }
+                    }
+                }
+                ReSwitch(
+                    checked = embedAuthor,
+                    onChecked = { embedAuthor = it },
+                )
+            }
+        }
+
         Spacer(Modifier.height(4.dp))
 
         // Action Buttons: Save to File & Share
@@ -255,6 +303,7 @@ internal fun ExportTabPage(
                     vm.exportDocument(
                         format = ext,
                         targetFile = exportFile,
+                        embedAuthor = embedAuthor,
                         onSuccess = { file ->
                             isExporting = false
                             android.widget.Toast.makeText(context, "导出成功: ${file.name}", android.widget.Toast.LENGTH_LONG).show()
@@ -298,6 +347,7 @@ internal fun ExportTabPage(
                         isExporting = true
                         vm.exportImageToGallery(
                             format = selectedFormat.lowercase(),
+                            embedAuthor = embedAuthor,
                             onSuccess = { uri ->
                                 isExporting = false
                                 android.widget.Toast.makeText(context, "已成功保存到系统相册", android.widget.Toast.LENGTH_LONG).show()
@@ -341,6 +391,7 @@ internal fun ExportTabPage(
                     vm.exportDocument(
                         format = ext,
                         targetFile = shareFile,
+                        embedAuthor = embedAuthor,
                         onSuccess = { file ->
                             isExporting = false
                             try {
