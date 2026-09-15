@@ -68,10 +68,12 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -85,9 +87,14 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
+import com.reverie.paint.core.animationAddBlankKeyframeAt
 import com.reverie.paint.core.animationAddKeyframe
+import com.reverie.paint.core.animationCopyCurrentFrameTo
+import com.reverie.paint.core.animationMoveKeyframe
 import com.reverie.paint.core.animationRemoveKeyframe
 import com.reverie.paint.R
 import com.reverie.paint.core.animationImportAudio
@@ -136,10 +143,36 @@ private const val BAR_SNAP_DP = 56f
 // 控制条按钮的底色不透明度 (面板本体只有一层玻璃, 不再叠内部底色)
 private const val BUTTON_ALPHA = 0.70f
 
+/** 长按菜单命中态: 命中的图层索引 + 块起始帧 (空白格则该格帧号) + 弹出锚点 (Canvas 局部 px) */
+private class FrameMenuState(
+    val layer: Int,
+    val time: Int,
+    val anchorX: Float,
+    val anchorY: Float,
+    // true = 长按命中已有帧块 (全量菜单+可拖拽); false = 长按空白格 (仅新建帧/粘贴)
+    val onBlock: Boolean,
+)
+
+/** 帧块拖拽态: 被拖的图层索引 + 块起始帧 (ghost 偏移单独放 dragDx 状态) */
+private class FrameDragState(val layer: Int, val fromTime: Int)
+
+// 拖拽目标格描边: 可落 = 绿 (空槽), 占用 = 红 (拒绝, 引擎 moveKeyframe 的
+// "目标有帧先删"是覆盖语义, 静默毁数据, 必须在 UI 层挡住)
+private val DragTargetOk = Color(0xFF7FA96B)
+private val DragTargetBad = Color(0xFFC96A5A)
+
+/**
+ * 帧剪贴板 (Kotlin 层, 记录"源轨道 + 源帧号"; 像素不搬家, 粘贴时引擎从源帧
+ * 现做独立副本 —— 源帧被删则 keyframeCache 里查不到, 粘贴项自动隐藏)。
+ * 应用级单实例 VM, top-level 变量即全局单份。
+ */
+private var frameClipboard: Pair<Int, Int>? = null
+
 /**
  * 时间轴面板 (动画画布专用)。
  *
  * 顶部把手上下拖拽调高度, 拖到底自动收起; 轨道区支持双指缩放帧宽与单指平移。
+ * 长按帧块弹上下文菜单 (复制帧/删除帧), 长按后横向拖动可直接搬移帧块 (只落空槽)。
  * 每条轨道 = 一个图层, 轨道上的块 = 关键帧, 块宽 = 该帧的曝光长度
  * (Krita 的 hold 语义: 一个关键帧持续到下一个关键帧)。
  *
@@ -656,6 +689,18 @@ private fun TimelineTrackArea(
     val liveRowPx = rememberUpdatedState(rowPx)
     val liveHeaderW = rememberUpdatedState(headerW)
 
+    // —— 长按菜单 / 帧块拖拽状态 ——
+    //
+    // 都是 `by remember` 的 State 委托: 手势闭包捕获的是稳定的 State 对象本身,
+    // 读写永远拿到最新值 (与 vm.anim.scrollPx 同一机制); 绘制阶段读它们,
+    // 变化只重触发 draw, 不重组。
+    var frameMenu by remember { mutableStateOf<FrameMenuState?>(null) }
+    var frameDrag by remember { mutableStateOf<FrameDragState?>(null) }
+    var dragDx by remember { mutableFloatStateOf(0f) }
+    // Canvas 宽 (px): 弹菜单时横向钳位用
+    var canvasWpx by remember { mutableFloatStateOf(0f) }
+    val liveHaptics = rememberUpdatedState(LocalHapticFeedback.current)
+
     val frameW = vm.anim.frameWidthPx
     val scrollX = vm.anim.scrollPx
     val currentTime = vm.anim.currentTime
@@ -686,35 +731,101 @@ private fun TimelineTrackArea(
         )
     }
 
+    // Canvas 外只包一层 Box: 长按菜单是真实可点的 Compose 节点 (Popup),
+    // 需要与 Canvas 同原点的布局锚 —— Popup 相对 Box 定位后, 锚点坐标就是
+    // 手势里的 Canvas 局部坐标, 无需任何换算。
+    Box(modifier = modifier) {
     Canvas(
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .clipToBounds()
             // 视口宽回写时扣掉头部区: 这个值只喂给缩略图防抖, 但语义上是
             // "轨道区宽度", 不是整块 Canvas 宽度
-            .onSizeChanged { vm.anim.viewportWidthPx = (it.width - headerW).coerceAtLeast(0f) }
-            // 统一手势入口: **单指**纵向滚动 / 横向平移, **双指**捏合缩放 + 平移。
+            .onSizeChanged {
+                canvasWpx = it.width.toFloat()
+                vm.anim.viewportWidthPx = (it.width - headerW).coerceAtLeast(0f)
+            }
+            // 统一手势入口 (v2): tap / 长按菜单 / 长按拖拽帧块 / 单指滚动平移 / 双指缩放平移。
             //
-            // 为什么必须合成一个 (踩过的坑):
-            // 此前是「detectTransformGestures (双指) + 手写单指拖动」两个
-            // pointerInput 挂在同一个节点上。两者都是**消费者**, 而同一个节点
-            // 上的多个 pointerInput 在 Main pass 的派发顺序是**后注册的先拿到
-            // 事件** —— 后加的单指拖动先吃事件并 `consume()`, 于是第二根手指
-            // 落下时 detectTransformGestures 已经拿不到未被消费的变更,
-            // 捏合直接失效 ("单指滑动修好了, 但双指缩放不能用了")。
+            // 铁律: 本节点上**只有一个**消费者 pointerInput。此前 tap 是独立的
+            // detectTapGestures (第二个消费者), 靠"它只消费 up 不消费 move"才与
+            // 手写循环勉强共存; 现在加入长按 + 块拖拽后手势语义复杂化, 若再挂
+            // 第三个消费者必然互相饿死 (单指拖动 + detectTransformGestures 那次
+            // 已经踩过)。所以 tap/长按/拖拽全部并入同一个 awaitPointerEventScope,
+            // 自己做手势仲裁:
             //
-            // 正解是把两种手势写进同一个 awaitPointerEventScope:
-            // 自己数按下的手指数, 1 根走滚动/平移, >=2 根走缩放+平移,
-            // 全程只有一个消费者, 不存在互相饿死。
+            //   阶段 A (按下 → longPressTimeout 判定窗口, 位移累计不超 slop):
+            //     抬起                 → tap (菜单开着时只收菜单, 不当 seek)
+            //     累计位移超 slop       → 滚动/平移
+            //     第二根手指落下        → 双指缩放
+            //     超时仍按住未超 slop   → 长按
+            //   长按之后 (阶段 B):
+            //     抬起                 → 菜单保留, 等用户点菜单项
+            //     位移超 slop           → 长按命中帧块 → 块拖拽; 未命中 → 滚动/平移
+            //     第二根手指            → 双指缩放 (收菜单)
+            //
+            // 播放中不响应长按: 菜单/拖拽是编辑操作, 与播放互斥 (isPlaying 时
+            // 长按视为空按, 后续移动照常滚动)。
             .pointerInput(Unit) {
                 // 手势闭包只在首次组合建立, 普通参数会被冻结 —— 一律走 live
                 val liveScroll = liveScrollY
                 val liveMax = liveMaxScrollY
                 val slop = viewConfiguration.touchSlop
+                val longPressMs = viewConfiguration.longPressTimeoutMillis
+
+                // tap 动作 (原 detectTapGestures.onTap 逻辑并入后成为本地函数)
+                fun doTap(x: Float, y: Float) {
+                    val ls = liveLayers.value
+                    val rpx = liveRowPx.value
+                    val hw = liveHeaderW.value
+                    val row = ((y + liveScroll.value) / rpx).toInt()
+                    if (x < hw) {
+                        // 轨道头区: 圆点 = 切换可见性, 其余 = 选中图层
+                        if (row in ls.indices) {
+                            val layer = ls[row]
+                            if (x < headPadPx + dotZonePx) {
+                                vm.toggleLayerVisible(layer.index)
+                            } else {
+                                vm.setCurrentLayer(layer.index)
+                            }
+                        }
+                    } else {
+                        // 轨道区: x 先扣掉头部宽才是帧坐标
+                        val frame =
+                            ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
+                        if (row in ls.indices) {
+                            vm.setCurrentLayer(ls[row].index)
+                            vm.anim.selectedTrack = ls[row].index
+                        }
+                        vm.animationSeek(frame)
+                    }
+                }
+
+                // 长按命中测试: 返回 (图层索引, 帧号, 是否命中已有帧块)。
+                // 命中块 = hold 语义下"曝光覆盖该帧"的关键帧起点; 空白格 = 该格
+                // 帧号本身 (弹"新建帧/粘贴"菜单)。
+                fun hitTest(x: Float, y: Float): Triple<Int, Int, Boolean>? {
+                    val ls = liveLayers.value
+                    val rpx = liveRowPx.value
+                    val hw = liveHeaderW.value
+                    val row = ((y + liveScroll.value) / rpx).toInt()
+                    if (row !in ls.indices) return null
+                    if (x < hw) return null
+                    val layer = ls[row].index
+                    val frame = ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
+                    val times = vm.anim.keyframeCache[layer].orEmpty()
+                    var hit = -1
+                    for (t in times) {
+                        if (t <= frame) hit = t else break
+                    }
+                    return if (hit >= 0) Triple(layer, hit, true) else Triple(layer, frame, false)
+                }
 
                 awaitPointerEventScope {
-                    while (true) {
+                    gesture@ while (true) {
                         // —— 等待第一根手指 ——
                         val first = awaitFirstDown(requireUnconsumed = false)
+                        val downPos = first.position
                         var lastCentroid = Offset.Zero
                         var lastDistance = 0f
                         var multiTouch = false
@@ -726,6 +837,124 @@ private fun TimelineTrackArea(
                         var pendingX = 0f
                         var pendingY = 0f
 
+                        val menuWasOpen = frameMenu != null
+
+                        // —— 阶段 A: 判定窗口。返回 null = 超时未动 → 长按成立 ——
+                        val phase: Int? = withTimeoutOrNull(longPressMs) {
+                            var r = 0
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val pressed = ev.changes.filter { it.pressed }
+                                if (pressed.isEmpty()) { r = 0; break }          // tap
+                                if (pressed.size >= 2) { r = 2; break }          // 双指
+                                val c =
+                                    pressed.firstOrNull { it.id == first.id } ?: pressed.first()
+                                pendingX += c.positionChange().x
+                                pendingY += c.positionChange().y
+                                if (abs(pendingX) > slop || abs(pendingY) > slop) {
+                                    r = 1; break                                 // 滚动/平移
+                                }
+                            }
+                            r
+                        }
+
+                        if (phase == 0) {
+                            if (menuWasOpen) frameMenu = null else doTap(downPos.x, downPos.y)
+                            continue@gesture
+                        }
+
+                        // 菜单开着时开始滚动/缩放: 先收菜单 (tap 收菜单在 phase == 0)
+                        if ((phase == 1 || phase == 2) && menuWasOpen) frameMenu = null
+
+                        if (phase == null) {
+                            // —— 长按成立: 命中帧块 → 全量菜单 (可拖拽);
+                            //    命中空白格 → 精简菜单 (新建帧/粘贴); 播放中不弹 ——
+                            val hit =
+                                if (!vm.anim.isPlaying) hitTest(downPos.x, downPos.y) else null
+                            if (hit == null) {
+                                // 播放中长按: 收掉旧菜单, 后续移动转滚动 (主循环)
+                                if (menuWasOpen) frameMenu = null
+                            } else {
+                                val (hitLayer, hitTime, hitOnBlock) = hit
+                                liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
+                                frameMenu = FrameMenuState(
+                                    hitLayer, hitTime, downPos.x, downPos.y, hitOnBlock,
+                                )
+
+                                // —— 阶段 B: 长按后等抬起 / 拖动 / 第二指 ——
+                                var b = 0              // 0=抬起(菜单保留) 1=移动 2=双指
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val pressed = ev.changes.filter { it.pressed }
+                                    if (pressed.isEmpty()) { b = 0; break }
+                                    if (pressed.size >= 2) { b = 2; break }
+                                    val c =
+                                        pressed.firstOrNull { it.id == first.id } ?: pressed.first()
+                                    pendingX += c.positionChange().x
+                                    pendingY += c.positionChange().y
+                                    if (abs(pendingX) > slop || abs(pendingY) > slop) { b = 1; break }
+                                }
+                                if (b == 0) continue@gesture   // 菜单保留, 本次手势结束
+                                if (b == 2) {
+                                    frameMenu = null           // 双指: 收菜单进缩放 (主循环)
+                                } else {
+                                    // 位移: 关菜单; 长按的是帧块才进入拖拽,
+                                    // 空白格菜单不拖拽 (转普通滚动, 落入主循环)
+                                    frameMenu = null
+                                    if (hitOnBlock) {
+                                        frameDrag = FrameDragState(hitLayer, hitTime)
+                                        dragDx = 0f
+                                        // —— 块拖拽循环: ghost 横向跟手, 抬手结算 ——
+                                        // 注: Android 的 ACTION_CANCEL 在 Compose 层就是
+                                        // "全部指针抬起" (无独立 Cancel 事件), 无法区分,
+                                        // 空槽校验保证误结算也不会覆盖已有帧
+                                        while (true) {
+                                            val dev = awaitPointerEvent()
+                                            val pressed = dev.changes.filter { it.pressed }
+                                            if (pressed.isEmpty()) {
+                                                val dr = frameDrag
+                                                if (dr != null) {
+                                                    val from = dr.fromTime
+                                                    val target =
+                                                        from + (dragDx / vm.anim.frameWidthPx).roundToInt()
+                                                    val times =
+                                                        vm.anim.keyframeCache[dr.layer].orEmpty()
+                                                    // 只落空槽: 目标已有帧时引擎 moveKeyframe
+                                                    // 会"先删再移" (覆盖语义, 静默毁数据) ——
+                                                    // 拒绝, 表现为回弹
+                                                    if (target != from && target >= 0 &&
+                                                        !times.contains(target)
+                                                    ) {
+                                                        liveHaptics.value.performHapticFeedback(
+                                                            HapticFeedbackType.LongPress,
+                                                        )
+                                                        vm.animationMoveKeyframe(dr.layer, from, target)
+                                                        // 播放头跟过去: 新位置立即高亮,
+                                                        // 画布也切到搬过去的帧
+                                                        vm.animationSeek(target)
+                                                    }
+                                                }
+                                                frameDrag = null
+                                                dragDx = 0f
+                                                break
+                                            }
+                                            val c =
+                                                pressed.firstOrNull { it.id == first.id }
+                                                    ?: pressed.first()
+                                            // v1 只做同轨道水平移动: ghost 取相对按下点的
+                                            // 绝对偏移 (无累计漂移), 纵向位移忽略 (锁定本行)
+                                            dragDx = c.position.x - downPos.x
+                                            for (cc in dev.changes) cc.consume()
+                                        }
+                                        continue@gesture
+                                    }
+                                    // 空白格菜单: 不拖拽, 转普通滚动 (落入主循环)
+                                }
+                            }
+                        }
+
+                        // —— 主循环: 单指滚动/平移 + 双指缩放 ——
+                        // (phase == 1 / 2 直达这里; 长按未命中后的移动也落到这里)
                         while (true) {
                             val ev = awaitPointerEvent()
                             val pressed = ev.changes.filter { it.pressed }
@@ -841,44 +1070,6 @@ private fun TimelineTrackArea(
                         }
                     }
                 }
-            }
-            .pointerInput(Unit) {
-                // 注意: 这里必须显式写 onTap = {...}。detectTapGestures 的尾
-                // lambda 绑定的是 onDoubleTap, 写成 detectTapGestures { ... }
-                // 会变成"单击无反应, 要双击才跳帧"。
-                //
-                // 另外闭包里一律读 live 容器: pointerInput(Unit) 只捕获首次
-                // 组合的值, scrollY/rowPx/layers 若直接捕获会全部冻结 ——
-                // (此前的 onTap 就冻结了 scrollY/rowPx, 缩放或滚动后点击
-                // 命中的帧/行全是旧坐标)
-                detectTapGestures(
-                    onTap = { offset ->
-                        val ls = liveLayers.value
-                        val rpx = liveRowPx.value
-                        val hw = liveHeaderW.value
-                        val row = ((offset.y + liveScrollY.value) / rpx).toInt()
-                        if (offset.x < hw) {
-                            // 轨道头区: 圆点 = 切换可见性, 其余 = 选中图层
-                            if (row in ls.indices) {
-                                val layer = ls[row]
-                                if (offset.x < headPadPx + dotZonePx) {
-                                    vm.toggleLayerVisible(layer.index)
-                                } else {
-                                    vm.setCurrentLayer(layer.index)
-                                }
-                            }
-                        } else {
-                            // 轨道区: x 先扣掉头部宽才是帧坐标
-                            val frame =
-                                ((vm.anim.scrollPx + offset.x - hw) / vm.anim.frameWidthPx).toInt()
-                            if (row in ls.indices) {
-                                vm.setCurrentLayer(ls[row].index)
-                                vm.anim.selectedTrack = ls[row].index
-                            }
-                            vm.animationSeek(frame)
-                        }
-                    },
-                )
             },
     ) {
         val drawStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -1013,6 +1204,112 @@ private fun TimelineTrackArea(
                     end = Offset(headX, contentH),
                     strokeWidth = 2f,
                 )
+
+                // —— 长按高亮: 被按住的块描白边 + 轻微提亮 ——
+                // 用白色而不是主题色, 与"播放头所在块"的 accent 高亮区分开
+                // (画世界 Pro 的选中块也是白/浅色描边)
+                frameMenu?.let { m ->
+                    val row = layers.indexOfFirst { it.index == m.layer }
+                    if (row >= 0) {
+                        val t = m.time
+                        // 命中块 = 整块跨度; 空白格 = 单格
+                        val span = if (m.onBlock) {
+                            val next = cache[m.layer]?.firstOrNull { it > t } ?: (t + 1)
+                            (next - t).coerceAtLeast(1)
+                        } else {
+                            1
+                        }
+                        val mx = t * frameW + 2f
+                        val my = row * rowPx + 4f
+                        val mw = (span * frameW - 4f).coerceAtLeast(2f)
+                        val mh = rowPx - 8f
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.10f),
+                            topLeft = Offset(mx, my),
+                            size = Size(mw, mh),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                        )
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.90f),
+                            topLeft = Offset(mx, my),
+                            size = Size(mw, mh),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                            style = Stroke(width = selBorderPx),
+                        )
+                    }
+                }
+
+                // —— 块拖拽: ghost 跟手 + 目标格描边 (绿 = 空槽可落, 红 = 占用拒绝) ——
+                frameDrag?.let { drg ->
+                    val row = layers.indexOfFirst { it.index == drg.layer }
+                    if (row >= 0) {
+                        val t = drg.fromTime
+                        val next = cache[drg.layer]?.firstOrNull { it > t } ?: (t + 1)
+                        val span = (next - t).coerceAtLeast(1)
+                        val gw = (span * frameW - 4f).coerceAtLeast(2f)
+                        val gy = row * rowPx + 4f
+                        val gh = rowPx - 8f
+                        // 原位置残影: 提示"从这里搬走"
+                        drawRoundRect(
+                            color = Morandi.subText.copy(alpha = 0.35f),
+                            topLeft = Offset(t * frameW + 2f, gy),
+                            size = Size(gw, gh),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                            style = Stroke(width = 1.5f),
+                        )
+                        // ghost 块体 + 缩略图
+                        val gx = t * frameW + 2f + dragDx
+                        drawRoundRect(
+                            color = Morandi.panelHi.copy(alpha = 0.94f),
+                            topLeft = Offset(gx, gy),
+                            size = Size(gw, gh),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                        )
+                        val img = thumbImages[frameThumbKey(drg.layer, t)]
+                        if (showThumbs && img != null) {
+                            val iw = gw - thumbInset * 2f
+                            val ih = gh - thumbInset * 2f
+                            var tw = iw
+                            var th = tw / thumbAspect
+                            if (th > ih) {
+                                th = ih
+                                tw = th * thumbAspect
+                            }
+                            drawImage(
+                                image = img,
+                                dstOffset = IntOffset(
+                                    (gx + (gw - tw) / 2f).roundToInt(),
+                                    (gy + (gh - th) / 2f).roundToInt(),
+                                ),
+                                dstSize = IntSize(
+                                    tw.roundToInt().coerceAtLeast(1),
+                                    th.roundToInt().coerceAtLeast(1),
+                                ),
+                                filterQuality = FilterQuality.Medium,
+                                alpha = 0.9f,
+                            )
+                        }
+                        drawRoundRect(
+                            color = Morandi.accent,
+                            topLeft = Offset(gx, gy),
+                            size = Size(gw, gh),
+                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                            style = Stroke(width = selBorderPx),
+                        )
+                        // 目标格: 单格宽 (移动后该帧从目标位置开始曝光)
+                        val target = t + (dragDx / frameW).roundToInt()
+                        if (target != t && target >= 0) {
+                            val occupied = cache[drg.layer]?.contains(target) == true
+                            drawRoundRect(
+                                color = if (occupied) DragTargetBad else DragTargetOk,
+                                topLeft = Offset(target * frameW + 2f, gy),
+                                size = Size(frameW - 4f, gh),
+                                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                style = Stroke(width = selBorderPx),
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -1078,6 +1375,137 @@ private fun TimelineTrackArea(
         PerfTrace.tick("timeline.blocks", 2000L)
         PerfTrace.tick("timeline.images", 2000L)
     }
+
+        // —— 长按上下文菜单 (画世界 Pro 风格: 深色圆角小卡, 锚在被按住的块上方) ——
+        // Popup 是独立子窗口, 不被 Canvas 裁剪; focusable = false 让菜单外的
+        // 点击继续落到 Canvas 手势 (统一循环里"菜单开着时的 tap = 只收菜单")
+        frameMenu?.let { menu ->
+            val menuShape = RoundedCornerShape(10.dp)
+            val menuW = 132.dp
+
+            // 菜单项只放引擎真实支持的操作, 不留死项。
+            // 剪贴板是 Kotlin 层的"源位置记录": 源帧被删则缓存里查不到, 粘贴自动隐藏。
+            val canPaste = frameClipboard?.let { (cl, ct) ->
+                vm.anim.keyframeCache[cl].orEmpty().contains(ct)
+            } == true
+
+            // 从 from 起第一个空槽 (hold 语义: 块自身曝光内的格也算空)
+            fun nextFreeSlot(layer: Int, from: Int): Int {
+                val times = vm.anim.keyframeCache[layer].orEmpty()
+                var t = from
+                var guard = 0
+                while (times.contains(t) && guard < 512) {
+                    t++
+                    guard++
+                }
+                return t
+            }
+
+            val items: List<Pair<String, () -> Unit>> = buildList {
+                if (menu.onBlock) {
+                    // 在该块之后第一个空位新建空白帧 (把画面"分"出来逐帧作画)
+                    add("新建帧" to {
+                        vm.animationAddBlankKeyframeAt(menu.layer, menu.time + 1)
+                    })
+                    // 复制到下一空位, 共享像素 (首次落笔才分叉, 逐帧微调最省内存)
+                    add("复制帧" to {
+                        val t2 = nextFreeSlot(menu.layer, menu.time + 1)
+                        vm.animationCopyCurrentFrameTo(
+                            t2,
+                            menu.layer,
+                            share = true,
+                            fromTime = menu.time,
+                        )
+                        // 播放头跟过去: 新块立即高亮, 画布切到复制出来的帧
+                        vm.animationSeek(t2)
+                    })
+                    add("拷贝" to {
+                        frameClipboard = menu.layer to menu.time
+                        liveHaptics.value.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    })
+                    add("剪切" to {
+                        frameClipboard = menu.layer to menu.time
+                        vm.animationRemoveKeyframe(menu.layer, menu.time)
+                    })
+                }
+                if (canPaste) {
+                    val clip = frameClipboard
+                    if (clip != null) {
+                        val clipTime = clip.second
+                        // 块上粘贴 = 贴到下一空位; 空白格粘贴 = 贴到该格
+                        val target =
+                            if (menu.onBlock) nextFreeSlot(menu.layer, menu.time + 1) else menu.time
+                        add("粘贴" to {
+                            // 独立副本 (share=false): 粘贴语义是"复制一份新内容",
+                            // 之后两边各自修改互不影响
+                            vm.animationCopyCurrentFrameTo(
+                                target,
+                                menu.layer,
+                                share = false,
+                                fromTime = clipTime,
+                            )
+                            vm.animationSeek(target)
+                        })
+                    }
+                }
+                if (menu.onBlock) {
+                    add("删除帧" to {
+                        vm.animationRemoveKeyframe(menu.layer, menu.time)
+                    })
+                }
+            }
+
+            val menuWpx = with(LocalDensity.current) { menuW.toPx() }
+            val menuHpx = with(LocalDensity.current) { (items.size * 33 + 10).dp.toPx() }
+            val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+            // 锚点: 块上方居中; 横向钳位防越界; 贴顶时翻到块下方
+            val x = (menu.anchorX - menuWpx / 2f)
+                .coerceIn(0f, (canvasWpx - menuWpx).coerceAtLeast(0f))
+            val aboveY = menu.anchorY - menuHpx - padPx
+            val y = if (aboveY < 0f) menu.anchorY + rowPx + padPx else aboveY
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(x.roundToInt(), y.roundToInt()),
+                properties = PopupProperties(focusable = false),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .shadow(12.dp, menuShape, spotColor = Color.Black.copy(alpha = 0.45f))
+                        .clip(menuShape)
+                        .background(Morandi.panelHi.copy(alpha = 0.97f))
+                        .glassBorder(menuShape)
+                        .width(menuW)
+                        .padding(vertical = 5.dp),
+                ) {
+                    items.forEach { (label, action) ->
+                        FrameMenuItem(label) {
+                            frameMenu = null
+                            vm.setCurrentLayer(menu.layer)
+                            action()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// 长按菜单项
+// ============================================================
+
+/** 长按上下文菜单里的单行 (纯文字, 整行可点) */
+@Composable
+private fun FrameMenuItem(text: String, onTap: () -> Unit) {
+    Text(
+        text = text,
+        color = Morandi.text,
+        fontSize = 13.sp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onTap)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    )
 }
 
 // ============================================================

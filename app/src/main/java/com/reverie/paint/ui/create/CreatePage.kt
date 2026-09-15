@@ -1257,6 +1257,14 @@ private fun PortraitPresetBottomBar(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
+                    // Beta 标记: 动画画布功能尚在测试阶段
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = "Beta",
+                        color = if (animationCanvas) colors.onAccent else colors.accent,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -1342,13 +1350,32 @@ private fun CreateCanvasActions(
                 .padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "动画画布",
-                color = colors.text,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
-            )
+            ) {
+                Text(
+                    text = "动画画布",
+                    color = colors.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                // Beta 标记: 动画画布功能尚在测试阶段
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(colors.accent.copy(alpha = 0.16f))
+                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = "Beta",
+                        color = colors.accent,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
             Text(
                 text = if (animationCanvas) "含时间轴" else "静态单帧",
                 color = colors.subText,

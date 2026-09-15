@@ -583,18 +583,51 @@ internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
     return true
 }
 
-/** 删除当前帧位置的关键帧 (轨道至少保留一帧) */
-internal fun PaintViewModel.animationRemoveKeyframe(layerIndex: Int = -1) {
+/**
+ * 在 [layerIndex] 轨道的 [fromTime] 起第一个空位新建空白帧 (时间轴长按菜单)。
+ *
+ * 与 [animationAddKeyframe] 的区别: 时间基准是菜单指定的帧号而非引擎当前时间。
+ * 同样在 runCore 内立即把引擎播放头跟到新帧 —— 设备写入目标帧是
+ * activeKeyframeAt(currentTime) 动态求值的, 迟到的 seek 若落进笔画事务中途
+ * 会触发 KisTransactionData::endTransaction 断言 (详见 animationAddKeyframe 注释)。
+ */
+internal fun PaintViewModel.animationAddBlankKeyframeAt(layerIndex: Int, fromTime: Int) {
+    if (layerIndex < 0) return
     runCore(after = { syncAnimationFromNativeAfter() }) {
-        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
-        if (layer < 0) return@runCore
-        val time = ReverieCoreBridge.animationCurrentTime()
-        ReverieCoreBridge.removeKeyframe(layer, time)
+        if (!ReverieCoreBridge.layerAnimatable(layerIndex)) return@runCore
+        if (!ReverieCoreBridge.layerAnimated(layerIndex)) {
+            ReverieCoreBridge.enableLayerAnimation(layerIndex)
+        }
+        var time = fromTime.coerceAtLeast(0)
+        var guard = 0
+        while (ReverieCoreBridge.hasKeyframe(layerIndex, time) && guard < 512) {
+            time++
+            guard++
+        }
+        if (ReverieCoreBridge.addKeyframe(layerIndex, time)) {
+            ReverieCoreBridge.setAnimationCurrentTime(time, false)
+            anim.pendingAddedFrame = time
+        }
     }
 }
 
 /**
- * 把当前帧复制到 [toTime]。
+ * 删除关键帧 (轨道至少保留一帧)。
+ *
+ * 默认删引擎当前帧 (底部工具栏的删除按钮); 时间轴长按菜单会显式传 [time],
+ * 直接删被按住的那一帧 —— 不动播放头, 避免"删个帧画面却跳走了"的惊吓。
+ */
+internal fun PaintViewModel.animationRemoveKeyframe(layerIndex: Int = -1, time: Int = -1) {
+    runCore(after = { syncAnimationFromNativeAfter() }) {
+        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
+        if (layer < 0) return@runCore
+        val t = if (time >= 0) time else ReverieCoreBridge.animationCurrentTime()
+        ReverieCoreBridge.removeKeyframe(layer, t)
+    }
+}
+
+/**
+ * 把 [fromTime] 处的帧复制到 [toTime]; [fromTime] < 0 时用引擎当前帧。
  *
  * @param share true = 共享像素 (clone, 更省内存, 首次落笔才分叉), false = 独立副本
  */
@@ -602,11 +635,12 @@ internal fun PaintViewModel.animationCopyCurrentFrameTo(
     toTime: Int,
     layerIndex: Int = -1,
     share: Boolean = true,
+    fromTime: Int = -1,
 ) {
     runCore(after = { syncAnimationFromNativeAfter() }) {
         val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
         if (layer < 0) return@runCore
-        val from = ReverieCoreBridge.animationCurrentTime()
+        val from = if (fromTime >= 0) fromTime else ReverieCoreBridge.animationCurrentTime()
         if (share) {
             ReverieCoreBridge.cloneKeyframe(layer, from, toTime)
         } else {
