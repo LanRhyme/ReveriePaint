@@ -185,6 +185,53 @@ public:
     bool moveLayerDown(int index);
     bool moveLayerOut(int index);
 
+    // ================= Animation (frame-by-frame: layers as tracks) ========
+    // 动画文档: 每个位图图层 = 一条轨道, 每条轨道可持有多个关键帧(帧).
+    // 帧数据由 Krita 的 KisRasterKeyframeChannel 持有 (每个关键帧一份
+    // KisPaintDevice, 瓦片+脏区复用文档既有的投影失效机制), 显式长度语义 =
+    // 一个关键帧持续到下一个关键帧 (末帧持续到无穷).
+    // 当前时间由 KisImageAnimationInterface 统一管理, 渲染路径无需改动:
+    // 画面刷新仍走 renderToBuffer / renderPendingDirty.
+    //
+    // 铁律: 所有动画操作必须由 Kotlin 侧单 reverie-render 线程串行调用,
+    // C++ 侧不额外加锁 (与文档其余部分一致).
+    //
+    // 轨道可动画的前提: 图层持有 KisPaintDevice (位图/克隆/填充层).
+    // group / adjustment / 背景层不支持, 与 Krita 桌面行为一致.
+
+    // --- Document: 时间与播放范围 ---
+    bool animationEnabled() const;                 // 任一轨道已启用动画
+    int animationCurrentTime() const;              // 当前帧号 (从 0 开始)
+    void setAnimationCurrentTime(int time, bool recordUndo = false);
+    int animationFramerate() const;
+    void setAnimationFramerate(int fps);
+    int animationLength() const;                   // 末关键帧帧号 + 1, 空文档为 0
+    void animationPlaybackRange(int *start, int *end) const;
+    void setAnimationPlaybackRange(int start, int end);
+
+    // --- Track: 图层即轨道 ---
+    bool layerAnimated(int index) const;           // 已有 keyframe channel
+    bool layerAnimatable(int index) const;         // 具备开启动画的资格
+    bool enableLayerAnimation(int index);          // 开启动画 (幂等; Krita 自动补 frame 0)
+
+    // --- Keyframe: 帧 ---
+    bool hasKeyframe(int layerIndex, int time) const;
+    int keyframeCount(int layerIndex) const;
+    QVector<int> keyframeTimes(int layerIndex) const;   // 升序
+    bool addKeyframe(int layerIndex, int time);             // 空白帧
+    bool addDuplicateKeyframe(int layerIndex, int time);    // 复制前一帧内容
+    bool removeKeyframe(int layerIndex, int time);
+    bool copyKeyframe(int layerIndex, int fromTime, int toTime);   // 独立像素副本
+    bool cloneKeyframe(int layerIndex, int fromTime, int toTime);  // 共享同一份像素
+    bool moveKeyframe(int layerIndex, int fromTime, int toTime);
+    int previousKeyframeTime(int layerIndex, int time) const;   // 无则 -1
+    int nextKeyframeTime(int layerIndex, int time) const;       // 无则 -1
+    int keyframeDuration(int layerIndex, int time) const;       // 到下一帧跨度, 末帧 -1
+    // 一拍N: 重排整条轨道, 首帧原位, 后续每 duration 帧一个; 单步撤销
+    bool setAllKeyframesDuration(int layerIndex, int duration);
+    // 一拍N (选中帧版): 只重排选中的帧, 区间内未选中帧保持原间距整体后移
+    bool setSelectedKeyframesDuration(int layerIndex, const QVector<int> &selectedTimes, int duration);
+
     // Filters (interactive preview & commit, single & multi-layer)
     void applyFilter(int index, int filterId);
     void applyFilterMulti(const QVector<int> &indices, int filterId);

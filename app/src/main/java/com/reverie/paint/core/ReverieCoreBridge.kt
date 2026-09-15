@@ -129,6 +129,105 @@ object ReverieCoreBridge {
 
     external fun currentLayerIndex(): Int
 
+    // ===== 动画: 帧 / 轨道 / 关键帧 =====
+    // 每条轨道 = 一个图层; 帧数据由 Krita 的 KisRasterKeyframeChannel 持有
+
+    external fun animationEnabled(): Boolean
+
+    external fun animationCurrentTime(): Int
+
+    external fun setAnimationCurrentTime(
+        time: Int,
+        recordUndo: Boolean,
+    )
+
+    external fun animationFramerate(): Int
+
+    external fun setAnimationFramerate(fps: Int)
+
+    external fun animationLength(): Int
+
+    external fun animationPlaybackRange(): IntArray
+
+    external fun setAnimationPlaybackRange(
+        start: Int,
+        end: Int,
+    )
+
+    external fun layerAnimated(index: Int): Boolean
+
+    external fun layerAnimatable(index: Int): Boolean
+
+    external fun enableLayerAnimation(index: Int): Boolean
+
+    external fun hasKeyframe(
+        layerIndex: Int,
+        time: Int,
+    ): Boolean
+
+    external fun keyframeCount(layerIndex: Int): Int
+
+    external fun keyframeTimes(layerIndex: Int): IntArray
+
+    external fun addKeyframe(
+        layerIndex: Int,
+        time: Int,
+    ): Boolean
+
+    external fun addDuplicateKeyframe(
+        layerIndex: Int,
+        time: Int,
+    ): Boolean
+
+    external fun removeKeyframe(
+        layerIndex: Int,
+        time: Int,
+    ): Boolean
+
+    external fun copyKeyframe(
+        layerIndex: Int,
+        fromTime: Int,
+        toTime: Int,
+    ): Boolean
+
+    external fun cloneKeyframe(
+        layerIndex: Int,
+        fromTime: Int,
+        toTime: Int,
+    ): Boolean
+
+    external fun moveKeyframe(
+        layerIndex: Int,
+        fromTime: Int,
+        toTime: Int,
+    ): Boolean
+
+    external fun previousKeyframeTime(
+        layerIndex: Int,
+        time: Int,
+    ): Int
+
+    external fun nextKeyframeTime(
+        layerIndex: Int,
+        time: Int,
+    ): Int
+
+    external fun keyframeDuration(
+        layerIndex: Int,
+        time: Int,
+    ): Int
+
+    external fun setAllKeyframesDuration(
+        layerIndex: Int,
+        duration: Int,
+    ): Boolean
+
+    external fun setSelectedKeyframesDuration(
+        layerIndex: Int,
+        selectedTimes: IntArray,
+        duration: Int,
+    ): Boolean
+
     external fun setToolMode(mode: Int)
 
     external fun drawPolygon(

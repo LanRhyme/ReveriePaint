@@ -2129,6 +2129,12 @@ class PaintViewModel : ViewModel() {
     var displayRevision by mutableLongStateOf(0L)
         internal set
 
+    // ===== 动画 (帧 / 轨道 / 时间轴) 状态镜像 =====
+    // 引擎侧真身在 Krita 的 KisRasterKeyframeChannel (图层即轨道),
+    // 这里只镜像 UI 需要的元信息。所有动画操作必须经
+    // PaintViewModelAnimation.kt 的封装, 保持引擎调用不上 UI 线程。
+    internal val anim = AnimationState()
+
     /** Report the visible canvas size (device px); keep render buffer at full native resolution */
     fun setRenderViewport(
         viewW: Int,

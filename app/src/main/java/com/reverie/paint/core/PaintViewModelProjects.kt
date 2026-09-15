@@ -838,6 +838,8 @@ internal fun PaintViewModel.startPainting(
     name: String? = null,
     initialBitmap: android.graphics.Bitmap? = null,
     initialSnapshotFile: java.io.File? = null,
+    animation: Boolean = false,
+    animationFps: Int = DEFAULT_ANIMATION_FPS,
 ) {
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     currentProjectFile = null // Reset so new artwork won't overwrite previous project file
@@ -861,6 +863,15 @@ internal fun PaintViewModel.startPainting(
             docName = actualName
             isBlockingLoading = false
             startPaintingTimer()
+            if (animation) {
+                anim.enabled = true
+                anim.panelOpen = true
+                anim.framerate = animationFps
+                anim.currentTime = 0
+                anim.length = 1
+                anim.revision++
+                syncAnimationFromNativeAfter()
+            }
         },
     ) {
         try {
@@ -881,6 +892,10 @@ internal fun PaintViewModel.startPainting(
                 }
                 syncLayersFromNative()
                 ReverieCoreBridge.setBrushColor(brushColor)
+                if (animation) {
+                    // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率
+                    nativeInitAnimation(animationFps)
+                }
                 recorder.beginSession(w, h, snapshotSource = initialSnapshotFile, snapshotTempDir = recSessionDir())
             }
         } finally {
