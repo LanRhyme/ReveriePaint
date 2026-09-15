@@ -78,9 +78,43 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setAnimationPlaybackRange(JNIEnv *
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkin(JNIEnv *, jobject, jboolean enabled, jint prev, jint next)
+Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkin(
+    JNIEnv *, jobject, jboolean enabled, jint prev, jint next, jint maxOpacity, jint tintFactor)
 {
-    core()->configureOnionSkin(enabled == JNI_TRUE, prev, next);
+    core()->configureOnionSkin(enabled == JNI_TRUE, prev, next, maxOpacity, tintFactor);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_anyLayerOnionSkin(JNIEnv *, jobject)
+{
+    return core()->anyLayerOnionSkin() ? JNI_TRUE : JNI_FALSE;
+}
+
+// 导入资源列表 (名称数组)
+JNIEXPORT jobjectArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_revAssetNames(JNIEnv *env, jobject)
+{
+    const QVector<QString> names = core()->revAssetNames();
+    jclass strClass = env->FindClass("java/lang/String");
+    jobjectArray out = env->NewObjectArray(jsize(names.size()), strClass, nullptr);
+    for (int i = 0; i < names.size(); ++i) {
+        env->SetObjectArrayElement(out, i, env->NewStringUTF(names[i].toUtf8().constData()));
+    }
+    return out;
+}
+
+// 取回指定导入资源的字节
+JNIEXPORT jbyteArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_revAssetBytes(JNIEnv *env, jobject, jstring name)
+{
+    if (!name) return nullptr;
+    const char *nameChars = env->GetStringUTFChars(name, nullptr);
+    const QByteArray data = core()->revAssetBytes(QString::fromUtf8(nameChars));
+    env->ReleaseStringUTFChars(name, nameChars);
+    if (data.isEmpty()) return nullptr;
+    jbyteArray out = env->NewByteArray(jsize(data.size()));
+    env->SetByteArrayRegion(out, 0, jsize(data.size()), reinterpret_cast<const jbyte *>(data.constData()));
+    return out;
 }
 
 // ============================================================

@@ -214,20 +214,25 @@ void ReverieCore::setAnimationPlaybackRange(int start, int end)
 // 洋葱皮
 // ============================================================
 
-void ReverieCore::configureOnionSkin(bool enabled, int prev, int next)
+void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOpacity, int tintFactor)
 {
     KisImageSP image = m_document;
     if (!image) return;
 
     prev = qBound(0, prev, 10);
     next = qBound(0, next, 10);
+    maxOpacity = qBound(0, maxOpacity, 255);
+    tintFactor = qBound(0, tintFactor, 100);
 
     // 全局配置: 帧数/每帧状态与透明度。index 0 是当前帧, 作为整体缩放系数。
     // 前后帧数不对称时取 max, 单侧多余帧用 state=false 关掉。
+    // 透明度从 maxOpacity 向远帧线性衰减 —— 最近帧也不能全不透明, 否则洋葱皮
+    // 会盖住当前帧正在画的内容
     {
         KisImageConfig config(true);
         const int skins = qMax(prev, next);
         config.setNumberOfOnionSkins(qMax(1, skins));
+        config.setOnionSkinTintFactor(tintFactor);
         config.setOnionSkinState(0, true);
         config.setOnionSkinOpacity(0, 255);
         for (int i = 0; i < skins; ++i) {
@@ -235,8 +240,8 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next)
             const bool fOn = enabled && i < next;
             config.setOnionSkinState(-(i + 1), bOn);
             config.setOnionSkinState(i + 1, fOn);
-            const int bOp = bOn ? int(255.0 * (prev - i) / qMax(1, prev)) : 0;
-            const int fOp = fOn ? int(255.0 * (next - i) / qMax(1, next)) : 0;
+            const int bOp = bOn ? maxOpacity * (prev - i) / qMax(1, prev) : 0;
+            const int fOp = fOn ? maxOpacity * (next - i) / qMax(1, next) : 0;
             config.setOnionSkinOpacity(-(i + 1), bOp);
             config.setOnionSkinOpacity(i + 1, fOp);
         }
@@ -258,6 +263,15 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next)
         }
     }
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+}
+
+bool ReverieCore::anyLayerOnionSkin() const
+{
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(m_layers[i].node);
+        if (pl && pl->onionSkinEnabled()) return true;
+    }
+    return false;
 }
 
 // ============================================================
@@ -295,6 +309,21 @@ void ReverieCore::storeRevAsset(const QString &name, const QByteArray &data)
 {
     if (name.isEmpty() || data.isEmpty()) return;
     m_revAssets[name] = data;
+}
+
+QVector<QString> ReverieCore::revAssetNames() const
+{
+    QVector<QString> out;
+    out.reserve(m_revAssets.size());
+    for (auto it = m_revAssets.constBegin(); it != m_revAssets.constEnd(); ++it) {
+        out.append(it.key());
+    }
+    return out;
+}
+
+QByteArray ReverieCore::revAssetBytes(const QString &name) const
+{
+    return m_revAssets.value(name);
 }
 
 // ============================================================

@@ -382,6 +382,12 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
                 layerObj["keyframes"] = kArr;
             }
         }
+        // 洋葱皮开关: per-paint-layer 属性, 单独持久化 (重进画布后需还原)
+        if (const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(e.node)) {
+            if (pl->onionSkinEnabled()) {
+                layerObj["onionskin"] = true;
+            }
+        }
         layersArray.append(layerObj);
     }
     meta["layers"] = layersArray;
@@ -519,6 +525,12 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
                 QJsonArray kArr;
                 for (int t : times) kArr.append(t);
                 layerObj["keyframes"] = kArr;
+            }
+        }
+        // 洋葱皮开关: per-paint-layer 属性, 单独持久化 (重进画布后需还原)
+        if (const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(e.node)) {
+            if (pl->onionSkinEnabled()) {
+                layerObj["onionskin"] = true;
             }
         }
         layersArray.append(layerObj);
@@ -914,6 +926,16 @@ bool ReverieCore::loadRevp(const QString &path)
                 tmp->convertFromQImage(fImg, nullptr);
                 channel->paintDevice()->framesInterface()->uploadFrame(key->frameID(), tmp);
                 channel->paintDevice()->setDirty();
+            }
+
+            // 洋葱皮开关还原 (per-paint-layer; 全局配置走 KisImageConfig)
+            if (layerObj["onionskin"].toBool(false)) {
+                if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node)) {
+                    if (!pl->onionSkinEnabled()) {
+                        pl->setOnionSkinEnabled(true);
+                        pl->setDirty(KisOnionSkinCompositor::instance()->calculateExtent(pl->paintDevice()));
+                    }
+                }
             }
         }
 

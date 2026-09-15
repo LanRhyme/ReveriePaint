@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +61,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -73,8 +76,7 @@ import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationSetFramerate
-import com.reverie.paint.core.animationSetOnionSkin
-import com.reverie.paint.core.animationSetOnionSkinFrames
+import com.reverie.paint.core.animationApplyOnionSkin
 import com.reverie.paint.core.animationTogglePlay
 import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
@@ -689,92 +691,184 @@ private fun TimelineSettings(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
-            .background(Morandi.panelHi.copy(alpha = 0.35f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // 帧率
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "帧率",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.width(52.dp),
+        SettingsRow(label = "帧率") {
+            Stepper(
+                valueText = "${vm.anim.framerate} fps",
+                onMinus = { vm.animationSetFramerate(vm.anim.framerate - 1) },
+                onPlus = { vm.animationSetFramerate(vm.anim.framerate + 1) },
             )
-            GlyphButton(onClick = { vm.animationSetFramerate(vm.anim.framerate - 1) }) { drawGlyphMinus() }
-            Text(
-                text = "${vm.anim.framerate} fps",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 10.dp),
-            )
-            GlyphButton(onClick = { vm.animationSetFramerate(vm.anim.framerate + 1) }) { drawGlyphPlus() }
-            Spacer(modifier = Modifier.weight(1f))
         }
 
         // 洋葱皮
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "洋葱皮",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.width(52.dp),
-            )
+        SettingsRow(label = "洋葱皮") {
             Switch(
                 checked = vm.anim.onionSkin,
-                onCheckedChange = { vm.animationSetOnionSkin(it) },
-                modifier = Modifier.scale(0.72f),
+                onCheckedChange = {
+                    vm.anim.onionSkin = it
+                    vm.animationApplyOnionSkin()
+                },
+                modifier = Modifier.scale(0.7f),
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = Morandi.accent,
+                    checkedThumbColor = Color.White,
+                ),
             )
             Spacer(modifier = Modifier.width(6.dp))
-            Text(text = "前", color = Morandi.subText, fontSize = 11.sp)
-            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev - 1, vm.anim.onionNext) }) {
-                drawGlyphMinus()
-            }
-            Text(
-                text = "${vm.anim.onionPrev}",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 8.dp),
+            MiniStepper(
+                prefix = "前",
+                value = vm.anim.onionPrev,
+                onMinus = {
+                    vm.anim.onionPrev = (vm.anim.onionPrev - 1).coerceIn(0, 10)
+                    vm.animationApplyOnionSkin()
+                },
+                onPlus = {
+                    vm.anim.onionPrev = (vm.anim.onionPrev + 1).coerceIn(0, 10)
+                    vm.animationApplyOnionSkin()
+                },
             )
-            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev + 1, vm.anim.onionNext) }) {
-                drawGlyphPlus()
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(text = "后", color = Morandi.subText, fontSize = 11.sp)
-            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev, vm.anim.onionNext - 1) }) {
-                drawGlyphMinus()
-            }
-            Text(
-                text = "${vm.anim.onionNext}",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 8.dp),
+            Spacer(modifier = Modifier.width(8.dp))
+            MiniStepper(
+                prefix = "后",
+                value = vm.anim.onionNext,
+                onMinus = {
+                    vm.anim.onionNext = (vm.anim.onionNext - 1).coerceIn(0, 10)
+                    vm.animationApplyOnionSkin()
+                },
+                onPlus = {
+                    vm.anim.onionNext = (vm.anim.onionNext + 1).coerceIn(0, 10)
+                    vm.animationApplyOnionSkin()
+                },
             )
-            GlyphButton(onClick = { vm.animationSetOnionSkinFrames(vm.anim.onionPrev, vm.anim.onionNext + 1) }) {
-                drawGlyphPlus()
-            }
-            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // 洋葱皮不透明度 (0~100%)
+        SettingsRow(label = "透明度") {
+            Stepper(
+                valueText = "${(vm.anim.onionOpacity * 100 + 127) / 255}%",
+                onMinus = {
+                    vm.anim.onionOpacity = (vm.anim.onionOpacity - 16).coerceIn(0, 255)
+                    vm.animationApplyOnionSkin()
+                },
+                onPlus = {
+                    vm.anim.onionOpacity = (vm.anim.onionOpacity + 16).coerceIn(0, 255)
+                    vm.animationApplyOnionSkin()
+                },
+            )
+        }
+
+        // 洋葱皮着色强度 (0~100)
+        SettingsRow(label = "着色") {
+            Stepper(
+                valueText = "${vm.anim.onionTint}",
+                onMinus = {
+                    vm.anim.onionTint = (vm.anim.onionTint - 5).coerceIn(0, 100)
+                    vm.animationApplyOnionSkin()
+                },
+                onPlus = {
+                    vm.anim.onionTint = (vm.anim.onionTint + 5).coerceIn(0, 100)
+                    vm.animationApplyOnionSkin()
+                },
+            )
         }
 
         // 缩略图
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "缩略图",
-                color = Morandi.text,
-                fontSize = 11.sp,
-                modifier = Modifier.width(52.dp),
-            )
+        SettingsRow(label = "缩略图") {
             Switch(
                 checked = vm.anim.showThumbnails,
                 onCheckedChange = { vm.anim.showThumbnails = it },
-                modifier = Modifier.scale(0.72f),
+                modifier = Modifier.scale(0.7f),
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = Morandi.accent,
+                    checkedThumbColor = Color.White,
+                ),
             )
-            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // 音频资源数
+        if (vm.anim.audioAssets.isNotEmpty()) {
+            SettingsRow(label = "音频") {
+                Text(
+                    text = "${vm.anim.audioAssets.size} 条 (随播放)",
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                )
+            }
         }
 
         // 导入
         TimelineImportRow(vm = vm)
+    }
+}
+
+// 设置面板的一行: 圆角胶囊 + 标签 + 右侧控件
+@Composable
+private fun SettingsRow(
+    label: String,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(Morandi.panelHi.copy(alpha = 0.4f))
+            .padding(horizontal = 10.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = Morandi.text,
+            fontSize = 11.sp,
+            modifier = Modifier.width(56.dp),
+        )
+        content()
+        Spacer(modifier = Modifier.weight(1f))
+    }
+}
+
+// 中号步进器: [值] 两侧圆形按钮
+@Composable
+private fun Stepper(
+    valueText: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        GlyphButton(onClick = onMinus) { drawGlyphMinus() }
+        Text(
+            text = valueText,
+            color = Morandi.text,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(56.dp),
+        )
+        GlyphButton(onClick = onPlus) { drawGlyphPlus() }
+    }
+}
+
+// 小号步进器: 前缀 + [-] 值 [+], 供洋葱皮前后帧数这类密集行
+@Composable
+private fun MiniStepper(
+    prefix: String,
+    value: Int,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(text = prefix, color = Morandi.subText, fontSize = 10.sp)
+        Spacer(modifier = Modifier.width(2.dp))
+        GlyphButton(onClick = onMinus) { drawGlyphMinus() }
+        Text(
+            text = "$value",
+            color = Morandi.text,
+            fontSize = 11.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.width(16.dp),
+        )
+        GlyphButton(onClick = onPlus) { drawGlyphPlus() }
     }
 }
 

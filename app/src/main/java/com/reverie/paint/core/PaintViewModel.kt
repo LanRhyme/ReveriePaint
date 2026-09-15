@@ -2138,6 +2138,9 @@ class PaintViewModel : ViewModel() {
     // PaintViewModelAnimation.kt 的封装, 保持引擎调用不上 UI 线程。
     internal val anim = AnimationState()
 
+    /** 动画音频播放器 (导入的音频资源, 播放动画时循环同步播放; 见 PaintViewModelAnimation.kt) */
+    internal val animAudioPlayers = mutableListOf<android.media.MediaPlayer>()
+
     /** Report the visible canvas size (device px); keep render buffer at full native resolution */
     fun setRenderViewport(
         viewW: Int,

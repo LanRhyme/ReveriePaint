@@ -11,10 +11,9 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.graphics.Bitmap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /** 新建动画画布的默认帧率。 */
 internal const val DEFAULT_ANIMATION_FPS = 12
@@ -134,6 +133,15 @@ internal class AnimationState {
 
     var onionNext by mutableIntStateOf(1)
 
+    /** 最近帧不透明度上限 (0~255), 再远的帧线性衰减 */
+    var onionOpacity by mutableIntStateOf(160)
+
+    /** 着色强度 (0~100), 0 = 不着色 */
+    var onionTint by mutableIntStateOf(30)
+
+    /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
+    var audioAssets by mutableStateOf<List<String>>(emptyList())
+
     /**
      * 轨道关键帧缓存: 图层索引 -> 升序帧号列表。
      * 仅用于时间轴绘制加速 (避免每帧逐轨道跨 JNI 查询), 引擎始终是真身。
@@ -172,6 +180,9 @@ internal fun PaintViewModel.syncAnimationFromNative() {
 
     anim.keyframeCache = readKeyframeCache()
     anim.revision++
+    // 洋葱皮开关与音频资源: 与引擎/文档保持一致 (打开动画项目后还原保存时的状态)
+    anim.onionSkin = ReverieCoreBridge.anyLayerOnionSkin()
+    anim.audioAssets = ReverieCoreBridge.revAssetNames().toList()
 }
 
 /** 逐轨道读取关键帧位置, 组成绘制缓存。必须在 reverie-render 线程调用。 */
@@ -269,20 +280,13 @@ internal fun PaintViewModel.animationSetPlaybackRange(
 // 洋葱皮
 // ============================================================
 
-/** 洋葱皮开关。全局配置 (KisImageConfig) + 逐图层开关, 走引擎的合成器缓存。 */
-internal fun PaintViewModel.animationSetOnionSkin(enabled: Boolean) {
-    anim.onionSkin = enabled
+/** 洋葱皮: 任何参数变化都经此统一入口下发引擎 (全局配置 + 逐图层开关)。 */
+internal fun PaintViewModel.animationApplyOnionSkin() {
     runCore(after = {}) {
-        ReverieCoreBridge.configureOnionSkin(enabled, anim.onionPrev, anim.onionNext)
-    }
-}
-
-/** 洋葱皮前后帧数 (0~10)。 */
-internal fun PaintViewModel.animationSetOnionSkinFrames(prev: Int, next: Int) {
-    anim.onionPrev = prev.coerceIn(0, 10)
-    anim.onionNext = next.coerceIn(0, 10)
-    runCore(after = {}) {
-        ReverieCoreBridge.configureOnionSkin(anim.onionSkin, anim.onionPrev, anim.onionNext)
+        ReverieCoreBridge.configureOnionSkin(
+            anim.onionSkin, anim.onionPrev, anim.onionNext,
+            anim.onionOpacity, anim.onionTint,
+        )
     }
 }
 
@@ -295,7 +299,8 @@ private fun PaintViewModel.importTargetLayer(): Int = selectedTrackIndex()
 
 /**
  * 导入图像作为关键帧序列: 从当前帧起依次插入当前轨道。
- * 解码在 IO 线程完成, 逐张经 runCore 写入 (每张一个关键帧)。
+ * 解码在 IO 线程, 写入投递到 render 线程; **不等待**每张落地, 解码与导入
+ * 重叠进行 (批量导入大图时快很多)。用计数器在所有写入完成后回调 onDone。
  */
 internal fun PaintViewModel.animationImportImages(
     uris: List<android.net.Uri>,
@@ -303,48 +308,44 @@ internal fun PaintViewModel.animationImportImages(
 ) {
     if (uris.isEmpty()) return
     val context = appContext
-    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-        val bitmaps = uris.mapNotNull { uri ->
-            runCatching {
-                android.graphics.BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri))
-            }.getOrNull()
-        }
-        if (bitmaps.isEmpty()) {
-            mainHandler.post { onDone(0) }
-            return@launch
-        }
-        var inserted = 0
+    CoroutineScope(Dispatchers.IO).launch {
+        val inserted = java.util.concurrent.atomic.AtomicInteger(0)
+        val pending = java.util.concurrent.atomic.AtomicInteger(1) // 末位为"解码完成"标记
         var time = anim.currentTime
-        kotlinx.coroutines.withContext(Dispatchers.Main) {
-            for (bmp in bitmaps) {
-                val ok = suspendCoroutine { cont ->
-                    var ok2 = false
-                    runCore(after = { cont.resume(ok2) }) {
-                        ok2 = ReverieCoreBridge.importKeyframeFromBitmap(
-                            importTargetLayer(), time, bmp,
-                        )
-                        if (ok2) {
-                            time++
-                            inserted++
-                        }
-                    }
+        for (uri in uris) {
+            val bmp = runCatching {
+                android.graphics.BitmapFactory.decodeStream(context.contentResolver.openInputStream(uri))
+            }.getOrNull() ?: continue
+            val t = time++
+            pending.incrementAndGet()
+            runCore(after = {
+                bmp.recycle()
+                if (pending.decrementAndGet() == 0) {
+                    mainHandler.post { onDone(inserted.get()) }
                 }
-                if (!ok) break
+            }) {
+                if (ReverieCoreBridge.importKeyframeFromBitmap(importTargetLayer(), t, bmp)) {
+                    inserted.incrementAndGet()
+                }
             }
         }
-        mainHandler.post { onDone(inserted) }
+        if (pending.decrementAndGet() == 0) {
+            mainHandler.post { onDone(inserted.get()) }
+        }
     }
 }
 
-/** 导入视频: 按文档帧率抽帧 (上限 300 帧) 作为关键帧序列插入当前轨道。 */
+/** 导入视频: 按文档帧率抽帧 (上限 300 帧) 作为关键帧序列插入当前轨道。
+ *  抽帧与引擎写入重叠进行 (不等待每帧落地), 全部完成后回调 onDone。 */
 internal fun PaintViewModel.animationImportVideo(
     uri: android.net.Uri,
     fps: Int,
     onDone: (Int) -> Unit = {},
 ) {
     val context = appContext
-    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-        var inserted = 0
+    CoroutineScope(Dispatchers.IO).launch {
+        val inserted = java.util.concurrent.atomic.AtomicInteger(0)
+        val pending = java.util.concurrent.atomic.AtomicInteger(1)
         val retriever = android.media.MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -360,28 +361,28 @@ internal fun PaintViewModel.animationImportVideo(
                     frame * stepUs,
                     android.media.MediaMetadataRetriever.OPTION_CLOSEST,
                 ) ?: break
-                val ok = suspendCoroutine { cont ->
-                    var ok2 = false
-                    runCore(after = { cont.resume(ok2) }) {
-                        ok2 = ReverieCoreBridge.importKeyframeFromBitmap(
-                            importTargetLayer(), time, bmp,
-                        )
-                        if (ok2) {
-                            time++
-                            inserted++
-                        }
+                val t = time++
+                pending.incrementAndGet()
+                runCore(after = {
+                    bmp.recycle()
+                    if (pending.decrementAndGet() == 0) {
+                        mainHandler.post { onDone(inserted.get()) }
+                    }
+                }) {
+                    if (ReverieCoreBridge.importKeyframeFromBitmap(importTargetLayer(), t, bmp)) {
+                        inserted.incrementAndGet()
                     }
                 }
-                bmp.recycle()
-                if (!ok) break
                 frame++
             }
         } catch (t: Throwable) {
             android.util.Log.e("RP_Import", "video import failed", t)
         } finally {
             runCatching { retriever.release() }
+            if (pending.decrementAndGet() == 0) {
+                mainHandler.post { onDone(inserted.get()) }
+            }
         }
-        mainHandler.post { onDone(inserted) }
     }
 }
 
@@ -569,6 +570,7 @@ internal fun PaintViewModel.animationPlay() {
     anim.isPlaying = true
     anim.playGen++
     val gen = anim.playGen
+    startAnimAudio()
     renderHandler?.post { animationStep(gen) }
 }
 
@@ -577,6 +579,40 @@ internal fun PaintViewModel.animationPause() {
     if (!anim.isPlaying) return
     anim.isPlaying = false
     anim.playGen++
+    stopAnimAudio()
+}
+
+// ============================================================
+// 动画音频: 导入的资源在播放时同步播放 (循环), 暂停/停止即停
+// ============================================================
+
+/** 播放所有导入的音频资源。字节从引擎取出写临时文件, MediaPlayer 循环播放。 */
+private fun PaintViewModel.startAnimAudio() {
+    stopAnimAudio()
+    val names = anim.audioAssets
+    if (names.isEmpty()) return
+    val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
+    for (name in names) {
+        val bytes = runCatching { ReverieCoreBridge.revAssetBytes(name) }.getOrNull() ?: continue
+        val f = java.io.File(dir, name.replace('/', '_'))
+        runCatching {
+            f.writeBytes(bytes)
+            val mp = android.media.MediaPlayer()
+            mp.setDataSource(f.absolutePath)
+            mp.isLooping = true
+            mp.prepare()
+            mp.start()
+            animAudioPlayers.add(mp)
+        }
+    }
+}
+
+private fun PaintViewModel.stopAnimAudio() {
+    for (mp in animAudioPlayers) {
+        runCatching { if (mp.isPlaying) mp.stop() }
+        runCatching { mp.release() }
+    }
+    animAudioPlayers.clear()
 }
 
 internal fun PaintViewModel.animationTogglePlay() {

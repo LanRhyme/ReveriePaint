@@ -158,7 +158,15 @@ object ReverieCoreBridge {
         enabled: Boolean,
         prev: Int,
         next: Int,
+        maxOpacity: Int,
+        tintFactor: Int,
     )
+
+    external fun anyLayerOnionSkin(): Boolean
+
+    external fun revAssetNames(): Array<String>
+
+    external fun revAssetBytes(name: String): ByteArray?
 
     external fun importKeyframeFromBitmap(
         layerIndex: Int,
