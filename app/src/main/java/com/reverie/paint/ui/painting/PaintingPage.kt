@@ -93,6 +93,7 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
+import com.reverie.paint.ui.painting.animation.AnimationTimelinePanel
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -1323,6 +1324,15 @@ fun PaintingPage(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+        // ---- 动画时间轴面板 (仅动画画布, 可展开收起 / 缩放平移) ----
+        AnimatedVisibility(
+            visible = vm.anim.enabled && vm.anim.panelOpen,
+            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
+            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            modifier = Modifier.align(Alignment.BottomCenter).zIndex(20f),
+        ) {
+            AnimationTimelinePanel(vm = vm, hazeState = hazeState)
+        }
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.undoToastEnabled && vm.actionToastMessage != null,

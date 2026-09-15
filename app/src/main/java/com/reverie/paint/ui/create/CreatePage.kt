@@ -329,6 +329,8 @@ fun CreatePage(vm: PaintViewModel) {
     var customW by remember { mutableStateOf(deviceW.toString()) }
     var customH by remember { mutableStateOf(deviceH.toString()) }
     var customPpi by remember { mutableStateOf("300") }
+    // 动画画布: 勾选后新建的文档自带时间轴 (后端走 startPainting(animation = true))
+    var animationCanvas by remember { mutableStateOf(false) }
 
     val widthVal = customW.toIntOrNull() ?: deviceW
     val heightVal = customH.toIntOrNull() ?: deviceH
@@ -468,7 +470,12 @@ fun CreatePage(vm: PaintViewModel) {
     val onStartPainting = {
         val finalW = customW.toIntOrNull()?.coerceIn(64, 8192) ?: 2048
         val finalH = customH.toIntOrNull()?.coerceIn(64, 8192) ?: 2048
-        vm.startPainting(finalW, finalH)
+        vm.startPainting(
+            w = finalW,
+            h = finalH,
+            animation = animationCanvas,
+            animationFps = DEFAULT_ANIMATION_FPS,
+        )
     }
 
     Column(
@@ -691,6 +698,8 @@ fun CreatePage(vm: PaintViewModel) {
                             showSavePresetDialog = true
                         },
                         onCreate = onStartPainting,
+                        animationCanvas = animationCanvas,
+                        onAnimationCanvasChange = { animationCanvas = it },
                         modifier = Modifier.padding(bottom = 12.dp)
                     )
                 }
@@ -856,6 +865,8 @@ fun CreatePage(vm: PaintViewModel) {
                                 showSavePresetDialog = true
                             },
                             onCreate = onStartPainting,
+                            animationCanvas = animationCanvas,
+                            onAnimationCanvasChange = { animationCanvas = it },
                             modifier = Modifier.padding(vertical = 10.dp)
                         )
                     }
@@ -1285,14 +1296,45 @@ private fun PortraitPresetBottomBar(
 private fun CreateCanvasActions(
     onSavePreset: () -> Unit,
     onCreate: () -> Unit,
+    animationCanvas: Boolean = false,
+    onAnimationCanvasChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        // 动画画布开关: 勾选后新建的文档自带时间轴面板
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(colors.panelHi)
+                .clickable { onAnimationCanvasChange(!animationCanvas) }
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "动画画布",
+                color = colors.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (animationCanvas) "含时间轴" else "静态单帧",
+                color = colors.subText,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.width(10.dp))
+            AnimationCanvasToggle(checked = animationCanvas)
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Box(
             modifier = Modifier
                 .weight(0.38f)
@@ -1341,6 +1383,27 @@ private fun CreateCanvasActions(
                 fontWeight = FontWeight.Bold
             )
         }
+        }
+    }
+}
+
+@Composable
+private fun AnimationCanvasToggle(checked: Boolean) {
+    val colors = Theme.current
+    Box(
+        modifier = Modifier
+            .size(width = 40.dp, height = 22.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(if (checked) colors.accent else colors.subText.copy(alpha = 0.35f))
+    ) {
+        Box(
+            modifier = Modifier
+                .align(if (checked) Alignment.CenterEnd else Alignment.CenterStart)
+                .padding(horizontal = 3.dp)
+                .size(16.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.onAccent)
+        )
     }
 }
 

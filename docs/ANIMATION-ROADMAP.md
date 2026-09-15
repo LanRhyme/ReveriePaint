@@ -250,10 +250,27 @@ root 身份运行 gradle 需显式指定 `GRADLE_USER_HOME` 与 `ANDROID_USER_HO
 
 **真机回归尚未执行**——需要时间轴 UI 落地后才能手动验证增删帧、撤销回帧、播放不串帧。
 
+### 第二波：UI（同一分支，紧随其后）
+
+| 项 | 位置 |
+|---|---|
+| 时间轴面板 | `ui/painting/animation/AnimationTimelinePanel.kt`（新建） |
+| 挂载点 | `PaintingPage.kt` 的 `PickerLayerSourceBar` 之后，`zIndex(20f)`，`AnimatedVisibility` 受 `vm.anim.enabled && vm.anim.panelOpen` 控制 |
+| 动画画布开关 | `CreatePage.kt` 的 `CreateCanvasActions` 内新增开关行，三个布局分支共用该组件，故一处改动全覆盖 |
+
+时间轴面板能力：
+- 顶部把手上下拖拽调高度（140–460 dp），拖到底自动收起；双击在大小档间切换
+- 轨道区双指捏合缩放帧宽（8–160 px，锚定双指中心）+ 单指平移；垂直滚动自己维护 `scrollY`，
+  左右两列同步偏移（用 `verticalScroll` 会导致左右不同步，故不用）
+- 关键帧块宽 = 曝光长度（hold 语义：持续到下一个关键帧），当前帧高亮
+- 底部控制条：上一帧 / 播放 / 下一帧 / 新建空白帧 / 复制帧 / 删除帧 + 帧率与帧号显示
+- 图标全部用 Canvas 自绘，不引入图标库依赖
+
 ### 下一步
 
-1. 创建画布页的「动画画布」开关（后端已就绪）
-2. 时间轴面板 Composable（展开收起 + 缩放平移），插入点 `PaintingPage.kt:1324` 后 `zIndex(20f)`
-3. 洋葱皮接引擎（`KisOnionSkinCompositor`），`AnimationState` 字段已预留
+1. 竖屏快速创建入口 `PortraitPresetBottomBar` 尚未接入动画开关（主路径的自定义页已支持）
+2. 洋葱皮接引擎（`KisOnionSkinCompositor`），`AnimationState` 字段已预留
+3. 帧缩略图（可复用 `Bridge.renderLayerThumb` + `thumbFor()` 的 56×56 双键缓存，但需先切时间）
 4. 撤销后的关键帧缓存同步（需挂到 undo 流程）
 5. 音频/视频导入（图层即轨道的模型天然容纳音轨层）
+6. 一拍 N / 批量移动等 TVPaint 语义的 UI 入口（引擎侧已实现，缺交互）
