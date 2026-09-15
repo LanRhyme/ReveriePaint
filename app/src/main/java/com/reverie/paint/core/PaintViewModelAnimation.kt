@@ -835,11 +835,21 @@ internal fun PaintViewModel.refreshFrameThumbs() {
             if (merged.size <= MAX_FRAME_THUMBS) {
                 merged
             } else {
-                // 超限时只保留当前视图范围内的, 丢弃平移过去的旧帧
+                // 超限时只保留当前视图范围内的, 丢弃平移过去的旧帧。
+                // **必须 recycle 被丢弃的位图**: ARGB_8888 的 168x120 一张约
+                // 80KB, 不回收的话平移浏览长动画会持续吃掉几十 MB 堆,
+                // 直到 GC 介入才回收 —— 表现为"用一会儿就卡一下"。
+                // 回收前排掉还在新快照里被引用的那些 (同一 key 的位图可能同时
+                // 出现在 merged 和 keep 里)。
                 val keep = HashMap<Long, Bitmap>()
                 for ((layerIndex, time) in visible) {
                     val k = frameThumbKey(layerIndex, time)
                     merged[k]?.let { keep[k] = it }
+                }
+                for ((k, bmp) in merged) {
+                    if (!keep.containsKey(k) && !bmp.isRecycled) {
+                        bmp.recycle()
+                    }
                 }
                 keep
             }

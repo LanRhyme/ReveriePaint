@@ -74,6 +74,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -173,23 +174,35 @@ internal fun AnimationTimelinePanel(
             if (vm.railSliderPanelHeightPx > 200f) vm.railSliderPanelHeightPx.toDp() else 240.dp
         }
 
-    // 面板可见期间的帧缩略图按需渲染: 视口尺寸 / 缩放平移 / 内容变化时重取。
-    // refreshFrameThumbs 内部有代际缓存, 重复触发几乎零成本。
+    // 面板可见期间的帧缩略图按需渲染。
+    //
+    // 关键: **视口参数 (scrollPx / frameWidthPx / viewportWidthPx) 不能作为
+    // LaunchedEffect 的 key**。它们在手势期间每帧都变, 每个像素都会:
+    //   重启 effect -> 扫一遍 keyframeCache -> runCore 投递到渲染线程 ->
+    //   回写 anim.frameThumbs -> 触发整块面板重组 -> ...
+    // 而 frameThumbs 自己又出现在 key 列表里, 形成"手势 <-> 合成"的抖动回路。
+    // 三层轨道时就能明显感觉到交互发涩。
+    //
+    // 现在改成: 只有**结构性变化** (开关 / 关键帧增删 / 内容代际) 立即触发;
+    // 视口变化走独立的防抖通道, 手势停下来之后才真正去补缩略图。
     LaunchedEffect(
         vm.anim.enabled,
         vm.anim.revision,
         vm.anim.thumbRevision,
         vm.anim.thumbGen,
-        vm.anim.frameWidthPx,
-        vm.anim.scrollPx,
-        vm.anim.viewportWidthPx,
-        vm.anim.frameThumbs,
     ) {
-        android.util.Log.d(
-            "AnimThumbs",
-            "ui: mapSize=${vm.anim.frameThumbs.size} keys=${vm.anim.frameThumbs.keys} " +
-                "layerIdx=${vm.layers.map { it.index }} cacheKeys=${vm.anim.keyframeCache.keys}",
-        )
+        vm.refreshFrameThumbs()
+    }
+
+    // 视口变化 -> 防抖补渲染。快照成局部值再进 effect, 避免在 effect 内部
+    // 读取这些 state 又把它们变回依赖 (那等于没去掉 key)。
+    val vpScroll = vm.anim.scrollPx
+    val vpFrameW = vm.anim.frameWidthPx
+    val vpWidth = vm.anim.viewportWidthPx
+    LaunchedEffect(vpScroll, vpFrameW, vpWidth) {
+        // 手势期间 (还在缩放/平移) 不渲染: 每帧都去补一遍是纯浪费, 而且
+        // 回写的 frameThumbs 会打断手势的流畅度。停手 180ms 后再补。
+        kotlinx.coroutines.delay(180L)
         vm.refreshFrameThumbs()
     }
 
@@ -560,7 +573,7 @@ private fun TrackHeaders(
     rowHeight: Dp,
     modifier: Modifier = Modifier,
 ) {
-    val layers = vm.layers.reversed()
+    val layers = remember(vm.layers) { vm.layers.reversed() }
     // 无底色 (与整块玻璃统一); clipToBounds: 行随 scrollY 滚动时在
     // 刻度尺下缘 / 控制条上缘处被截断, 不外溢
     Column(modifier = modifier.clipToBounds()) {
@@ -593,15 +606,30 @@ private fun TrackHeaders(
                         }
                     }
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = layer.name,
-                        color = if (layer.index == vm.currentLayerIndex) Morandi.accent else Morandi.text,
-                        fontSize = 11.sp,
-                        maxLines = 1,
+                    // 行高由帧宽驱动 (rowPx = frameW * 5/7), 缩放到很小的时候
+                    // rowHeight 会低于文字自身行高。此时 Text 仍按自然高度排版、
+                    // **超出行的边界继续绘制**, 而外层 Column 不裁剪, 于是相邻行
+                    // 的文字叠在一起。
+                    // 三重防护:
+                    //  1. softWrap=false 保证单行;
+                    //  2. overflow=Ellipsis 横向截断 (用户要的"直接截断");
+                    //  3. 外层 clipToBounds 把纵向溢出切掉, 不让它越界到邻行。
+                    Box(
                         modifier = Modifier
                             .weight(1f)
+                            .clipToBounds()
                             .clickable { vm.setCurrentLayer(layer.index) },
-                    )
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        Text(
+                            text = layer.name,
+                            color = if (layer.index == vm.currentLayerIndex) Morandi.accent else Morandi.text,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -620,7 +648,10 @@ private fun TimelineTrackArea(
     onScrollYChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val layers = vm.layers.reversed()
+    // vm.layers 是 Compose state 列表, reversed() 每次调用都**新建一个 list**。
+    // 这里把它记住: 只有图层集合本身变化时才重算, 而不是每次重组都分配。
+    // (手势期间这个 composable 会频繁重组, 每帧一次 reversed() 是实打实的浪费)
+    val layers = remember(vm.layers) { vm.layers.reversed() }
     val frameW = vm.anim.frameWidthPx
     val scrollX = vm.anim.scrollPx
     val currentTime = vm.anim.currentTime
@@ -681,13 +712,39 @@ private fun TimelineTrackArea(
             val contentH = (layers.size * rowPx).coerceAtLeast(size.height + scrollY)
             val thumbInset = 3.dp.toPx()
 
-            layers.forEachIndexed { i, layer ->
+            // 视口裁剪: 这个 Canvas 在缩放/平移期间每帧重画, 若对**所有**轨道
+            // 的**所有**关键帧无条件绘制, 代价就是 O(图层数 x 关键帧数) 次
+            // drawRoundRect + drawImage。轨道一多、帧一密, 手势立刻发涩。
+            //
+            // 只画与可视区相交的行与帧块:
+            //  - 行: 由 scrollY / size.height 反算出行索引区间;
+            //  - 帧: 由 scrollX / frameW / size.width 反算出帧号区间, 再用
+            //    二分找到该轨道里第一个可能可见的关键帧 (times 是有序的),
+            //    从那里开始扫到超出右边界为止。
+            val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size)
+            val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
+            // 首帧测量前 size.height/width 可能为 0, 这时 lastRow < firstRow,
+            // 区间为空 (只画播放头), 不会出错。
+            val firstFrame = (scrollX / frameW).toInt().coerceAtLeast(0)
+            // 左边界往左多留一帧 (块可能跨越左边界), 右边界同理
+            val lastFrame = ((scrollX + size.width) / frameW).toInt().coerceAtLeast(0) + 1
+
+            for (i in firstRow..lastRow) {
+                val layer = layers[i]
                 val top = i * rowPx
 
                 val times = cache[layer.index]
                 if (!times.isNullOrEmpty()) {
-                    for (idx in times.indices) {
+                    // times 升序: 二分到第一个 >= firstFrame 的位置。
+                    // 不能简单跳过 "下一帧号 < firstFrame" 的块 —— 它可能正
+                    // 跨越左边界 (长曝光块), 所以起点再退一格。
+                    var start = times.binarySearch(firstFrame)
+                    if (start < 0) start = -(start + 1)
+                    start = (start - 1).coerceAtLeast(0)
+
+                    for (idx in start until times.size) {
                         val t = times[idx]
+                        if (t > lastFrame) break
                         // hold 语义: 一个关键帧曝光到下一关键帧之前, 连成**一块**
                         // 宽格; 但曝光期内**每一帧的画面都要显示** —— 缩略图
                         // 按帧槽逐个复制铺进块内
