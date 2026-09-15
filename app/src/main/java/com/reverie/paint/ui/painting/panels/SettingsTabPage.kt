@@ -735,10 +735,14 @@ internal fun SettingsTabPage(
                             .fillMaxWidth()
                             .height(24.dp)
                             .pointerInput(Unit) {
-                                detectTapGestures { offset ->
-                                    val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    vm.updateStrokeStabilizer(frac)
-                                }
+                                // 必须显式 onTap = : 尾 lambda 会绑到 onDoubleTap,
+                                // 导致单击滑块无反应。
+                                detectTapGestures(
+                                    onTap = { offset ->
+                                        val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                        vm.updateStrokeStabilizer(frac)
+                                    },
+                                )
                             }
                             .pointerInput(Unit) {
                                 detectDragGestures { change, _ ->

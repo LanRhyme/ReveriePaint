@@ -11,6 +11,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -102,6 +104,20 @@ internal class AnimationState {
      * 由 thumbGen 变化整体失效。
      */
     var frameThumbs by mutableStateOf<Map<Long, Bitmap>>(emptyMap())
+
+    /**
+     * [frameThumbs] 对应的 ImageBitmap 包装缓存。
+     *
+     * 为什么需要: `Bitmap.asImageBitmap()` **每次调用都新建一个
+     * AndroidImageBitmap 包装对象**。时间轴的绘制循环里每个帧槽都要 drawImage,
+     * 手势期间每帧重画 —— 于是每秒产生成百上千个短命对象, 直接喂给 GC。
+     * 这里按位图实例做一次包装并复用 (位图本身由 [frameThumbs] 持有,
+     * 同一代的位图实例不变, 所以包装可以安全重用)。
+     */
+    var frameThumbImages by mutableStateOf<Map<Long, ImageBitmap>>(emptyMap())
+
+    /** [frameThumbImages] 里每个包装对应的位图实例, 用于判断能否复用包装 */
+    var frameThumbBitmapsForImages by mutableStateOf<Map<Long, Bitmap>>(emptyMap())
 
     /**
      * 帧缩略图代际 (来自引擎 keyframeThumbGen), 变化即整体重取
@@ -773,6 +789,9 @@ internal fun frameThumbKey(
  */
 internal fun PaintViewModel.refreshFrameThumbs() {
     if (!anim.enabled || !anim.showThumbnails) return
+    // 调用频率是重点排查对象: 手势期间如果这个函数每秒被调上百次, 说明
+    // 视口参数又漏进了某个 effect 的 key (2026-09-15 踩过这个坑)
+    PerfTrace.tick("thumbs.refreshCalls", 1000L)
 
     val cache = anim.keyframeCache
     // 关键帧缓存还没建立 (面板刚打开 / 首次同步尚未落地) 时,
@@ -853,9 +872,30 @@ internal fun PaintViewModel.refreshFrameThumbs() {
                 }
                 keep
             }
+        // 位图 -> ImageBitmap 包装在这里一次性建好。
+        //
+        // 为什么不在绘制里现包: `Bitmap.asImageBitmap()` 每次调用都新建一个
+        // AndroidImageBitmap 包装对象, 而绘制循环每个帧槽都要 drawImage、
+        // 手势期间还每帧重画 —— 等于每秒产生成百上千个短命对象喂给 GC。
+        //
+        // 复用判据必须是**位图实例同一** (用 identity 比较), 只看 key 会错:
+        // 同一 (图层, 帧号) 重新渲染后会换成新 Bitmap 实例, 沿用旧包装就会
+        // 画到那张已废弃的旧图上。
+        val prevByKey = anim.frameThumbImages
+        val prevBitmaps = anim.frameThumbBitmapsForImages
+        val images = HashMap<Long, ImageBitmap>(snapshot.size)
+        val bitmapsForImages = HashMap<Long, Bitmap>(snapshot.size)
+        for ((k, bmp) in snapshot) {
+            val cached = prevByKey[k]
+            val sameBitmap = prevBitmaps[k] === bmp
+            images[k] = if (cached != null && sameBitmap) cached else bmp.asImageBitmap()
+            bitmapsForImages[k] = bmp
+        }
         mainHandler.post {
             anim.thumbGen = gen
             anim.frameThumbs = snapshot
+            anim.frameThumbImages = images
+            anim.frameThumbBitmapsForImages = bitmapsForImages
         }
     }
 }

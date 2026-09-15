@@ -2517,7 +2517,12 @@ class PaintViewModel : ViewModel() {
         }
 
         val forceFull = reallocated
-        val ok = ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换), 用 span 只在
+        // 超过阈值时打印, 平常不刷屏
+        val ok = PerfTrace.span("render.buffer", threshold = 8L) {
+            ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        }
+        PerfTrace.tick("render.calls", 1000L)
         if (!ok) {
             if (ReverieCoreBridge.renderPendingDirty()) {
                 rh?.postDelayed({ doRender() }, 8L)

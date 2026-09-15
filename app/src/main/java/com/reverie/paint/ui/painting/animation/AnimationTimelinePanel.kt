@@ -21,8 +21,8 @@ import android.view.ViewConfiguration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -66,8 +66,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -77,12 +79,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.core.animationAddKeyframe
 import com.reverie.paint.core.animationRemoveKeyframe
 import com.reverie.paint.R
@@ -167,7 +171,18 @@ internal fun AnimationTimelinePanel(
     // 行高 = 帧宽 × 5/7: 帧格固定 7:5, 不随画布宽高比变化
     val rowPx = vm.anim.frameWidthPx * (CELL_RATIO_H / CELL_RATIO_W)
     val rowDp = with(density) { rowPx.toDp() }
-    val maxScrollY = (vm.layers.size * rowPx - rowPx * 2f).coerceAtLeast(0f)
+    // 轨道区**实际视口高度** (px), 由 TimelineTrackArea 测量回写。
+    //
+    // 为什么必须有这个: 上一版 maxScrollY 写成 `layers*rowPx - 2*rowPx`,
+    // 那个 "2 行" 是拍脑袋的常数, 与视口真实高度无关 ——
+    //   3 轨时 maxScrollY = 114px, 而视口有 410px: 内容比视口还矮,
+    //   本就不该能滚, 却允许滚动一个行高 (画面跟着动, 像是"动了但不对");
+    //   8 轨时 maxScrollY = 686px, 视口 410px, 正确上限是 914-410 = 504px,
+    //   于是能滚出 182px 的空白。
+    // 正确公式只有一个: maxScroll = max(0, 内容高 - 视口高)。
+    var trackViewportPx by remember { mutableFloatStateOf(0f) }
+    val contentHeightPx = vm.layers.size * rowPx
+    val maxScrollY = (contentHeightPx - trackViewportPx).coerceAtLeast(0f)
     // "滑块面板同高"目标: ToolRail 测量回写; 未测到前退回默认 240dp
     val mediumHeightDp =
         with(density) {
@@ -255,6 +270,7 @@ internal fun AnimationTimelinePanel(
             maxScrollY = maxScrollY,
             scrollY = scrollY,
             onScrollYChange = { scrollY = it },
+            onTrackViewportChange = { trackViewportPx = it },
             onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
             mode = mode,
             onModeChange = { mode = it },
@@ -288,6 +304,7 @@ private fun TimelinePanelSurface(
     maxScrollY: Float,
     scrollY: Float,
     onScrollYChange: (Float) -> Unit,
+    onTrackViewportChange: (Float) -> Unit = {},
     onToggleSettings: () -> Unit,
     mode: String,
     onModeChange: (String) -> Unit,
@@ -384,21 +401,27 @@ private fun TimelinePanelSurface(
                     TimelineRuler(vm = vm, modifier = Modifier.weight(1f).fillMaxSize())
                 }
 
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    TrackHeaders(
-                        vm = vm,
-                        scrollY = scrollY,
-                        rowHeight = rowDp,
-                        modifier = Modifier.width(TRACK_HEADER_W).fillMaxSize(),
-                    )
-                    TimelineTrackArea(
-                        vm = vm,
-                        rowPx = rowPx,
-                        scrollY = scrollY,
-                        onScrollYChange = { onScrollYChange(it.coerceIn(0f, maxScrollY)) },
-                        modifier = Modifier.weight(1f).fillMaxSize(),
-                    )
-                }
+                // 轨道头不再用独立的 Compose Column 渲染 —— 已并入
+                // TimelineTrackArea 的同一块 Canvas (内部左侧裁剪区)。
+                // 此前 "Column 布局 + offset 整数滚动" 与 "Canvas float 坐标
+                // 滚动" 是两套必须像素级一致的独立系统, 实测恒定偏差 ~40px、
+                // 部分行无标签; 合并后同一坐标系 + 同一 scrollY,
+                // "行与轨道对不上"在结构上不可能再发生。
+                TimelineTrackArea(
+                    vm = vm,
+                    rowPx = rowPx,
+                    scrollY = scrollY,
+                    // 钳位改在 TimelineTrackArea 内部用 liveMaxScrollY 做,
+                    // 这里直接透传 —— 外层 lambda 捕获的 maxScrollY 同样是
+                    // 组合期快照, 不能作为唯一的钳位依据。
+                    onScrollYChange = onScrollYChange,
+                    maxScrollY = maxScrollY,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        // 量轨道区的真实视口高 (px), 回写给 maxScrollY 用
+                        .onSizeChanged { onTrackViewportChange(it.height.toFloat()) },
+                )
 
                 // 设置已改为独立浮窗 (见 AnimationSettingsCard), 不再占面板高度
                 TimelineControls(
@@ -532,9 +555,12 @@ private fun TimelineRuler(
     Canvas(
         modifier = modifier
             .pointerInput(Unit) {
-                detectTapGestures { off ->
-                    vm.animationSeek(((scroll + off.x) / frameW).toInt())
-                }
+                // 同样必须显式 onTap = : 尾 lambda 会被绑到 onDoubleTap。
+                detectTapGestures(
+                    onTap = { off ->
+                        vm.animationSeek(((scroll + off.x) / frameW).toInt())
+                    },
+                )
             },
     ) {
         translate(left = -scroll) {
@@ -563,81 +589,7 @@ private fun TimelineRuler(
 }
 
 // ============================================================
-// 轨道头 (左侧固定列)
-// ============================================================
-
-@Composable
-private fun TrackHeaders(
-    vm: PaintViewModel,
-    scrollY: Float,
-    rowHeight: Dp,
-    modifier: Modifier = Modifier,
-) {
-    val layers = remember(vm.layers) { vm.layers.reversed() }
-    // 无底色 (与整块玻璃统一); clipToBounds: 行随 scrollY 滚动时在
-    // 刻度尺下缘 / 控制条上缘处被截断, 不外溢
-    Column(modifier = modifier.clipToBounds()) {
-        Column(modifier = Modifier.offset { IntOffset(0, -scrollY.roundToInt()) }) {
-            layers.forEach { layer ->
-                Row(
-                    modifier = Modifier
-                        .height(rowHeight)
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clickable { vm.toggleLayerVisible(layer.index) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            val c = if (layer.visible) Morandi.text else Morandi.subText.copy(alpha = 0.4f)
-                            drawCircle(color = c, radius = 5.dp.toPx())
-                            if (!layer.visible) {
-                                drawLine(
-                                    color = Morandi.panel,
-                                    start = Offset(center.x - 6.dp.toPx(), center.y - 6.dp.toPx()),
-                                    end = Offset(center.x + 6.dp.toPx(), center.y + 6.dp.toPx()),
-                                    strokeWidth = 2f,
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    // 行高由帧宽驱动 (rowPx = frameW * 5/7), 缩放到很小的时候
-                    // rowHeight 会低于文字自身行高。此时 Text 仍按自然高度排版、
-                    // **超出行的边界继续绘制**, 而外层 Column 不裁剪, 于是相邻行
-                    // 的文字叠在一起。
-                    // 三重防护:
-                    //  1. softWrap=false 保证单行;
-                    //  2. overflow=Ellipsis 横向截断 (用户要的"直接截断");
-                    //  3. 外层 clipToBounds 把纵向溢出切掉, 不让它越界到邻行。
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clipToBounds()
-                            .clickable { vm.setCurrentLayer(layer.index) },
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        Text(
-                            text = layer.name,
-                            color = if (layer.index == vm.currentLayerIndex) Morandi.accent else Morandi.text,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ============================================================
-// 轨道区 (帧块 + 播放头, 可缩放平移)
+// 轨道区 (轨道头 + 帧块 + 播放头, 可缩放平移)
 // ============================================================
 
 @Composable
@@ -646,17 +598,70 @@ private fun TimelineTrackArea(
     rowPx: Float,
     scrollY: Float,
     onScrollYChange: (Float) -> Unit,
+    maxScrollY: Float = Float.MAX_VALUE,
     modifier: Modifier = Modifier,
 ) {
+    // ★ 手势必须读"活"的 scrollY / maxScrollY。
+    //
+    // scrollY 是**普通 Float 参数** (composition 快照), 下面那个
+    // `.pointerInput(Unit)` 只在**首次组合**时建立协程 —— 闭包里捕获的
+    // scrollY 会被永久冻结成首次组合的值 (0f)。后果: 每一次拖动事件都算
+    // `0f - travelY`, 于是无论已经滚到哪里, 手指一动画面就"跳回原点再偏移",
+    // 表现为上滑一段后松手又弹回、或根本滚不动。
+    //
+    // rememberUpdatedState 提供一个稳定的 State 容器, 每次重组写入最新值,
+    // 手势内部读 `.value` 永远拿到当前值 —— 这是 Compose 里"长生命手势
+    // 调用短生命数据"的标准解法。
+    val liveScrollY = rememberUpdatedState(scrollY)
+    val liveMaxScrollY = rememberUpdatedState(maxScrollY)
+
     // vm.layers 是 Compose state 列表, reversed() 每次调用都**新建一个 list**。
     // 这里把它记住: 只有图层集合本身变化时才重算, 而不是每次重组都分配。
     // (手势期间这个 composable 会频繁重组, 每帧一次 reversed() 是实打实的浪费)
     val layers = remember(vm.layers) { vm.layers.reversed() }
+
+    // —— 轨道头并入本 Canvas ——
+    //
+    // 此前左侧轨道头是独立的 Compose Column (TrackHeaders), 用
+    // Modifier.offset 整数滚动; 右侧轨道网格是 Canvas, 用 float 坐标滚动。
+    // 两套系统必须像素级一致才对得上, 实测却恒定偏差 ~40px、部分行无标签、
+    // 一开面板就错位。现在头部与网格共用同一 Canvas / 同一 scrollY /
+    // 同一 float 行坐标 (i * rowPx), 错位在结构上不可能再发生。
+    val density = LocalDensity.current
+    val headerW = with(density) { TRACK_HEADER_W.toPx() }
+    val headPadPx = with(density) { 6.dp.toPx() }
+    val dotZonePx = with(density) { 20.dp.toPx() }
+    val dotGapPx = with(density) { 4.dp.toPx() }
+    val dotRadiusPx = with(density) { 5.dp.toPx() }
+    val textX = headPadPx + dotZonePx + dotGapPx
+    val textMaxW = (headerW - textX - headPadPx).coerceAtLeast(1f)
+    // 图层名排版结果缓存: 图层集合变化才重排 (手势期间频繁重组, 别每帧都
+    // measure)。文字高度固定 (11sp), 行高 (缩放) 变化只影响垂直居中位置。
+    val textMeasurer = rememberTextMeasurer()
+    val nameLayouts = remember(layers, textMeasurer, density) {
+        layers.associate { layer ->
+            layer.index to textMeasurer.measure(
+                text = layer.name,
+                style = TextStyle(fontSize = 11.sp),
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1,
+                constraints = Constraints(maxWidth = textMaxW.roundToInt()),
+            )
+        }
+    }
+    // 点击手势闭包只捕获首次组合的值 (pointerInput(Unit) 教训), 会变的
+    // (layers / rowPx / scrollY) 一律经 live 容器读; 几何常量 (headerW 等
+    // 由 density 派生) 不会变, 直接捕获即可。
+    val liveLayers = rememberUpdatedState(layers)
+    val liveRowPx = rememberUpdatedState(rowPx)
+    val liveHeaderW = rememberUpdatedState(headerW)
+
     val frameW = vm.anim.frameWidthPx
     val scrollX = vm.anim.scrollPx
     val currentTime = vm.anim.currentTime
     val cache = vm.anim.keyframeCache
     val thumbs = vm.anim.frameThumbs
+    val thumbImages = vm.anim.frameThumbImages
     val showThumbs = vm.anim.showThumbnails
     // 缩略图位图固定 7:5 (与帧格同比例, 引擎 KeepAspectRatio 后铺满)
     val thumbAspect = FRAME_THUMB_W.toFloat() / FRAME_THUMB_H.toFloat()
@@ -684,151 +689,394 @@ private fun TimelineTrackArea(
     Canvas(
         modifier = modifier
             .clipToBounds()
-            .onSizeChanged { vm.anim.viewportWidthPx = it.width.toFloat() }
+            // 视口宽回写时扣掉头部区: 这个值只喂给缩略图防抖, 但语义上是
+            // "轨道区宽度", 不是整块 Canvas 宽度
+            .onSizeChanged { vm.anim.viewportWidthPx = (it.width - headerW).coerceAtLeast(0f) }
+            // 统一手势入口: **单指**纵向滚动 / 横向平移, **双指**捏合缩放 + 平移。
+            //
+            // 为什么必须合成一个 (踩过的坑):
+            // 此前是「detectTransformGestures (双指) + 手写单指拖动」两个
+            // pointerInput 挂在同一个节点上。两者都是**消费者**, 而同一个节点
+            // 上的多个 pointerInput 在 Main pass 的派发顺序是**后注册的先拿到
+            // 事件** —— 后加的单指拖动先吃事件并 `consume()`, 于是第二根手指
+            // 落下时 detectTransformGestures 已经拿不到未被消费的变更,
+            // 捏合直接失效 ("单指滑动修好了, 但双指缩放不能用了")。
+            //
+            // 正解是把两种手势写进同一个 awaitPointerEventScope:
+            // 自己数按下的手指数, 1 根走滚动/平移, >=2 根走缩放+平移,
+            // 全程只有一个消费者, 不存在互相饿死。
             .pointerInput(Unit) {
-                detectTransformGestures { centroid, pan, zoom, _ ->
-                    val oldW = vm.anim.frameWidthPx
-                    val newW = (oldW * zoom).coerceIn(MIN_FRAME_W, MAX_FRAME_W)
-                    // 缩放锚定在双指中心: 保持该点下的帧号不变
-                    val anchorFrame = (vm.anim.scrollPx + centroid.x) / oldW
-                    vm.anim.frameWidthPx = newW
-                    vm.anim.scrollPx = (anchorFrame * newW - centroid.x - pan.x).coerceAtLeast(0f)
-                    onScrollYChange(scrollY - pan.y)
+                // 手势闭包只在首次组合建立, 普通参数会被冻结 —— 一律走 live
+                val liveScroll = liveScrollY
+                val liveMax = liveMaxScrollY
+                val slop = viewConfiguration.touchSlop
+
+                awaitPointerEventScope {
+                    while (true) {
+                        // —— 等待第一根手指 ——
+                        val first = awaitFirstDown(requireUnconsumed = false)
+                        var lastCentroid = Offset.Zero
+                        var lastDistance = 0f
+                        var multiTouch = false
+                        // 单指轴锁定状态
+                        var axisLocked = 0            // 0=未定 1=纵向 2=横向
+                        var travelX = 0f
+                        var travelY = 0f
+                        // 判定前累计、判定后一次性补齐, 手感才跟手
+                        var pendingX = 0f
+                        var pendingY = 0f
+
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val pressed = ev.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
+
+                            // 质心与平均间距: 单指时就是该指位置, 双指时是两指中心
+                            var cx = 0f
+                            var cy = 0f
+                            for (c in pressed) { cx += c.position.x; cy += c.position.y }
+                            cx /= pressed.size
+                            cy /= pressed.size
+                            val centroid = Offset(cx, cy)
+
+                            // 平均到质心的距离, 用来算缩放比例
+                            var dist = 0f
+                            for (c in pressed) {
+                                dist += kotlin.math.hypot(c.position.x - cx, c.position.y - cy)
+                            }
+                            dist /= pressed.size
+
+                            if (pressed.size >= 2) {
+                                // 进入双指模式: 放弃单指的轴锁定累积, 避免松手后
+                                // 残留位移被应用成一次跳动
+                                if (!multiTouch) {
+                                    multiTouch = true
+                                    axisLocked = 0
+                                    travelX = 0f
+                                    travelY = 0f
+                                    pendingX = 0f
+                                    pendingY = 0f
+                                    lastCentroid = centroid
+                                    lastDistance = dist
+                                } else {
+                                    val panX = centroid.x - lastCentroid.x
+                                    val panY = centroid.y - lastCentroid.y
+                                    val zoom = if (lastDistance > 1f && dist > 1f) dist / lastDistance else 1f
+
+                                    val oldW = vm.anim.frameWidthPx
+                                    val newW = (oldW * zoom).coerceIn(MIN_FRAME_W, MAX_FRAME_W)
+                                    // 缩放锚定在双指中心: 保持该点下的帧号不变
+                                    val anchorFrame = (vm.anim.scrollPx + centroid.x) / oldW
+                                    vm.anim.frameWidthPx = newW
+                                    vm.anim.scrollPx =
+                                        (anchorFrame * newW - centroid.x - panX).coerceAtLeast(0f)
+                                    if (panY != 0f) {
+                                        onScrollYChange(
+                                            (liveScroll.value - panY).coerceIn(0f, liveMax.value),
+                                        )
+                                    }
+                                    lastCentroid = centroid
+                                    lastDistance = dist
+                                    PerfTrace.tick("timeline.pinch", 500L)
+                                }
+                                for (c in ev.changes) c.consume()
+                                continue
+                            }
+
+                            // —— 单指路径 ——
+                            // 双指抬起后剩一根: 重新进入单指, 但不清零已有进度,
+                            // 只重置累计器, 否则会突然跳一段
+                            if (multiTouch) {
+                                multiTouch = false
+                                axisLocked = 0
+                                travelX = 0f
+                                travelY = 0f
+                                pendingX = 0f
+                                pendingY = 0f
+                            }
+
+                            val change = pressed.firstOrNull { it.id == first.id } ?: pressed.first()
+                            val dx = change.positionChange().x
+                            val dy = change.positionChange().y
+                            change.consume()
+
+                            if (axisLocked == 0) {
+                                pendingX += dx
+                                pendingY += dy
+                                if (kotlin.math.abs(pendingX) > slop ||
+                                    kotlin.math.abs(pendingY) > slop
+                                ) {
+                                    axisLocked =
+                                        if (kotlin.math.abs(pendingY) >= kotlin.math.abs(pendingX)) 1 else 2
+                                    travelX = pendingX
+                                    travelY = pendingY
+                                    pendingX = 0f
+                                    pendingY = 0f
+                                } else {
+                                    continue
+                                }
+                            } else {
+                                travelX += dx
+                                travelY += dy
+                            }
+
+                            if (axisLocked == 1) {
+                                // 读 liveScroll.value (不是冻结的 scrollY 参数),
+                                // 并在这里做钳位 —— 不再依赖外层 lambda 的
+                                // coerceIn, 因为外层拿到的 maxScrollY 同样是
+                                // 组合期快照, 转屏/加轨道后会过期。
+                                val next = (liveScroll.value - travelY)
+                                    .coerceIn(0f, liveMax.value)
+                                onScrollYChange(next)
+                                travelY = 0f
+                                // 纵向滚动事件计数。日志里应看到"次/窗口"随滑动
+                                // 持续增长; 若滑了却几乎不增长, 说明手势根本没
+                                // 进到这一支 (轴锁定判成了横向, 或压根没收到事件)。
+                                PerfTrace.tick("timeline.scrollY", 500L)
+                            } else {
+                                vm.anim.scrollPx =
+                                    (vm.anim.scrollPx - travelX).coerceAtLeast(0f)
+                                travelX = 0f
+                            }
+                        }
+                    }
                 }
             }
             .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    val frame = ((vm.anim.scrollPx + offset.x) / vm.anim.frameWidthPx).toInt()
-                    val row = ((offset.y + scrollY) / rowPx).toInt()
-                    if (row in layers.indices) {
-                        vm.setCurrentLayer(layers[row].index)
-                        vm.anim.selectedTrack = layers[row].index
-                    }
-                    vm.animationSeek(frame)
-                }
+                // 注意: 这里必须显式写 onTap = {...}。detectTapGestures 的尾
+                // lambda 绑定的是 onDoubleTap, 写成 detectTapGestures { ... }
+                // 会变成"单击无反应, 要双击才跳帧"。
+                //
+                // 另外闭包里一律读 live 容器: pointerInput(Unit) 只捕获首次
+                // 组合的值, scrollY/rowPx/layers 若直接捕获会全部冻结 ——
+                // (此前的 onTap 就冻结了 scrollY/rowPx, 缩放或滚动后点击
+                // 命中的帧/行全是旧坐标)
+                detectTapGestures(
+                    onTap = { offset ->
+                        val ls = liveLayers.value
+                        val rpx = liveRowPx.value
+                        val hw = liveHeaderW.value
+                        val row = ((offset.y + liveScrollY.value) / rpx).toInt()
+                        if (offset.x < hw) {
+                            // 轨道头区: 圆点 = 切换可见性, 其余 = 选中图层
+                            if (row in ls.indices) {
+                                val layer = ls[row]
+                                if (offset.x < headPadPx + dotZonePx) {
+                                    vm.toggleLayerVisible(layer.index)
+                                } else {
+                                    vm.setCurrentLayer(layer.index)
+                                }
+                            }
+                        } else {
+                            // 轨道区: x 先扣掉头部宽才是帧坐标
+                            val frame =
+                                ((vm.anim.scrollPx + offset.x - hw) / vm.anim.frameWidthPx).toInt()
+                            if (row in ls.indices) {
+                                vm.setCurrentLayer(ls[row].index)
+                                vm.anim.selectedTrack = ls[row].index
+                            }
+                            vm.animationSeek(frame)
+                        }
+                    },
+                )
             },
     ) {
-        translate(left = -scrollX, top = -scrollY) {
-            val contentH = (layers.size * rowPx).coerceAtLeast(size.height + scrollY)
-            val thumbInset = 3.dp.toPx()
+        val drawStart = android.os.SystemClock.elapsedRealtimeNanos()
+        // 轨道区宽 = 整块 Canvas 宽 - 头部宽 (用于横向帧裁剪)
+        val trackW = (size.width - headerW).coerceAtLeast(0f)
 
-            // 视口裁剪: 这个 Canvas 在缩放/平移期间每帧重画, 若对**所有**轨道
-            // 的**所有**关键帧无条件绘制, 代价就是 O(图层数 x 关键帧数) 次
-            // drawRoundRect + drawImage。轨道一多、帧一密, 手势立刻发涩。
-            //
-            // 只画与可视区相交的行与帧块:
-            //  - 行: 由 scrollY / size.height 反算出行索引区间;
-            //  - 帧: 由 scrollX / frameW / size.width 反算出帧号区间, 再用
-            //    二分找到该轨道里第一个可能可见的关键帧 (times 是有序的),
-            //    从那里开始扫到超出右边界为止。
-            val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size)
-            val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
-            // 首帧测量前 size.height/width 可能为 0, 这时 lastRow < firstRow,
-            // 区间为空 (只画播放头), 不会出错。
-            val firstFrame = (scrollX / frameW).toInt().coerceAtLeast(0)
-            // 左边界往左多留一帧 (块可能跨越左边界), 右边界同理
-            val lastFrame = ((scrollX + size.width) / frameW).toInt().coerceAtLeast(0) + 1
+        // —— 右侧轨道区 ——
+        // 裁剪到 headerW 右侧: 横向滚动时帧块向左滑出视口, 若不裁会滑进
+        // 头部区 (此前的独立 Canvas 天然有自身边界裁剪, 合并后必须显式做)
+        clipRect(left = headerW, top = 0f, right = size.width, bottom = size.height) {
+            translate(left = headerW - scrollX, top = -scrollY) {
+                val contentH = (layers.size * rowPx).coerceAtLeast(size.height + scrollY)
+                val thumbInset = 3.dp.toPx()
 
-            for (i in firstRow..lastRow) {
-                val layer = layers[i]
-                val top = i * rowPx
+                // 视口裁剪: 这个 Canvas 在缩放/平移期间每帧重画, 若对**所有**轨道
+                // 的**所有**关键帧无条件绘制, 代价就是 O(图层数 x 关键帧数) 次
+                // drawRoundRect + drawImage。轨道一多、帧一密, 手势立刻发涩。
+                //
+                // 只画与可视区相交的行与帧块:
+                //  - 行: 由 scrollY / size.height 反算出行索引区间;
+                //  - 帧: 由 scrollX / frameW / trackW 反算出帧号区间, 再用
+                //    二分找到该轨道里第一个可能可见的关键帧 (times 是有序的),
+                //    从那里开始扫到超出右边界为止。
+                val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size)
+                val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
+                // 首帧测量前 size.height/width 可能为 0, 这时 lastRow < firstRow,
+                // 区间为空 (只画播放头), 不会出错。
+                val firstFrame = (scrollX / frameW).toInt().coerceAtLeast(0)
+                // 左边界往左多留一帧 (块可能跨越左边界), 右边界同理
+                val lastFrame = ((scrollX + trackW) / frameW).toInt().coerceAtLeast(0) + 1
 
-                val times = cache[layer.index]
-                if (!times.isNullOrEmpty()) {
-                    // times 升序: 二分到第一个 >= firstFrame 的位置。
-                    // 不能简单跳过 "下一帧号 < firstFrame" 的块 —— 它可能正
-                    // 跨越左边界 (长曝光块), 所以起点再退一格。
-                    var start = times.binarySearch(firstFrame)
-                    if (start < 0) start = -(start + 1)
-                    start = (start - 1).coerceAtLeast(0)
+                for (i in firstRow..lastRow) {
+                    val layer = layers[i]
+                    val top = i * rowPx
 
-                    for (idx in start until times.size) {
-                        val t = times[idx]
-                        if (t > lastFrame) break
-                        // hold 语义: 一个关键帧曝光到下一关键帧之前, 连成**一块**
-                        // 宽格; 但曝光期内**每一帧的画面都要显示** —— 缩略图
-                        // 按帧槽逐个复制铺进块内
-                        val next = if (idx + 1 < times.size) times[idx + 1] else t + 1
-                        val span = (next - t).coerceAtLeast(1)
-                        val active = currentTime >= t && currentTime < next
-                        val cellX = t * frameW + 2f
-                        val cellY = top + 4f
-                        val cellW = (span * frameW - 4f).coerceAtLeast(2f)
-                        val cellH = rowPx - 8f
+                    val times = cache[layer.index]
+                    if (!times.isNullOrEmpty()) {
+                        // times 升序: 二分到第一个 >= firstFrame 的位置。
+                        // 不能简单跳过 "下一帧号 < firstFrame" 的块 —— 它可能正
+                        // 跨越左边界 (长曝光块), 所以起点再退一格。
+                        var start = times.binarySearch(firstFrame)
+                        if (start < 0) start = -(start + 1)
+                        start = (start - 1).coerceAtLeast(0)
 
-                        // 底格: 中性灰底 (半透明, 不压过缩略图里的线条)
-                        drawRoundRectCompat(
-                            color = Morandi.subText.copy(alpha = 0.35f),
-                            topLeft = Offset(cellX, cellY),
-                            size = Size(cellW, cellH),
-                        )
-                        // 缩略图逐帧槽复制: 每个帧槽内按位图比例 (7:5) letterbox 居中
-                        val bmp = thumbs[frameThumbKey(layer.index, t)]
-                        if (showThumbs && bmp != null && !bmp.isRecycled) {
-                            val slotW = frameW - 4f
-                            val iw = slotW - thumbInset * 2f
-                            val ih = cellH - thumbInset * 2f
-                            var tw = iw
-                            var th = tw / thumbAspect
-                            if (th > ih) {
-                                th = ih
-                                tw = th * thumbAspect
+                        for (idx in start until times.size) {
+                            val t = times[idx]
+                            if (t > lastFrame) break
+                            // hold 语义: 一个关键帧曝光到下一关键帧之前, 连成**一块**
+                            // 宽格; 但曝光期内**每一帧的画面都要显示** —— 缩略图
+                            // 按帧槽逐个复制铺进块内
+                            val next = if (idx + 1 < times.size) times[idx + 1] else t + 1
+                            val span = (next - t).coerceAtLeast(1)
+                            val active = currentTime >= t && currentTime < next
+                            val cellX = t * frameW + 2f
+                            val cellY = top + 4f
+                            val cellW = (span * frameW - 4f).coerceAtLeast(2f)
+                            val cellH = rowPx - 8f
+
+                            // 底格: 中性灰底 (半透明, 不压过缩略图里的线条)
+
+                            drawRoundRectCompat(
+                                color = Morandi.subText.copy(alpha = 0.35f),
+                                topLeft = Offset(cellX, cellY),
+                                size = Size(cellW, cellH),
+                            )
+                            // 缩略图逐帧槽复制: 每个帧槽内按位图比例 (7:5) letterbox 居中
+                            // 用预算好的 ImageBitmap 包装 (见 frameThumbImages):
+                            // 在绘制里现调 asImageBitmap() 会每个帧槽分配一个包装对象
+                            val img = thumbImages[frameThumbKey(layer.index, t)]
+                            if (showThumbs && img != null) {
+                                val slotW = frameW - 4f
+                                val iw = slotW - thumbInset * 2f
+                                val ih = cellH - thumbInset * 2f
+                                var tw = iw
+                                var th = tw / thumbAspect
+                                if (th > ih) {
+                                    th = ih
+                                    tw = th * thumbAspect
+                                }
+                                for (f in t until next) {
+                                    val slotX = f * frameW + 2f
+
+                                    drawImage(
+                                        image = img,
+                                        dstOffset = IntOffset(
+                                            (slotX + (slotW - tw) / 2f).roundToInt(),
+                                            (cellY + (cellH - th) / 2f).roundToInt(),
+                                        ),
+                                        dstSize = IntSize(
+                                            tw.roundToInt().coerceAtLeast(1),
+                                            th.roundToInt().coerceAtLeast(1),
+                                        ),
+                                        filterQuality = FilterQuality.Medium,
+                                    )
+                                }
                             }
-                            for (f in t until next) {
-                                val slotX = f * frameW + 2f
-                                drawImage(
-                                    image = bmp.asImageBitmap(),
-                                    dstOffset = IntOffset(
-                                        (slotX + (slotW - tw) / 2f).roundToInt(),
-                                        (cellY + (cellH - th) / 2f).roundToInt(),
+                            // 当前曝光块: 主题色描边高亮 (不填充)。
+                            // 描边压在内侧 (inset = 线宽/2) 才能保证边线不被块外裁掉。
+                            // 宽度/亮度由 selProgress 驱动: 换帧瞬间过冲一下再回落,
+                            // 让"选中"这个状态变化有反馈 (t 在 0.9~1.15 之间摆动一次)
+                            if (active) {
+                                val t = selPop.value
+                                val bw = selBorderPx * (0.8f + 0.6f * t)
+                                val glowW = selGlowPx * (0.5f + 0.7f * t)
+                                val glowA = 0.12f + 0.20f * t
+                                drawRoundRect(
+                                    color = Morandi.accent.copy(alpha = glowA),
+                                    topLeft = Offset(cellX, cellY),
+                                    size = Size(cellW, cellH),
+                                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                    style = Stroke(width = glowW),
+                                )
+                                drawRoundRect(
+                                    color = Morandi.accent,
+                                    topLeft = Offset(cellX + bw / 2f, cellY + bw / 2f),
+                                    size = Size(
+                                        (cellW - bw).coerceAtLeast(1f),
+                                        (cellH - bw).coerceAtLeast(1f),
                                     ),
-                                    dstSize = IntSize(
-                                        tw.roundToInt().coerceAtLeast(1),
-                                        th.roundToInt().coerceAtLeast(1),
-                                    ),
-                                    filterQuality = FilterQuality.Medium,
+                                    cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                    style = Stroke(width = bw),
                                 )
                             }
                         }
-                        // 当前曝光块: 主题色描边高亮 (不填充)。
-                        // 描边压在内侧 (inset = 线宽/2) 才能保证边线不被块外裁掉。
-                        // 宽度/亮度由 selProgress 驱动: 换帧瞬间过冲一下再回落,
-                        // 让"选中"这个状态变化有反馈 (t 在 0.9~1.15 之间摆动一次)
-                        if (active) {
-                            val t = selPop.value
-                            val bw = selBorderPx * (0.8f + 0.6f * t)
-                            val glowW = selGlowPx * (0.5f + 0.7f * t)
-                            val glowA = 0.12f + 0.20f * t
-                            drawRoundRect(
-                                color = Morandi.accent.copy(alpha = glowA),
-                                topLeft = Offset(cellX, cellY),
-                                size = Size(cellW, cellH),
-                                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                style = Stroke(width = glowW),
+                    }
+                }
+
+                val headX = currentTime * frameW + frameW / 2f
+                drawLine(
+                    color = Morandi.accent,
+                    start = Offset(headX, 0f),
+                    end = Offset(headX, contentH),
+                    strokeWidth = 2f,
+                )
+            }
+        }
+
+        // —— 左侧轨道头 ——
+        // 只随 scrollY 垂直滚动, 不随 scrollX 水平平移; 裁剪到头部宽度内,
+        // 滚出视口的行被截断 (等价于旧 TrackHeaders 的 clipToBounds)。
+        // 与轨道区同一条 for 循环公式 (i * rowPx), 行必然对齐。
+        if (layers.isNotEmpty()) {
+            clipRect(left = 0f, top = 0f, right = headerW, bottom = size.height) {
+                translate(top = -scrollY) {
+                    val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size - 1)
+                    val lastRow =
+                        ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
+                    for (i in firstRow..lastRow) {
+                        val layer = layers[i]
+                        val rowCenterY = i * rowPx + rowPx / 2f
+
+                        // 可见性圆点 (与旧 TrackHeaders 同视觉: 实心圆 + 隐藏时斜杠)
+                        val dotCx = headPadPx + dotZonePx / 2f
+                        drawCircle(
+                            color = if (layer.visible) Morandi.text
+                            else Morandi.subText.copy(alpha = 0.4f),
+                            radius = dotRadiusPx,
+                            center = Offset(dotCx, rowCenterY),
+                        )
+                        if (!layer.visible) {
+                            drawLine(
+                                color = Morandi.panel,
+                                start = Offset(dotCx - 6.dp.toPx(), rowCenterY - 6.dp.toPx()),
+                                end = Offset(dotCx + 6.dp.toPx(), rowCenterY + 6.dp.toPx()),
+                                strokeWidth = 2f,
                             )
-                            drawRoundRect(
-                                color = Morandi.accent,
-                                topLeft = Offset(cellX + bw / 2f, cellY + bw / 2f),
-                                size = Size(
-                                    (cellW - bw).coerceAtLeast(1f),
-                                    (cellH - bw).coerceAtLeast(1f),
-                                ),
-                                cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
-                                style = Stroke(width = bw),
-                            )
+                        }
+
+                        // 图层名: 行高足够时才画 (行高极小时只留圆点, 免得文字
+                        // 越过行界叠到邻行); 颜色在绘制时覆盖 —— 选中层用主题色,
+                        // 与旧 Text(color = ...) 行为一致
+                        if (rowPx > 40f) {
+                            nameLayouts[layer.index]?.let { layout ->
+                                drawText(
+                                    textLayoutResult = layout,
+                                    color = if (layer.index == vm.currentLayerIndex) {
+                                        Morandi.accent
+                                    } else {
+                                        Morandi.text
+                                    },
+                                    topLeft = Offset(textX, rowCenterY - layout.size.height / 2f),
+                                )
+                            }
                         }
                     }
                 }
             }
-
-            val headX = currentTime * frameW + frameW / 2f
-            drawLine(
-                color = Morandi.accent,
-                start = Offset(headX, 0f),
-                end = Offset(headX, contentH),
-                strokeWidth = 2f,
-            )
         }
+
+        // 打点: Canvas 每帧重画, 用频率计数看"到底每秒画了多少次、每次多少工作量"。
+        // 单次耗时不重要 —— 高频 + 高工作量叠加才是掉帧的原因。
+        // (不在这里逐帧打日志: 会刷屏, 反而掩盖真正的问题)
+        PerfTrace.tickNanos(
+            name = "timeline.draw",
+            nanos = android.os.SystemClock.elapsedRealtimeNanos() - drawStart,
+        )
+        PerfTrace.tick("timeline.blocks", 2000L)
+        PerfTrace.tick("timeline.images", 2000L)
     }
 }
 

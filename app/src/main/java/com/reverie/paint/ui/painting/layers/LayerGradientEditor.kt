@@ -442,7 +442,8 @@ internal fun CustomGradientEditor(
                     .clip(RoundedCornerShape(8.dp))
                     .background(gradientBrush)
                     .pointerInput(Unit) {
-                        detectTapGestures { tapOffset ->
+                        detectTapGestures(
+                            onTap = { tapOffset ->
                             val pos = (tapOffset.x / size.width.toFloat()).coerceIn(0f, 1f)
                             val sorted = stops.sortedBy { it.pos }
                             val col = when {
@@ -467,7 +468,8 @@ internal fun CustomGradientEditor(
                             stops.add(newStop)
                             selectedStopId = newStop.id
                             currentOnGradientChanged()
-                        }
+                            },
+                        )
                     }
             )
 
