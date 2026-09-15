@@ -35,6 +35,7 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 ./gradlew :app:lintDebug             # Android Lint
 ./gradlew assembleDebug              # 完整 Debug APK
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease -PappIdSuffix=.beta   # 测试分发: 独立包名 com.reverie.paint.beta 的 release 包 (与正式版同装互不影响)
 ```
 
 **改动 Kotlin 代码后至少运行 `compileDebugKotlin`; 改动 `model/` 或纯逻辑代码后运行 `testDebugUnitTest`。**

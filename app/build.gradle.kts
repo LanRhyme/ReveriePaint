@@ -42,6 +42,13 @@ android {
 
     defaultConfig {
         applicationId = "com.reverie.paint"
+        // 测试分发包名: ./gradlew assembleRelease -PappIdSuffix=.beta
+        // 指定后生成独立包名 (com.reverie.paint.beta) 的测试包, 与正式版同装互不影响;
+        // 不指定时为 null, 默认构建行为完全不变
+        applicationIdSuffix = project.findProperty("appIdSuffix") as? String
+        if (project.hasProperty("appIdSuffix")) {
+            versionNameSuffix = "-test"
+        }
         minSdk = 23
         targetSdk = 33
         versionCode = 10
