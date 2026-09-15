@@ -154,15 +154,26 @@ object ReverieCoreBridge {
         end: Int,
     )
 
+    /**
+     * 全局洋葱皮配置 (KisImageConfig) + 应用到所有动画位图图层。
+     *
+     * @param tintBackwardArgb 过去帧着色色板 (ARGB, alpha 忽略), 0 = 不改
+     * @param tintForwardArgb  未来帧着色色板 (ARGB, alpha 忽略), 0 = 不改
+     */
     external fun configureOnionSkin(
         enabled: Boolean,
         prev: Int,
         next: Int,
         maxOpacity: Int,
         tintFactor: Int,
+        tintBackwardArgb: Int,
+        tintForwardArgb: Int,
     )
 
     external fun anyLayerOnionSkin(): Boolean
+
+    /** 读回洋葱皮全局配置: [过去色 ARGB, 未来色 ARGB, 着色强度 0~255] */
+    external fun onionSkinConfig(): IntArray
 
     /**
      * 丢弃洋葱皮图层缓存。**改动画布任何一帧的像素后都要调** ——

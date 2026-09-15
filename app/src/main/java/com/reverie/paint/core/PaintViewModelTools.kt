@@ -219,12 +219,19 @@ internal fun PaintViewModel.touchStart(
     smoothedStrokePressure = effPressure
     // 动画项目: 当前帧没有关键帧时, 先把这一帧"分"出来再落笔。
     // 不做这步的话墨迹会烙在**被 hold 的前一帧**上, 污染前面所有帧。
-    // 投递在 touchStrokeStart 之前, 同一 FIFO 队列保证建帧先于第一条笔迹。
-    // 非动画项目 / 已有帧 / 未开动画的轨道都是零开销直接返回。
-    if (anim.enabled) {
-        animationEnsureKeyframeForPaint(onAdded = { syncAnimationFromNativeAfter() })
-    }
+    //
+    // 为什么合并进同一个 runCore: 建帧与落笔必须严格先建后画, 而原来拆成
+    // 三次投递 (建帧 / 建帧后全量同步 / 落笔), 每次都是一轮 handler 往返 +
+    // 一次渲染线程唤醒。落笔路径对延迟最敏感, 用户感知就是"在空白帧下笔会
+    // 卡一下"。现在压成一次投递, 且建帧后只做局部缓存更新
+    // (ensureKeyframeForPaintOnRenderThread), 不再全量重读动画元信息。
+    val needAutoFrame = anim.enabled && !anim.isPlaying
     runCore {
+        if (needAutoFrame) {
+            // 必须在 setToolMode / touchStrokeStart **之前**完成, 否则第一笔
+            // 会落在被 hold 的那一帧上
+            ensureKeyframeForPaintOnRenderThread()
+        }
         ReverieCoreBridge.setToolMode(mode)
         ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
     }

@@ -79,15 +79,33 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setAnimationPlaybackRange(JNIEnv *
 
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkin(
-    JNIEnv *, jobject, jboolean enabled, jint prev, jint next, jint maxOpacity, jint tintFactor)
+    JNIEnv *, jobject, jboolean enabled, jint prev, jint next, jint maxOpacity,
+    jint tintFactor, jint tintBackwardArgb, jint tintForwardArgb)
 {
-    core()->configureOnionSkin(enabled == JNI_TRUE, prev, next, maxOpacity, tintFactor);
+    core()->configureOnionSkin(enabled == JNI_TRUE, prev, next, maxOpacity, tintFactor,
+                               tintBackwardArgb, tintForwardArgb);
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_anyLayerOnionSkin(JNIEnv *, jobject)
 {
     return core()->anyLayerOnionSkin() ? JNI_TRUE : JNI_FALSE;
+}
+
+// 读回洋葱皮全局配置: [backwardArgb, forwardArgb, tintFactor]
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_onionSkinConfig(JNIEnv *env, jobject)
+{
+    int backward = 0;
+    int forward = 0;
+    core()->onionSkinTintColors(&backward, &forward);
+    const int tint = core()->onionSkinTintFactor();
+
+    jintArray out = env->NewIntArray(3);
+    if (!out) return nullptr;
+    const jint values[3] = { backward, forward, tint };
+    env->SetIntArrayRegion(out, 0, 3, values);
+    return out;
 }
 
 // 丢弃洋葱皮缓存。帧内像素改动 (落笔 / 填充 / 滤镜) 之后必须调,

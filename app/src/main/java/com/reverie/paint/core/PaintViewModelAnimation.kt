@@ -118,18 +118,6 @@ internal class AnimationState {
     var pendingAddedFrame: Int = -1
 
     /**
-     * 落笔自动建帧的落点 (图层索引 + 帧号), 供主线程判断"这次落笔改了结构"。
-     *
-     * 与 [pendingAddedFrame] 一样是渲染线程写 / 主线程读的一次性传递, 刻意
-     * 不做成 Compose state: 它只在一次落笔的首尾被读写, 不该触发重组。
-     */
-    @Volatile
-    var pendingAutoFrameLayer: Int = -1
-
-    @Volatile
-    var pendingAutoFrameTime: Int = -1
-
-    /**
      * 缩略图刷新触发器。笔画落笔 / 图层内容变化时自增 (而 revision 只在
      * 关键帧结构变化时自增), 让时间轴知道该重画帧块里的画面。
      */
@@ -150,6 +138,15 @@ internal class AnimationState {
 
     /** 着色强度 (0~100), 0 = 不着色 */
     var onionTint by mutableIntStateOf(30)
+
+    /**
+     * 过去帧 / 未来帧的着色色板 (ARGB)。用颜色区分时间方向, 这是动画作画的
+     * 核心信息 —— 单色洋葱皮分不清"哪边是之前画的"。
+     * 默认沿用 Krita 桌面习惯: 红=过去, 绿=未来。
+     */
+    var onionColorBackward by mutableStateOf(0xFFE0555A.toInt())
+
+    var onionColorForward by mutableStateOf(0xFF4E9E6A.toInt())
 
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
@@ -194,6 +191,15 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     anim.revision++
     // 洋葱皮开关与音频资源: 与引擎/文档保持一致 (打开动画项目后还原保存时的状态)
     anim.onionSkin = ReverieCoreBridge.anyLayerOnionSkin()
+    // 色板/强度也要还原: 它们存在 KisImageConfig (随工程持久化), 不回读的话
+    // UI 会显示默认值而引擎用的是别的值, 用户一拖滑块就"跳色"
+    val onionCfg = ReverieCoreBridge.onionSkinConfig()
+    if (onionCfg.size >= 3) {
+        anim.onionColorBackward = onionCfg[0]
+        anim.onionColorForward = onionCfg[1]
+        // Krita 侧是 0~255, UI 是百分比
+        anim.onionTint = (onionCfg[2] * 100 + 127) / 255
+    }
     anim.audioAssets = ReverieCoreBridge.revAssetNames().toList()
 }
 
@@ -310,6 +316,7 @@ internal fun PaintViewModel.animationApplyOnionSkin() {
         ReverieCoreBridge.configureOnionSkin(
             anim.onionSkin, anim.onionPrev, anim.onionNext,
             anim.onionOpacity, anim.onionTint,
+            anim.onionColorBackward, anim.onionColorForward,
         )
     }
 }
@@ -515,32 +522,37 @@ internal fun PaintViewModel.animationAddKeyframe(
  * 不做处理, 墨迹会直接烙在**被 hold 的那一帧**上, 从而污染前面所有帧 ——
  * 这是逐帧动画里最难查的一类 bug。因此必须在笔尖落下前先把帧"分"出来。
  *
- * 与 [animationAddKeyframe] 的区别:
- *  - 本函数**只要当前位置没有帧就补**, 且**绝不移动播放头**, 也不找空位;
- *    只有真的新建了帧才回调 [onAdded] (此时轨道关键帧结构已变, 需要刷新缓存)。
- *  - 只在**当前帧确实没有关键帧**且轨道已开启动画时动作, 否则完全零开销,
- *    静态绘画 / 已有帧上作画的路径不受任何影响。
- *
  * **必须在 reverie-render 线程调用** (内部走 JNI 查询 + selectedTrackIndex 回退)。
- * 投递顺序: 它排在 touchStrokeStart 之前, 同一 FIFO 队列保证建帧先于落笔。
+ * 调用方把它内联在自己的 `runCore` 块里、排在 `touchStrokeStart` **之前** ——
+ * 同一次投递内顺序执行, 既保证建帧先于落笔, 又省掉额外的 handler 往返。
+ *
+ * 只在**当前帧确实没有关键帧**且轨道已开启动画时动作, 否则完全零开销,
+ * 静态绘画 / 已有帧上作画的路径不受任何影响。
+ *
+ * @return true 表示本次真的新建了关键帧
  */
-internal fun PaintViewModel.animationEnsureKeyframeForPaint(
-    onAdded: (() -> Unit)? = null,
-) {
-    if (!anim.enabled) return
-    if (anim.isPlaying) return
-    runCore(render = false, after = onAdded) {
-        val layer = selectedTrackIndex()
-        if (layer < 0) return@runCore
-        // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启
-        if (!ReverieCoreBridge.layerAnimated(layer)) return@runCore
-        val time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
-        if (ReverieCoreBridge.hasKeyframe(layer, time)) return@runCore
-        if (ReverieCoreBridge.addKeyframe(layer, time)) {
-            anim.pendingAutoFrameLayer = layer
-            anim.pendingAutoFrameTime = time
-        }
+internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
+    if (anim.isPlaying) return false
+    val layer = selectedTrackIndex()
+    if (layer < 0) return false
+    // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启
+    if (!ReverieCoreBridge.layerAnimated(layer)) return false
+    val time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
+    if (ReverieCoreBridge.hasKeyframe(layer, time)) return false
+    if (!ReverieCoreBridge.addKeyframe(layer, time)) return false
+
+    // 局部补缓存而不是全量重读:
+    //  - keyframeCache 是时间轴绘制用的缓存, 新增一个帧号只需把该轨道这一项
+    //    按序插进去 (缓存本身不要求有序, 但保持有序可让绘制少一次排序);
+    //  - length / revision 也只需按已知信息推进, 无需问引擎。
+    val prev = anim.keyframeCache[layer].orEmpty()
+    if (time !in prev) {
+        anim.keyframeCache = anim.keyframeCache + (layer to (prev + time).sorted())
     }
+    if (time + 1 > anim.length) anim.length = time + 1
+    anim.revision++
+    anim.thumbRevision++
+    return true
 }
 
 /** 删除当前帧位置的关键帧 (轨道至少保留一帧) */

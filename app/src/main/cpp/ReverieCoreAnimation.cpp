@@ -270,7 +270,8 @@ void ReverieCore::setAnimationPlaybackRange(int start, int end)
 // 洋葱皮
 // ============================================================
 
-void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOpacity, int tintFactor)
+void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOpacity,
+                                    int tintFactor, int tintBackwardArgb, int tintForwardArgb)
 {
     KisImageSP image = m_document;
     if (!image) return;
@@ -302,6 +303,14 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
         config.setOnionSkinTintFactor(tintFactor * 255 / 100);
         config.setOnionSkinState(0, true);
         config.setOnionSkinOpacity(0, 255);
+        // 前后帧着色色板。Krita 默认 红=过去 / 绿=未来, 用颜色区分时间方向;
+        // 传 0 表示"不改", 保留上一次写入的值 (老调用方零侵入)。
+        if (tintBackwardArgb != 0) {
+            config.setOnionSkinTintColorBackward(QColor::fromRgb(QRgb(tintBackwardArgb)));
+        }
+        if (tintForwardArgb != 0) {
+            config.setOnionSkinTintColorForward(QColor::fromRgb(QRgb(tintForwardArgb)));
+        }
         for (int i = 0; i < 10; ++i) {
             const bool bOn = effective && i < prev;
             const bool fOn = effective && i < next;
@@ -356,6 +365,21 @@ bool ReverieCore::anyLayerOnionSkin() const
         if (pl && pl->onionSkinEnabled()) return true;
     }
     return false;
+}
+
+void ReverieCore::onionSkinTintColors(int *backwardArgb, int *forwardArgb) const
+{
+    KisImageConfig config(true);
+    const QRgb b = config.onionSkinTintColorBackward().rgb();
+    const QRgb f = config.onionSkinTintColorForward().rgb();
+    if (backwardArgb) *backwardArgb = int(0xFF000000u | quint32(b));
+    if (forwardArgb) *forwardArgb = int(0xFF000000u | quint32(f));
+}
+
+int ReverieCore::onionSkinTintFactor() const
+{
+    KisImageConfig config(true);
+    return qBound(0, config.onionSkinTintFactor(), 255);
 }
 
 // ============================================================

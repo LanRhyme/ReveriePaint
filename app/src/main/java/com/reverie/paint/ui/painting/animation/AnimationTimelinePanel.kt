@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
@@ -93,6 +94,7 @@ import com.reverie.paint.core.animationApplyOnionSkin
 import com.reverie.paint.core.animationTogglePlay
 import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
+import com.reverie.paint.ui.painting.layers.CompactColorPickerDialog
 import com.reverie.paint.core.frameThumbKey
 import com.reverie.paint.ui.components.ReChip
 import com.reverie.paint.ui.components.ReIconButton
@@ -877,6 +879,8 @@ private fun TimelineSettings(
     Column(modifier = modifier.padding(bottom = 4.dp)) {
         // 帧率输入弹窗的开关, 由下面"帧率"一行里的数值文案触发
         var showFpsInput by remember { mutableStateOf(false) }
+        // 正在取色的洋葱皮色板: null = 没开取色弹窗
+        var pickingOnionColor by remember { mutableStateOf<OnionColorTarget?>(null) }
 
         ReSectionTitle(text = "播放", modifier = Modifier.padding(start = 12.dp))
 
@@ -993,6 +997,43 @@ private fun TimelineSettings(
                     modifier = Modifier.width(44.dp),
                 )
             }
+
+            // 前后帧独立配色: 动画作画时"哪边是之前画的"是核心信息,
+            // 单色洋葱皮分不清时间方向。默认沿用 Krita 桌面习惯 红=过去/绿=未来。
+            CompactSettingRow(label = "过去 / 未来") {
+                OnionColorSwatch(
+                    color = Color(vm.anim.onionColorBackward),
+                    label = "过去",
+                    onPick = { pickingOnionColor = OnionColorTarget.Backward },
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OnionColorSwatch(
+                    color = Color(vm.anim.onionColorForward),
+                    label = "未来",
+                    onPick = { pickingOnionColor = OnionColorTarget.Forward },
+                )
+            }
+        }
+
+        pickingOnionColor?.let { target ->
+            val isBackward = target == OnionColorTarget.Backward
+            CompactColorPickerDialog(
+                title = if (isBackward) "过去帧着色" else "未来帧着色",
+                initialColor = Color(
+                    if (isBackward) vm.anim.onionColorBackward else vm.anim.onionColorForward,
+                ),
+                onColorSelected = { c ->
+                    val argb = c.toArgb()
+                    if (isBackward) {
+                        vm.anim.onionColorBackward = argb
+                    } else {
+                        vm.anim.onionColorForward = argb
+                    }
+                    vm.animationApplyOnionSkin()
+                    pickingOnionColor = null
+                },
+                onDismiss = { pickingOnionColor = null },
+            )
         }
 
         ReSectionTitle(text = "显示", modifier = Modifier.padding(start = 12.dp))
@@ -1140,6 +1181,38 @@ private fun OnionFrameStepper(
             size = 26.dp,
             iconSize = 13.dp,
         )
+    }
+}
+
+/** 正在取色的洋葱皮色板目标 */
+private enum class OnionColorTarget { Backward, Forward }
+
+/**
+ * 洋葱皮色板按钮: 圆角色块 + 描述文字。
+ * 色块外圈描边用主题边框色, 保证浅色/深色底上都看得清边界。
+ */
+@Composable
+private fun OnionColorSwatch(
+    color: Color,
+    label: String,
+    onPick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(RoundedCornerShape(7.dp))
+            .clickable { onPick() }
+            .padding(horizontal = 4.dp, vertical = 3.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(RoundedCornerShape(5.dp))
+                .background(color)
+                .glassBorder(RoundedCornerShape(5.dp)),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(text = label, color = Morandi.subText, fontSize = 12.sp)
     }
 }
 

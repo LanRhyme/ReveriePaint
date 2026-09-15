@@ -218,9 +218,18 @@ public:
     // enabled=false 仅关闭图层开关, prev/next 仍写入配置
     // maxOpacity: 最近帧的不透明度上限 (0~255), 默认 160 (全 255 会盖过当前帧)
     // tintFactor: 着色强度 (0~100), 0 = 不着色
-    void configureOnionSkin(bool enabled, int prev, int next, int maxOpacity, int tintFactor);
+    // tintBackwardArgb / tintForwardArgb: 过去/未来帧的着色色板 (ARGB, alpha 忽略)。
+    //   Krita 支持前后帧分别配色, 用颜色区分时间方向 (默认 红=过去 / 绿=未来)。
+    //   传 0 表示保留当前配置值, 便于老调用方零侵入。
+    void configureOnionSkin(bool enabled, int prev, int next, int maxOpacity,
+                            int tintFactor, int tintBackwardArgb = 0,
+                            int tintForwardArgb = 0);
     // 是否有任一图层开着洋葱皮 (打开动画项目后 UI 同步开关状态用)
     bool anyLayerOnionSkin() const;
+    // 读回当前全局洋葱皮配置 (打开项目后 UI 还原色板/强度用)。
+    // 输出参数按 ARGB 传回, 与 configureOnionSkin 的入参同一格式。
+    void onionSkinTintColors(int *backwardArgb, int *forwardArgb) const;
+    int onionSkinTintFactor() const;   // 0~255 (Krita 原生值, 非百分比)
     // 丢弃所有洋葱皮图层的缓存并重算脏区。
     //
     // **每次改动任何一帧的像素后都必须调**: 洋葱皮缓存的失效判据只有
