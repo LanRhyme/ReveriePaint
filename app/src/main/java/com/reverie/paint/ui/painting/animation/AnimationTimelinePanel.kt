@@ -29,8 +29,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -71,6 +69,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationAddKeyframe
 import com.reverie.paint.core.animationRemoveKeyframe
+import com.reverie.paint.R
 import com.reverie.paint.core.animationImportAudio
 import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
@@ -81,6 +80,11 @@ import com.reverie.paint.core.animationTogglePlay
 import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
 import com.reverie.paint.core.frameThumbKey
+import com.reverie.paint.ui.components.ReChip
+import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.components.ReSectionTitle
+import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.core.refreshFrameThumbs
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
@@ -292,7 +296,21 @@ internal fun AnimationTimelinePanel(
                 if (vm.anim.toolbarExpanded) {
                     TimelineSettings(vm = vm, modifier = Modifier.fillMaxWidth())
                 }
-                TimelineControls(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
+                TimelineControls(
+                    vm = vm,
+                    modifier = Modifier.fillMaxWidth().height(CONTROL_H),
+                    onToggleSettings = {
+                        val open = !vm.anim.toolbarExpanded
+                        vm.anim.toolbarExpanded = open
+                        // 展开设置需要空间: 面板太扁时先长高, 免得轨道区被压成 0
+                        if (open) {
+                            val needPx = 380f * d
+                            if (panelHeightPx < needPx) {
+                                panelHeightPx = needPx.coerceIn(minPx, maxPx)
+                            }
+                        }
+                    },
+                )
             }
         }
     }
@@ -646,6 +664,7 @@ private fun TimelineTrackArea(
 private fun TimelineControls(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
+    onToggleSettings: () -> Unit = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
 ) {
     val playing = vm.anim.isPlaying
     Row(
@@ -673,9 +692,7 @@ private fun TimelineControls(
             fontSize = 10.sp,
         )
         Spacer(modifier = Modifier.width(8.dp))
-        GlyphButton(
-            onClick = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
-        ) {
+        GlyphButton(onClick = onToggleSettings) {
             if (vm.anim.toolbarExpanded) drawGlyphClose() else drawGlyphSettings()
         }
     }
@@ -690,185 +707,185 @@ private fun TimelineSettings(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    Column(modifier = modifier.padding(bottom = 4.dp)) {
+        // 与轨道区之间一条细线: 设置区是"面板内的第二层", 不用底色堆叠
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Morandi.border.copy(alpha = 0.5f)),
+        )
+        ReSectionTitle(text = "播放", modifier = Modifier.padding(start = 12.dp))
+
         // 帧率
-        SettingsRow(label = "帧率") {
-            Stepper(
-                valueText = "${vm.anim.framerate} fps",
-                onMinus = { vm.animationSetFramerate(vm.anim.framerate - 1) },
-                onPlus = { vm.animationSetFramerate(vm.anim.framerate + 1) },
+        CompactSettingRow(label = "帧率") {
+            ReIconButton(
+                icon = R.drawable.ic_minus,
+                desc = "降低帧率",
+                onTap = { vm.animationSetFramerate(vm.anim.framerate - 1) },
+                size = 28.dp,
+                iconSize = 14.dp,
+            )
+            Text(
+                text = "${vm.anim.framerate} fps",
+                color = Morandi.text,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(56.dp),
+            )
+            ReIconButton(
+                icon = R.drawable.ic_plus,
+                desc = "提高帧率",
+                onTap = { vm.animationSetFramerate(vm.anim.framerate + 1) },
+                size = 28.dp,
+                iconSize = 14.dp,
             )
         }
 
-        // 洋葱皮
-        SettingsRow(label = "洋葱皮") {
-            Switch(
+        ReSectionTitle(text = "洋葱皮", modifier = Modifier.padding(start = 12.dp))
+
+        CompactSettingRow(label = "显示洋葱皮") {
+            ReSwitch(
                 checked = vm.anim.onionSkin,
-                onCheckedChange = {
+                onChecked = {
                     vm.anim.onionSkin = it
                     vm.animationApplyOnionSkin()
                 },
-                modifier = Modifier.scale(0.7f),
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = Morandi.accent,
-                    checkedThumbColor = Color.White,
-                ),
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            MiniStepper(
-                prefix = "前",
-                value = vm.anim.onionPrev,
-                onMinus = {
-                    vm.anim.onionPrev = (vm.anim.onionPrev - 1).coerceIn(0, 10)
-                    vm.animationApplyOnionSkin()
-                },
-                onPlus = {
-                    vm.anim.onionPrev = (vm.anim.onionPrev + 1).coerceIn(0, 10)
-                    vm.animationApplyOnionSkin()
-                },
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            MiniStepper(
-                prefix = "后",
-                value = vm.anim.onionNext,
-                onMinus = {
-                    vm.anim.onionNext = (vm.anim.onionNext - 1).coerceIn(0, 10)
-                    vm.animationApplyOnionSkin()
-                },
-                onPlus = {
-                    vm.anim.onionNext = (vm.anim.onionNext + 1).coerceIn(0, 10)
-                    vm.animationApplyOnionSkin()
-                },
             )
         }
 
-        // 洋葱皮不透明度 (0~100%)
-        SettingsRow(label = "透明度") {
-            Stepper(
-                valueText = "${(vm.anim.onionOpacity * 100 + 127) / 255}%",
-                onMinus = {
-                    vm.anim.onionOpacity = (vm.anim.onionOpacity - 16).coerceIn(0, 255)
-                    vm.animationApplyOnionSkin()
-                },
-                onPlus = {
-                    vm.anim.onionOpacity = (vm.anim.onionOpacity + 16).coerceIn(0, 255)
-                    vm.animationApplyOnionSkin()
-                },
-            )
-        }
+        // 参数只在开启时展开, 免得收起状态也占满屏
+        if (vm.anim.onionSkin) {
+            CompactSettingRow(label = "前 / 后帧数") {
+                OnionFrameStepper(
+                    prefix = "前",
+                    value = vm.anim.onionPrev,
+                    onChange = {
+                        vm.anim.onionPrev = it
+                        vm.animationApplyOnionSkin()
+                    },
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                OnionFrameStepper(
+                    prefix = "后",
+                    value = vm.anim.onionNext,
+                    onChange = {
+                        vm.anim.onionNext = it
+                        vm.animationApplyOnionSkin()
+                    },
+                )
+            }
 
-        // 洋葱皮着色强度 (0~100)
-        SettingsRow(label = "着色") {
-            Stepper(
-                valueText = "${vm.anim.onionTint}",
-                onMinus = {
-                    vm.anim.onionTint = (vm.anim.onionTint - 5).coerceIn(0, 100)
-                    vm.animationApplyOnionSkin()
-                },
-                onPlus = {
-                    vm.anim.onionTint = (vm.anim.onionTint + 5).coerceIn(0, 100)
-                    vm.animationApplyOnionSkin()
-                },
-            )
-        }
-
-        // 缩略图
-        SettingsRow(label = "缩略图") {
-            Switch(
-                checked = vm.anim.showThumbnails,
-                onCheckedChange = { vm.anim.showThumbnails = it },
-                modifier = Modifier.scale(0.7f),
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = Morandi.accent,
-                    checkedThumbColor = Color.White,
-                ),
-            )
-        }
-
-        // 音频资源数
-        if (vm.anim.audioAssets.isNotEmpty()) {
-            SettingsRow(label = "音频") {
+            CompactSettingRow(label = "不透明度") {
+                val pct = (vm.anim.onionOpacity * 100 + 127) / 255
+                ReSlider(
+                    value = vm.anim.onionOpacity / 255f,
+                    onValue = { vm.anim.onionOpacity = (it * 255f).roundToInt().coerceIn(0, 255) },
+                    onRelease = { vm.animationApplyOnionSkin() },
+                    modifier = Modifier.width(150.dp),
+                    height = 18,
+                )
                 Text(
-                    text = "${vm.anim.audioAssets.size} 条 (随播放)",
+                    text = "$pct%",
                     color = Morandi.subText,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+
+            CompactSettingRow(label = "着色强度") {
+                ReSlider(
+                    value = vm.anim.onionTint / 100f,
+                    onValue = { vm.anim.onionTint = (it * 100f).roundToInt().coerceIn(0, 100) },
+                    onRelease = { vm.animationApplyOnionSkin() },
+                    modifier = Modifier.width(150.dp),
+                    height = 18,
+                )
+                Text(
+                    text = "${vm.anim.onionTint}",
+                    color = Morandi.subText,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.width(44.dp),
                 )
             }
         }
 
-        // 导入
+        ReSectionTitle(text = "显示", modifier = Modifier.padding(start = 12.dp))
+
+        CompactSettingRow(label = "帧缩略图") {
+            ReSwitch(
+                checked = vm.anim.showThumbnails,
+                onChecked = { vm.anim.showThumbnails = it },
+            )
+        }
+
+        if (vm.anim.audioAssets.isNotEmpty()) {
+            CompactSettingRow(label = "音频") {
+                Text(
+                    text = "${vm.anim.audioAssets.size} 条 · 随播放",
+                    color = Morandi.subText,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        ReSectionTitle(text = "导入", modifier = Modifier.padding(start = 12.dp))
         TimelineImportRow(vm = vm)
     }
 }
 
-// 设置面板的一行: 圆角胶囊 + 标签 + 右侧控件
+/** 设置面板的单行 (沿用 ReSettingRow 的语言, 行高更紧凑以适应时间轴面板) */
 @Composable
-private fun SettingsRow(
+private fun CompactSettingRow(
     label: String,
-    content: @Composable RowScope.() -> Unit,
+    trailing: @Composable RowScope.() -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.panelHi.copy(alpha = 0.4f))
-            .padding(horizontal = 10.dp, vertical = 3.dp),
+            .height(38.dp)
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            text = label,
-            color = Morandi.text,
-            fontSize = 11.sp,
-            modifier = Modifier.width(56.dp),
-        )
-        content()
-        Spacer(modifier = Modifier.weight(1f))
+        Text(text = label, color = Morandi.text, fontSize = 13.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, content = trailing)
     }
 }
 
-// 中号步进器: [值] 两侧圆形按钮
+/** 洋葱皮前后帧数: 前缀 + [−] 值 [+], 紧凑排布省横向空间 */
 @Composable
-private fun Stepper(
-    valueText: String,
-    onMinus: () -> Unit,
-    onPlus: () -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        GlyphButton(onClick = onMinus) { drawGlyphMinus() }
-        Text(
-            text = valueText,
-            color = Morandi.text,
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(56.dp),
-        )
-        GlyphButton(onClick = onPlus) { drawGlyphPlus() }
-    }
-}
-
-// 小号步进器: 前缀 + [-] 值 [+], 供洋葱皮前后帧数这类密集行
-@Composable
-private fun MiniStepper(
+private fun OnionFrameStepper(
     prefix: String,
     value: Int,
-    onMinus: () -> Unit,
-    onPlus: () -> Unit,
+    onChange: (Int) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(text = prefix, color = Morandi.subText, fontSize = 10.sp)
+        Text(text = prefix, color = Morandi.subText, fontSize = 12.sp)
         Spacer(modifier = Modifier.width(2.dp))
-        GlyphButton(onClick = onMinus) { drawGlyphMinus() }
+        ReIconButton(
+            icon = R.drawable.ic_minus,
+            desc = "减少",
+            onTap = { onChange((value - 1).coerceIn(0, 10)) },
+            size = 26.dp,
+            iconSize = 13.dp,
+        )
         Text(
             text = "$value",
             color = Morandi.text,
-            fontSize = 11.sp,
+            fontSize = 13.sp,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(16.dp),
+            modifier = Modifier.width(18.dp),
         )
-        GlyphButton(onClick = onPlus) { drawGlyphPlus() }
+        ReIconButton(
+            icon = R.drawable.ic_plus,
+            desc = "增加",
+            onTap = { onChange((value + 1).coerceIn(0, 10)) },
+            size = 26.dp,
+            iconSize = 13.dp,
+        )
     }
 }
 
@@ -907,56 +924,41 @@ private fun TimelineImportRow(vm: PaintViewModel) {
         }
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = "导入",
-            color = Morandi.text,
-            fontSize = 11.sp,
-            modifier = Modifier.width(52.dp),
-        )
-        ImportChip(
+    Row(
+        modifier = Modifier.padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ReChip(
             text = "图像帧",
-            enabled = !importing,
-        ) { imagePicker.launch(arrayOf("image/*")) }
+            onTap = { if (!importing) imagePicker.launch(arrayOf("image/*")) },
+        )
         Spacer(modifier = Modifier.width(8.dp))
-        ImportChip(
+        ReChip(
             text = "视频",
-            enabled = !importing,
-        ) { videoPicker.launch("video/*") }
+            onTap = { if (!importing) videoPicker.launch("video/*") },
+        )
         Spacer(modifier = Modifier.width(8.dp))
-        ImportChip(
+        ReChip(
             text = "音频",
-            enabled = !importing,
-        ) { audioPicker.launch("audio/*") }
+            onTap = { if (!importing) audioPicker.launch("audio/*") },
+        )
         if (importing) {
             Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = "导入中…",
                 color = Morandi.subText,
-                fontSize = 10.sp,
+                fontSize = 12.sp,
             )
         }
         Spacer(modifier = Modifier.weight(1f))
     }
 }
 
-@Composable
-private fun ImportChip(
-    text: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Morandi.panelHi.copy(alpha = 0.7f))
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-    ) {
-        Text(text = text, color = Morandi.text, fontSize = 10.sp)
-    }
-}
+// ============================================================
+// 图标 (自绘, 避免引入图标库依赖)
+// ============================================================
 
+/** 控制条上自绘图标的小圆角按钮 */
 @Composable
 private fun GlyphButton(
     onClick: () -> Unit,
@@ -974,10 +976,6 @@ private fun GlyphButton(
         Canvas(modifier = Modifier.size(16.dp), onDraw = draw)
     }
 }
-
-// ============================================================
-// 图标 (自绘, 避免引入图标库依赖)
-// ============================================================
 
 private fun DrawScope.drawGlyphPlay() {
     val p = Path().apply {
