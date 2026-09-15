@@ -216,19 +216,17 @@ bool ReverieCore::loadBrushPreset(int index)
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
     // Re-apply the user's current size / opacity / flow over the preset's
-    // own values (they are stored per preset and would otherwise override)
+    // own values (they are stored per preset and would otherwise override).
+    // Note: brush spacing belongs to the preset unless explicitly customized in BrushStudio.
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
-    setBrushSpacing(m_brushSpacing);
     setBrushSmudgeRate(m_smudgeRate);
     setBrushSmudgeLength(m_smudgeLength);
     // Re-apply the airbrush mode over the preset's own keys (same pattern as
     // size/opacity/flow above; members keep the user's last values).
     setBrushAirbrush(m_airbrushEnabled, m_airbrushRate);
-    if (!m_brushTipAsset.isEmpty()) {
-        setBrushTipAsset(m_brushTipAsset);
-    }
+    m_brushTipAsset.clear();
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =

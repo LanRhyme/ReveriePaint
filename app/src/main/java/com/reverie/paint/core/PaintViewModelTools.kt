@@ -188,6 +188,7 @@ internal fun PaintViewModel.touchStart(
             color = strokeColor,
             layer = currentLayerIndex,
         )
+        val isPresetCustomized = brushPresetIndex >= 0 && brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams.containsKey(it.name) } == true
         recorder.captureContextExt(
             softness = brushSoftness,
             spacing = brushSpacing,
@@ -201,6 +202,7 @@ internal fun PaintViewModel.touchStart(
             secondaryColor = brushSecondaryColor,
             airbrushEnabled = brushAirbrush,
             airbrushRate = brushAirbrushRate,
+            isCustomized = isPresetCustomized,
         )
         recorder.captureBrushFade(brushFade)
         recorder.strokeStart(x, y, effPressure.toFloat())
@@ -633,17 +635,26 @@ internal fun PaintViewModel.cropCanvas(
 }
 
 internal fun PaintViewModel.contentBounds(): IntArray? {
-    // Must run on the render thread - direct UI-thread JNI here raced
-    // with the render thread (m_layers vector mutation during
-    // syncLayersFromImage) and crashed the transform tool on first use
     val targets = editTargetLayers().toIntArray()
+    val h = renderHandler ?: return null
+    if (android.os.Looper.myLooper() == h.looper) {
+        return ReverieCoreBridge.contentBoundsLayers(targets)
+    }
     var result: IntArray? = null
     val latch = java.util.concurrent.CountDownLatch(1)
-    runCore(render = false, after = { latch.countDown() }) {
-        result = ReverieCoreBridge.contentBoundsLayers(targets)
+    pendingCoreOps.incrementAndGet()
+    h.post {
+        pendingCoreOps.decrementPositive()
+        try {
+            result = ReverieCoreBridge.contentBoundsLayers(targets)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReverieCore", "contentBounds failed", t)
+        } finally {
+            latch.countDown()
+        }
     }
     try {
-        latch.await(60, java.util.concurrent.TimeUnit.MILLISECONDS)
+        latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
     } catch (_: InterruptedException) {
         return null
     }
@@ -979,14 +990,14 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         showActionToast("请先创建选区", R.drawable.ic_lasso)
         return
     }
-    val bounds = contentBounds()
-    if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) {
-        showActionToast("选区范围内无像素", R.drawable.ic_lasso)
-        return
-    }
 
     if (toNewLayer) {
+        var success = false
         runCore(render = true, after = {
+            if (!success) {
+                showActionToast("选区范围内无像素", R.drawable.ic_lasso)
+                return@runCore
+            }
             syncLayersFromNative()
             selectionMask = null
             hasSelection = false
@@ -995,11 +1006,19 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
             isSelectionTransformPending = true
             currentToolId = Tool.TRANSFORM.id
         }) {
-            ReverieCoreBridge.copySelectionToNewLayer(cut)
-            ReverieCoreBridge.clearSelection()
-            refreshDisplay()
+            val newIdx = ReverieCoreBridge.copySelectionToNewLayer(cut)
+            if (newIdx >= 0) {
+                success = true
+                ReverieCoreBridge.clearSelection()
+                refreshDisplay()
+            }
         }
     } else {
+        val bounds = contentBounds()
+        if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) {
+            showActionToast("选区范围内无像素", R.drawable.ic_lasso)
+            return
+        }
         transformCopyOnly = !cut
         isSelectionTransformPending = true
         currentToolId = Tool.TRANSFORM.id

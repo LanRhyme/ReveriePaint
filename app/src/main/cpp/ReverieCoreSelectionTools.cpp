@@ -366,12 +366,6 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
         return QRect();
     }
     image->waitForDone();
-    if (m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty()) {
-        QRect sr = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
-        if (!sr.isEmpty() && sr.isValid()) {
-            return sr;
-        }
-    }
     // The edit target set (multi-select union, else the current layer) must
     // match applyTransformLayers so the rubber band + preview center agree
     // with the commit center
@@ -384,6 +378,19 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
         QRect eb = dev->exactBounds();
         if (!eb.isEmpty() && eb.isValid()) {
             unionRect = unionRect.isNull() ? eb : unionRect.united(eb);
+        }
+    }
+
+    if (m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty()) {
+        QRect sr = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
+        if (!sr.isEmpty() && sr.isValid()) {
+            if (!unionRect.isNull() && !unionRect.isEmpty()) {
+                QRect contentInSel = sr.intersected(unionRect);
+                if (!contentInSel.isEmpty() && contentInSel.isValid()) {
+                    return contentInSel;
+                }
+            }
+            return sr;
         }
     }
     if (!unionRect.isNull()) {

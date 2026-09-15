@@ -33,7 +33,7 @@ package com.reverie.paint.model
  */
 object RecordingEvents {
     const val MAGIC = "REVPREC1"
-    const val VERSION = 1
+    const val VERSION = 2
 
     // Stroke events
     const val STROKE_START = 0x01

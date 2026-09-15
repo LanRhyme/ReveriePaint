@@ -120,6 +120,7 @@ class ReplaySession(
     val snapshotFile: File?,
     val totalMs: Long,
     val eventCount: Int,
+    val version: Int = 1,
 ) {
     var isPlaying by mutableStateOf(false)
         internal set
@@ -185,6 +186,7 @@ class ReplaySession(
                 snapshotFile = temp,
                 totalMs = parsed.totalMs,
                 eventCount = parsed.eventCount,
+                version = parsed.version,
             )
         }
     }
@@ -302,6 +304,9 @@ internal fun PaintViewModel.restoreBrushStateFromUi() {
 
 // ---- Render-thread playback engine ----
 
+private var currentReplayPreset = -1
+private var currentReplayVersion = 1
+
 internal fun PaintViewModel.scheduleReplayStep(s: ReplaySession) {
     val h = renderHandler ?: return
     val gen = s.stepGen
@@ -377,6 +382,8 @@ private fun PaintViewModel.updateReplayProgress(s: ReplaySession) {
 
 /** Runs inside a runCore op (render thread, before any replay dispatch). */
 internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
+    currentReplayPreset = -1
+    currentReplayVersion = s.version
     val snap = s.snapshotFile
     var ok =
         if (snap != null && snap.exists()) {
@@ -499,13 +506,17 @@ private fun PaintViewModel.dispatchReplayLocked(
             val secondaryColor = r.str()
             val airbrushEnabled = r.u8() != 0
             val airbrushRate = r.f32()
-            ReverieCoreBridge.setBrushSoftness(softness.toDouble())
-            ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
-            ReverieCoreBridge.setBrushAngle(angle.toDouble())
-            ReverieCoreBridge.setBrushScatter(scatter.toDouble())
-            ReverieCoreBridge.setBrushRotation(rotation.toDouble())
-            ReverieCoreBridge.setBrushRatio(ratio.toDouble())
-            ReverieCoreBridge.setBrushSharpness(sharpness.toDouble())
+            val isCustomized = if (currentReplayVersion >= 2) (r.u8() != 0) else false
+            val shouldApplyExtShape = (currentReplayPreset < 0) || isCustomized
+            if (shouldApplyExtShape) {
+                ReverieCoreBridge.setBrushSoftness(softness.toDouble())
+                ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
+                ReverieCoreBridge.setBrushAngle(angle.toDouble())
+                ReverieCoreBridge.setBrushScatter(scatter.toDouble())
+                ReverieCoreBridge.setBrushRotation(rotation.toDouble())
+                ReverieCoreBridge.setBrushRatio(ratio.toDouble())
+                ReverieCoreBridge.setBrushSharpness(sharpness.toDouble())
+            }
             ReverieCoreBridge.setBrushSmudgeRate(smudgeRate.toDouble())
             ReverieCoreBridge.setBrushSmudgeLength(smudgeLength.toDouble())
             ReverieCoreBridge.setBrushSecondaryColor(secondaryColor)
@@ -547,6 +558,7 @@ private fun PaintViewModel.dispatchReplayLocked(
 }
 
 private fun PaintViewModel.applyReplayContextLocked(c: com.reverie.paint.model.ReplayContext) {
+    currentReplayPreset = c.preset
     ReverieCoreBridge.setToolMode(c.toolMode)
     if (c.preset >= 0) {
         ReverieCoreBridge.loadBrushPreset(c.preset)

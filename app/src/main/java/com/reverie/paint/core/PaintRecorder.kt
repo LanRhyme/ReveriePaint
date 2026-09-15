@@ -29,6 +29,7 @@ class ParsedRecording(
     val snapshot: ByteArray?,
     val eventCount: Int,
     val totalMs: Long,
+    val version: Int = 1,
 )
 
 /**
@@ -436,6 +437,7 @@ class PaintRecorder {
         secondaryColor: String,
         airbrushEnabled: Boolean,
         airbrushRate: Double,
+        isCustomized: Boolean = false,
     ) = emit(CONTEXT_EXT) {
         it.f32(softness.toFloat())
         it.f32(spacing.toFloat())
@@ -449,6 +451,7 @@ class PaintRecorder {
         it.str(secondaryColor)
         it.u8(if (airbrushEnabled) 1 else 0)
         it.f32(airbrushRate.toFloat())
+        it.u8(if (isCustomized) 1 else 0)
     }
 
     /** Force the next captureContext() to emit a full CONTEXT (all sentinels
@@ -474,7 +477,8 @@ class PaintRecorder {
             return try {
                 val magic = String(r.readBytes(8), Charsets.US_ASCII)
                 if (magic != MAGIC) return null
-                if (r.u16() != VERSION) return null
+                val ver = r.u16()
+                if (ver != 1 && ver != 2) return null
                 val w = r.u16()
                 val h = r.u16()
                 val flags = r.u8()
@@ -483,7 +487,7 @@ class PaintRecorder {
                 val eventsLen = r.u32()
                 val events = r.readBytes(eventsLen)
                 val snapshot = if (flags and 1 != 0) r.readBytes(r.u64().toInt()) else null
-                ParsedRecording(events, w, h, snapshot, eventCount, totalMs)
+                ParsedRecording(events, w, h, snapshot, eventCount, totalMs, ver)
             } catch (e: Exception) {
                 android.util.Log.e("ReveriePaint", "recording parse failed", e)
                 null

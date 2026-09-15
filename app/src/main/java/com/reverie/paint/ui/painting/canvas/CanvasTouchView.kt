@@ -1660,11 +1660,21 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.TEXT -> {
                 handleTextDown(docPos)
             }
-            Tool.GRADIENT, Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+            Tool.GRADIENT -> {
+                liveShapeStart?.value = docPos
+                liveShapeEnd?.value = docPos
+            }
+            Tool.SELECT_RECT, Tool.SELECT_ELLIPSE -> {
+                if (v.selectionMode == 0) {
+                    v.clearSelectionOverlayLocal()
+                }
                 liveShapeStart?.value = docPos
                 liveShapeEnd?.value = docPos
             }
             Tool.LASSO -> {
+                if (v.selectionMode == 0 && v.lassoMultiPoints.isEmpty()) {
+                    v.clearSelectionOverlayLocal()
+                }
                 val subMode = v.lassoSubMode
                 if (subMode == LassoSubMode.FREEHAND) {
                     lassoPoints.clear()

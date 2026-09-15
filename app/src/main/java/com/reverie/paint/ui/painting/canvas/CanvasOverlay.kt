@@ -1073,7 +1073,12 @@ internal fun CanvasOverlay(
                     }
                 }
 
-                val selBmp = vm.selectionOverlayBitmap?.asImageBitmap()
+                val isSelecting = liveSelectionPath.value != null ||
+                    ((tool == Tool.SELECT_RECT || tool == Tool.SELECT_ELLIPSE) && liveShapeStart.value != null) ||
+                    (tool == Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) ||
+                    (tool == Tool.SELECT_POLYGON && polyPoints.isNotEmpty())
+                val isTransformOrMove = (tool == Tool.TRANSFORM || tool == Tool.MOVE)
+                val selBmp = if (!isTransformOrMove && !isSelecting) vm.selectionOverlayBitmap?.asImageBitmap() else null
                 if (selBmp != null) {
                     drawImage(
                         image = selBmp,

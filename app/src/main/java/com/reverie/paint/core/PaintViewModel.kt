@@ -41,7 +41,7 @@ private const val STROKE_BATCH_CAPACITY = 256
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
 private const val STROKE_START_KICK_MS = 24L
 
-private fun java.util.concurrent.atomic.AtomicInteger.decrementPositive() {
+internal fun java.util.concurrent.atomic.AtomicInteger.decrementPositive() {
     while (true) {
         val cur = get()
         if (cur <= 0) return
