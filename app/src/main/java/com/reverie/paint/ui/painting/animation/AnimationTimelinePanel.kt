@@ -11,6 +11,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -626,10 +627,26 @@ private fun TimelineTrackArea(
     val showThumbs = vm.anim.showThumbnails
     // 缩略图位图固定 7:5 (与帧格同比例, 引擎 KeepAspectRatio 后铺满)
     val thumbAspect = FRAME_THUMB_W.toFloat() / FRAME_THUMB_H.toFloat()
-    // 选中块的加粗描边: 在 composable 作用域按密度换算成 px 后带进 DrawScope,
+    // 选中块描边: 在 composable 作用域按密度换算成 px 后带进 DrawScope,
     // 避免在每帧绘制里重复算 dp->px
-    val selBorderPx = with(LocalDensity.current) { 3.5.dp.toPx() }
-    val selGlowPx = with(LocalDensity.current) { 7.dp.toPx() }
+    val selBorderPx = with(LocalDensity.current) { 2.5.dp.toPx() }
+    val selGlowPx = with(LocalDensity.current) { 6.dp.toPx() }
+    // 播放头所在帧变化时, 让高亮"弹"一下: 用一个从 0 弹回 1 的过冲动画驱动
+    // 描边宽度与外发光强度。所有帧块共用同一个进度值 —— 同一时刻只有一块是
+    // active, 视觉上等价于"被选中的那一块在弹", 但省掉了每块的独立动画状态。
+    //
+    // 用 Animatable + LaunchedEffect(selectedKey) 而不是 animateFloatAsState:
+    // 后者只做"向目标值过渡", 目标值不变时不会重播; 而这里要的是"每次换帧
+    // 都重播一次"的即发动画。
+    val selPop = remember { Animatable(1f) }
+    val selectedKey = currentTime to vm.anim.selectedTrack
+    LaunchedEffect(selectedKey) {
+        selPop.snapTo(0f)
+        selPop.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(dampingRatio = 0.40f, stiffness = 1500f),
+        )
+    }
 
     Canvas(
         modifier = modifier
@@ -715,16 +732,20 @@ private fun TimelineTrackArea(
                             }
                         }
                         // 当前曝光块: 主题色描边高亮 (不填充)。
-                        // 描边压在内侧 (inset = 线宽/2) 才能保证粗边不被块外裁掉;
-                        // 再叠一层同色外发光, 让选中块在缩略图噪声里也能一眼认出
+                        // 描边压在内侧 (inset = 线宽/2) 才能保证边线不被块外裁掉。
+                        // 宽度/亮度由 selProgress 驱动: 换帧瞬间过冲一下再回落,
+                        // 让"选中"这个状态变化有反馈 (t 在 0.9~1.15 之间摆动一次)
                         if (active) {
-                            val bw = selBorderPx
+                            val t = selPop.value
+                            val bw = selBorderPx * (0.8f + 0.6f * t)
+                            val glowW = selGlowPx * (0.5f + 0.7f * t)
+                            val glowA = 0.12f + 0.20f * t
                             drawRoundRect(
-                                color = Morandi.accent.copy(alpha = 0.28f),
+                                color = Morandi.accent.copy(alpha = glowA),
                                 topLeft = Offset(cellX, cellY),
                                 size = Size(cellW, cellH),
                                 cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                style = Stroke(width = selGlowPx),
+                                style = Stroke(width = glowW),
                             )
                             drawRoundRect(
                                 color = Morandi.accent,

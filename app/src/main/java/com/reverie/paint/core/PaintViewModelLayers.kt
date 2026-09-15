@@ -99,6 +99,14 @@ private fun PaintViewModel.doRefreshLayerThumbs() {
 internal fun PaintViewModel.notifyLayerChanged(
     forceThumbs: Boolean = true,
     immediateRender: Boolean = true,
+    /**
+     * 本次变更是否改动了图层像素。
+     *
+     * 只有填充 / 滤镜 / 导入这类"直接改内容但不走 touchEnd"的路径需要传 true,
+     * 用于触发洋葱皮缓存失效。改名、显隐、排序、增删图层都不碰像素, 保持默认
+     * false —— 见函数末尾的说明。
+     */
+    pixelChanged: Boolean = false,
 ) {
     isModified = true
     onPaintingActivity()
@@ -116,6 +124,16 @@ internal fun PaintViewModel.notifyLayerChanged(
     // 动画时间轴: 图层内容变了, 帧块里的画面缩略图也要跟着重取。
     // 非动画文档下 anim.enabled 为 false, 这里等同空操作。
     if (anim.enabled) anim.thumbRevision++
+    // 洋葱皮缓存失效: 只有"真的改了像素"的路径才传 pixelChanged=true。
+    //
+    // notifyLayerChanged 是图层操作的公共出口 (改名 / 显隐 / 排序 / 增删 /
+    // 滤镜 / 填充 / 导入 / 撤销重做), 其中改名、显隐、排序都不碰像素,
+    // 对它们丢缓存纯属浪费 —— 缓存被丢弃意味着下一次渲染要把前后 N 帧全部
+    // 重新 writeFrameToDevice + bitBlt, 是逐帧作画里最贵的一步。
+    // 默认 false, 由改像素的调用方显式打开。
+    if (anim.enabled && pixelChanged) {
+        runCore(render = false) { ReverieCoreBridge.flushOnionSkinCaches() }
+    }
     scheduleRender(immediate = immediateRender)
 }
 
@@ -139,7 +157,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     }
     runCore(
         after = {
-            notifyLayerChanged()
+            notifyLayerChanged(pixelChanged = true)
             onComplete()
         },
     ) {

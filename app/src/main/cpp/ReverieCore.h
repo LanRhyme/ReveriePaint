@@ -24,6 +24,10 @@
 #include <brushengine/kis_paintop.h>
 #include <KisResourcesInterface.h>
 #include <KisFakeRunnableStrokeJobsExecutor.h>
+// 需要完整类型: m_strokeOnionCache 是 QHash<int, KisPaintDeviceSP>, 其
+// 析构/拷贝会触碰 KisPaintDevice 的成员 (kis_shared_ptr.h 的 QSharedPointer
+// 析构需要完整类型), 仅靠前置声明会报 "member access into incomplete type"
+#include <kis_paint_device.h>
 
 class KisBrush;
 typedef QSharedPointer<KisBrush> KisBrushSP;
@@ -217,6 +221,14 @@ public:
     void configureOnionSkin(bool enabled, int prev, int next, int maxOpacity, int tintFactor);
     // 是否有任一图层开着洋葱皮 (打开动画项目后 UI 同步开关状态用)
     bool anyLayerOnionSkin() const;
+    // 丢弃所有洋葱皮图层的缓存并重算脏区。
+    //
+    // **每次改动任何一帧的像素后都必须调**: 洋葱皮缓存的失效判据只有
+    // (currentTime, configSeqNo, channelHash), 不含帧内像素改动, 不调就会
+    // 看到旧的邻帧叠影。内部先判 hasAnyOnionSkinLayer() 提前退出, 没开
+    // 洋葱皮时开销可忽略。
+    void flushOnionSkinCaches();
+    bool hasAnyOnionSkinLayer() const;
 
     // --- Import: 导入 ---
     // 把位图像素 (ARGB_8888 premultiplied) 作为关键帧写入 [layerIndex,time];
@@ -260,8 +272,20 @@ public:
 
     // 帧缩略图缓存代际自增: 笔画落笔 / 关键帧增删改后调用, 使 UI 侧
     // (layerIndex, time) 缓存整体失效。
+    //
+    // 注意: 这里**不要**顺手调 flushOnionSkinCaches()。两者虽然触发条件
+    // 有重叠, 但代价完全不同 —— 缩略图代际只是 ++ 一个计数器, 而 flush 要
+    // 对每个图层算 calculateFullExtent (遍历整条轨道所有关键帧) 并丢弃缓存
+    // 迫使下一帧重新合成。绑在一起会让新建文档 / 加载 .revp / 批量导入这类
+    // 会连续触发 11 次的路径反复全量重算。
     quint64 keyframeThumbGen() const { return m_keyframeThumbGen; }
-    void bumpKeyframeThumbGen() { ++m_keyframeThumbGen; }
+    void bumpKeyframeThumbGen() {
+        ++m_keyframeThumbGen;
+        // 关键帧结构变了 -> 洋葱皮要合成哪几帧也变了。这里只作废**笔触叠加**
+        // 用的自持缓存 (O(1) 的 clear), 不碰 Krita 侧 KisOnionSkinCache ——
+        // 后者由 channelHash 自然失效, 强行 flush 会触发全量重合成。
+        invalidateStrokeOnionCache();
+    }
 
     // Filters (interactive preview & commit, single & multi-layer)
     void applyFilter(int index, int filterId);
@@ -755,6 +779,56 @@ private:
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;
+
+    // ------------------------------------------------------------------
+    // 笔触进行中的洋葱皮叠加 (onion skin during stroke)
+    //
+    // 为什么需要: renderToBuffer 在 m_drawing 期间走 compositeLayersRange,
+    // 那是为了绕开 Krita 异步调度器而自研的快速合成路径, 只 blit 图层当前帧
+    // 的 paintDevice —— **它不知道洋葱皮的存在**。结果是每次落笔, 笔迹经过
+    // 的区域里洋葱皮会被"擦掉", 抬笔走回 Krita 完整投影才恢复, 表现为洋葱皮
+    // 随笔画闪烁/缺一块。
+    //
+    // 为什么不能直接调 Krita 的投影: 那正是 m_drawing 要绕开的开销。
+    // 折中做法是自己持有一份洋葱皮投影, 只在脏区内叠加:
+    //   - 缓存按 (图层, currentTime, configSeqNo, channelHash) 失效, 与 Krita
+    //     侧 KisOnionSkinCache 同构;
+    //   - 落笔期间 currentTime 不变、configSeqNo 不变、channelHash 不变
+    //     (笔画只改像素不改关键帧结构), 所以整个笔画期间只会合成一次;
+    //   - 只在脏区 r 上 bitBlt, 代价与笔迹面积成正比而非文档面积。
+    // ------------------------------------------------------------------
+    QHash<int, KisPaintDeviceSP> m_strokeOnionCache;  // 图层索引 -> 洋葱皮投影
+    int m_strokeOnionCacheTime = -1;                  // 缓存对应的 currentTime
+    int m_strokeOnionCacheSeq = -1;                   // 缓存对应的 configSeqNo
+    bool m_strokeOnionCacheDirty = true;              // 强制失效标记
+    QHash<int, QRect> m_strokeOnionCacheExtent;       // 图层索引 -> 合成范围
+
+    // 每个需要洋葱皮的图层复用的"邻帧叠影 + 本层内容"拼装设备。
+    //
+    // 为什么必须复用: compositeLayersRange 每次渲染**每个图层**都要拼一次,
+    // 而它被调用的频率是渲染帧率 (笔画期间 ~8ms 一次)。原来每次 new 一个
+    // KisPaintDevice 再 clear(), 光 tile manager 的构造/析构就够把 UI 线程
+    // 拖出掉帧 —— 用户反馈的"绘制到洋葱皮区域就会卡"就是这里。
+    // 复用后只剩 memcpy 级别的 clear + bitBlt。
+    KisPaintDeviceSP m_strokeMergeScratch;
+
+    /** 取(必要时建)某图层在笔触叠加用的洋葱皮投影; 未开洋葱皮返回空 */
+    KisPaintDeviceSP strokeOnionProjection(int layerIndex);
+
+    /** 该图层洋葱皮投影的覆盖范围 (缓存命中时 O(1)); 无洋葱皮返回空矩形 */
+    QRect strokeOnionExtent(int layerIndex);
+
+    /** 复用的拼装设备; 保证 [r] 范围是干净的 */
+    KisPaintDeviceSP strokeMergeScratch(const QRect &r);
+
+    /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
+    void invalidateStrokeOnionCache() {
+        m_strokeOnionCache.clear();
+        m_strokeOnionCacheTime = -1;
+        m_strokeOnionCacheSeq = -1;
+        m_strokeOnionCacheDirty = true;
+        m_strokeOnionCacheExtent.clear();
+    }
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
     qreal m_smudgeLength = 0.5; // smudge length -> SmudgeRateValue

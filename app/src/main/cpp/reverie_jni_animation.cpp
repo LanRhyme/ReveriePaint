@@ -90,6 +90,14 @@ Java_com_reverie_paint_core_ReverieCoreBridge_anyLayerOnionSkin(JNIEnv *, jobjec
     return core()->anyLayerOnionSkin() ? JNI_TRUE : JNI_FALSE;
 }
 
+// 丢弃洋葱皮缓存。帧内像素改动 (落笔 / 填充 / 滤镜) 之后必须调,
+// 否则相邻帧上叠加的洋葱皮不会随内容更新。
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_flushOnionSkinCaches(JNIEnv *, jobject)
+{
+    core()->flushOnionSkinCaches();
+}
+
 // 导入资源列表 (名称数组)
 JNIEXPORT jobjectArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_revAssetNames(JNIEnv *env, jobject)

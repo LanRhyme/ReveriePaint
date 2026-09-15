@@ -10,6 +10,82 @@
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreFilterKernels.h"
 #include <android/log.h>
+#include <kis_image_animation_interface.h>
+
+// ============================================================
+// 笔触进行中的洋葱皮
+// ============================================================
+
+KisPaintDeviceSP ReverieCore::strokeOnionProjection(int layerIndex)
+{
+    KisImageSP image = m_document;
+    if (!image || layerIndex < 0 || layerIndex >= m_layers.size()) return KisPaintDeviceSP();
+
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[layerIndex].node);
+    if (!pl || !pl->onionSkinEnabled()) return KisPaintDeviceSP();
+
+    KisPaintDeviceSP src = pl->paintDevice();
+    if (!src) return KisPaintDeviceSP();
+
+    // 关键帧总数 <= 1 时 Krita 自己也不画洋葱皮 (copyOriginalToProjection 的同款
+    // 判据), 这里保持一致, 免得出现"引擎投影没有、笔触叠加却有"的双标
+    KisRasterKeyframeChannel *channel =
+        dynamic_cast<KisRasterKeyframeChannel *>(src->keyframeChannel());
+    if (!channel || channel->keyframeCount() <= 1) return KisPaintDeviceSP();
+
+    const int time = image->animationInterface()->currentTime();
+    const int seq = KisOnionSkinCompositor::instance()->configSeqNo();
+
+    // 缓存校验: 时间 / 配置代际 / 通道结构三者任一变化就重算。
+    // 笔画只改像素, 这三样在整个笔画期间都不动, 所以一笔只合成一次。
+    if (m_strokeOnionCacheDirty || time != m_strokeOnionCacheTime ||
+        seq != m_strokeOnionCacheSeq) {
+        m_strokeOnionCache.clear();
+        m_strokeOnionCacheTime = time;
+        m_strokeOnionCacheSeq = seq;
+        m_strokeOnionCacheDirty = false;
+    }
+
+    auto it = m_strokeOnionCache.constFind(layerIndex);
+    if (it != m_strokeOnionCache.constEnd()) {
+        return it.value();
+    }
+
+    KisOnionSkinCompositor *compositor = KisOnionSkinCompositor::instance();
+    const QRect extent = compositor->calculateExtent(src);
+    m_strokeOnionCacheExtent.insert(layerIndex, extent);
+    if (extent.isEmpty()) {
+        m_strokeOnionCache.insert(layerIndex, KisPaintDeviceSP());
+        return KisPaintDeviceSP();
+    }
+
+    KisPaintDeviceSP skins(new KisPaintDevice(src->colorSpace()));
+    compositor->composite(src, skins, extent);
+    m_strokeOnionCache.insert(layerIndex, skins);
+    return skins;
+}
+
+// 洋葱皮投影的覆盖范围, 供 compositeLayersRange 快速跳过"脏区碰不到洋葱皮"
+// 的绝大多数情况 (笔画在当前位置画, 邻帧叠影往往在别处)。
+QRect ReverieCore::strokeOnionExtent(int layerIndex)
+{
+    return m_strokeOnionCacheExtent.value(layerIndex, QRect());
+}
+
+// 复用的拼装设备。每次使用前必须把 [r] 范围清干净:
+//   - 上一图层/上一帧在这里留下的像素不清掉就会叠出重影
+//     (用户看到的"多渲染几层洋葱皮"正是旧像素没清);
+//   - 但 clear 只需覆盖这次的脏区 r, 不必清整块画布。
+// 复用设备本身省掉的是 KisPaintDevice 的构造/析构 (tile manager 那一坨),
+// 那才是掉帧的主因; clear(r) 走的是 tile 级 memset, 相对廉价。
+KisPaintDeviceSP ReverieCore::strokeMergeScratch(const QRect &r)
+{
+    if (!m_strokeMergeScratch || !m_document) {
+        m_strokeMergeScratch = new KisPaintDevice(m_document->colorSpace());
+    }
+    m_strokeMergeScratch->clear(r);
+    return m_strokeMergeScratch;
+}
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 {
@@ -641,17 +717,73 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         } else {
             KisPaintDeviceSP dev = layerPaintDeviceFor(e);
             if (dev) {
-                KisPainter painter(out);
-                painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-                painter.setCompositeOpId(e.node->compositeOpId());
-                painter.bitBlt(r.topLeft(), dev, r);
-                painter.end();
+                // 有洋葱皮时先在**复用的**临时设备里拼出"邻帧叠影 + 当前帧内容"
+                // 再整体叠进 out。
+                //
+                // 为什么不能直接对 out 用 behind: out 里已经有更下面的图层,
+                // behind 会把洋葱皮压到它们**底下**, 于是洋葱皮被下层挡住 ——
+                // 正确语义是"洋葱皮只在本图层内容之下", 不能越过图层边界。
+                // Krita 的做法也是给每个需要洋葱皮的图层单独建投影
+                // (KisPaintLayer::needProjection + copyOriginalToProjection)。
+                //
+                // 性能要点 (历史教训): 这条路径每渲染帧每图层都要走一次
+                // (笔画期间 ~8ms 一轮)。早期实现每次 new KisPaintDevice +
+                // clear(r) + 3 次 bitBlt, tile manager 的构造/析构直接把渲染
+                // 线程拖出掉帧, 用户表现为"绘制到洋葱皮区域就会卡"。现在:
+                //   1. 脏区碰不到洋葱皮范围就直接走普通单 blit 路径
+                //      (最常见 —— 笔画落在当前帧位置, 邻帧叠影往往在别处);
+                //   2. 拼装设备复用, 省掉 KisPaintDevice 构造/析构;
+                //   3. 合成范围来自缓存, 不再每次问 src->extent()
+                //      (那是 O(脏瓦片数) 的遍历)。
+                KisPaintDeviceSP src = nullptr;
+                if (KisPaintLayer *plOnion = dynamic_cast<KisPaintLayer *>(e.node)) {
+                    if (plOnion->onionSkinEnabled()) {
+                        // 返回 nullptr 表示"这个图层此刻没有可显示的邻帧"
+                        // (只有一个关键帧 / 配置全关), 走普通路径
+                        const QRect onionExt = strokeOnionExtent(i);
+                        if (!onionExt.isEmpty() && onionExt.intersects(r)) {
+                            src = strokeOnionProjection(i);
+                        }
+                    }
+                }
 
-                if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node)) {
-                    if (pl->hasTemporaryTarget()) {
-                        KisPaintDeviceSP tempTarget = pl->temporaryTarget();
+                // 当前帧内容 + 可选临时目标 (中转绘制) 的叠加函数。
+                //
+                // 洋葱皮存在时: 先在复用的 scratch 里拼出
+                //   [洋葱皮 (behind)] <- [当前帧内容] <- [临时目标]
+                // 再整体叠进 out。否则直接单次 bitBlt 进 out (保持原快路径,
+                // 这是绝大多数图层的常态, 零额外开销)。
+                const bool hasTemp = [&] {
+                    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+                    return pl && pl->hasTemporaryTarget();
+                }();
+
+                if (!src && !hasTemp) {
+                    // 最热路径: 无洋葱皮、无中转绘制 —— 一次 bitBlt 完事
+                    KisPainter painter(out);
+                    painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                    painter.setCompositeOpId(e.node->compositeOpId());
+                    painter.bitBlt(r.topLeft(), dev, r);
+                    painter.end();
+                } else {
+                    KisPaintDeviceSP scratch = strokeMergeScratch(r);
+                    if (src) {
+                        KisPainter onionPainter(scratch);
+                        onionPainter.setCompositeOpId(QStringLiteral("behind"));
+                        onionPainter.bitBlt(r.topLeft(), src, r);
+                        onionPainter.end();
+                    }
+                    {
+                        KisPainter basePainter(scratch);
+                        basePainter.setCompositeOpId(QStringLiteral("normal"));
+                        basePainter.bitBlt(r.topLeft(), dev, r);
+                        basePainter.end();
+                    }
+                    if (hasTemp) {
+                        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+                        KisPaintDeviceSP tempTarget = pl ? pl->temporaryTarget() : nullptr;
                         if (tempTarget) {
-                            KisPainter tempPainter(out);
+                            KisPainter tempPainter(scratch);
                             tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
                             QString compOp = QStringLiteral("normal");
                             if (m_brushPreset && m_brushPreset->settings()) {
@@ -662,6 +794,11 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                             tempPainter.end();
                         }
                     }
+                    KisPainter painter(out);
+                    painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                    painter.setCompositeOpId(e.node->compositeOpId());
+                    painter.bitBlt(r.topLeft(), scratch, r);
+                    painter.end();
                 }
             }
             ++i;

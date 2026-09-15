@@ -598,7 +598,7 @@ internal fun PaintViewModel.moveLayerContent(
     }
     val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
-        notifyLayerChanged()
+        notifyLayerChanged(pixelChanged = true)
         refreshSelection()
         startTransformPreview()
     }) {
@@ -635,7 +635,7 @@ internal fun PaintViewModel.cropCanvas(
         renderW = -1
         renderH = -1
         syncLayersFromNative()
-        notifyLayerChanged()
+        notifyLayerChanged(pixelChanged = true)
     }) {
         ReverieCoreBridge.cropCanvas(x, y, w, h)
     }
@@ -709,7 +709,7 @@ internal fun PaintViewModel.applyTransform(
     val copyOnly = transformCopyOnly
     val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
-        notifyLayerChanged()
+        notifyLayerChanged(pixelChanged = true)
         refreshSelection()
         transformPreviewBitmap = null
         transformCopyOnly = false
@@ -763,7 +763,7 @@ internal fun PaintViewModel.applyPerspectiveTransform(
         }
     }
     runCore(render = true, after = {
-        notifyLayerChanged()
+        notifyLayerChanged(pixelChanged = true)
         refreshSelection()
         transformPreviewBitmap = null
     }) {
@@ -816,7 +816,7 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     val ty = DoubleArray(count) { transfPoints[it].y.toDouble() }
 
     runCore(render = true, after = {
-        notifyLayerChanged()
+        notifyLayerChanged(pixelChanged = true)
         refreshSelection()
         transformPreviewBitmap = null
     }) {
@@ -845,7 +845,7 @@ internal fun PaintViewModel.undo() {
     }
     showActionToast("撤销", R.drawable.ic_undo)
     runCore(after = {
-        notifyLayerChanged(forceThumbs = false, immediateRender = true)
+        notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
     }) {
         if (ReverieCoreBridge.canUndo()) {
@@ -860,7 +860,7 @@ internal fun PaintViewModel.undo() {
 internal fun PaintViewModel.redo() {
     showActionToast("恢复", R.drawable.ic_redo)
     runCore(after = {
-        notifyLayerChanged(forceThumbs = false, immediateRender = true)
+        notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
     }) {
         if (ReverieCoreBridge.canRedo()) {
@@ -1633,7 +1633,11 @@ internal fun PaintViewModel.floodFill(
             it.str(brushColor)
         }
     }
-    runCore { ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged, expand, feather, closeGap) }
+    runCore {
+        ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged, expand, feather, closeGap)
+        // 填充直接改了当前帧像素, 洋葱皮缓存要失效 (它不感知帧内改动)
+        ReverieCoreBridge.flushOnionSkinCaches()
+    }
 }
 
 internal fun PaintViewModel.commitQuickShape() {

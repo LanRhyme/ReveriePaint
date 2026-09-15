@@ -241,6 +241,16 @@ internal fun PaintViewModel.animationSeek(
         },
     ) {
         ReverieCoreBridge.setAnimationCurrentTime(t, recordUndo)
+        // 切帧时丢弃洋葱皮缓存。
+        //
+        // 为什么是这里而不是落笔时: 洋葱皮缓存存的是"当前帧看到的邻帧叠影"。
+        // 在 A 帧落笔只改了 A, 当前视图的洋葱皮(来自邻帧)没变, 落笔时丢缓存
+        // 等于白白重合成一遍 —— 那是逐帧作画里最贵的一步。真正需要重算的时刻
+        // 是"视线移到另一帧", 因为那一帧的洋葱皮里才包含刚被改过的 A。
+        //
+        // 播放时跳过: 播放态下不需要洋葱皮, 而这里每帧都会被调用, 不跳会把
+        // 播放拖到掉帧 (曾经踩过)。C++ 侧只 reset 缓存不重算 extent。
+        if (!anim.isPlaying) ReverieCoreBridge.flushOnionSkinCaches()
     }
 }
 
@@ -262,6 +272,8 @@ internal fun PaintViewModel.animationStepFrame(delta: Int) {
                 ReverieCoreBridge.previousKeyframeTime(layer, cur).takeIf { it >= 0 } ?: (cur - 1)
             }
         ReverieCoreBridge.setAnimationCurrentTime(target.coerceAtLeast(0), false)
+        // 与 animationSeek 同理: 视线换帧了, 该帧的洋葱皮要重算
+        ReverieCoreBridge.flushOnionSkinCaches()
     }
 }
 

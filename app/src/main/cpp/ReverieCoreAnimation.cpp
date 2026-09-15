@@ -65,6 +65,45 @@ KisRasterKeyframeChannel *rasterChannelOf(KisNode *node, bool create)
     return dynamic_cast<KisRasterKeyframeChannel *>(channel);
 }
 
+} // namespace
+
+// 丢弃所有洋葱皮图层的缓存, 让下一帧重新合成。
+//
+// 为什么必须显式调: KisOnionSkinCache::checkCacheValid 的判据只有
+//   currentTime / configSeqNo / channelHash
+// 三样 (kis_onion_skin_cache.cpp:40), **帧内的像素改动不在其中**。因此在
+// 第 3 帧上画一笔、视线停在第 4 帧时, 第 4 帧看到的仍是旧的洋葱皮 ——
+// 表现为"改了前一帧, 当前帧的洋葱皮不跟着更新"。Krita 桌面端是在
+// KisProcessingApplicator::Private::partB 里对全帧操作 flush 解决的
+// (kis_processing_applicator.cpp:90), 逐帧作画的落笔路径不走那个类,
+// 所以只能自己挂。
+//
+// **热路径专用**: 只 reset 缓存, 不动 extent。
+// 曾经这里还附带 calculateFullExtent() + setDirty(), 那是 O(轨道关键帧数)
+// 的全量扫描, 逐帧作画时轨道几百帧, 每笔收笔扫一遍直接把绘制拖掉帧。
+// extent 的伸缩只在开/关洋葱皮时才需要 (见 configureOnionSkin), 内容变更
+// 走不到"需要扩大脏区"这一步 —— setDirty 已经由笔画本身标记了。
+void ReverieCore::flushOnionSkinCaches()
+{
+    for (int i = 0; i < m_layers.size(); ++i) {
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[i].node);
+        if (!pl || !pl->onionSkinEnabled()) continue;
+        pl->flushOnionSkinCache();
+    }
+}
+
+// 是否有任意图层开着洋葱皮 (调用方用来跳过无谓的 flush 开销)
+bool ReverieCore::hasAnyOnionSkinLayer() const
+{
+    for (int i = 0; i < m_layers.size(); ++i) {
+        const KisPaintLayer *pl = dynamic_cast<const KisPaintLayer *>(m_layers[i].node);
+        if (pl && pl->onionSkinEnabled()) return true;
+    }
+    return false;
+}
+
+namespace {
+
 // 轨道末尾之外的临时停放位置。重排时先把关键帧搬到这里, 再落位到目标,
 // 避免"目标已占用"导致源数据被覆盖。
 int parkingBaseFor(KisKeyframeChannel *channel, int count)
@@ -156,6 +195,23 @@ void ReverieCore::setAnimationCurrentTime(int time, bool recordUndo)
     if (!image->isIdle()) {
         image->waitForDone();
     }
+
+    // 这里**不能** flush 洋葱皮缓存。
+    //
+    // 曾经在这加过 flushOnionSkinCaches(), 结果播放时每帧都全量重算洋葱皮
+    // (每次都要 calculateFullExtent 遍历整条轨道的所有关键帧 + 丢弃缓存
+    // 导致下一帧重新合成), 直接把播放和绘制拖到掉帧。
+    //
+    // 实际上也不需要: KisOnionSkinCache::checkCacheValid 已经把
+    // currentTime / configSeqNo / channelHash 纳入判据, 时间切到另一段
+    // 曝光区间时 identicalFrames 不再包含新时间, 缓存会自然失效。
+    // 真正需要显式 flush 的只有"帧内像素变了"这一类 (落笔 / 填充 / 关键帧
+    // 增删), 那些路径各自处理。
+    //
+    // 笔触叠加用的自持缓存是另一套判据 (时间/代际/结构), 这里必须显式作废,
+    // 否则切帧后笔画一开始用的还是上一帧的洋葱皮。
+    invalidateStrokeOnionCache();
+
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
 }
 
@@ -224,22 +280,35 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
     maxOpacity = qBound(0, maxOpacity, 255);
     tintFactor = qBound(0, tintFactor, 100);
 
+    // "开了但前后帧数都是 0" 等价于没开 —— 否则下面 qMax(1, skins) 会把
+    // numberOfSkins 抬到 1, 于是用户看到一帧莫名其妙的洋葱皮且关不掉
+    const bool effective = enabled && (prev > 0 || next > 0);
+
     // 全局配置: 帧数/每帧状态与透明度。index 0 是当前帧, 作为整体缩放系数。
     // 前后帧数不对称时取 max, 单侧多余帧用 state=false 关掉。
     // 透明度从 maxOpacity 向远帧线性衰减 —— 最近帧也不能全不透明, 否则洋葱皮
     // 会盖住当前帧正在画的内容
+    //
+    // 注意: KisImageConfig 是**写盘**的 (kritarc)。这里每次都把 0..10 全部
+    // 写死, 是为了覆盖掉上一次会话或桌面 Krita 留下的旧条目 —— 只写当前用
+    // 到的档位会让 onionSkinOpacity_5 之类的残留值在下一次扩大帧数时突然
+    // 生效, 表现为"改了前后帧数但透明度乱七八糟"
     {
         KisImageConfig config(true);
         const int skins = qMax(prev, next);
         config.setNumberOfOnionSkins(qMax(1, skins));
-        config.setOnionSkinTintFactor(tintFactor);
+        // tintFactor 的语义是"着色层叠在帧上的不透明度": 0 = 不着色, 255 = 纯色块。
+        // 传入的是百分比 (0~100), 按 255 折算
+        config.setOnionSkinTintFactor(tintFactor * 255 / 100);
         config.setOnionSkinState(0, true);
         config.setOnionSkinOpacity(0, 255);
-        for (int i = 0; i < skins; ++i) {
-            const bool bOn = enabled && i < prev;
-            const bool fOn = enabled && i < next;
+        for (int i = 0; i < 10; ++i) {
+            const bool bOn = effective && i < prev;
+            const bool fOn = effective && i < next;
             config.setOnionSkinState(-(i + 1), bOn);
             config.setOnionSkinState(i + 1, fOn);
+            // 衰减: 第 i+1 近的帧拿到 maxOpacity * (n-i) / n
+            // 最近帧 == maxOpacity, 最远帧 == maxOpacity/n (n=1 时就是 maxOpacity)
             const int bOp = bOn ? maxOpacity * (prev - i) / qMax(1, prev) : 0;
             const int fOp = fOn ? maxOpacity * (next - i) / qMax(1, next) : 0;
             config.setOnionSkinOpacity(-(i + 1), bOp);
@@ -249,16 +318,31 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
     // 重读配置并广播 sigOnionSkinChanged (已连接的图层会自行刷新缓存)
     KisOnionSkinCompositor::instance()->configChanged();
 
+    // 笔触叠加缓存自己判 configSeqNo, 但"开关从关到开"时 seq 可能刚好撞上,
+    // 这里显式作废最稳妥
+    invalidateStrokeOnionCache();
+
     // 应用到所有位图图层 (洋葱皮是 per-paint-layer 开关) 并刷新投影
     for (int i = 0; i < m_layers.size(); ++i) {
         KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[i].node);
         if (!pl) continue;
         const bool wasEnabled = pl->onionSkinEnabled();
-        if (wasEnabled != enabled) {
-            pl->setOnionSkinEnabled(enabled);
+        if (wasEnabled != effective) {
+            pl->setOnionSkinEnabled(effective);
         }
-        if (enabled || wasEnabled) {
-            // 开启时扩大脏区把洋葱皮画出来; 关闭时缩小 extent 擦掉残留
+        if (effective || wasEnabled) {
+            // configChanged() 只让缓存**在下次校验时**失效, 而
+            // KisOnionSkinCache::checkCacheValid 的判据是 currentTime /
+            // configSeqNo / channelHash 三者 —— 图层开关本身不在其中。
+            // 不显式 reset 的话, 从"关"切回"开"会直接命中上一次留下的空缓存
+            // (这正是"洋葱皮关掉再开才生效"的根因)。
+            pl->flushOnionSkinCache();
+            // 扩大/缩小脏区: 开启时把洋葱皮区域画出来, 关闭时擦掉残留。
+            //
+            // 用 calculateExtent 而不是 calculateFullExtent: 前者只扫前后
+            // numberOfSkins 帧, 正好是洋葱皮实际会合成的范围; 后者要遍历整条
+            // 轨道的所有关键帧求并集, 逐帧作画时轨道几百帧, 开启一次就是一次
+            // O(N) 扫全轨道 —— 用户拖滑块调参数时会连续触发, 是实打实的卡顿源。
             pl->setDirty(KisOnionSkinCompositor::instance()->calculateExtent(pl->paintDevice()));
         }
     }

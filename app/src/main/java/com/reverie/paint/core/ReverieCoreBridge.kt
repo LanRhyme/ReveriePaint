@@ -164,6 +164,14 @@ object ReverieCoreBridge {
 
     external fun anyLayerOnionSkin(): Boolean
 
+    /**
+     * 丢弃洋葱皮图层缓存。**改动画布任何一帧的像素后都要调** ——
+     * 洋葱皮缓存的失效判据是 (currentTime, configSeqNo, channelHash),
+     * 不含帧内像素改动, 不调就会看到邻帧的旧叠影。
+     * 内部对未开洋葱皮的文档直接返回, 可无条件调用。
+     */
+    external fun flushOnionSkinCaches()
+
     external fun revAssetNames(): Array<String>
 
     external fun revAssetBytes(name: String): ByteArray?
