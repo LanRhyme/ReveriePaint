@@ -336,6 +336,8 @@ void ReverieCore::bumpLayerThumbGen(KisNode *node)
         KisNodeSP p = n->parent();
         n = p ? p.data() : nullptr;
     }
+    // 笔画落笔同样使帧缩略图失效 (帧块里显示的是该帧当前画面)
+    bumpKeyframeThumbGen();
 }
 
 

@@ -113,6 +113,9 @@ internal fun PaintViewModel.notifyLayerChanged(
     // Undo/redo passes forceThumbs=false + immediateRender=false so a fast
     // undo chain merges into one thumbnail refresh and one frame render.
     refreshLayerThumbs(force = forceThumbs)
+    // 动画时间轴: 图层内容变了, 帧块里的画面缩略图也要跟着重取。
+    // 非动画文档下 anim.enabled 为 false, 这里等同空操作。
+    if (anim.enabled) anim.thumbRevision++
     scheduleRender(immediate = immediateRender)
 }
 

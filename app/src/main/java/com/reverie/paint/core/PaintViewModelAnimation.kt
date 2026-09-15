@@ -7,8 +7,10 @@ package com.reverie.paint.core
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import android.graphics.Bitmap
 
 /** 新建动画画布的默认帧率。 */
 internal const val DEFAULT_ANIMATION_FPS = 12
@@ -56,10 +58,70 @@ internal class AnimationState {
     /** 时间轴上多选的帧号 */
     var selectedFrames by mutableStateOf<Set<Int>>(emptySet())
 
-    /** 时间轴视图: 每帧像素宽 (缩放) 与水平滚动量 */
-    var frameWidthPx by mutableFloatStateOf(34f)
+    /**
+     * 时间轴视图: 每帧像素宽 (缩放)。
+     * 默认 160px (即 UI 侧的最小帧宽): 帧格要容纳缩略图, 太小不可辨。
+     * UI 侧限幅 160..400 (见 AnimationTimelinePanel)。
+     */
+    var frameWidthPx by mutableFloatStateOf(160f)
 
     var scrollPx by mutableFloatStateOf(0f)
+
+    /**
+     * 时间轴视图: 每轨道行高 (像素)。
+     * 注: 轨道区的**实际**行高由帧宽与画布比例反推并限幅 (见 AnimationTimelinePanel),
+     * 本值只作为"轨高"滑杆的持久化镜像与折叠区显示值, 不参与布局计算,
+     * 以保证帧块恒为画布比例。
+     */
+    var trackHeightPx by mutableFloatStateOf(48f)
+
+    /** 帧块内是否绘制缩略图 (对标参考插件的"预览缩略图开关") */
+    var showThumbnails by mutableStateOf(true)
+
+    /**
+     * 工具栏"更多"折叠区是否展开 (帧宽 / 轨高 / 播放速度 / 掉帧)。
+     * 默认收起, 让轨道区拿到更多纵向空间。
+     */
+    var toolbarExpanded by mutableStateOf(false)
+
+    /** 时间轴轨道区的可见宽度 (px), UI 侧测量后写入, 供缩略图按需渲染用 */
+    var viewportWidthPx by mutableFloatStateOf(0f)
+
+    /** 播放速度倍率 (0.25x ~ 4.0x) */
+    var playbackSpeed by mutableFloatStateOf(1f)
+
+    /** 播放时掉帧 (只画关键帧位置, 跳过中间帧) */
+    var dropFrames by mutableStateOf(false)
+
+    /**
+     * 帧缩略图: (图层索引, 帧号) -> 已渲染的 Bitmap。
+     * 引擎侧按同样的 (图层, 帧号) 做二级缓存, 这里只持有已拷出的位图,
+     * 由 thumbGen 变化整体失效。
+     */
+    var frameThumbs by mutableStateOf<Map<Long, Bitmap>>(emptyMap())
+
+    /**
+     * 帧缩略图代际 (来自引擎 keyframeThumbGen), 变化即整体重取
+     */
+    var thumbGen by mutableLongStateOf(0L)
+
+    /**
+     * animationAddKeyframe 的一次性落点 (-1 = 未新增)。
+     *
+     * 渲染线程写、主线程读; 用 @Volatile 保证可见性, 且刻意不做成 Compose state
+     * (它只在一次调用的首尾被读写, 不应触发重组)。
+     */
+    @Volatile
+    var pendingAddedFrame: Int = -1
+
+    /**
+     * 缩略图刷新触发器。笔画落笔 / 图层内容变化时自增 (而 revision 只在
+     * 关键帧结构变化时自增), 让时间轴知道该重画帧块里的画面。
+     */
+    var thumbRevision by mutableIntStateOf(0)
+
+    /** 正在拖动中的帧块 (图层索引, 起始帧号), 用于绘制拖拽高亮 */
+    var draggingKeyframe by mutableStateOf<Pair<Int, Int>?>(null)
 
     /** 洋葱皮开关与前后帧数 */
     var onionSkin by mutableStateOf(false)
@@ -158,11 +220,13 @@ internal fun PaintViewModel.animationSeek(
 /** 上一帧 / 下一帧 (跳过无内容的帧位置, 落在最近的关键帧上) */
 internal fun PaintViewModel.animationStepFrame(delta: Int) {
     if (delta == 0) return
-    val layer = selectedTrackIndex()
-    if (layer < 0) return
     runCore(
         after = { syncAnimationFromNativeAfter() },
     ) {
+        // 图层解析必须在渲染线程完成: selectedTrackIndex() 会回退到引擎查
+        // 当前图层, 在 UI 线程读引擎违反铁律 2, 且并发下可能拿到过期索引
+        val layer = selectedTrackIndex()
+        if (layer < 0) return@runCore
         val cur = ReverieCoreBridge.animationCurrentTime()
         val target =
             if (delta > 0) {
@@ -197,11 +261,27 @@ internal fun PaintViewModel.animationSetPlaybackRange(
     }
 }
 
-/** 当前生效的轨道索引: 优先时间轴选中, 否则跟随画布当前图层 */
+/**
+ * 当前生效的轨道索引: 优先时间轴选中, 否则跟随画布当前图层。
+ *
+ * **只能在 reverie-render 线程调用** (内部会回退到 JNI 查当前图层)。
+ * 主线程需要这个值时, 请把它写进 runCore 的 op 块, 或直接读
+ * [AnimationState.selectedTrack] —— 后者是 UI 镜像, 线程安全。
+ */
 internal fun PaintViewModel.selectedTrackIndex(): Int {
     val selected = anim.selectedTrack
     return if (selected >= 0) selected else ReverieCoreBridge.currentLayerIndex()
 }
+
+/**
+ * 画布宽高比 (宽/高)。
+ *
+ * 帧格按此比例绘制, 让缩略图格与画布同形 —— 画世界 Pro 的帧格是
+ * "画布缩略框"而不是任意长宽比的方块。直接派生自 [coreW]/[coreH],
+ * 不额外维护一份需要同步的状态。
+ */
+internal val PaintViewModel.canvasAspect: Float
+    get() = if (coreH > 0) coreW.toFloat() / coreH.toFloat() else 1f
 
 // ============================================================
 // 轨道: 开启动画
@@ -223,33 +303,56 @@ internal fun PaintViewModel.animationEnableTrack(layerIndex: Int) {
 /**
  * 在当前帧位置插入一个关键帧。
  *
+ * 当前帧已有帧时自动落到"下一个空位"(TVPaint / 参考插件里点空帧格再作画
+ * 的等价效果) —— Krita 建通道时会自动补 frame 0, 所以若不做这一步,
+ * 光标停在 0 时点"空白/重复"永远是空操作, 用户会以为按钮坏了。
+ *
  * @param duplicate true = 复制前一帧内容 (逐帧作画最高频操作), false = 空白帧
  */
 internal fun PaintViewModel.animationAddKeyframe(
     layerIndex: Int = -1,
     duplicate: Boolean = false,
 ) {
-    val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
-    if (layer < 0) return
-    runCore(after = { syncAnimationFromNativeAfter() }) {
+    runCore(
+        after = {
+            // 落点变化时把播放头跟过去, 让用户立刻看到新帧
+            val placed = anim.pendingAddedFrame
+            if (placed >= 0) anim.currentTime = placed
+            syncAnimationFromNativeAfter()
+        },
+    ) {
+        // 图层解析放在渲染线程: 见 selectedTrackIndex 的线程约束说明。
+        // 这里若返回 -1 说明当前图层不可动画, 直接静默退出 (UI 侧会看到按钮无反应,
+        // 但不会崩溃); 正常情况下背景层之外至少有一个可动画图层。
+        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
+        if (layer < 0) return@runCore
+        anim.pendingAddedFrame = -1
         if (!ReverieCoreBridge.layerAnimatable(layer)) return@runCore
         if (!ReverieCoreBridge.layerAnimated(layer)) {
             ReverieCoreBridge.enableLayerAnimation(layer)
         }
-        val time = ReverieCoreBridge.animationCurrentTime()
-        if (duplicate) {
-            ReverieCoreBridge.addDuplicateKeyframe(layer, time)
-        } else {
-            ReverieCoreBridge.addKeyframe(layer, time)
+        // 从当前时间起找第一个没有关键帧的位置, 上限 512 帧防止病态循环
+        var time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
+        var guard = 0
+        while (ReverieCoreBridge.hasKeyframe(layer, time) && guard < 512) {
+            time++
+            guard++
         }
+        val ok =
+            if (duplicate) {
+                ReverieCoreBridge.addDuplicateKeyframe(layer, time)
+            } else {
+                ReverieCoreBridge.addKeyframe(layer, time)
+            }
+        if (ok) anim.pendingAddedFrame = time
     }
 }
 
 /** 删除当前帧位置的关键帧 (轨道至少保留一帧) */
 internal fun PaintViewModel.animationRemoveKeyframe(layerIndex: Int = -1) {
-    val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
-    if (layer < 0) return
     runCore(after = { syncAnimationFromNativeAfter() }) {
+        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
+        if (layer < 0) return@runCore
         val time = ReverieCoreBridge.animationCurrentTime()
         ReverieCoreBridge.removeKeyframe(layer, time)
     }
@@ -265,9 +368,9 @@ internal fun PaintViewModel.animationCopyCurrentFrameTo(
     layerIndex: Int = -1,
     share: Boolean = true,
 ) {
-    val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
-    if (layer < 0) return
     runCore(after = { syncAnimationFromNativeAfter() }) {
+        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
+        if (layer < 0) return@runCore
         val from = ReverieCoreBridge.animationCurrentTime()
         if (share) {
             ReverieCoreBridge.cloneKeyframe(layer, from, toTime)
@@ -392,4 +495,115 @@ private fun PaintViewModel.animationStep(gen: Int) {
  */
 internal fun PaintViewModel.syncAnimationFromNativeAfter() {
     renderHandler?.post { syncAnimationFromNative() }
+}
+
+// ============================================================
+// 帧缩略图: 时间轴帧块内的画面预览
+// ============================================================
+
+/**
+ * 帧缩略图位图尺寸 (px), **7:5** 与帧格固定比例一致 —— 引擎侧
+ * KeepAspectRatio 后正好铺满位图, UI 侧按位图比例画进帧格不变形。
+ * 单张 RGBA8888 约 80KB, 512 张上限 ≈ 41MB, 仍在可控范围。
+ */
+internal const val FRAME_THUMB_W = 168
+internal const val FRAME_THUMB_H = 120
+
+/** 帧缩略图缓存上限 (张)。超出时丢弃最旧的, 避免长时间作画后 OOM。 */
+private const val MAX_FRAME_THUMBS = 512
+
+/** (图层, 帧号) -> 缓存键 */
+internal fun frameThumbKey(
+    layerIndex: Int,
+    time: Int,
+): Long = (layerIndex.toLong() shl 32) or (time.toLong() and 0xFFFFFFFFL)
+
+/**
+ * 把时间轴当前可见的帧渲染成缩略图。
+ *
+ * 在 reverie-render 线程上批量完成 (一次投递渲染多帧, 避免逐帧跨线程往返);
+ * 渲染出的 Bitmap 通过 mainHandler 交回 UI 状态。引擎侧另有按 (图层, 帧号)
+ * 的二级缓存, 所以重复请求同一帧几乎零成本。
+ *
+ * 代际号 [AnimationState.thumbGen] 与引擎 keyframeThumbGen() 对齐: 代际变化
+ * (笔画落笔 / 关键帧增删改) 时既有的位图全部作废, 需要重取; 代际未变时
+ * 屏幕外的旧位图保留, 这样就地平移不会反复重渲染。
+ */
+internal fun PaintViewModel.refreshFrameThumbs() {
+    if (!anim.enabled || !anim.showThumbnails) return
+
+    val cache = anim.keyframeCache
+    // 关键帧缓存还没建立 (面板刚打开 / 首次同步尚未落地) 时,
+    // 先催一次引擎同步再退出。LaunchedEffect 会在 revision 自增后重跑。
+    if (cache.isEmpty()) {
+        renderHandler?.post { syncAnimationFromNative() }
+        return
+    }
+
+    val fw = anim.frameWidthPx
+    if (fw <= 0f) return
+    val scroll = anim.scrollPx
+    val viewportPx = anim.viewportWidthPx
+
+    // 可见帧范围多留一屏余量, 小幅平移不必重新渲染。
+    // 网格视图里帧格是无间隙等距排列 (节距 = frameW, 左缘锚点), 与
+    // AnimationTimelinePanel 的绘制公式保持一致, 否则首尾会少取帧。
+    val step = fw
+    val margin = viewportPx * 0.5f
+    val firstFrame = ((scroll - margin) / step).toInt().coerceAtLeast(0)
+    val lastFrame = ((scroll + viewportPx + margin) / step).toInt().coerceAtLeast(firstFrame)
+
+    // 引擎代际在渲染线程读一次, 决定既有位图能否复用
+    val currentGen = anim.thumbGen
+    val existing = anim.frameThumbs
+
+    // 收集可见范围内的所有 (图层, 帧); 是否需要真正渲染留到渲染线程按代际判断
+    val visible = ArrayList<Pair<Int, Int>>()
+    for ((layerIndex, times) in cache) {
+        for (t in times) {
+            if (t < firstFrame || t > lastFrame) continue
+            visible.add(layerIndex to t)
+        }
+    }
+    if (visible.isEmpty()) return
+
+    runCore(after = {}) {
+        val gen = ReverieCoreBridge.keyframeThumbGen()
+        val sameGen = gen == currentGen
+        val merged = HashMap<Long, Bitmap>(existing)
+        var rendered = 0
+        var failed = 0
+        for ((layerIndex, time) in visible) {
+            val key = frameThumbKey(layerIndex, time)
+            // 代际一致时沿用旧位图, 只在内容变了以后重画
+            if (sameGen && merged[key]?.isRecycled == false) continue
+            val bmp = Bitmap.createBitmap(FRAME_THUMB_W, FRAME_THUMB_H, Bitmap.Config.ARGB_8888)
+            if (ReverieCoreBridge.renderKeyframeThumb(layerIndex, time, bmp)) {
+                merged[key] = bmp
+                rendered++
+            } else {
+                failed++
+                bmp.recycle()
+            }
+        }
+        // 代际未变又没有新渲染: 无需回写, 避免无谓重组
+        if (sameGen && rendered == 0) return@runCore
+
+        val snapshot =
+            if (merged.size <= MAX_FRAME_THUMBS) {
+                merged
+            } else {
+                // 超限时只保留当前视图范围内的, 丢弃平移过去的旧帧
+                val keep = HashMap<Long, Bitmap>()
+                for ((layerIndex, time) in visible) {
+                    val k = frameThumbKey(layerIndex, time)
+                    merged[k]?.let { keep[k] = it }
+                }
+                keep
+            }
+        mainHandler.post {
+            anim.thumbGen = gen
+            anim.frameThumbs = snapshot
+        }
+    }
 }

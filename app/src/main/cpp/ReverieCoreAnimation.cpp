@@ -31,6 +31,9 @@
 
 #include <QSet>
 #include <QVector>
+#include <QHash>
+#include <QImage>
+#include <QPainter>
 #include <algorithm>
 
 namespace {
@@ -278,6 +281,7 @@ bool ReverieCore::addKeyframe(int layerIndex, int time)
     channel->addKeyframe(time, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -299,6 +303,7 @@ bool ReverieCore::addDuplicateKeyframe(int layerIndex, int time)
     }
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -313,6 +318,7 @@ bool ReverieCore::removeKeyframe(int layerIndex, int time)
     channel->removeKeyframe(time, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -327,6 +333,7 @@ bool ReverieCore::copyKeyframe(int layerIndex, int fromTime, int toTime)
     KisKeyframeChannel::copyKeyframe(channel, fromTime, channel, toTime, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -340,6 +347,7 @@ bool ReverieCore::cloneKeyframe(int layerIndex, int fromTime, int toTime)
     channel->cloneKeyframe(fromTime, toTime, cmd);
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -365,6 +373,7 @@ bool ReverieCore::moveKeyframe(int layerIndex, int fromTime, int toTime)
 
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -414,6 +423,7 @@ bool ReverieCore::setAllKeyframesDuration(int layerIndex, int duration)
     }
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
     return true;
 }
 
@@ -479,5 +489,88 @@ bool ReverieCore::setSelectedKeyframesDuration(int layerIndex, const QVector<int
     }
     pushUndoCommand(cmd);
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    bumpKeyframeThumbGen();
+    return true;
+}
+
+// ============================================================
+// 帧缩略图 (时间轴帧块内绘制)
+// ============================================================
+
+bool ReverieCore::renderKeyframeThumb(
+    int layerIndex, int time, int w, int h, void *dstPixels, int dstStride)
+{
+    if (!m_document || layerIndex < 0 || layerIndex >= m_layers.size()
+        || !dstPixels || w <= 0 || h <= 0) {
+        return false;
+    }
+    if (m_layers[layerIndex].nodeType == NodeTypeAdjustment) {
+        return false;
+    }
+
+    // 缓存: (图层, 帧号) -> 上一次生成的小图。代际号在整个文档内容变化时
+    // 自增 (见 keyframeThumbGen), 因此只比较代际与尺寸, 不做逐像素比对。
+    const quint64 key = (quint64(quint32(layerIndex)) << 32) | quint32(time);
+    KeyframeThumbCache &cache = m_keyframeThumbCache[key];
+    if (cache.gen == m_keyframeThumbGen && cache.img.size() == QSize(w, h)) {
+        const int copyH = qMin(h, cache.img.height());
+        for (int y = 0; y < copyH; ++y) {
+            memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+                   cache.img.constScanLine(y), size_t(w) * 4);
+        }
+        return true;
+    }
+
+    QImage out(w, h, QImage::Format_RGBA8888);
+    out.fill(Qt::transparent);
+
+    // 取该图层指定时刻的关键帧内容。writeToDevice 会把目标关键帧拷进
+    // 一块独立设备, 不触碰文档 currentTime, 所以画布当前帧不会被带偏。
+    KisRasterKeyframeChannel *channel =
+        rasterChannelOf(nodeAtIndex(m_layers, layerIndex), false);
+    if (channel && time >= 0 && channel->keyframeAt(time)) {
+        KisPaintDeviceWSP srcDevice = channel->paintDevice();
+        const KoColorSpace *cs = srcDevice ? srcDevice->colorSpace()
+                                           : m_document->colorSpace();
+        if (cs) {
+            // 临时设备接收该帧内容, 不污染通道自身的活动帧
+            KisPaintDeviceSP tmp = new KisPaintDevice(cs);
+            channel->writeToDevice(time, tmp);
+
+            // 与图层缩略图同风格: 只渲染该帧**已画**的区域 (内容 bounds 与
+            // 画布的交集), 缩放到整个位图; 不保留画布留白, 否则大片空画布
+            // 会把实际笔触挤得很小。空白帧 (extent 为空) 退化为透明图。
+            const QRect canvasRect(0, 0, m_docWidth, m_docHeight);
+            const QRect contentExt = tmp->extent();
+            const QRect sample = contentExt.isEmpty()
+                                     ? canvasRect
+                                     : canvasRect.intersected(contentExt);
+            if (!sample.isEmpty()) {
+                // 注意 convertToQImage 的 profile 参数在最前 (见 kis_paint_device.h:513)
+                QImage scaled = tmp->convertToQImage(
+                    nullptr, sample.x(), sample.y(),
+                    sample.width(), sample.height());
+                if (!scaled.isNull()) {
+                    const QImage fitted = scaled.scaled(
+                        w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                    QPainter p(&out);
+                    p.drawImage(
+                        QPointF((w - fitted.width()) / 2.0,
+                                (h - fitted.height()) / 2.0),
+                        fitted);
+                    p.end();
+                }
+            }
+        }
+    }
+
+    cache.img = out;
+    cache.gen = m_keyframeThumbGen;
+
+    const int copyH = qMin(h, out.height());
+    for (int y = 0; y < copyH; ++y) {
+        memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+               out.constScanLine(y), size_t(w) * 4);
+    }
     return true;
 }

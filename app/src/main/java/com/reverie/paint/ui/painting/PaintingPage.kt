@@ -1324,12 +1324,18 @@ fun PaintingPage(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.BottomCenter),
         )
-        // ---- 动画时间轴面板 (仅动画画布, 可展开收起 / 缩放平移) ----
+        // ---- 动画时间轴面板 (仅动画画布): 左下角, 紧贴左侧滑块工具条右侧,
+        //      无圆角, 与工具条同底融合; 可展开收起 / 缩放平移 ----
         AnimatedVisibility(
             visible = vm.anim.enabled && vm.anim.panelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
-            modifier = Modifier.align(Alignment.BottomCenter).zIndex(20f),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 36.dp) // 避开左侧滑块工具条 (36dp 宽)
+                    .fillMaxWidth()
+                    .zIndex(20f),
         ) {
             AnimationTimelinePanel(vm = vm, hazeState = hazeState)
         }

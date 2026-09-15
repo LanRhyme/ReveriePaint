@@ -232,6 +232,19 @@ public:
     // 一拍N (选中帧版): 只重排选中的帧, 区间内未选中帧保持原间距整体后移
     bool setSelectedKeyframesDuration(int layerIndex, const QVector<int> &selectedTimes, int duration);
 
+    // 把 [time] 位置关键帧的画面渲染成缩略图 (RGBA, w*h*4 字节, 行跨距 dstStride)。
+    // 与 renderLayerThumb 的区别: 后者总是画图层的"当前"内容, 而时间轴需要
+    // 让每个帧块显示它自己那一帧。实现走 KisRasterKeyframeChannel::writeToDevice
+    // 把目标帧拷进一块临时设备再缩放, **不改变文档的 currentTime**, 因此
+    // 不会让画布跳帧, 也不需要额外的同步/还原步骤。
+    // time < 0 或该位置无关键帧时回退到当前帧内容。
+    bool renderKeyframeThumb(int layerIndex, int time, int w, int h, void *dstPixels, int dstStride);
+
+    // 帧缩略图缓存代际自增: 笔画落笔 / 关键帧增删改后调用, 使 UI 侧
+    // (layerIndex, time) 缓存整体失效。
+    quint64 keyframeThumbGen() const { return m_keyframeThumbGen; }
+    void bumpKeyframeThumbGen() { ++m_keyframeThumbGen; }
+
     // Filters (interactive preview & commit, single & multi-layer)
     void applyFilter(int index, int filterId);
     void applyFilterMulti(const QVector<int> &indices, int filterId);
@@ -591,6 +604,15 @@ private:
         QRect bounds;
     };
     QHash<KisNode *, ThumbCache> m_thumbCache;
+    // 帧缩略图 (时间轴专用): 每次 renderKeyframeThumb 都可能换一块目标帧,
+    // 因此缓存键含帧号, 且用代际号整体失效 (笔画/关键帧变更时自增),
+    // 避免逐帧比较内容变化。
+    struct KeyframeThumbCache {
+        quint64 gen = 0;
+        QImage img;
+    };
+    QHash<quint64, KeyframeThumbCache> m_keyframeThumbCache;
+    quint64 m_keyframeThumbGen = 1;
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;

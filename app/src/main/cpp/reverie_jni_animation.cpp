@@ -7,6 +7,8 @@
 
 #include <jni.h>
 
+#include <android/bitmap.h>
+
 #include <QVector>
 
 #include "ReverieCore.h"
@@ -200,6 +202,39 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setSelectedKeyframesDuration(
     }
 
     return core()->setSelectedKeyframesDuration(layerIndex, times, duration) ? JNI_TRUE : JNI_FALSE;
+}
+
+// ============================================================
+// 帧缩略图
+// ============================================================
+
+// 把图层 [layerIndex] 在 [time] 处的关键帧画面渲染进 Bitmap。走
+// writeToDevice 拷帧, 不改变文档 currentTime。
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderKeyframeThumb(
+    JNIEnv *env, jobject, jint layerIndex, jint time, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    const bool ok = core()->renderKeyframeThumb(
+        layerIndex, time, info.width, info.height, pixels, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// 帧缩略图缓存代际: UI 侧用它判断自己的 (图层, 帧号) 缓存是否整体过期。
+JNIEXPORT jlong JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_keyframeThumbGen(JNIEnv *, jobject)
+{
+    return jlong(core()->keyframeThumbGen());
 }
 
 } // extern "C"

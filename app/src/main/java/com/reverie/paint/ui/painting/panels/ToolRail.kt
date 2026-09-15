@@ -43,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
@@ -214,6 +215,7 @@ fun ToolRail(
             Column(
                 modifier = Modifier
                     .width(36.dp)
+                    .onSizeChanged { vm.railSliderPanelHeightPx = it.height.toFloat() }
                     .shadow(10.dp, lowerShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(lowerShape)
                     .then(

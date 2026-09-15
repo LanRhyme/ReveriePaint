@@ -257,7 +257,18 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                         null
                     }
                 recorder.beginSession(coreW, coreH, file, recSessionDir(), priorRec)
-                android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, nativeLayers=${ReverieCoreBridge.layerCount()}")
+                // 打开的工程可能是动画工程 (KRA/REVP 内已存有关键帧通道)。这里在
+                // 渲染线程上补同步一次动画状态, 并让时间轴自动展开 —— 否则用户
+                // 重新打开逐帧工程时会看不到任何帧的证据, 以为帧全丢了。
+                val animated = ReverieCoreBridge.animationEnabled()
+                if (animated) {
+                    syncAnimationFromNative()
+                }
+                mainHandler.post {
+                    anim.enabled = animated
+                    anim.panelOpen = animated
+                }
+                android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, nativeLayers=${ReverieCoreBridge.layerCount()}, animated=$animated")
             } else {
                 android.util.Log.e("RP_IO", "loadProject OP FAILED for ${file.absolutePath}")
             }

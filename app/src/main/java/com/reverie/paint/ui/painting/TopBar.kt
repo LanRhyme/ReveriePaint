@@ -76,6 +76,16 @@ fun TopBar(
     ) {
         ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
         ReIconButton(R.drawable.ic_redo, "重做", onRedo)
+        // 动画画布才显示: 展开/收起底部时间轴面板
+        // 用 ic_clock 而不是 ic_layers —— 后者与下面的"图层"按钮撞图标
+        if (vm.anim.enabled) {
+            ReIconButton(
+                R.drawable.ic_clock,
+                if (vm.anim.panelOpen) "收起时间轴" else "展开时间轴",
+                { vm.anim.panelOpen = !vm.anim.panelOpen },
+                selected = vm.anim.panelOpen,
+            )
+        }
         ReIconButton(R.drawable.ic_layers, "图层", onLayers)
         ReIconButton(R.drawable.ic_settings, "设置", onSettings)
         ReIconButton(R.drawable.ic_x, "关闭", onBack) // Moved to the right

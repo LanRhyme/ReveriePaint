@@ -629,6 +629,9 @@ class PaintViewModel : ViewModel() {
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
+
+    /** 左侧工具条滑块面板的实时高度 (px), 由 ToolRail 测量写入; 时间轴"展开至同高"对齐用 */
+    var railSliderPanelHeightPx by mutableFloatStateOf(0f)
     var extendToCutout by mutableStateOf(true)
     var homeSelectedTab by mutableIntStateOf(0)
 

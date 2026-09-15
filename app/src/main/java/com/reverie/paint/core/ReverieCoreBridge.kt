@@ -228,6 +228,19 @@ object ReverieCoreBridge {
         duration: Int,
     ): Boolean
 
+    /**
+     * 把图层 [layerIndex] 在 [time] 处的关键帧画面渲染进 [bitmap] (时间轴帧块缩略图)。
+     * 引擎侧走 writeToDevice 拷帧, 不改变文档 currentTime, 画布不会跳帧。
+     */
+    external fun renderKeyframeThumb(
+        layerIndex: Int,
+        time: Int,
+        bitmap: Bitmap,
+    ): Boolean
+
+    /** 帧缩略图缓存代际: 变化即表示 UI 侧 (图层, 帧号) 缓存整体过期。 */
+    external fun keyframeThumbGen(): Long
+
     external fun setToolMode(mode: Int)
 
     external fun drawPolygon(
