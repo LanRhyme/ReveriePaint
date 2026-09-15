@@ -26,6 +26,8 @@ class SamsungStylusAdapter : StylusBrandAdapter {
     private var lastButtonReleaseTime: Long = 0L
     private var isButtonCurrentlyDown: Boolean = false
     private var buttonClickCount: Int = 0
+    // Samsung Notes 语义: 侧键按住期间发生过落笔(临时橡皮笔画), 松键时不触发单击/长按动作
+    private var strokeHappenedSincePress: Boolean = false
     private var pendingSingleClickRunnable: Runnable? = null
     private val handler = Handler(Looper.getMainLooper())
 
@@ -78,39 +80,81 @@ class SamsungStylusAdapter : StylusBrandAdapter {
         if (isPrimaryBtnDown && !isButtonCurrentlyDown) {
             isButtonCurrentlyDown = true
             lastButtonDownTime = now
+            strokeHappenedSincePress = false
+            return false
+        } else if (isPrimaryBtnDown && isButtonCurrentlyDown) {
+            // 侧键按住期间笔尖接触屏幕: 该笔是临时橡皮, 松键不应再触发动作
+            val action = event.actionMasked
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                strokeHappenedSincePress = true
+            }
             return false
         } else if (!isPrimaryBtnDown && isButtonCurrentlyDown) {
-            isButtonCurrentlyDown = false
-            val pressDuration = now - lastButtonDownTime
-            val timeSinceLastRelease = now - lastButtonReleaseTime
-            lastButtonReleaseTime = now
-
-            if (pressDuration > 450L) {
-                pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
-                pendingSingleClickRunnable = null
-                buttonClickCount = 0
-                return handleLongPress(vm, feedbackManager)
-            }
-
-            if (timeSinceLastRelease < 320L) {
-                pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
-                pendingSingleClickRunnable = null
-                buttonClickCount = 0
-                return handleDoubleClick(vm, feedbackManager)
-            } else {
-                buttonClickCount = 1
-                pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
-                val runnable = Runnable {
-                    if (buttonClickCount == 1) {
-                        buttonClickCount = 0
-                        handleSingleClick(vm, feedbackManager)
-                    }
-                }
-                pendingSingleClickRunnable = runnable
-                handler.postDelayed(runnable, 280L)
-            }
+            return onSideButtonReleased(now, vm, feedbackManager)
         }
         return false
+    }
+
+    /**
+     * Shared release-edge handling for the S Pen side button: classifies the press as
+     * long-press / double-click / single-click and dispatches the configured action.
+     * Called from both the touch/hover motion path and the hover-exit reset path.
+     */
+    private fun onSideButtonReleased(
+        now: Long,
+        vm: PaintViewModel,
+        feedbackManager: StylusFeedbackManager,
+    ): Boolean {
+        isButtonCurrentlyDown = false
+        val pressDuration = now - lastButtonDownTime
+        val timeSinceLastRelease = now - lastButtonReleaseTime
+        lastButtonReleaseTime = now
+
+        // 按住侧键画过临时橡皮笔画: 抑制动作 (Samsung Notes 标准行为)
+        if (strokeHappenedSincePress) {
+            strokeHappenedSincePress = false
+            pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
+            pendingSingleClickRunnable = null
+            buttonClickCount = 0
+            return false
+        }
+
+        if (pressDuration > 450L) {
+            pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
+            pendingSingleClickRunnable = null
+            buttonClickCount = 0
+            return handleLongPress(vm, feedbackManager)
+        }
+
+        if (timeSinceLastRelease < 320L) {
+            pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
+            pendingSingleClickRunnable = null
+            buttonClickCount = 0
+            return handleDoubleClick(vm, feedbackManager)
+        } else {
+            buttonClickCount = 1
+            pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
+            val runnable = Runnable {
+                if (buttonClickCount == 1) {
+                    buttonClickCount = 0
+                    handleSingleClick(vm, feedbackManager)
+                }
+            }
+            pendingSingleClickRunnable = runnable
+            handler.postDelayed(runnable, 280L)
+        }
+        return false
+    }
+
+    /**
+     * S Pen left the hover field while the side button was tracked as down
+     * (e.g. user pressed the button in mid-air and pulled the pen away).
+     * Flush the pending press so the state machine does not stay latched.
+     */
+    override fun onStylusHoverExited(vm: PaintViewModel, feedbackManager: StylusFeedbackManager) {
+        if (isButtonCurrentlyDown) {
+            onSideButtonReleased(SystemClock.uptimeMillis(), vm, feedbackManager)
+        }
     }
 
     override fun onStylusKeyEvent(

@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Brush
 import androidx.compose.material.icons.rounded.ControlCamera
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.Text
@@ -66,7 +65,6 @@ internal fun StylusSettingsSubPage(
 
     val cursorModeOptions = listOf("不显示", "绘画时显示", "悬空显示", "绘画和悬空显示")
     val cursorStyleOptions = listOf("圆形", "十字准星", "点", "无", "系统指针", "圆+十字准星")
-    val audioTypeOptions = listOf("铅笔沙沙 (细腻磨砂)", "钢笔划纸 (清脆微响)", "系统微触音 (极简轻触)")
 
     Column(
         modifier = Modifier
@@ -140,34 +138,23 @@ internal fun StylusSettingsSubPage(
             // 2. 真实书写音效
             SettingCategoryTitle("真实书写音效")
             SettingGroup {
-                val audioTotal = if (vm.stylusAudioEnabled) 3 else 1
+                val audioTotal = if (vm.stylusAudioEnabled) 2 else 1
                 SettingSwitchGroupItem(
                     icon = Icons.AutoMirrored.Rounded.VolumeUp,
                     title = "纸张微摩擦音效",
-                    summary = "落笔与运笔时模拟真实笔尖在纸张上的微摩擦发声，营造沉浸式触感体验",
+                    summary = "落笔与运笔时模拟真实笔尖在纸张上的微摩擦发声，随笔速变化，营造沉浸式触感体验",
                     checked = vm.stylusAudioEnabled,
                     shape = settingGroupShape(0, audioTotal),
                     onCheckedChange = { vm.updateStylusAudioEnabled(it) },
                 )
                 if (vm.stylusAudioEnabled) {
-                    SettingDropdownGroupItem(
-                        icon = Icons.Rounded.MusicNote,
-                        title = "音效类型",
-                        summary = "不同真实笔尖与纸张材质微触质感",
-                        currentText = audioTypeOptions.getOrElse(vm.stylusAudioTypeOrdinal) { "铅笔沙沙 (细腻磨砂)" },
-                        options = audioTypeOptions,
-                        shape = settingGroupShape(1, audioTotal),
-                        onSelect = { idx ->
-                            vm.updateStylusAudioTypeOrdinal(idx)
-                        },
-                    )
                     SettingSliderGroupItem(
                         icon = Icons.AutoMirrored.Rounded.VolumeDown,
                         title = "音效音量",
                         summary = "纸张微摩擦声播放音量",
                         valueText = "${(vm.stylusAudioVolume * 100).toInt()}%",
                         sliderFraction = vm.stylusAudioVolume,
-                        shape = settingGroupShape(2, audioTotal),
+                        shape = settingGroupShape(1, audioTotal),
                         onValueChange = { vm.updateStylusAudioVolume(it) },
                     )
                 }

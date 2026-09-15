@@ -48,7 +48,7 @@ class StylusDriver(
         feedbackManager.inPenHaptics = vm.oppoInPenHapticsEnabled && vm.oppoPencilModel.hasInPenHaptics
         feedbackManager.audioEnabled = vm.stylusAudioEnabled
         feedbackManager.audioVolume = vm.stylusAudioVolume
-        feedbackManager.audioType = StylusAudioType.fromOrdinal(vm.stylusAudioTypeOrdinal)
+        feedbackManager.syncAudioConfig()
         feedbackManager.setWritingHapticsEnabled(false)
 
         adapters.forEach { it.syncSettings(vm, feedbackManager) }
@@ -103,6 +103,28 @@ class StylusDriver(
             }
         }
         return false
+    }
+
+    /**
+     * Notifies adapters that the stylus left the hover field, so button state
+     * tracked across hover events (e.g. S Pen side button) is reset safely.
+     */
+    fun onStylusHoverExited() {
+        for (adapter in adapters) {
+            adapter.onStylusHoverExited(vm, feedbackManager)
+        }
+    }
+
+    /**
+     * Samsung Notes standard semantics: holding the side button while the pen
+     * touches down turns that stroke into a temporary eraser stroke.
+     * Hot-path safe: two bitmask reads, no allocation.
+     */
+    fun isSideButtonEraseActive(event: MotionEvent): Boolean {
+        if (!vm.samsungSideButtonErase) return false
+        val btn = event.buttonState
+        return (btn and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
+                (btn and MotionEvent.BUTTON_SECONDARY) != 0
     }
 
     /**

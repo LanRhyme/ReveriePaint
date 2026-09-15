@@ -677,8 +677,9 @@ class PaintViewModel : ViewModel() {
     var stylusHapticsIntensity by mutableFloatStateOf(0.5f)
     var stylusAudioEnabled by mutableStateOf(false)
     var stylusAudioVolume by mutableFloatStateOf(0.6f)
-    var stylusAudioTypeOrdinal by mutableIntStateOf(0)
     var stylusStrokePredictionEnabled by mutableStateOf(true)
+    // Samsung Notes 标准语义: 按住侧键落笔 = 临时橡皮 (默认开, 可在三星 S Pen 专属设置中关闭)
+    var samsungSideButtonErase by mutableStateOf(true)
     var samsungSingleClickAction by mutableStateOf("toggle_eraser")
     var samsungDoubleClickAction by mutableStateOf("undo")
     var samsungLongPressAction by mutableStateOf("tool_picker")
@@ -1202,6 +1203,8 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusAudioEnabled", enabled).apply()
+            // 设置面板可能在绘画页内打开: 即时同步引擎, 否则音量/开关要到重进绘画页才生效
+            getOrCreateStylusDriver(appContext).syncSettings()
         }
     }
 
@@ -1210,14 +1213,7 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putFloat("stylusAudioVolume", volume).apply()
-        }
-    }
-
-    fun updateStylusAudioTypeOrdinal(ordinal: Int) {
-        stylusAudioTypeOrdinal = ordinal
-        if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("stylusAudioTypeOrdinal", ordinal).apply()
+            getOrCreateStylusDriver(appContext).syncSettings()
         }
     }
 
@@ -1227,6 +1223,14 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
+        }
+    }
+
+    fun updateSamsungSideButtonErase(enabled: Boolean) {
+        samsungSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("samsungSideButtonErase", enabled).apply()
         }
     }
 
@@ -1572,7 +1576,8 @@ class PaintViewModel : ViewModel() {
             stylusHapticsIntensity = prefs.getFloat("stylusHapticsIntensity", 0.5f)
             stylusAudioEnabled = prefs.getBoolean("stylusAudioEnabled", false)
             stylusAudioVolume = prefs.getFloat("stylusAudioVolume", 0.6f)
-            stylusAudioTypeOrdinal = prefs.getInt("stylusAudioTypeOrdinal", 0)
+            // 音效类型设置已移除, 统一为程序化铅笔沙沙音色 (忽略历史存储值)
+            samsungSideButtonErase = prefs.getBoolean("samsungSideButtonErase", true)
             stylusStrokePredictionEnabled = prefs.getBoolean("stylusStrokePredictionEnabled", true)
             motionPredictorEnabled = stylusStrokePredictionEnabled
             samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"

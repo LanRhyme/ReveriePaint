@@ -101,6 +101,18 @@ internal fun SamsungStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
+                SettingCategoryHeader("侧键行为")
+                GroupedSettingsCard(containerColor = colors.panelHi) {
+                    SettingSwitchRow(
+                        title = "按住侧键切换橡皮",
+                        summary = "Samsung Notes 标准语义：落笔前或运笔中按住侧键，该笔画自动变为橡皮擦，抬笔恢复原工具",
+                        checked = vm.samsungSideButtonErase,
+                        onCheckedChange = { vm.updateSamsungSideButtonErase(it) },
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 SettingCategoryHeader("侧键动作映射")
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     val singleClickTitle = actionOptions.find { it.second == vm.samsungSingleClickAction }?.first ?: "切换画笔与橡皮"
@@ -132,27 +144,6 @@ internal fun SamsungStylusConfigDialog(
                             vm.updateSamsungLongPressAction(actionOptions[idx].second)
                         },
                     )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                SettingCategoryHeader("触觉与微震")
-                GroupedSettingsCard(containerColor = colors.panelHi) {
-                    SettingSwitchRow(
-                        title = "笔尖书写微震",
-                        summary = "运笔时线性振动马达提供沙沙质感",
-                        checked = vm.stylusHapticsEnabled,
-                        onCheckedChange = { vm.updateStylusHapticsEnabled(it) },
-                    )
-                    if (vm.stylusHapticsEnabled) {
-                        SettingsCardDivider()
-                        SettingSliderRow(
-                            title = "微震强度",
-                            summary = "${(vm.stylusHapticsIntensity * 100).toInt()}%",
-                            value = vm.stylusHapticsIntensity,
-                            onValueChange = { vm.updateStylusHapticsIntensity(it) },
-                        )
-                    }
                 }
 
                 Spacer(Modifier.height(18.dp))

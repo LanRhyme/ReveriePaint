@@ -38,6 +38,39 @@ class StylusFeedbackManager(private val context: Context) {
     val ocsClient: OppoOcsStylusClient = OppoOcsStylusClient.getInstance(context)
     private var isWritingHapticsActive = false
 
+    /** Procedural paper-friction writing sound (see [PaperSoundEngine]). */
+    val paperSound = PaperSoundEngine()
+
+    init {
+        paperSound.start()
+    }
+
+    /** Sync audio config from StylusDriver.syncSettings mirrors. */
+    fun syncAudioConfig() {
+        paperSound.configure(audioEnabled, audioVolume, audioType)
+    }
+
+    /**
+     * Begin paper friction sound at stroke start (non-blocking, zero allocation).
+     * @param isEraser slightly quiets the texture for eraser strokes.
+     */
+    fun startStrokeSound(isEraser: Boolean) {
+        paperSound.startStroke(isEraser)
+    }
+
+    /**
+     * Update friction loudness from stroke speed (px/ms in document space).
+     * Non-blocking, zero allocation: single volatile write.
+     */
+    fun updateStrokeSound(speedPxPerMs: Float) {
+        paperSound.updateStroke(speedPxPerMs)
+    }
+
+    /** Fade out friction sound on stroke end / cancel. */
+    fun stopStrokeSound() {
+        paperSound.stopStroke()
+    }
+
     /**
      * Controls physical in-pen haptic micro-vibrations via ColorOS OCS AIDL.
      * When enabled on touchdown, triggers continuous in-pen micro-vibration;
@@ -54,11 +87,11 @@ class StylusFeedbackManager(private val context: Context) {
 
         if (enabled) {
             val vType = if (isEraser) OppoOcsStylusClient.VIBRATION_TYPE_ERASER else OppoOcsStylusClient.VIBRATION_TYPE_PENCIL
+            // 仅 OPPO Pro 笔身硬件微震 (ColorOS OCS); 无硬件时静默 —— 书写过程不再触发
+            // 平板马达震动 (S Pen 等设备笔身无马达, 用户已确认移除书写震动)
             if (ocsClient.isAvailable) {
                 ocsClient.setVibrationType(vType)
                 ocsClient.startFeedBackVibration()
-            } else {
-                triggerStrokeStartTick()
             }
             isWritingHapticsActive = true
         } else {
@@ -90,26 +123,9 @@ class StylusFeedbackManager(private val context: Context) {
         } catch (_: Throwable) {}
     }
 
-    /**
-     * Subtle tick feedback on stroke start when hardware in-pen haptics is not available.
-     */
-    fun triggerStrokeStartTick() {
-        if (!hapticsEnabled) return
-        if (isWritingHapticsActive) return // Hardware in-pen vibration already handling this
-        try {
-            val vib = vibrator ?: return
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val amp = (hapticsIntensity * 180).toInt().coerceIn(1, 255)
-                vib.vibrate(VibrationEffect.createOneShot(12L, amp))
-            } else {
-                @Suppress("DEPRECATION")
-                vib.vibrate(12L)
-            }
-        } catch (_: Throwable) {}
-    }
-
     fun release() {
         setWritingHapticsEnabled(false)
+        paperSound.release()
         ocsClient.release()
     }
 }

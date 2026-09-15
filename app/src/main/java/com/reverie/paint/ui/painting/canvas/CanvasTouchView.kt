@@ -54,6 +54,20 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private var cachedDriver: com.reverie.paint.core.stylus.StylusDriver? = null
 
+    // S Pen 悬停期间侧键状态追踪: 仅在按钮按下/释放边沿把 hover 事件喂给驱动层,
+    // 避免每次悬停移动都走按钮状态机 (热路径零分配: 只做位比较, 无对象创建)。
+    private var lastHoverButtonState = 0
+
+    // 纸张摩擦音效的速度追踪 (文档坐标); lastSoundTimeMs == 0L 表示笔画尚无历史点
+    private var lastSoundDocPos = Offset.Zero
+    private var lastSoundTimeMs = 0L
+
+    // 侧键按住=临时橡皮 (Samsung Notes 语义): 仅在笔接触的事件流中更新, 抬笔后由下一次落笔重判
+    private var tempEraseActive = false
+
+    /** 绘画路径的生效工具: 侧键按住时强制橡皮, 其余时刻跟随 UI 工具。 */
+    private fun effTool(): Tool = if (tempEraseActive) Tool.ERASER else tool
+
     private fun getOrCreateStylusDriver(): com.reverie.paint.core.stylus.StylusDriver? {
         val cached = cachedDriver
         if (cached != null) return cached
@@ -914,6 +928,14 @@ class CanvasTouchView(context: Context) : View(context) {
                 localPressure = 1f
                 invalidate()
 
+                // S Pen 悬空侧键: 按下/释放边沿时把事件交给驱动层状态机
+                // (悬停事件默认只更新光标, 从未到达 SamsungStylusAdapter, 导致悬空侧键动作失效)
+                val hoverButton = event.buttonState
+                if (hoverButton != 0 || lastHoverButtonState != 0) {
+                    getOrCreateStylusDriver()?.onStylusMotionEvent(event)
+                }
+                lastHoverButtonState = hoverButton
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
                         systemNullPointer
@@ -927,6 +949,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
+                // 侧键仍被追踪为按下时笔已离开悬停场: 通知驱动层冲销挂起的按压
+                if (lastHoverButtonState != 0) {
+                    getOrCreateStylusDriver()?.onStylusHoverExited()
+                    lastHoverButtonState = 0
+                }
                 localIsHovering = false
                 localIsTouching = false
                 localCursorPos = null
@@ -955,6 +982,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 localIsHovering = !overUi
                 localIsTouching = false
                 invalidate()
+
+                // 与 onHoverEvent 一致: 悬空侧键边沿接入驱动层 (部分 ROM 从此路径派发悬停)
+                val hoverButton = event.buttonState
+                if (hoverButton != 0 || lastHoverButtonState != 0) {
+                    getOrCreateStylusDriver()?.onStylusMotionEvent(event)
+                }
+                lastHoverButtonState = hoverButton
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     val v = vm
                     val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
@@ -1010,6 +1044,13 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 手写笔触控判定：存在手写笔 Pointer 且没有 2 根及以上手指在做手势导航
         val isStylusTouch = stylusPointerIndex >= 0 && fingerCount < 2
+
+        // 侧键按住=临时橡皮 (Samsung Notes 语义): 每个笔接触事件重判, 纯手指路径清残留
+        if (isStylusTouch) {
+            tempEraseActive = getOrCreateStylusDriver()?.isSideButtonEraseActive(event) == true
+        } else if (fingerCount > 0) {
+            tempEraseActive = false
+        }
 
         // =========================================================
         // 滤镜调节模式手势交互 (单指/笔横划调节参数，长按对比原图；双指保留视口变换)
@@ -1588,7 +1629,8 @@ class CanvasTouchView(context: Context) : View(context) {
     private fun handleToolDown(screenPos: Offset, docPos: Offset, pressure: Float, isStylus: Boolean) {
         val v = vm ?: return
         val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
-        val isDrawingTool = tool.group == ToolGroup.BRUSH || tool.group == ToolGroup.FILL || tool.group == ToolGroup.SHAPES
+        val t = effTool()
+        val isDrawingTool = t.group == ToolGroup.BRUSH || t.group == ToolGroup.FILL || t.group == ToolGroup.SHAPES
 
         if (activeLayer?.isGroup == true && isDrawingTool) {
             v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
@@ -1603,7 +1645,7 @@ class CanvasTouchView(context: Context) : View(context) {
             return
         }
 
-        when (tool) {
+        when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 if (hasSymmetry) {
@@ -1613,9 +1655,14 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 smoothedPressure = pressure
                 if (isStylus) {
-                    getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (tool == Tool.ERASER))
+                    getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+                if (strokeStarted) {
+                    // 纸张摩擦音效: 落笔起振 (橡皮稍收音量)
+                    getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
+                    lastSoundTimeMs = 0L
+                }
                 val isAssist = hasSymmetry || (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
                 val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
 
@@ -1813,12 +1860,17 @@ class CanvasTouchView(context: Context) : View(context) {
             return
         }
 
-        when (tool) {
+        when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 if (!strokeStarted) {
                     strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
                     if (strokeStarted && isStylus) {
-                        getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (tool == Tool.ERASER))
+                        getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
+                    }
+                    if (strokeStarted) {
+                        // 迟到的笔画起点 (首帧被历史点吞掉): 补启摩擦音效
+                        getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
+                        lastSoundTimeMs = 0L
                     }
                 }
                 if (!strokeStarted) return
@@ -1843,6 +1895,18 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime)
+
+                // 纸张摩擦音效: 按文档坐标瞬时速度调制增益 (零分配, 单次 volatile 写)
+                val soundDt = event.eventTime - lastSoundTimeMs
+                if (lastSoundTimeMs != 0L && soundDt > 0) {
+                    val sdx = effectiveDocPos.x - lastSoundDocPos.x
+                    val sdy = effectiveDocPos.y - lastSoundDocPos.y
+                    val speedPxPerMs = kotlin.math.sqrt(sdx * sdx + sdy * sdy) / soundDt
+                    getOrCreateStylusDriver()?.feedbackManager?.updateStrokeSound(speedPxPerMs)
+                }
+                lastSoundDocPos = effectiveDocPos
+                lastSoundTimeMs = event.eventTime
+
                 if (hasSymmetry) {
                     val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                     for (idx in symPts.indices) {
@@ -2070,11 +2134,12 @@ class CanvasTouchView(context: Context) : View(context) {
             return
         }
 
-        when (tool) {
+        when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 if (strokeStarted) {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                    cachedDriver?.feedbackManager?.stopStrokeSound()
                     if (isCancel) {
                         v.touchCancel()
                         if (hasSymmetry) {

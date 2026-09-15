@@ -58,6 +58,13 @@ interface StylusBrandAdapter {
     ): Boolean = false
 
     /**
+     * Notifies the adapter that the stylus left the hover field (ACTION_HOVER_EXIT).
+     * Adapters tracking side-button state across hover events must reset it here,
+     * otherwise a button held down during exit stays latched until the next hover move.
+     */
+    fun onStylusHoverExited(vm: PaintViewModel, feedbackManager: StylusFeedbackManager) {}
+
+    /**
      * Intercept or process generic motion events (e.g. ACTION_SCROLL barrel slide).
      * @return true if consumed.
      */
