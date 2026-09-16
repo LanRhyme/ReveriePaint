@@ -67,6 +67,9 @@ internal class AnimationState {
     /** 时间轴上多选的帧号 */
     var selectedFrames by mutableStateOf<Set<Int>>(emptySet())
 
+    /** 是否开启多选模式 */
+    var isMultiSelectMode by mutableStateOf(false)
+
     /**
      * 时间轴视图: 每帧像素宽 (缩放)。
      * 默认 160px (即 UI 侧的最小帧宽): 帧格要容纳缩略图, 太小不可辨。
@@ -263,7 +266,9 @@ internal fun PaintViewModel.animationSeek(
     runCore(
         after = {
             anim.currentTime = t
-            anim.selectedFrames = emptySet()
+            if (!anim.isMultiSelectMode) {
+                anim.selectedFrames = emptySet()
+            }
         },
     ) {
         ReverieCoreBridge.setAnimationCurrentTime(t, recordUndo)
@@ -751,6 +756,269 @@ internal fun PaintViewModel.animationSetSelectedDuration(
     val times = selected.toIntArray()
     runCore(after = { syncAnimationFromNativeAfter() }) {
         ReverieCoreBridge.setSelectedKeyframesDuration(layerIndex, times, duration)
+    }
+}
+
+// ============================================================
+// 多选与推挤 (Ripple) 批处理
+// ============================================================
+
+/** 切换单帧的多选选中状态 */
+internal fun PaintViewModel.animationToggleFrameSelection(time: Int) {
+    val cur = anim.selectedFrames
+    anim.selectedFrames = if (cur.contains(time)) cur - time else cur + time
+}
+
+/** 全选当前轨道的所有关键帧 */
+internal fun PaintViewModel.animationSelectAllFrames(layerIndex: Int = selectedTrackIndex()) {
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    anim.selectedFrames = times.toSet()
+}
+
+/** 清空当前多选选区 */
+internal fun PaintViewModel.animationClearSelectedFrames() {
+    anim.selectedFrames = emptySet()
+}
+
+/** 反选当前轨道的所有关键帧 */
+internal fun PaintViewModel.animationInvertSelectedFrames(layerIndex: Int = selectedTrackIndex()) {
+    val all = anim.keyframeCache[layerIndex].orEmpty().toSet()
+    anim.selectedFrames = all - anim.selectedFrames
+}
+
+/**
+ * 事务性重排一组关键帧, 采用全局停放区两阶段搬移保证不发生自覆盖或碰撞丢失,
+ * 并以 [macroName] 打包为一个单步撤销。
+ */
+internal fun PaintViewModel.rearrangeKeyframesMacro(
+    layerIndex: Int,
+    oldTimes: List<Int>,
+    newTimes: List<Int>,
+    macroName: String = "重排关键帧",
+    after: () -> Unit = {},
+) {
+    if (layerIndex < 0 || oldTimes.size != newTimes.size || oldTimes.isEmpty()) return
+    val moves = oldTimes.indices.filter { oldTimes[it] != newTimes[it] }
+    if (moves.isEmpty()) {
+        after()
+        return
+    }
+
+    runCore(after = {
+        syncAnimationFromNativeAfter()
+        after()
+    }) {
+        ReverieCoreBridge.beginUndoMacro(macroName)
+        try {
+            val maxT = maxOf((oldTimes + newTimes).maxOrNull() ?: 0, 1000)
+            val parkingBase = maxT + 10000
+
+            // Phase 1: 将待移动帧移入停放区 (原槽位腾空)
+            for (idx in moves) {
+                ReverieCoreBridge.moveKeyframe(layerIndex, oldTimes[idx], parkingBase + idx)
+            }
+            // Phase 2: 将停放区的帧搬入新位置 (目标槽位此时均为空槽)
+            for (idx in moves) {
+                ReverieCoreBridge.moveKeyframe(layerIndex, parkingBase + idx, newTimes[idx])
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
+/**
+ * 推挤调整单帧曝光时长 (Hold 长度):
+ * 当前帧从 [frameTime] 起持续 [newSpan] 帧, 其后所有关键帧顺延推挤 (Ripple)。
+ */
+internal fun PaintViewModel.animationRippleResizeFrame(
+    layerIndex: Int,
+    frameTime: Int,
+    newSpan: Int,
+) {
+    if (layerIndex < 0 || newSpan < 1) return
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    val idx = times.indexOf(frameTime)
+    if (idx < 0) return
+
+    val curSpan = if (idx + 1 < times.size) times[idx + 1] - times[idx] else 1
+    val delta = newSpan - curSpan
+    if (delta == 0) return
+
+    val newTimes = times.toMutableList()
+    for (i in (idx + 1) until times.size) {
+        newTimes[i] = times[i] + delta
+    }
+
+    rearrangeKeyframesMacro(layerIndex, times, newTimes, "调整帧曝光")
+}
+
+/**
+ * 单帧拖拽推挤插入 (Ripple Insert):
+ * 将 [fromTime] 处的关键帧插入到 [toTime] 槽位, 其余帧保持原曝光时长并向两侧动态顺延避让。
+ */
+internal fun PaintViewModel.animationRippleMoveFrame(
+    layerIndex: Int,
+    fromTime: Int,
+    toTime: Int,
+) {
+    if (layerIndex < 0 || fromTime == toTime || toTime < 0) return
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    val fromIdx = times.indexOf(fromTime)
+    if (fromIdx < 0) return
+
+    // 提取每个块的曝光跨度
+    val spans = times.indices.map { i ->
+        if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else 1
+    }
+
+    // 组装块结构
+    data class Block(val origTime: Int, val span: Int)
+    val blocks = times.indices.map { Block(times[it], spans[it]) }.toMutableList()
+    val movingBlock = blocks.removeAt(fromIdx)
+
+    // 寻找插入点: 根据 toTime 落在原序列的哪两个块之间
+    var insertIdx = blocks.size
+    for (i in blocks.indices) {
+        if (toTime <= blocks[i].origTime) {
+            insertIdx = i
+            break
+        }
+    }
+    blocks.add(insertIdx, movingBlock)
+
+    // 重新铺开新时间
+    val startT = minOf(times.firstOrNull() ?: 0, toTime)
+    val newTimes = ArrayList<Int>(blocks.size)
+    var cur = startT
+    var landingTime = toTime
+    for (b in blocks) {
+        newTimes.add(cur)
+        if (b.origTime == fromTime) {
+            landingTime = cur
+        }
+        cur += b.span
+    }
+
+    val oldTimes = blocks.map { it.origTime }
+    rearrangeKeyframesMacro(layerIndex, oldTimes, newTimes, "推挤移动帧") {
+        animationSeek(landingTime)
+    }
+}
+
+/** 批量左右平移选中的关键帧 */
+internal fun PaintViewModel.animationBatchShiftSelected(
+    layerIndex: Int,
+    delta: Int,
+) {
+    val selected = anim.selectedFrames
+    if (layerIndex < 0 || delta == 0 || selected.isEmpty()) return
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    if (times.isEmpty()) return
+
+    val minSel = selected.minOrNull() ?: 0
+    if (minSel + delta < 0) return
+
+    val newTimes = times.toMutableList()
+    if (delta > 0) {
+        for (i in times.indices.reversed()) {
+            if (selected.contains(times[i])) {
+                newTimes[i] = times[i] + delta
+            }
+        }
+        for (i in 1 until newTimes.size) {
+            if (newTimes[i] <= newTimes[i - 1]) {
+                newTimes[i] = newTimes[i - 1] + 1
+            }
+        }
+    } else {
+        for (i in times.indices) {
+            if (selected.contains(times[i])) {
+                newTimes[i] = (times[i] + delta).coerceAtLeast(0)
+            }
+        }
+        for (i in newTimes.indices.reversed()) {
+            if (i > 0 && newTimes[i - 1] >= newTimes[i]) {
+                newTimes[i - 1] = (newTimes[i] - 1).coerceAtLeast(0)
+            }
+        }
+        for (i in 1 until newTimes.size) {
+            if (newTimes[i] <= newTimes[i - 1]) {
+                newTimes[i] = newTimes[i - 1] + 1
+            }
+        }
+    }
+
+    val updatedSelected = selected.mapNotNull { oldT ->
+        val idx = times.indexOf(oldT)
+        if (idx in newTimes.indices) newTimes[idx] else null
+    }.toSet()
+
+    rearrangeKeyframesMacro(layerIndex, times, newTimes, "批量平移帧") {
+        anim.selectedFrames = updatedSelected
+    }
+}
+
+/** 批量删除选中的关键帧 */
+internal fun PaintViewModel.animationBatchDeleteSelected(
+    layerIndex: Int,
+) {
+    val selected = anim.selectedFrames
+    if (layerIndex < 0 || selected.isEmpty()) return
+
+    runCore(after = {
+        anim.selectedFrames = emptySet()
+        syncAnimationFromNativeAfter()
+    }) {
+        ReverieCoreBridge.beginUndoMacro("批量删除关键帧")
+        try {
+            for (t in selected.sortedDescending()) {
+                ReverieCoreBridge.removeKeyframe(layerIndex, t)
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
+/** 批量复制选中的关键帧 (紧接在其后追加并推挤后续帧) */
+internal fun PaintViewModel.animationBatchDuplicateSelected(
+    layerIndex: Int,
+) {
+    val selected = anim.selectedFrames.sorted()
+    if (layerIndex < 0 || selected.isEmpty()) return
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    if (times.isEmpty()) return
+
+    val lastSelected = selected.last()
+    val count = selected.size
+    val lastSelectedIdx = times.indexOf(lastSelected)
+    val spanAfter = if (lastSelectedIdx >= 0 && lastSelectedIdx + 1 < times.size) {
+        times[lastSelectedIdx + 1] - times[lastSelectedIdx]
+    } else 1
+
+    val insertBase = lastSelected + spanAfter
+    val totalSpan = (selected.last() - selected.first() + 1).coerceAtLeast(count)
+
+    runCore(after = {
+        syncAnimationFromNativeAfter()
+        val newSelected = (0 until count).map { insertBase + (selected[it] - selected.first()) }.toSet()
+        anim.selectedFrames = newSelected
+    }) {
+        ReverieCoreBridge.beginUndoMacro("批量复制关键帧")
+        try {
+            // 先将 insertBase 之后的所有原关键帧向后推挤 totalSpan 格
+            for (t in times.filter { it >= insertBase }.reversed()) {
+                ReverieCoreBridge.moveKeyframe(layerIndex, t, t + totalSpan)
+            }
+            // 逐个复制选中的帧
+            for (t in selected) {
+                val offset = t - selected.first()
+                ReverieCoreBridge.copyKeyframe(layerIndex, t, insertBase + offset)
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
     }
 }
 
