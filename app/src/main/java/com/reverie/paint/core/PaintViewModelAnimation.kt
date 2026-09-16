@@ -797,12 +797,22 @@ internal fun PaintViewModel.rearrangeKeyframesMacro(
     oldTimes: List<Int>,
     newTimes: List<Int>,
     macroName: String = "重排关键帧",
+    landingTime: Int? = null,
     after: () -> Unit = {},
 ) {
     if (layerIndex < 0 || oldTimes.size != newTimes.size || oldTimes.isEmpty()) return
     val moves = oldTimes.indices.filter { oldTimes[it] != newTimes[it] }
     if (moves.isEmpty()) {
-        after()
+        if (landingTime != null) {
+            anim.currentTime = landingTime
+            runCore(render = true, after = after) {
+                ReverieCoreBridge.setAnimationCurrentTime(landingTime, false)
+                if (!anim.isPlaying) ReverieCoreBridge.flushOnionSkinCaches()
+                syncAnimationFromNative()
+            }
+        } else {
+            after()
+        }
         return
     }
 
@@ -822,6 +832,10 @@ internal fun PaintViewModel.rearrangeKeyframesMacro(
             }
         } finally {
             ReverieCoreBridge.endUndoMacro()
+        }
+        if (landingTime != null) {
+            ReverieCoreBridge.setAnimationCurrentTime(landingTime, false)
+            if (!anim.isPlaying) ReverieCoreBridge.flushOnionSkinCaches()
         }
         syncAnimationFromNative()
     }
@@ -916,12 +930,14 @@ internal fun PaintViewModel.animationRippleMoveFrame(
         anim.frameThumbImages = newImages
     }
 
-    rearrangeKeyframesMacro(layerIndex, reorder.oldTimes, reorder.newTimes, "推挤移动帧") {
+    rearrangeKeyframesMacro(
+        layerIndex = layerIndex,
+        oldTimes = reorder.oldTimes,
+        newTimes = reorder.newTimes,
+        macroName = "推挤移动帧",
+        landingTime = reorder.landingTime,
+    ) {
         anim.currentTime = reorder.landingTime
-        runCore(render = false) {
-            ReverieCoreBridge.setAnimationCurrentTime(reorder.landingTime, false)
-            if (!anim.isPlaying) ReverieCoreBridge.flushOnionSkinCaches()
-        }
         onDone()
     }
 }
