@@ -69,5 +69,54 @@ class TimelineReorderHelperTest {
         val res = TimelineReorderHelper.computeReorderedTimes(times, fromTime = 0, targetSlot = 1)!!
         assertEquals(3, res.landingTime)
         assertEquals(listOf(0, 3, 5), res.newTimes)
+        assertEquals(1, res.newLastHold)
+    }
+
+    @Test
+    fun `drag unselected middle frame left and right accurately reorders`() {
+        // times: 0, 1, 2, 3
+        val times = listOf(0, 1, 2, 3)
+        val frameW = 100f
+
+        // 拖拽未选中的第 2 帧向左 1 格 (dragDx = -100px)
+        val layoutLeft = TimelineReorderHelper.computeDragLayout(times, fromTime = 2, dragDx = -100f, frameW = frameW)
+        assertEquals(1, layoutLeft.targetSlot)
+        assertEquals(1, layoutLeft.targetStartFrame)
+        val resLeft = TimelineReorderHelper.computeReorderedTimes(times, fromTime = 2, targetSlot = 1)!!
+        assertEquals(1, resLeft.landingTime)
+        assertEquals(listOf(0, 1, 2, 3), resLeft.newTimes)
+        assertEquals(listOf(0, 2, 1, 3), resLeft.oldTimes)
+
+        // 拖拽未选中的第 1 帧向右 2 格 (dragDx = +200px)
+        val layoutRight = TimelineReorderHelper.computeDragLayout(times, fromTime = 1, dragDx = 200f, frameW = frameW)
+        assertEquals(3, layoutRight.targetSlot)
+        assertEquals(3, layoutRight.targetStartFrame)
+        val resRight = TimelineReorderHelper.computeReorderedTimes(times, fromTime = 1, targetSlot = 3)!!
+        assertEquals(3, resRight.landingTime)
+        assertEquals(listOf(0, 1, 2, 3), resRight.newTimes)
+        assertEquals(listOf(0, 2, 3, 1), resRight.oldTimes)
+    }
+
+    @Test
+    fun `reorder preserves lastFrameHold correctly when tail frame changes`() {
+        // times: 0 (span 2), 2 (span 3), 5 (span 4), lastHold = 4
+        val times = listOf(0, 2, 5)
+        val lastHold = 4
+
+        // 将末尾帧 (fromTime = 5, span = 4) 移动到最前端 (slot 0)
+        // 此时新序列为: [5 (span 4), 0 (span 2), 2 (span 3)]
+        // 原第 2 帧 (span 3) 成为新的末尾帧，其 hold 时长应正确更新为 3
+        val resFront = TimelineReorderHelper.computeReorderedTimes(times, fromTime = 5, targetSlot = 0, lastHold = lastHold)!!
+        assertEquals(0, resFront.landingTime)
+        assertEquals(listOf(0, 4, 6), resFront.newTimes)
+        assertEquals(3, resFront.newLastHold)
+
+        // 将首帧 (fromTime = 0, span = 2) 移动到末尾 (slot 2)
+        // 此时新序列为: [2 (span 3), 5 (span 4), 0 (span 2)]
+        // 原第 0 帧 (span 2) 成为新的末尾帧，其 hold 时长应正确更新为 2
+        val resBack = TimelineReorderHelper.computeReorderedTimes(times, fromTime = 0, targetSlot = 2, lastHold = lastHold)!!
+        assertEquals(7, resBack.landingTime)
+        assertEquals(listOf(0, 3, 7), resBack.newTimes)
+        assertEquals(2, resBack.newLastHold)
     }
 }

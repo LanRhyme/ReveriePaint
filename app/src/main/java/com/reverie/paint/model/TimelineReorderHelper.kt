@@ -105,6 +105,7 @@ object TimelineReorderHelper {
         val oldTimes: List<Int>,
         val newTimes: List<Int>,
         val landingTime: Int,
+        val newLastHold: Int = 1,
     )
 
     /**
@@ -142,6 +143,7 @@ object TimelineReorderHelper {
             cur += b.span
         }
         val oldTimes = blocks.map { it.origTime }
-        return ReorderResult(oldTimes, newTimes, landingTime)
+        val newLastHold = blocks.last().span
+        return ReorderResult(oldTimes, newTimes, landingTime, newLastHold)
     }
 }

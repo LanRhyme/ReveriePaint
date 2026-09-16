@@ -930,6 +930,13 @@ internal fun PaintViewModel.animationRippleMoveFrame(
         anim.frameThumbImages = newImages
     }
 
+    // 更新末尾帧保持时长映射并确保总动画长度不被意外截断
+    anim.lastFrameHold = anim.lastFrameHold + (layerIndex to reorder.newLastHold)
+    val maxEnd = (reorder.newTimes.lastOrNull() ?: 0) + reorder.newLastHold
+    if (maxEnd > anim.length) {
+        anim.length = maxEnd
+    }
+
     rearrangeKeyframesMacro(
         layerIndex = layerIndex,
         oldTimes = reorder.oldTimes,

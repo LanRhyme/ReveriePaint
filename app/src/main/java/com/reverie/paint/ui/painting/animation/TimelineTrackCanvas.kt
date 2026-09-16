@@ -213,6 +213,7 @@ internal fun TimelineTrackArea(
     val trimHandleVisualW = with(density) { 5.dp.toPx() }
     val trimHandleRadius = with(density) { 2.5.dp.toPx() }
     val trimTouchRadius = with(density) { 22.dp.toPx() }
+    val trimOverflowRightPx = with(density) { 8.dp.toPx() }
 
     val selPop = remember { Animatable(1f) }
     val selectedKey = currentTime to vm.anim.selectedTrack
@@ -273,28 +274,29 @@ internal fun TimelineTrackArea(
                         val row = ((y + liveScroll.value) / rpx).toInt()
                         if (row !in ls.indices) return null
                         val layer = ls[row].index
+                        val activeTrack = if (vm.anim.selectedTrack >= 0) vm.anim.selectedTrack else vm.currentLayerIndex
+                        if (layer != activeTrack) return null
+
                         val times = vm.anim.keyframeCache[layer].orEmpty()
                         if (times.isEmpty()) return null
 
                         val activeTime = vm.anim.currentTime
-                        var matchedState: TrimDragState? = null
-
+                        // 严格仅允许拉伸当前处于选中/激活状态的帧 (与界面唯一绘制的 5dp 手柄视觉对应, 杜绝误匹配未选中帧块)
                         for (i in times.indices) {
                             val t = times[i]
                             val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
-                            val span = (nxt - t).coerceAtLeast(1)
-                            val rightEdgeX = hw + (t + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
-                            if (abs(x - rightEdgeX) <= trimTouchRadius) {
-                                val state = TrimDragState(layer, t, span)
-                                if (activeTime in t until nxt) {
-                                    return state
+                            if (activeTime in t until nxt) {
+                                val span = (nxt - t).coerceAtLeast(1)
+                                val rightEdgeX = hw + (t + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
+                                val touchMinX = rightEdgeX - trimTouchRadius
+                                val touchMaxX = rightEdgeX + trimOverflowRightPx
+                                if (x in touchMinX..touchMaxX) {
+                                    return TrimDragState(layer, t, span)
                                 }
-                                if (matchedState == null) {
-                                    matchedState = state
-                                }
+                                return null
                             }
                         }
-                        return matchedState
+                        return null
                     }
 
                     fun doTap(x: Float, y: Float) {
@@ -506,6 +508,11 @@ internal fun TimelineTrackArea(
                                     } else {
                                         frameMenu = null
                                         if (hitOnBlock && !vm.anim.isMultiSelectMode) {
+                                            // 切换选中图层/轨道与播放头至被拖拽的帧, 保持 UI 与引擎完全一致
+                                            vm.setCurrentLayer(hitLayer)
+                                            vm.anim.selectedTrack = hitLayer
+                                            vm.animationSeek(hitTime)
+
                                             val capturedThumb = thumbImages[frameThumbKey(hitLayer, hitTime)]
                                             val initialDx = lastChangePos.x - downPos.x
                                             dragDx = initialDx
@@ -752,7 +759,8 @@ internal fun TimelineTrackArea(
                                     visualT += animOffset
                                 }
 
-                                val active = currentTime >= t && currentTime < next
+                                val activeTrack = if (vm.anim.selectedTrack >= 0) vm.anim.selectedTrack else vm.currentLayerIndex
+                                val active = layer.index == activeTrack && currentTime >= t && currentTime < next
                                 val isMultiSelected = vm.anim.isMultiSelectMode && vm.anim.selectedFrames.contains(t)
                                 val cellX = visualT * frameW + 2f
                                 val cellY = top + 4f
