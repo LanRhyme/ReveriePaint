@@ -767,6 +767,16 @@ internal fun PaintViewModel.animationSetSelectedDuration(
  */
 internal fun PaintViewModel.animationPlay() {
     if (anim.isPlaying) return
+    val start = playbackStartFrame()
+    val end = playbackEndFrame()
+    if (start >= end) {
+        showActionToast("当前仅有 1 帧", R.drawable.ic_repeat_none)
+        return
+    }
+    // 若当前播放头在已有帧块范围外或正好在末尾, 从起点开始播放
+    if (anim.currentTime >= end || anim.currentTime < start) {
+        animationSeek(start)
+    }
     anim.isPlaying = true
     anim.playGen++
     val gen = anim.playGen
@@ -775,7 +785,8 @@ internal fun PaintViewModel.animationPlay() {
         // 播放时不显示洋葱皮: 与引擎同线程串行下发, 保证第一帧渲染前生效;
         // 暂停/停止经 animationPause 投递还原。
         ReverieCoreBridge.setOnionSkinSuppressed(true)
-        animationStep(gen)
+        val interval = 1000L / anim.framerate.coerceIn(1, 240)
+        renderHandler?.postDelayed({ animationStep(gen) }, interval)
     }
 }
 
@@ -842,12 +853,16 @@ internal fun PaintViewModel.animationStop() {
     animationSeek(playbackStartFrame())
 }
 
-private fun PaintViewModel.playbackStartFrame(): Int = anim.playbackStart.coerceAtLeast(0)
+/** 起始帧: 取所有轨道上已有关键帧的最小帧号 (无帧块处不播放) */
+private fun PaintViewModel.playbackStartFrame(): Int {
+    val allTimes = anim.keyframeCache.values.flatten()
+    return allTimes.minOrNull() ?: 0
+}
 
+/** 结束帧: 取所有轨道上已有关键帧的最大帧号 (无帧块处不播放) */
 private fun PaintViewModel.playbackEndFrame(): Int {
-    val end = anim.playbackEnd
-    val fallback = maxOf(0, anim.length - 1)
-    return if (end > anim.playbackStart) end else fallback
+    val allTimes = anim.keyframeCache.values.flatten()
+    return allTimes.maxOrNull() ?: maxOf(0, anim.length - 1)
 }
 
 /** 单步播放。运行在 reverie-render 线程上 (由 animationPlay 投递)。 */
@@ -856,20 +871,31 @@ private fun PaintViewModel.animationStep(gen: Int) {
 
     val start = playbackStartFrame()
     val end = playbackEndFrame()
-    if (anim.currentTime >= end) {
+    if (start >= end) {
+        mainHandler.post { animationPause() }
+        return
+    }
+
+    val cur = anim.currentTime
+    if (cur >= end) {
         if (!anim.loopPlayback) {
             mainHandler.post { animationPause() }
             return
         }
     }
-    val next = if (anim.currentTime >= end) start else anim.currentTime + 1
+    val next = if (cur >= end || cur < start) start else cur + 1
 
     ReverieCoreBridge.setAnimationCurrentTime(next, false)
     anim.currentTime = next
     scheduleRender(immediate = true)
 
-    // 按帧率换算步进间隔: 回放引擎里硬编码的 16ms 只适合 60fps 的过程回放,
-    // 帧动画必须跟随文档帧率 (12fps = 83ms), 否则播放速度会快数倍
+    if (!anim.loopPlayback && next >= end) {
+        // 单次播放到达终点: 渲染完此最后一帧后停在最后一帧并暂停
+        mainHandler.post { animationPause() }
+        return
+    }
+
+    // 按帧率换算步进间隔: 帧动画跟随文档帧率 (12fps = 83ms)
     val interval = 1000L / anim.framerate.coerceIn(1, 240)
     renderHandler?.postDelayed({ animationStep(gen) }, interval)
 }

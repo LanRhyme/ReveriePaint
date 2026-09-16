@@ -60,6 +60,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -679,12 +680,15 @@ private fun TimelineTrackArea(
     // 一开面板就错位。现在头部与网格共用同一 Canvas / 同一 scrollY /
     // 同一 float 行坐标 (i * rowPx), 错位在结构上不可能再发生。
     val density = LocalDensity.current
+    val eyePainter = painterResource(R.drawable.ic_eye)
+    val eyeOffPainter = painterResource(R.drawable.ic_eye_off)
     val headerW = with(density) { TRACK_HEADER_W.toPx() }
     val headPadPx = with(density) { 6.dp.toPx() }
-    val dotZonePx = with(density) { 20.dp.toPx() }
-    val dotGapPx = with(density) { 4.dp.toPx() }
-    val dotRadiusPx = with(density) { 5.dp.toPx() }
-    val textX = headPadPx + dotZonePx + dotGapPx
+    val eyeZonePx = with(density) { 24.dp.toPx() }
+    val eyeIconSizePx = with(density) { 17.dp.toPx() }
+    val eyeBgSizePx = with(density) { 22.dp.toPx() }
+    val textGapPx = with(density) { 4.dp.toPx() }
+    val textX = headPadPx + eyeZonePx + textGapPx
     val textMaxW = (headerW - textX - headPadPx).coerceAtLeast(1f)
     // 图层名排版结果缓存: 图层集合变化才重排 (手势期间频繁重组, 别每帧都
     // measure)。文字高度固定 (11sp), 行高 (缩放) 变化只影响垂直居中位置。
@@ -799,10 +803,10 @@ private fun TimelineTrackArea(
                     val hw = liveHeaderW.value
                     val row = ((y + liveScroll.value) / rpx).toInt()
                     if (x < hw) {
-                        // 轨道头区: 圆点 = 切换可见性, 其余 = 选中图层
+                        // 轨道头区: 眼睛图标 = 切换可见性, 其余 = 选中图层
                         if (row in ls.indices) {
                             val layer = ls[row]
-                            if (x < headPadPx + dotZonePx) {
+                            if (x < headPadPx + eyeZonePx) {
                                 vm.toggleLayerVisible(layer.index)
                             } else {
                                 vm.setCurrentLayer(layer.index)
@@ -1373,21 +1377,30 @@ private fun TimelineTrackArea(
                         val layer = layers[i]
                         val rowCenterY = i * rowPx + rowPx / 2f
 
-                        // 可见性圆点 (与旧 TrackHeaders 同视觉: 实心圆 + 隐藏时斜杠)
-                        val dotCx = headPadPx + dotZonePx / 2f
-                        drawCircle(
-                            color = if (layer.visible) Morandi.text
-                            else Morandi.subText.copy(alpha = 0.4f),
-                            radius = dotRadiusPx,
-                            center = Offset(dotCx, rowCenterY),
-                        )
+                        // 可见性眼睛图标 (与图层面板视觉一致: ic_eye / ic_eye_off)
                         if (!layer.visible) {
-                            drawLine(
-                                color = Morandi.panel,
-                                start = Offset(dotCx - 6.dp.toPx(), rowCenterY - 6.dp.toPx()),
-                                end = Offset(dotCx + 6.dp.toPx(), rowCenterY + 6.dp.toPx()),
-                                strokeWidth = 2f,
+                            drawRoundRect(
+                                color = Morandi.panel.copy(alpha = 0.7f),
+                                topLeft = Offset(
+                                    headPadPx + (eyeZonePx - eyeBgSizePx) / 2f,
+                                    rowCenterY - eyeBgSizePx / 2f,
+                                ),
+                                size = Size(eyeBgSizePx, eyeBgSizePx),
+                                cornerRadius = CornerRadius(5.dp.toPx(), 5.dp.toPx()),
                             )
+                        }
+                        val icon = if (layer.visible) eyePainter else eyeOffPainter
+                        val iconTint = if (layer.visible) Morandi.icon else Morandi.subText.copy(alpha = 0.45f)
+                        translate(
+                            left = headPadPx + (eyeZonePx - eyeIconSizePx) / 2f,
+                            top = rowCenterY - eyeIconSizePx / 2f,
+                        ) {
+                            with(icon) {
+                                draw(
+                                    size = Size(eyeIconSizePx, eyeIconSizePx),
+                                    colorFilter = ColorFilter.tint(iconTint),
+                                )
+                            }
                         }
 
                         // 图层名: 行高足够时才画 (行高极小时只留圆点, 免得文字
