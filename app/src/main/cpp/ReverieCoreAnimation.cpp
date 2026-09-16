@@ -838,27 +838,20 @@ bool ReverieCore::renderKeyframeThumb(
             KisPaintDeviceSP tmp = new KisPaintDevice(cs);
             channel->writeToDevice(time, tmp);
 
-            // 与图层缩略图同风格: 只渲染该帧**已画**的区域 (内容 bounds 与
-            // 画布的交集), 缩放到整个位图; 不保留画布留白, 否则大片空画布
-            // 会把实际笔触挤得很小。空白帧 (extent 为空) 退化为透明图。
+            // 与图层缩略图同风格: 只渲染该帧已绘制的区域 (精确内容 bounds 与
+            // 画布的交集), 缩放到整个缩略图尺寸, 保持长宽比并居中对齐。
+            // 空白帧 (无有效绘制内容) 保持完全透明。
             const QRect canvasRect(0, 0, m_docWidth, m_docHeight);
-            const QRect contentExt = tmp->extent();
-            const QRect sample = contentExt.isEmpty()
-                                     ? canvasRect
-                                     : canvasRect.intersected(contentExt);
-            if (!sample.isEmpty()) {
-                // 注意 convertToQImage 的 profile 参数在最前 (见 kis_paint_device.h:513)
-                QImage scaled = tmp->convertToQImage(
-                    nullptr, sample.x(), sample.y(),
-                    sample.width(), sample.height());
-                if (!scaled.isNull()) {
-                    const QImage fitted = scaled.scaled(
-                        w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            const QRect contentBounds = tmp->exactBounds().intersected(canvasRect);
+            if (!contentBounds.isEmpty()) {
+                const QImage thumb = tmp->createThumbnail(
+                    w, h, Qt::KeepAspectRatio, KisThumbnailBoundsMode::Precise);
+                if (!thumb.isNull()) {
                     QPainter p(&out);
                     p.drawImage(
-                        QPointF((w - fitted.width()) / 2.0,
-                                (h - fitted.height()) / 2.0),
-                        fitted);
+                        QPointF((w - thumb.width()) / 2.0,
+                                (h - thumb.height()) / 2.0),
+                        thumb);
                     p.end();
                 }
             }
