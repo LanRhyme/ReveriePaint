@@ -2288,6 +2288,18 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.PICKER -> {
                 pickerActive?.value = false
+                val curCol = pickerCurrentColor?.value
+                if (curCol != null) {
+                    val r = (curCol.red * 255).toInt().coerceIn(0, 255)
+                    val g = (curCol.green * 255).toInt().coerceIn(0, 255)
+                    val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
+                    val hex = String.format("#%02X%02X%02X", r, g, b)
+                    v.updateBrushColor(hex)
+                    v.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                }
+                if (v.isTemporaryPicker) {
+                    v.restorePreviousTool()
+                }
             }
             else -> Unit
         }

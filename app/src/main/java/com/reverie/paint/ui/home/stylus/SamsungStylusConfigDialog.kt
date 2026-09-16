@@ -146,6 +146,24 @@ internal fun SamsungStylusConfigDialog(
                     )
                 }
 
+                Spacer(Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.accent.copy(alpha = 0.10f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "提示：若侧键在绘画中未响应，请前往三星系统设置 -> 高级功能 -> S Pen，关闭“使用画笔按钮打开浮空指令”以允许绘图应用接收按键事件。",
+                        color = colors.subText,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                    )
+                }
+
                 Spacer(Modifier.height(18.dp))
 
                 Row(

@@ -411,6 +411,9 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         lassoMultiPoints = emptyList()
         lassoSegmentCounts.clear()
     }
+    if (toolId != "picker") {
+        isTemporaryPicker = false
+    }
     currentToolId = toolId
     try {
         prefs().edit().putString("current_tool_id", toolId).apply()
@@ -854,6 +857,9 @@ internal fun PaintViewModel.undo() {
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
+        if (anim.enabled) {
+            syncAnimationFromNativeAfter()
+        }
     }) {
         if (ReverieCoreBridge.canUndo()) {
             if (recorder.recording) {
@@ -869,6 +875,9 @@ internal fun PaintViewModel.redo() {
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
+        if (anim.enabled) {
+            syncAnimationFromNativeAfter()
+        }
     }) {
         if (ReverieCoreBridge.canRedo()) {
             if (recorder.recording) {

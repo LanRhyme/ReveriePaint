@@ -231,6 +231,15 @@ class PaintViewModel : ViewModel() {
 
     // 上一次使用的工具 (toggle_last_tool 快捷键用)
     var lastToolId by mutableStateOf("brush")
+    /** 是否是由手写笔侧键或快捷键临时激活的吸管工具 (取色完成后自动切回上一工具) */
+    var isTemporaryPicker by mutableStateOf(false)
+
+    fun restorePreviousTool() {
+        if (!isTemporaryPicker) return
+        isTemporaryPicker = false
+        val prev = lastToolId.ifEmpty { "brush" }
+        applyTool(if (prev == "picker") "brush" else prev)
+    }
     // One-shot UI 命令: 视口缩放/旋转与面板开关状态在 PaintingPage 本地,
     // VM 只发命令 token, UI 侧 LaunchedEffect 消费 (见 PaintingPage)。
     // 不能 private set —— 同包扩展函数 (requestUiCommand) 需要写入
@@ -413,6 +422,8 @@ class PaintViewModel : ViewModel() {
     var referenceIsFlipped by mutableStateOf(false)
     var referenceActiveTab by mutableIntStateOf(0) // 0: 图片, 1: 画布
     var referenceBarsCollapsed by mutableStateOf(false)
+    /** 是否正在导入媒体资源 (图片/视频/参考图), 用于防止频繁连续点击导致并发 OOM 崩溃 */
+    var isImportingMedia by mutableStateOf(false)
 
     // Reference Window View Transforms (Pan / Zoom / Rotation)
     var referenceZoom by mutableFloatStateOf(1f)
@@ -565,38 +576,79 @@ class PaintViewModel : ViewModel() {
         persistReferenceState()
     }
 
+    fun decodeSampledBitmapFromUri(
+        uri: android.net.Uri,
+        maxDimension: Int = 2048,
+    ): Bitmap? {
+        return runCatching {
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            appContext.contentResolver.openInputStream(uri)?.use { s ->
+                android.graphics.BitmapFactory.decodeStream(s, null, options)
+            }
+            val origW = options.outWidth
+            val origH = options.outHeight
+            if (origW <= 0 || origH <= 0) return null
+
+            var sampleSize = 1
+            var halfW = origW / 2
+            var halfH = origH / 2
+            while ((halfW / sampleSize) >= maxDimension || (halfH / sampleSize) >= maxDimension) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            appContext.contentResolver.openInputStream(uri)?.use { s ->
+                android.graphics.BitmapFactory.decodeStream(s, null, decodeOptions)
+            }
+        }.getOrNull()
+    }
+
     fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
         if (!::appContext.isInitialized || uris.isEmpty()) return
+        if (isImportingMedia) {
+            showActionToast("正在导入媒体，请稍候...", R.drawable.ic_image)
+            return
+        }
+        isImportingMedia = true
         viewModelScope.launch(Dispatchers.IO) {
             val newBitmaps = mutableListOf<Bitmap>()
-            for (uri in uris) {
+            val maxAllowed = 12
+            val maxDim = 2048
+            for (uri in uris.take(maxAllowed)) {
                 try {
-                    val stream = if (uri.scheme == "http" || uri.scheme == "https") {
+                    val bmp = if (uri.scheme == "http" || uri.scheme == "https") {
                         val conn = java.net.URL(uri.toString()).openConnection()
                         conn.connectTimeout = 10000
                         conn.readTimeout = 15000
-                        conn.getInputStream()
-                    } else {
-                        appContext.contentResolver.openInputStream(uri)
-                    }
-                    stream?.use { s ->
-                        val bmp = android.graphics.BitmapFactory.decodeStream(s)
-                        if (bmp != null) {
-                            newBitmaps.add(bmp)
+                        conn.getInputStream()?.use { s ->
+                            android.graphics.BitmapFactory.decodeStream(s)
                         }
+                    } else {
+                        decodeSampledBitmapFromUri(uri, maxDim)
+                    }
+                    if (bmp != null) {
+                        newBitmaps.add(bmp)
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("ReveriePaint", "Failed to load reference image $uri", e)
                 }
             }
-            if (newBitmaps.isNotEmpty()) {
-                viewModelScope.launch(Dispatchers.Main) {
-                    referenceImages = referenceImages + newBitmaps
+            viewModelScope.launch(Dispatchers.Main) {
+                isImportingMedia = false
+                if (newBitmaps.isNotEmpty()) {
+                    val combined = referenceImages + newBitmaps
+                    referenceImages = combined.takeLast(maxAllowed)
                     referenceActiveTab = 0
                     referenceWindowOpen = true
                     resetReferenceTransform()
                     persistReferenceImages()
                     persistReferenceState()
+                    showActionToast("已导入 ${newBitmaps.size} 张参考图", R.drawable.ic_image)
                 }
             }
         }

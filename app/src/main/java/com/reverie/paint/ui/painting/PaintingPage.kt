@@ -631,7 +631,7 @@ fun PaintingPage(
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
                 overlayPanelsOpen = brushPanelOpen || layerPanelOpen ||
-                    colorPanelOpen || settingsPanelOpen || moreToolsOpen ||
+                    (colorPanelOpen && !vm.isColorPanelPinned) || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
                 filterSessionActive = (filterController != null),
                 onFilterSlideDelta = filterController?.let { c -> { delta -> c.onSlideDelta(delta) } },
@@ -1527,7 +1527,11 @@ fun PaintingPage(
             visible = colorPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f),
+            modifier = if (vm.isColorPanelPinned) {
+                Modifier.align(Alignment.BottomStart).zIndex(10f)
+            } else {
+                Modifier.fillMaxSize().zIndex(10f)
+            },
         ) {
             ColorPanel(
                 vm = vm,

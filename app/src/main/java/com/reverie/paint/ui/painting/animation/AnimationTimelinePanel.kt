@@ -97,6 +97,8 @@ import com.reverie.paint.core.animationCopyCurrentFrameTo
 import com.reverie.paint.core.animationMoveKeyframe
 import com.reverie.paint.core.animationRemoveKeyframe
 import com.reverie.paint.R
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import com.reverie.paint.core.animationImportAudio
 import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
@@ -104,6 +106,10 @@ import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationSetFramerate
 import com.reverie.paint.core.animationApplyOnionSkin
 import com.reverie.paint.core.animationTogglePlay
+import com.reverie.paint.core.animationToggleLoop
+import com.reverie.paint.core.copyLayer
+import com.reverie.paint.core.clearLayer
+import com.reverie.paint.core.removeLayer
 import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
 import com.reverie.paint.ui.painting.layers.CompactColorPickerDialog
@@ -151,6 +157,14 @@ private class FrameMenuState(
     val anchorY: Float,
     // true = 长按命中已有帧块 (全量菜单+可拖拽); false = 长按空白格 (仅新建帧/粘贴)
     val onBlock: Boolean,
+)
+
+/** 轨道头长按菜单态: 图层索引 + 图层名称 + 锚点坐标 */
+private class TrackMenuState(
+    val layerIndex: Int,
+    val layerName: String,
+    val anchorX: Float,
+    val anchorY: Float,
 )
 
 /** 帧块拖拽态: 被拖的图层索引 + 块起始帧 (ghost 偏移单独放 dragDx 状态) */
@@ -363,6 +377,8 @@ private fun TimelinePanelSurface(
                 },
             ),
     ) {
+        var dragStartHeightPx by remember { mutableFloatStateOf(0f) }
+
         TimelineHandle(
             onTap = {
                 when (mode) {
@@ -375,17 +391,20 @@ private fun TimelinePanelSurface(
             },
             onDragStart = {
                 onDraggingChange(true)
-                // 一次性冻结: 非 custom 形态先按当前显示高度切到 custom 布局,
-                // 之后整段拖动只调高度。手势用屏幕绝对坐标, 布局移动不影响
-                // 后续 delta, 因此这里不需要任何补偿
-                if (mode != "custom") {
+                // 拖动启动时记录起始高度: 解决高刷下 Compose 状态未能即时重组导致增量丢失问题
+                val basePx = if (mode != "custom") {
                     val oldPx = when (mode) {
                         "mini" -> (HANDLE_H.value + rowDp.value + CONTROL_H.value) * d
                         else -> HANDLE_H.value * d
                     }
-                    onPanelHeightPxChange(oldPx.coerceIn(minPx, maxPx).roundToInt().toFloat())
+                    val clamped = oldPx.coerceIn(minPx, maxPx).roundToInt().toFloat()
                     onModeChange("custom")
+                    onPanelHeightPxChange(clamped)
+                    clamped
+                } else {
+                    panelHeightPx
                 }
+                dragStartHeightPx = basePx
             },
             onDragEnd = {
                 onDraggingChange(false)
@@ -393,11 +412,10 @@ private fun TimelinePanelSurface(
                 if (panelHeightPx <= BAR_SNAP_DP * d) onModeChange("bar")
             },
             onDragCancel = { onDraggingChange(false) },
-            onDrag = { fingerPx ->
-                // fingerPx 是**手指在屏幕上的真实位移** (rawY 差分), 直接作用到高度;
-                // 向下拖(>0) 压扁
+            onDrag = { totalTravelY ->
+                // totalTravelY 是手指自按下起的垂直绝对位移 (rawY - downRawY), 严格 1:1 跟手
                 onPanelHeightPxChange(
-                    (panelHeightPx - fingerPx).coerceIn(minPx, maxPx).roundToInt().toFloat(),
+                    (dragStartHeightPx - totalTravelY).coerceIn(minPx, maxPx).roundToInt().toFloat(),
                 )
             },
             onDoubleTap = {
@@ -530,11 +548,11 @@ private fun TimelineHandle(
                                             if (abs(acc) >= slop) {
                                                 dragging = true
                                                 currentOnDragStart()
-                                                currentOnDrag(e.rawY - lastRawY)
+                                                currentOnDrag(e.rawY - downRawY)
                                                 lastRawY = e.rawY
                                             }
                                         } else {
-                                            currentOnDrag(e.rawY - lastRawY)
+                                            currentOnDrag(e.rawY - downRawY)
                                             lastRawY = e.rawY
                                         }
                                         return true
@@ -695,6 +713,7 @@ private fun TimelineTrackArea(
     // 读写永远拿到最新值 (与 vm.anim.scrollPx 同一机制); 绘制阶段读它们,
     // 变化只重触发 draw, 不重组。
     var frameMenu by remember { mutableStateOf<FrameMenuState?>(null) }
+    var trackMenu by remember { mutableStateOf<TrackMenuState?>(null) }
     var frameDrag by remember { mutableStateOf<FrameDragState?>(null) }
     var dragDx by remember { mutableFloatStateOf(0f) }
     // Canvas 宽 (px): 弹菜单时横向钳位用
@@ -837,7 +856,7 @@ private fun TimelineTrackArea(
                         var pendingX = 0f
                         var pendingY = 0f
 
-                        val menuWasOpen = frameMenu != null
+                        val menuWasOpen = frameMenu != null || trackMenu != null
 
                         // —— 阶段 A: 判定窗口。返回 null = 超时未动 → 长按成立 ——
                         val phase: Int? = withTimeoutOrNull(longPressMs) {
@@ -859,21 +878,48 @@ private fun TimelineTrackArea(
                         }
 
                         if (phase == 0) {
-                            if (menuWasOpen) frameMenu = null else doTap(downPos.x, downPos.y)
+                            if (menuWasOpen) {
+                                frameMenu = null
+                                trackMenu = null
+                            } else doTap(downPos.x, downPos.y)
                             continue@gesture
                         }
 
                         // 菜单开着时开始滚动/缩放: 先收菜单 (tap 收菜单在 phase == 0)
-                        if ((phase == 1 || phase == 2) && menuWasOpen) frameMenu = null
+                        if ((phase == 1 || phase == 2) && menuWasOpen) {
+                            frameMenu = null
+                            trackMenu = null
+                        }
 
                         if (phase == null) {
+                            val ls = liveLayers.value
+                            val rpx = liveRowPx.value
+                            val hw = liveHeaderW.value
+                            val row = ((downPos.y + liveScroll.value) / rpx).toInt()
+
+                            // —— 轨道头长按: 弹出图层管理菜单 (删除/复制/清空) ——
+                            if (!vm.anim.isPlaying && downPos.x < hw && row in ls.indices) {
+                                val layer = ls[row]
+                                liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
+                                trackMenu = TrackMenuState(layer.index, layer.name, downPos.x, downPos.y)
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    val pressed = ev.changes.filter { it.pressed }
+                                    if (pressed.isEmpty()) break
+                                }
+                                continue@gesture
+                            }
+
                             // —— 长按成立: 命中帧块 → 全量菜单 (可拖拽);
                             //    命中空白格 → 精简菜单 (新建帧/粘贴); 播放中不弹 ——
                             val hit =
                                 if (!vm.anim.isPlaying) hitTest(downPos.x, downPos.y) else null
                             if (hit == null) {
                                 // 播放中长按: 收掉旧菜单, 后续移动转滚动 (主循环)
-                                if (menuWasOpen) frameMenu = null
+                                if (menuWasOpen) {
+                                    frameMenu = null
+                                    trackMenu = null
+                                }
                             } else {
                                 val (hitLayer, hitTime, hitOnBlock) = hit
                                 liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1487,6 +1533,58 @@ private fun TimelineTrackArea(
                 }
             }
         }
+
+        trackMenu?.let { menu ->
+            val menuShape = RoundedCornerShape(10.dp)
+            val menuW = 126.dp
+            val canDelete = vm.layers.size > 1
+
+            val items = listOf(
+                "复制图层" to { vm.copyLayer(menu.layerIndex) },
+                "清空图层" to { vm.clearLayer(menu.layerIndex) },
+                "删除图层" to {
+                    if (canDelete) {
+                        vm.removeLayer(menu.layerIndex)
+                    } else {
+                        vm.showActionToast("无法删除唯一的图层", R.drawable.ic_x)
+                    }
+                },
+            )
+
+            val menuWpx = with(LocalDensity.current) { menuW.toPx() }
+            val menuHpx = with(LocalDensity.current) { (items.size * 33 + 10).dp.toPx() }
+            val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+            val x = (menu.anchorX - menuWpx / 2f).coerceIn(4f, (canvasWpx - menuWpx).coerceAtLeast(4f))
+            val aboveY = menu.anchorY - menuHpx - padPx
+            val y = if (aboveY < 0f) menu.anchorY + rowPx + padPx else aboveY
+
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(x.roundToInt(), y.roundToInt()),
+                properties = PopupProperties(focusable = false),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .shadow(12.dp, menuShape, spotColor = Color.Black.copy(alpha = 0.45f))
+                        .clip(menuShape)
+                        .background(Morandi.panelHi.copy(alpha = 0.97f))
+                        .glassBorder(menuShape)
+                        .width(menuW)
+                        .padding(vertical = 5.dp),
+                ) {
+                    items.forEach { (label, action) ->
+                        val isDelete = label == "删除图层"
+                        FrameMenuItem(
+                            text = label,
+                            textColor = if (isDelete) Color(0xFFE57373) else Morandi.text,
+                        ) {
+                            trackMenu = null
+                            action()
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1496,10 +1594,14 @@ private fun TimelineTrackArea(
 
 /** 长按上下文菜单里的单行 (纯文字, 整行可点) */
 @Composable
-private fun FrameMenuItem(text: String, onTap: () -> Unit) {
+private fun FrameMenuItem(
+    text: String,
+    textColor: Color = Morandi.text,
+    onTap: () -> Unit,
+) {
     Text(
         text = text,
-        color = Morandi.text,
+        color = textColor,
         fontSize = 13.sp,
         modifier = Modifier
             .fillMaxWidth()
@@ -1531,12 +1633,21 @@ private fun TimelineControls(
         }
         Spacer(modifier = Modifier.width(6.dp))
         GlyphButton(onClick = { vm.animationSeek(vm.anim.currentTime + 1) }) { drawGlyphNext() }
-        Spacer(modifier = Modifier.width(14.dp))
-        GlyphButton(onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
         Spacer(modifier = Modifier.width(6.dp))
-        GlyphButton(onClick = { vm.animationAddKeyframe(duplicate = true) }) { drawGlyphDuplicate() }
+        IconButtonBox(onClick = { vm.animationToggleLoop() }) {
+            Icon(
+                painter = painterResource(if (vm.anim.loopPlayback) R.drawable.ic_repeat_loop else R.drawable.ic_repeat_none),
+                contentDescription = if (vm.anim.loopPlayback) "循环播放" else "单次播放",
+                tint = if (vm.anim.loopPlayback) Morandi.accent else Morandi.subText,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        GlyphTextButton(text = "新帧", onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
         Spacer(modifier = Modifier.width(6.dp))
-        GlyphButton(onClick = { vm.animationRemoveKeyframe() }) { drawGlyphTrash() }
+        GlyphTextButton(text = "复制", onClick = { vm.animationAddKeyframe(duplicate = true) }) { drawGlyphDuplicate() }
+        Spacer(modifier = Modifier.width(6.dp))
+        GlyphTextButton(text = "删帧", onClick = { vm.animationRemoveKeyframe() }) { drawGlyphTrash() }
         Spacer(modifier = Modifier.weight(1f))
         Text(
             text = "${vm.anim.framerate}fps · ${vm.anim.length}帧 · 第 ${vm.anim.currentTime + 1} 帧",
@@ -1548,6 +1659,52 @@ private fun TimelineControls(
             if (vm.anim.toolbarExpanded) drawGlyphClose() else drawGlyphSettings()
         }
     }
+}
+
+/** 控制条上图文并排的小胶囊按钮 */
+@Composable
+private fun GlyphTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    draw: DrawScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Morandi.panelHi.copy(alpha = BUTTON_ALPHA))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(modifier = Modifier.size(13.dp), onDraw = draw)
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = text,
+            color = Morandi.text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/** 控制条上包裹自定义 Composable 图标的小按钮 */
+@Composable
+private fun IconButtonBox(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Morandi.panelHi.copy(alpha = BUTTON_ALPHA))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
 }
 
 // ============================================================

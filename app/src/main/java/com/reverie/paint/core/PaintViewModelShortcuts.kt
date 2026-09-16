@@ -378,7 +378,10 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
         "tool_brush" -> applyTool("brush")
         "tool_eraser" -> applyTool("eraser")
         "tool_smudge" -> applyTool("smudge")
-        "tool_picker" -> applyTool("picker")
+        "tool_picker" -> {
+            applyTool("picker")
+            isTemporaryPicker = true
+        }
         "tool_fill" -> applyTool("fill")
         "tool_gradient" -> applyTool("gradient")
         "tool_select_rect" -> applyTool("select_rect")

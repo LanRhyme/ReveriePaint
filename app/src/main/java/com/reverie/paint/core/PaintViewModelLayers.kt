@@ -123,7 +123,10 @@ internal fun PaintViewModel.notifyLayerChanged(
     refreshLayerThumbs(force = forceThumbs)
     // 动画时间轴: 图层内容变了, 帧块里的画面缩略图也要跟着重取。
     // 非动画文档下 anim.enabled 为 false, 这里等同空操作。
-    if (anim.enabled) anim.thumbRevision++
+    if (anim.enabled) {
+        anim.thumbRevision++
+        syncAnimationFromNativeAfter()
+    }
     // 洋葱皮缓存失效: 只有"真的改了像素"的路径才传 pixelChanged=true。
     //
     // notifyLayerChanged 是图层操作的公共出口 (改名 / 显隐 / 排序 / 增删 /

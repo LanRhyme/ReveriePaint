@@ -101,18 +101,15 @@ fun ColorPanel(
     val panelShape = RoundedCornerShape(16.dp)
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Transparent)
-            .then(
-                // When pinned, clicks outside pass directly through to canvas
-                if (!vm.isColorPanelPinned) {
-                    Modifier.noRippleClickable(onClose)
-                } else {
-                    Modifier
-                }
-            )
-            .systemHoverIcon(context)
+        modifier = if (vm.isColorPanelPinned) {
+            modifier.wrapContentSize(Alignment.BottomStart)
+        } else {
+            modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .noRippleClickable(onClose)
+                .systemHoverIcon(context)
+        }
     ) {
         Column(
             modifier = Modifier
