@@ -855,54 +855,26 @@ internal fun PaintViewModel.animationRippleResizeFrame(
 
 /**
  * 单帧拖拽推挤插入 (Ripple Insert):
- * 将 [fromTime] 处的关键帧插入到 [toTime] 槽位, 其余帧保持原曝光时长并向两侧动态顺延避让。
+ * 将 [fromTime] 处的关键帧插入到 [targetSlot] 槽位, 其余帧保持原曝光时长并向两侧动态顺延避让。
  */
 internal fun PaintViewModel.animationRippleMoveFrame(
     layerIndex: Int,
     fromTime: Int,
-    toTime: Int,
+    targetSlot: Int,
 ) {
-    if (layerIndex < 0 || fromTime == toTime || toTime < 0) return
+    if (layerIndex < 0 || targetSlot < 0) return
     val times = anim.keyframeCache[layerIndex].orEmpty()
     val fromIdx = times.indexOf(fromTime)
-    if (fromIdx < 0) return
+    if (fromIdx < 0 || times.size <= 1) return
 
-    // 提取每个块的曝光跨度
-    val spans = times.indices.map { i ->
-        if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else 1
-    }
+    val reorder = com.reverie.paint.model.TimelineReorderHelper.computeReorderedTimes(
+        times = times,
+        fromTime = fromTime,
+        targetSlot = targetSlot,
+    ) ?: return
 
-    // 组装块结构
-    data class Block(val origTime: Int, val span: Int)
-    val blocks = times.indices.map { Block(times[it], spans[it]) }.toMutableList()
-    val movingBlock = blocks.removeAt(fromIdx)
-
-    // 寻找插入点: 根据 toTime 落在原序列的哪两个块之间
-    var insertIdx = blocks.size
-    for (i in blocks.indices) {
-        if (toTime <= blocks[i].origTime) {
-            insertIdx = i
-            break
-        }
-    }
-    blocks.add(insertIdx, movingBlock)
-
-    // 重新铺开新时间
-    val startT = minOf(times.firstOrNull() ?: 0, toTime)
-    val newTimes = ArrayList<Int>(blocks.size)
-    var cur = startT
-    var landingTime = toTime
-    for (b in blocks) {
-        newTimes.add(cur)
-        if (b.origTime == fromTime) {
-            landingTime = cur
-        }
-        cur += b.span
-    }
-
-    val oldTimes = blocks.map { it.origTime }
-    rearrangeKeyframesMacro(layerIndex, oldTimes, newTimes, "推挤移动帧") {
-        animationSeek(landingTime)
+    rearrangeKeyframesMacro(layerIndex, reorder.oldTimes, reorder.newTimes, "推挤移动帧") {
+        animationSeek(reorder.landingTime)
     }
 }
 
