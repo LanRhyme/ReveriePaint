@@ -483,12 +483,14 @@ internal fun TimelineTrackArea(
                                     liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
 
                                     var b = 0
+                                    var lastChangePos = downPos
                                     while (true) {
                                         val ev = awaitPointerEvent()
                                         val pressed = ev.changes.filter { it.pressed }
                                         if (pressed.isEmpty()) { b = 0; break }
                                         if (pressed.size >= 2) { b = 2; break }
                                         val c = pressed.firstOrNull { it.id == first.id } ?: pressed.first()
+                                        lastChangePos = c.position
                                         pendingX += c.positionChange().x
                                         pendingY += c.positionChange().y
                                         if (abs(pendingX) > slop || abs(pendingY) > slop) { b = 1; break }
@@ -505,12 +507,30 @@ internal fun TimelineTrackArea(
                                         frameMenu = null
                                         if (hitOnBlock && !vm.anim.isMultiSelectMode) {
                                             val capturedThumb = thumbImages[frameThumbKey(hitLayer, hitTime)]
-                                            frameDrag = FrameDragState(hitLayer, hitTime, capturedThumb)
-                                            dragDx = pendingX
+                                            val initialDx = lastChangePos.x - downPos.x
+                                            dragDx = initialDx
                                             isDropping = false
+                                            frameDrag = FrameDragState(hitLayer, hitTime, capturedThumb)
+
+                                            val initTimes = vm.anim.keyframeCache[hitLayer].orEmpty()
+                                            val initHold = vm.anim.lastFrameHold[hitLayer] ?: 1
+                                            val initLayout = TimelineReorderHelper.computeDragLayout(
+                                                times = initTimes,
+                                                fromTime = hitTime,
+                                                dragDx = initialDx,
+                                                frameW = vm.anim.frameWidthPx,
+                                                lastHold = initHold,
+                                            )
+                                            for ((origT, targetF) in initLayout.blockTargetFrames) {
+                                                val targetOffset = (targetF - origT).toFloat()
+                                                val anim = blockAnimOffsets.getOrPut(origT) { Animatable(0f) }
+                                                coroutineScope.launch {
+                                                    anim.animateTo(targetOffset, spring(dampingRatio = 0.78f, stiffness = 450f))
+                                                }
+                                            }
                                             coroutineScope.launch {
                                                 dragLift.snapTo(0f)
-                                                gapAnimFrame.snapTo(hitTime.toFloat())
+                                                gapAnimFrame.snapTo(initLayout.targetStartFrame.toFloat())
                                                 dragLift.animateTo(1f, spring(dampingRatio = 0.65f, stiffness = 800f))
                                             }
 
@@ -521,17 +541,19 @@ internal fun TimelineTrackArea(
                                                     val dr = frameDrag
                                                     if (dr != null) {
                                                         val times = vm.anim.keyframeCache[dr.layer].orEmpty()
+                                                        val lastHold = vm.anim.lastFrameHold[dr.layer] ?: 1
                                                         val layout = TimelineReorderHelper.computeDragLayout(
                                                             times = times,
                                                             fromTime = dr.fromTime,
                                                             dragDx = dragDx,
                                                             frameW = vm.anim.frameWidthPx,
+                                                            lastHold = lastHold,
                                                         )
                                                         val finalTargetDx = (layout.targetStartFrame - dr.fromTime) * vm.anim.frameWidthPx
-                                                        isDropping = true
                                                         liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         coroutineScope.launch {
                                                             dragGhostDx.snapTo(dragDx)
+                                                            isDropping = true
                                                             launch {
                                                                 dragLift.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 600f))
                                                             }
@@ -563,11 +585,13 @@ internal fun TimelineTrackArea(
                                                 if (newDx != dragDx) {
                                                     dragDx = newDx
                                                     val times = vm.anim.keyframeCache[hitLayer].orEmpty()
+                                                    val lastHold = vm.anim.lastFrameHold[hitLayer] ?: 1
                                                     val layout = TimelineReorderHelper.computeDragLayout(
                                                         times = times,
                                                         fromTime = hitTime,
                                                         dragDx = dragDx,
                                                         frameW = vm.anim.frameWidthPx,
+                                                        lastHold = lastHold,
                                                     )
                                                     for ((origT, targetF) in layout.blockTargetFrames) {
                                                         val targetOffset = (targetF - origT).toFloat()

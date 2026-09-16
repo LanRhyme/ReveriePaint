@@ -32,6 +32,7 @@ object TimelineReorderHelper {
         fromTime: Int,
         dragDx: Float,
         frameW: Float,
+        lastHold: Int = 1,
     ): TimelineDragLayout {
         val fromIdx = times.indexOf(fromTime)
         if (fromIdx < 0 || times.isEmpty()) {
@@ -39,7 +40,7 @@ object TimelineReorderHelper {
         }
 
         val spans = times.indices.map { i ->
-            if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else 1
+            if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else lastHold.coerceAtLeast(1)
         }
         val movingSpan = spans[fromIdx]
 
@@ -113,12 +114,13 @@ object TimelineReorderHelper {
         times: List<Int>,
         fromTime: Int,
         targetSlot: Int,
+        lastHold: Int = 1,
     ): ReorderResult? {
         val fromIdx = times.indexOf(fromTime)
         if (fromIdx < 0 || times.size <= 1) return null
 
         val spans = times.indices.map { i ->
-            if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else 1
+            if (i + 1 < times.size) (times[i + 1] - times[i]).coerceAtLeast(1) else lastHold.coerceAtLeast(1)
         }
 
         data class Block(val origTime: Int, val span: Int)

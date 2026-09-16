@@ -806,10 +806,7 @@ internal fun PaintViewModel.rearrangeKeyframesMacro(
         return
     }
 
-    runCore(after = {
-        syncAnimationFromNativeAfter()
-        after()
-    }) {
+    runCore(after = after) {
         ReverieCoreBridge.beginUndoMacro(macroName)
         try {
             val maxT = maxOf((oldTimes + newTimes).maxOrNull() ?: 0, 1000)
@@ -826,6 +823,7 @@ internal fun PaintViewModel.rearrangeKeyframesMacro(
         } finally {
             ReverieCoreBridge.endUndoMacro()
         }
+        syncAnimationFromNative()
     }
 }
 
@@ -895,10 +893,12 @@ internal fun PaintViewModel.animationRippleMoveFrame(
         return
     }
 
+    val lastHold = anim.lastFrameHold[layerIndex] ?: 1
     val reorder = com.reverie.paint.model.TimelineReorderHelper.computeReorderedTimes(
         times = times,
         fromTime = fromTime,
         targetSlot = targetSlot,
+        lastHold = lastHold,
     ) ?: run {
         onDone()
         return
@@ -917,7 +917,11 @@ internal fun PaintViewModel.animationRippleMoveFrame(
     }
 
     rearrangeKeyframesMacro(layerIndex, reorder.oldTimes, reorder.newTimes, "推挤移动帧") {
-        animationSeek(reorder.landingTime)
+        anim.currentTime = reorder.landingTime
+        runCore(render = false) {
+            ReverieCoreBridge.setAnimationCurrentTime(reorder.landingTime, false)
+            if (!anim.isPlaying) ReverieCoreBridge.flushOnionSkinCaches()
+        }
         onDone()
     }
 }
