@@ -794,7 +794,7 @@ fun PaintingPage(
             if (filterController == null) {
                 // ---- Top bar ----
                 TopBar(
-                    modifier = Modifier.align(Alignment.TopEnd),
+                    modifier = Modifier.align(Alignment.TopEnd).zIndex(50f),
                     vm = vm,
                     opacity = vm.uiOpacity,
                     hazeState = hazeState,
@@ -872,7 +872,8 @@ fun PaintingPage(
                         Modifier
                             .align(Alignment.TopStart)
                             .padding(top = 48.dp) // Gap from top bar
-                            .fillMaxHeight(),
+                            .fillMaxHeight()
+                            .zIndex(50f),
                     vm = vm,
                     hazeState = hazeState,
                     opacity = vm.uiOpacity.toDouble(),

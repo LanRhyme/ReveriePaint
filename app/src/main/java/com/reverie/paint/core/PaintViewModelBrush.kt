@@ -950,15 +950,24 @@ import kotlinx.coroutines.launch
      *  (当前工具 × 当前预设) 的记忆, 让每个工具各自记住自己的数值。 */
     internal fun PaintViewModel.rememberToolParamSnapshot() {
         val t = com.reverie.paint.model.Tool.fromId(currentToolId)
-        if (t != com.reverie.paint.model.Tool.BRUSH && t != com.reverie.paint.model.Tool.ERASER &&
-            t != com.reverie.paint.model.Tool.SMUDGE
-        ) return
+        val targetToolId = if (t == com.reverie.paint.model.Tool.BRUSH ||
+            t == com.reverie.paint.model.Tool.ERASER ||
+            t == com.reverie.paint.model.Tool.SMUDGE
+        ) {
+            currentToolId
+        } else {
+            lastDrawingToolId
+        }
         val name = brushPresets.firstOrNull { it.index == brushPresetIndex }?.name ?: return
-        updateCurrentToolBrushState { st ->
-            st.copy(
-                paramMemory = st.paramMemory.toMutableMap().apply {
-                    put(name, listOf(brushSize, brushOpacity, brushFlow))
-                }
+        val currentMap = toolBrushStates[targetToolId] ?: return
+        toolBrushStates = toolBrushStates.toMutableMap().apply {
+            put(
+                targetToolId,
+                currentMap.copy(
+                    paramMemory = currentMap.paramMemory.toMutableMap().apply {
+                        put(name, listOf(brushSize, brushOpacity, brushFlow))
+                    }
+                )
             )
         }
     }

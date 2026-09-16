@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -98,6 +99,9 @@ fun ColorPanel(
         vm.updateBrushColor(hex)
     }
 
+    val density = LocalDensity.current
+    val baseStartOffsetPx = remember(density) { with(density) { 44.dp.roundToPx() } }
+    val baseBottomOffsetPx = remember(density) { with(density) { (-16).dp.roundToPx() } }
     val panelShape = RoundedCornerShape(16.dp)
 
     Box(
@@ -115,8 +119,12 @@ fun ColorPanel(
             modifier = Modifier
                 .systemHoverIcon(context)
                 .align(Alignment.BottomStart)
-                .offset { IntOffset(panelOffset.x.roundToInt(), panelOffset.y.roundToInt()) }
-                .padding(start = 44.dp, bottom = 16.dp)
+                .offset {
+                    IntOffset(
+                        (baseStartOffsetPx + panelOffset.x).roundToInt(),
+                        (baseBottomOffsetPx + panelOffset.y).roundToInt(),
+                    )
+                }
                 .width(280.dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)

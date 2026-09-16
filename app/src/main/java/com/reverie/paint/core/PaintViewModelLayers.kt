@@ -290,10 +290,15 @@ internal fun PaintViewModel.addGroupLayer() {
 }
 
 internal fun PaintViewModel.copyLayer(i: Int) {
+    if (isCopyingLayer) return
+    isCopyingLayer = true
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_COPY, i)
     }
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = {
+        isCopyingLayer = false
+        notifyLayerChanged()
+    }) {
         ReverieCoreBridge.copyLayer(i)
     }
 }

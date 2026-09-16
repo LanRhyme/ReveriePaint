@@ -414,6 +414,14 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
+    /** 最近一次活跃的绘制类工具 (brush / eraser / smudge), 用于在临时工具 (如吸管) 切换回笔刷时保留笔刷尺寸与参数 */
+    var lastDrawingToolId: String = "brush"
+        internal set
+
+    /** 是否正在执行图层复制, 防抖防止连续狂点触发多线程竞态崩溃 */
+    var isCopyingLayer by mutableStateOf(false)
+        internal set
+
     // Reference Tool Window State (常态固定显示参考窗口)
     var referenceWindowOpen by mutableStateOf(false)
     var referenceImages by mutableStateOf<List<Bitmap>>(emptyList())

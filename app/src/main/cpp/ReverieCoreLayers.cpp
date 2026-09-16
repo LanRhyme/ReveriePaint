@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <QSet>
 
 int ReverieCore::indexOfNode(KisNode *node) const
 {
@@ -234,9 +235,27 @@ int ReverieCore::copyLayer(int index)
     KisImageSP image = m_document;
     if (!image) return -1;
 
+    // 关键1: 等待正在进行的渲染或重投影完成, 避免 clone 瓦片时并发冲突
+    image->waitForDone();
+
     KisNodeSP cloned = src.node->clone();
     if (!cloned) return -1;
-    cloned->setName(src.name + QStringLiteral(" 副本"));
+    cloned->setImage(image);
+
+    // 关键2: 计算全局唯一的副本名称, 避免连续复制时重名造成索引错乱
+    QSet<QString> existingNames;
+    for (const LayerEntry &l : m_layers) {
+        existingNames.insert(l.name);
+    }
+    QString candidateName = src.name + QStringLiteral(" 副本");
+    if (existingNames.contains(candidateName)) {
+        int copySeq = 2;
+        while (existingNames.contains(src.name + QStringLiteral(" 副本 ") + QString::number(copySeq))) {
+            copySeq++;
+        }
+        candidateName = src.name + QStringLiteral(" 副本 ") + QString::number(copySeq);
+    }
+    cloned->setName(candidateName);
 
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());

@@ -395,6 +395,15 @@ internal fun PaintViewModel.applyTool(toolId: String) {
     if (toolId != currentToolId) {
         lastToolId = currentToolId
     }
+    val prevTool = com.reverie.paint.model.Tool.fromId(currentToolId)
+    val isPrevDrawing = prevTool == com.reverie.paint.model.Tool.BRUSH ||
+        prevTool == com.reverie.paint.model.Tool.ERASER ||
+        prevTool == com.reverie.paint.model.Tool.SMUDGE
+    if (isPrevDrawing) {
+        lastDrawingToolId = currentToolId
+        rememberToolParamSnapshot()
+        saveBrushParam()
+    }
     val mode =
         when (toolId) {
             "brush" -> 0
@@ -430,6 +439,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         val isEraserTool = t == com.reverie.paint.model.Tool.ERASER
         val isSmudgeTool = t == com.reverie.paint.model.Tool.SMUDGE
         val isBrushTool = t == com.reverie.paint.model.Tool.BRUSH
+        val isResumingSameDrawingTool = (toolId == lastDrawingToolId)
 
         val defaultBrushIdx = brushPresets.firstOrNull { it.name == "b)_Basic-5_Size_default" }?.index
             ?: brushPresets.firstOrNull { it.name == "b)_Basic-5_Size_Opacity" }?.index
@@ -481,6 +491,17 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         if (brushPresets.any { it.index == state.presetIndex }) {
             if (state.presetIndex != brushPresetIndex) {
                 selectBrushPreset(state.presetIndex)
+            } else if (isResumingSameDrawingTool) {
+                // 用户从吸管等临时工具切回当前正在使用的同一个绘制工具, 笔刷预设索引未改变:
+                // 此时用户调好的笔刷大小/不透明度/流量应当保持原样, 严禁被旧快照覆盖!
+                runCore(render = false) {
+                    ReverieCoreBridge.setBrushSize(brushSize)
+                    ReverieCoreBridge.setBrushOpacity(brushOpacity)
+                    ReverieCoreBridge.setBrushFlow(brushFlow)
+                    ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
+                    ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
+                    ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
+                }
             } else {
                 // Force refresh Krita param for this specific tool even if it's the same index
                 val saved =
@@ -501,6 +522,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                 applyToolParamMemoryOverlay()
             }
         }
+        lastDrawingToolId = toolId
     }
 }
 
