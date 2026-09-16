@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +32,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.ui.theme.Morandi
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.spring
+
 internal const val BUTTON_ALPHA = 0.70f
 
 /** 控制条上自绘图标的小圆角按钮 */
@@ -41,14 +45,17 @@ internal fun GlyphButton(
     active: Boolean = false,
     draw: DrawScope.() -> Unit,
 ) {
+    val animBg by animateColorAsState(
+        targetValue = if (active) Morandi.accent.copy(alpha = 0.28f)
+        else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
+        animationSpec = spring(stiffness = 500f),
+        label = "glyphBtnBg",
+    )
     Box(
         modifier = modifier
             .size(30.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(
-                if (active) Morandi.accent.copy(alpha = 0.25f)
-                else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
-            )
+            .background(animBg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -65,14 +72,22 @@ internal fun GlyphTextButton(
     active: Boolean = false,
     draw: (DrawScope.() -> Unit)? = null,
 ) {
+    val animBg by animateColorAsState(
+        targetValue = if (active) Morandi.accent.copy(alpha = 0.28f)
+        else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
+        animationSpec = spring(stiffness = 500f),
+        label = "glyphTextBtnBg",
+    )
+    val animText by animateColorAsState(
+        targetValue = if (active) Morandi.accent else Morandi.text,
+        animationSpec = spring(stiffness = 500f),
+        label = "glyphTextBtnText",
+    )
     Row(
         modifier = modifier
             .height(30.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(
-                if (active) Morandi.accent.copy(alpha = 0.28f)
-                else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
-            )
+            .background(animBg)
             .clickable(onClick = onClick)
             .padding(horizontal = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -83,7 +98,7 @@ internal fun GlyphTextButton(
         }
         Text(
             text = text,
-            color = if (active) Morandi.accent else Morandi.text,
+            color = animText,
             fontSize = 11.sp,
             fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
         )
@@ -98,14 +113,17 @@ internal fun IconButtonBox(
     active: Boolean = false,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit,
 ) {
+    val animBg by animateColorAsState(
+        targetValue = if (active) Morandi.accent.copy(alpha = 0.28f)
+        else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
+        animationSpec = spring(stiffness = 500f),
+        label = "iconBtnBg",
+    )
     Box(
         modifier = modifier
             .size(30.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(
-                if (active) Morandi.accent.copy(alpha = 0.25f)
-                else Morandi.panelHi.copy(alpha = BUTTON_ALPHA),
-            )
+            .background(animBg)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
         content = content,

@@ -4,6 +4,12 @@
 
 package com.reverie.paint.ui.painting.animation
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -80,12 +86,21 @@ internal fun TimelineBatchBar(
                 .padding(horizontal = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "已选 $selectedCount 帧",
-                color = Morandi.accent,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            AnimatedContent(
+                targetState = selectedCount,
+                transitionSpec = {
+                    (slideInVertically { it / 2 } + fadeIn())
+                        .togetherWith(slideOutVertically { -it / 2 } + fadeOut())
+                },
+                label = "batchCountAnim",
+            ) { count ->
+                Text(
+                    text = "已选 $count 帧",
+                    color = Morandi.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(10.dp))

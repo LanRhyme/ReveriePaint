@@ -190,7 +190,9 @@ internal fun TimelineTrackArea(
     val thumbAspect = FRAME_THUMB_W.toFloat() / FRAME_THUMB_H.toFloat()
     val selBorderPx = with(density) { 2.5.dp.toPx() }
     val selGlowPx = with(density) { 6.dp.toPx() }
-    val trimHandleWpx = with(density) { 14.dp.toPx() }
+    val trimHandleVisualW = with(density) { 5.dp.toPx() }
+    val trimHandleRadius = with(density) { 2.5.dp.toPx() }
+    val trimTouchRadius = with(density) { 22.dp.toPx() }
 
     val selPop = remember { Animatable(1f) }
     val selectedKey = currentTime to vm.anim.selectedTrack
@@ -258,8 +260,7 @@ internal fun TimelineTrackArea(
                         if (hitStart < 0) return null
                         val span = (hitNext - hitStart).coerceAtLeast(1)
                         val rightEdgeX = hw + (hitStart + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
-                        val handleTouchRange = trimHandleWpx * 1.5f
-                        if (abs(x - rightEdgeX) <= handleTouchRange) {
+                        if (abs(x - rightEdgeX) <= trimTouchRadius) {
                             return TrimDragState(layer, hitStart, span)
                         }
                         return null
@@ -686,27 +687,26 @@ internal fun TimelineTrackArea(
                                         style = Stroke(width = bw),
                                     )
 
-                                    // 单选状态下的右边缘拉伸手柄
+                                    // 单选状态下的右边缘拉伸手柄 (精致纤细的 5dp 胶囊把手)
                                     if (!vm.anim.isMultiSelectMode && !vm.anim.isPlaying) {
-                                        val handleX = cellX + cellW - trimHandleWpx / 2f
-                                        drawRoundRect(
-                                            color = Morandi.panelHi.copy(alpha = 0.95f),
-                                            topLeft = Offset(handleX, cellY + cellH * 0.2f),
-                                            size = Size(trimHandleWpx, cellH * 0.6f),
-                                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                        )
+                                        val handleX = cellX + cellW - trimHandleVisualW / 2f
+                                        val handleH = (cellH * 0.52f).coerceAtLeast(with(density) { 14.dp.toPx() })
+                                        val handleY = cellY + (cellH - handleH) / 2f
                                         drawRoundRect(
                                             color = Morandi.accent,
-                                            topLeft = Offset(handleX, cellY + cellH * 0.2f),
-                                            size = Size(trimHandleWpx, cellH * 0.6f),
-                                            cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                            style = Stroke(width = 1.5f),
+                                            topLeft = Offset(handleX, handleY),
+                                            size = Size(trimHandleVisualW, handleH),
+                                            cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
                                         )
-                                        drawLine(
-                                            color = Morandi.accent,
-                                            start = Offset(handleX + trimHandleWpx / 2f, cellY + cellH * 0.35f),
-                                            end = Offset(handleX + trimHandleWpx / 2f, cellY + cellH * 0.65f),
-                                            strokeWidth = 2f,
+                                        drawRoundRect(
+                                            color = Color.White.copy(alpha = 0.90f),
+                                            topLeft = Offset(handleX + 0.5f, handleY + 0.5f),
+                                            size = Size(
+                                                (trimHandleVisualW - 1f).coerceAtLeast(1f),
+                                                (handleH - 1f).coerceAtLeast(1f),
+                                            ),
+                                            cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
+                                            style = Stroke(width = 1f),
                                         )
                                     }
                                 }
@@ -792,10 +792,17 @@ internal fun TimelineTrackArea(
                             val by = row * rowPx - bubbleH - 6f
 
                             drawRoundRect(
-                                color = Color.Black.copy(alpha = 0.85f),
+                                color = Morandi.panelHi.copy(alpha = 0.96f),
                                 topLeft = Offset(bx, by),
                                 size = Size(bubbleW, bubbleH),
-                                cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                            )
+                            drawRoundRect(
+                                color = Morandi.accent.copy(alpha = 0.8f),
+                                topLeft = Offset(bx, by),
+                                size = Size(bubbleW, bubbleH),
+                                cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
+                                style = Stroke(width = 1.2f),
                             )
                             drawText(
                                 textLayoutResult = tipLayout,

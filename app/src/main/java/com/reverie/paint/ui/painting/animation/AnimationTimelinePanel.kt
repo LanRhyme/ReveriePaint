@@ -7,6 +7,7 @@ package com.reverie.paint.ui.painting.animation
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
@@ -14,7 +15,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -129,7 +133,7 @@ internal fun AnimationTimelinePanel(
     }
     val panelHeight by animateDpAsState(
         targetValue = targetHeightDp,
-        animationSpec = if (dragging) snap() else spring(stiffness = 400f),
+        animationSpec = if (dragging) snap() else spring(dampingRatio = 0.78f, stiffness = 400f),
         label = "timelinePanelHeight",
     )
 
@@ -138,8 +142,8 @@ internal fun AnimationTimelinePanel(
     Column(modifier = modifier.fillMaxWidth()) {
         AnimatedVisibility(
             visible = vm.anim.toolbarExpanded && mode == "custom",
-            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it / 2 }),
-            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it / 2 }),
+            enter = fadeIn(spring(stiffness = 500f)) + slideInHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
+            exit = fadeOut(spring(stiffness = 500f)) + slideOutHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
             modifier = Modifier.fillMaxWidth(),
         ) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -279,10 +283,19 @@ private fun TimelinePanelSurface(
                     onScrollYChange = {},
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )
-                if (vm.anim.isMultiSelectMode) {
-                    TimelineBatchBar(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
-                } else {
-                    TimelineControls(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
+                AnimatedContent(
+                    targetState = vm.anim.isMultiSelectMode,
+                    transitionSpec = {
+                        (slideInVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it } + fadeIn())
+                            .togetherWith(slideOutVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it } + fadeOut())
+                    },
+                    label = "miniBottomBarTransition",
+                ) { isMulti ->
+                    if (isMulti) {
+                        TimelineBatchBar(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
+                    } else {
+                        TimelineControls(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
+                    }
                 }
             }
 
@@ -304,17 +317,26 @@ private fun TimelinePanelSurface(
                         .onSizeChanged { onTrackViewportChange(it.height.toFloat()) },
                 )
 
-                if (vm.anim.isMultiSelectMode) {
-                    TimelineBatchBar(
-                        vm = vm,
-                        modifier = Modifier.fillMaxWidth().height(CONTROL_H),
-                    )
-                } else {
-                    TimelineControls(
-                        vm = vm,
-                        modifier = Modifier.fillMaxWidth().height(CONTROL_H),
-                        onToggleSettings = onToggleSettings,
-                    )
+                AnimatedContent(
+                    targetState = vm.anim.isMultiSelectMode,
+                    transitionSpec = {
+                        (slideInVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it } + fadeIn())
+                            .togetherWith(slideOutVertically(spring(dampingRatio = 0.8f, stiffness = 400f)) { it } + fadeOut())
+                    },
+                    label = "bottomBarTransition",
+                ) { isMulti ->
+                    if (isMulti) {
+                        TimelineBatchBar(
+                            vm = vm,
+                            modifier = Modifier.fillMaxWidth().height(CONTROL_H),
+                        )
+                    } else {
+                        TimelineControls(
+                            vm = vm,
+                            modifier = Modifier.fillMaxWidth().height(CONTROL_H),
+                            onToggleSettings = onToggleSettings,
+                        )
+                    }
                 }
             }
         }
