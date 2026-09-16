@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
@@ -60,6 +61,7 @@ import com.reverie.paint.core.animationRippleResizeFrame
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationToggleFrameSelection
 import com.reverie.paint.core.frameThumbKey
+import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
 import com.reverie.paint.model.TimelineReorderHelper
@@ -79,8 +81,12 @@ internal class TrimDragState(
     var currentDeltaFrames: Int = 0,
 )
 
-/** 帧块拖拽态: 被拖的图层索引 + 块起始帧 */
-internal class FrameDragState(val layer: Int, val fromTime: Int)
+/** 帧块拖拽态: 被拖的图层索引 + 块起始帧 + 快照缩略图 */
+internal class FrameDragState(
+    val layer: Int,
+    val fromTime: Int,
+    val thumbBitmap: ImageBitmap? = null,
+)
 
 // ============================================================
 // 刻度尺
@@ -93,7 +99,7 @@ internal fun TimelineRuler(
 ) {
     val frameW = vm.anim.frameWidthPx
     val scroll = vm.anim.scrollPx
-    val count = vm.anim.length
+    val count = maxOf(vm.anim.length, vm.playbackEndFrame() + 1)
     val textMeasurer = rememberTextMeasurer()
 
     Canvas(
@@ -243,10 +249,19 @@ internal fun TimelineTrackArea(
                         val frame = ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
                         val times = vm.anim.keyframeCache[layer].orEmpty()
                         var hit = -1
-                        for (t in times) {
-                            if (t <= frame) hit = t else break
+                        var inBlock = false
+                        for (i in times.indices) {
+                            val t = times[i]
+                            val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
+                            if (frame in t until nxt) {
+                                hit = t
+                                inBlock = true
+                                break
+                            } else if (t <= frame) {
+                                hit = t
+                            }
                         }
-                        return if (hit >= 0) Triple(layer, hit, true) else Triple(layer, frame, false)
+                        return if (inBlock) Triple(layer, hit, true) else Triple(layer, frame, false)
                     }
 
                     // 检查是否命中单帧右边缘的拉伸手柄
@@ -266,7 +281,7 @@ internal fun TimelineTrackArea(
 
                         for (i in times.indices) {
                             val t = times[i]
-                            val nxt = if (i + 1 < times.size) times[i + 1] else t + 1
+                            val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
                             val span = (nxt - t).coerceAtLeast(1)
                             val rightEdgeX = hw + (t + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
                             if (abs(x - rightEdgeX) <= trimTouchRadius) {
@@ -466,9 +481,6 @@ internal fun TimelineTrackArea(
                                 } else {
                                     val (hitLayer, hitTime, hitOnBlock) = hit
                                     liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    frameMenu = FrameMenuState(
-                                        hitLayer, hitTime, downPos.x, downPos.y, hitOnBlock,
-                                    )
 
                                     var b = 0
                                     while (true) {
@@ -481,14 +493,20 @@ internal fun TimelineTrackArea(
                                         pendingY += c.positionChange().y
                                         if (abs(pendingX) > slop || abs(pendingY) > slop) { b = 1; break }
                                     }
-                                    if (b == 0) continue@gesture
+                                    if (b == 0) {
+                                        frameMenu = FrameMenuState(
+                                            hitLayer, hitTime, downPos.x, downPos.y, hitOnBlock,
+                                        )
+                                        continue@gesture
+                                    }
                                     if (b == 2) {
                                         frameMenu = null
                                     } else {
                                         frameMenu = null
                                         if (hitOnBlock && !vm.anim.isMultiSelectMode) {
-                                            frameDrag = FrameDragState(hitLayer, hitTime)
-                                            dragDx = 0f
+                                            val capturedThumb = thumbImages[frameThumbKey(hitLayer, hitTime)]
+                                            frameDrag = FrameDragState(hitLayer, hitTime, capturedThumb)
+                                            dragDx = pendingX
                                             isDropping = false
                                             coroutineScope.launch {
                                                 dragLift.snapTo(0f)
@@ -679,7 +697,8 @@ internal fun TimelineTrackArea(
                                 val t = times[idx]
                                 if (t > lastFrame + 12) break
 
-                                val next = if (idx + 1 < times.size) times[idx + 1] else t + 1
+                                val lastHold = vm.anim.lastFrameHold[layer.index] ?: 1
+                                val next = if (idx + 1 < times.size) times[idx + 1] else t + lastHold
                                 var span = (next - t).coerceAtLeast(1)
 
                                 // 正在被拖拽的块跳过本体绘制 (由浮空 ghost 块绘制)
@@ -697,7 +716,7 @@ internal fun TimelineTrackArea(
                                     } else if (t > trimTime) {
                                         val origSpanPx = (cache[layer.index]?.let { lTimes ->
                                             val trIdx = lTimes.indexOf(trimTime)
-                                            if (trIdx in lTimes.indices && trIdx + 1 < lTimes.size) lTimes[trIdx + 1] - lTimes[trIdx] else 1
+                                            if (trIdx in lTimes.indices && trIdx + 1 < lTimes.size) lTimes[trIdx + 1] - lTimes[trIdx] else (vm.anim.lastFrameHold[layer.index] ?: 1)
                                         } ?: 1) * frameW
                                         val continuousSpanPx = (origSpanPx + effectiveTrimDx).coerceAtLeast(frameW * 0.4f)
                                         val pushPx = (continuousSpanPx - origSpanPx).coerceAtLeast(-origSpanPx + frameW * 0.4f)
@@ -822,7 +841,11 @@ internal fun TimelineTrackArea(
                             if (isDraggingThisLayer && frameDrag != null) {
                                 val movingSpan = (cache[layer.index]?.let { lTimes ->
                                     val mIdx = lTimes.indexOf(dragFrom)
-                                    if (mIdx in lTimes.indices && mIdx + 1 < lTimes.size) lTimes[mIdx + 1] - lTimes[mIdx] else 1
+                                    if (mIdx in lTimes.indices && mIdx + 1 < lTimes.size) {
+                                        lTimes[mIdx + 1] - lTimes[mIdx]
+                                    } else {
+                                        vm.anim.lastFrameHold[layer.index] ?: 1
+                                    }
                                 } ?: 1).coerceAtLeast(1)
                                 val gapFrame = gapAnimFrame.value
                                 val gapX = gapFrame * frameW + 2f
@@ -863,7 +886,8 @@ internal fun TimelineTrackArea(
                         val row = layers.indexOfFirst { it.index == drg.layer }
                         if (row >= 0) {
                             val t = drg.fromTime
-                            val next = cache[drg.layer]?.firstOrNull { it > t } ?: (t + 1)
+                            val lastHold = vm.anim.lastFrameHold[drg.layer] ?: 1
+                            val next = cache[drg.layer]?.firstOrNull { it > t } ?: (t + lastHold)
                             val span = (next - t).coerceAtLeast(1)
                             val baseW = (span * frameW - 4f).coerceAtLeast(2f)
                             val baseH = rowPx - 8f
@@ -890,7 +914,7 @@ internal fun TimelineTrackArea(
                             }
 
                             drawRoundRect(
-                                color = Morandi.panelHi.copy(alpha = 0.96f),
+                                color = Morandi.subText.copy(alpha = 0.45f),
                                 topLeft = Offset(gx, gy),
                                 size = Size(gw, gh),
                                 cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx()),
@@ -904,7 +928,7 @@ internal fun TimelineTrackArea(
                             )
 
                             // 缩略图
-                            val img = thumbImages[frameThumbKey(drg.layer, t)]
+                            val img = drg.thumbBitmap ?: thumbImages[frameThumbKey(drg.layer, t)]
                             if (showThumbs && img != null) {
                                 val slotW = frameW - 4f
                                 val iw = slotW - thumbInset * 2f

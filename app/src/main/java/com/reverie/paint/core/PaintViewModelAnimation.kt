@@ -174,11 +174,13 @@ internal class AnimationState {
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
 
-    /**
-     * 轨道关键帧缓存: 图层索引 -> 升序帧号列表。
+    /** 轨道关键帧缓存: 图层索引 -> 升序帧号列表。
      * 仅用于时间轴绘制加速 (避免每帧逐轨道跨 JNI 查询), 引擎始终是真身。
      */
     var keyframeCache by mutableStateOf<Map<Int, List<Int>>>(emptyMap())
+
+    /** 轨道各层末帧保持时长 (Hold Duration), 未记录时默认为 1 帧 */
+    var lastFrameHold by mutableStateOf<Map<Int, Int>>(emptyMap())
 
     /** 结构版本号: 关键帧增删改后自增, 驱动 Compose 重组 */
     var revision by mutableIntStateOf(0)
@@ -848,7 +850,7 @@ internal fun PaintViewModel.animationRippleResizeFrame(
         return
     }
 
-    val curSpan = if (idx + 1 < times.size) times[idx + 1] - times[idx] else 1
+    val curSpan = if (idx + 1 < times.size) times[idx + 1] - times[idx] else (anim.lastFrameHold[layerIndex] ?: 1)
     val delta = newSpan - curSpan
     if (delta == 0) {
         onDone()
@@ -862,21 +864,13 @@ internal fun PaintViewModel.animationRippleResizeFrame(
         }
         rearrangeKeyframesMacro(layerIndex, times, newTimes, "调整帧曝光", after = onDone)
     } else {
-        // 末帧曝光扩展: 在 frameTime + newSpan 处新建空白帧以闭合曝光区间
-        val newEndFrame = frameTime + newSpan
-        runCore(
-            after = {
-                syncAnimationFromNativeAfter()
-                onDone()
-            },
-        ) {
-            ReverieCoreBridge.beginUndoMacro("调整帧曝光")
-            try {
-                ReverieCoreBridge.addKeyframe(layerIndex, newEndFrame)
-            } finally {
-                ReverieCoreBridge.endUndoMacro()
-            }
+        // 末帧曝光扩展: 仅更新最后关键帧的保持时长 (Hold Duration), 不污染轨道创建空白关键帧
+        anim.lastFrameHold = anim.lastFrameHold + (layerIndex to newSpan)
+        if (frameTime + newSpan > anim.length) {
+            anim.length = frameTime + newSpan
         }
+        anim.revision++
+        onDone()
     }
 }
 
@@ -908,6 +902,18 @@ internal fun PaintViewModel.animationRippleMoveFrame(
     ) ?: run {
         onDone()
         return
+    }
+
+    // 在搬移前将既有的缩略图映射预填充至重排后的新槽位, 防止引擎异步重新渲染期间缩略图出现空白闪烁
+    val oldImages = anim.frameThumbImages
+    if (oldImages.isNotEmpty()) {
+        val newImages = HashMap(oldImages)
+        for (i in reorder.oldTimes.indices) {
+            val oldK = frameThumbKey(layerIndex, reorder.oldTimes[i])
+            val newK = frameThumbKey(layerIndex, reorder.newTimes[i])
+            oldImages[oldK]?.let { newImages[newK] = it }
+        }
+        anim.frameThumbImages = newImages
     }
 
     rearrangeKeyframesMacro(layerIndex, reorder.oldTimes, reorder.newTimes, "推挤移动帧") {
@@ -1137,10 +1143,18 @@ private fun PaintViewModel.playbackStartFrame(): Int {
     return allTimes.minOrNull() ?: 0
 }
 
-/** 结束帧: 取所有轨道上已有关键帧的最大帧号 (无帧块处不播放) */
-private fun PaintViewModel.playbackEndFrame(): Int {
-    val allTimes = anim.keyframeCache.values.flatten()
-    return allTimes.maxOrNull() ?: maxOf(0, anim.length - 1)
+/** 结束帧: 取所有轨道上已有关键帧的最大结束帧号 (包括末帧保持时长, 无帧块处不播放) */
+internal fun PaintViewModel.playbackEndFrame(): Int {
+    var maxEnd = -1
+    for ((layer, times) in anim.keyframeCache) {
+        if (times.isNotEmpty()) {
+            val lastT = times.last()
+            val hold = anim.lastFrameHold[layer] ?: 1
+            val end = lastT + hold
+            if (end > maxEnd) maxEnd = end
+        }
+    }
+    return if (maxEnd > 0) maxEnd else maxOf(0, anim.length - 1)
 }
 
 /** 单步播放。运行在 reverie-render 线程上 (由 animationPlay 投递)。 */
