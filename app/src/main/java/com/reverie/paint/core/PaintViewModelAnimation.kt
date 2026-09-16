@@ -835,22 +835,49 @@ internal fun PaintViewModel.animationRippleResizeFrame(
     layerIndex: Int,
     frameTime: Int,
     newSpan: Int,
+    onDone: () -> Unit = {},
 ) {
-    if (layerIndex < 0 || newSpan < 1) return
+    if (layerIndex < 0 || newSpan < 1) {
+        onDone()
+        return
+    }
     val times = anim.keyframeCache[layerIndex].orEmpty()
     val idx = times.indexOf(frameTime)
-    if (idx < 0) return
+    if (idx < 0) {
+        onDone()
+        return
+    }
 
     val curSpan = if (idx + 1 < times.size) times[idx + 1] - times[idx] else 1
     val delta = newSpan - curSpan
-    if (delta == 0) return
-
-    val newTimes = times.toMutableList()
-    for (i in (idx + 1) until times.size) {
-        newTimes[i] = times[i] + delta
+    if (delta == 0) {
+        onDone()
+        return
     }
 
-    rearrangeKeyframesMacro(layerIndex, times, newTimes, "调整帧曝光")
+    if (idx + 1 < times.size) {
+        val newTimes = times.toMutableList()
+        for (i in (idx + 1) until times.size) {
+            newTimes[i] = times[i] + delta
+        }
+        rearrangeKeyframesMacro(layerIndex, times, newTimes, "调整帧曝光", after = onDone)
+    } else {
+        // 末帧曝光扩展: 在 frameTime + newSpan 处新建空白帧以闭合曝光区间
+        val newEndFrame = frameTime + newSpan
+        runCore(
+            after = {
+                syncAnimationFromNativeAfter()
+                onDone()
+            },
+        ) {
+            ReverieCoreBridge.beginUndoMacro("调整帧曝光")
+            try {
+                ReverieCoreBridge.addKeyframe(layerIndex, newEndFrame)
+            } finally {
+                ReverieCoreBridge.endUndoMacro()
+            }
+        }
+    }
 }
 
 /**
@@ -861,20 +888,31 @@ internal fun PaintViewModel.animationRippleMoveFrame(
     layerIndex: Int,
     fromTime: Int,
     targetSlot: Int,
+    onDone: () -> Unit = {},
 ) {
-    if (layerIndex < 0 || targetSlot < 0) return
+    if (layerIndex < 0 || targetSlot < 0) {
+        onDone()
+        return
+    }
     val times = anim.keyframeCache[layerIndex].orEmpty()
     val fromIdx = times.indexOf(fromTime)
-    if (fromIdx < 0 || times.size <= 1) return
+    if (fromIdx < 0 || times.size <= 1) {
+        onDone()
+        return
+    }
 
     val reorder = com.reverie.paint.model.TimelineReorderHelper.computeReorderedTimes(
         times = times,
         fromTime = fromTime,
         targetSlot = targetSlot,
-    ) ?: return
+    ) ?: run {
+        onDone()
+        return
+    }
 
     rearrangeKeyframesMacro(layerIndex, reorder.oldTimes, reorder.newTimes, "推挤移动帧") {
         animationSeek(reorder.landingTime)
+        onDone()
     }
 }
 

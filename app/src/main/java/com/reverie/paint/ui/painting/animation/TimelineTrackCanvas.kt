@@ -258,26 +258,28 @@ internal fun TimelineTrackArea(
                         val row = ((y + liveScroll.value) / rpx).toInt()
                         if (row !in ls.indices) return null
                         val layer = ls[row].index
-                        val activeTime = vm.anim.currentTime
                         val times = vm.anim.keyframeCache[layer].orEmpty()
-                        var hitStart = -1
-                        var hitNext = -1
+                        if (times.isEmpty()) return null
+
+                        val activeTime = vm.anim.currentTime
+                        var matchedState: TrimDragState? = null
+
                         for (i in times.indices) {
                             val t = times[i]
                             val nxt = if (i + 1 < times.size) times[i + 1] else t + 1
-                            if (activeTime in t until nxt) {
-                                hitStart = t
-                                hitNext = nxt
-                                break
+                            val span = (nxt - t).coerceAtLeast(1)
+                            val rightEdgeX = hw + (t + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
+                            if (abs(x - rightEdgeX) <= trimTouchRadius) {
+                                val state = TrimDragState(layer, t, span)
+                                if (activeTime in t until nxt) {
+                                    return state
+                                }
+                                if (matchedState == null) {
+                                    matchedState = state
+                                }
                             }
                         }
-                        if (hitStart < 0) return null
-                        val span = (hitNext - hitStart).coerceAtLeast(1)
-                        val rightEdgeX = hw + (hitStart + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
-                        if (abs(x - rightEdgeX) <= trimTouchRadius) {
-                            return TrimDragState(layer, hitStart, span)
-                        }
-                        return null
+                        return matchedState
                     }
 
                     fun doTap(x: Float, y: Float) {
@@ -365,8 +367,28 @@ internal fun TimelineTrackArea(
                                 trackMenu = null
                             }
 
-                            // 边缘手柄直接拖动拉伸曝光 (无需等待长按)
-                            if (phase == 1 && potentialTrim != null && abs(pendingX) > abs(pendingY)) {
+                            // 边缘手柄直接拖动拉伸曝光 (无需等待长按, 支持快速拉伸或停顿后拉伸)
+                            if (potentialTrim != null) {
+                                if (phase == 0) {
+                                    if (menuWasOpen) {
+                                        frameMenu = null
+                                        trackMenu = null
+                                    } else doTap(downPos.x, downPos.y)
+                                    continue@gesture
+                                }
+
+                                if (menuWasOpen) {
+                                    frameMenu = null
+                                    trackMenu = null
+                                }
+
+                                // 确保被拉伸帧及所在轨道处于当前选中与播放头位置
+                                if (vm.anim.currentTime !in potentialTrim.frameTime until (potentialTrim.frameTime + potentialTrim.origSpan)) {
+                                    vm.animationSeek(potentialTrim.frameTime)
+                                    vm.setCurrentLayer(potentialTrim.layer)
+                                    vm.anim.selectedTrack = potentialTrim.layer
+                                }
+
                                 trimDrag = potentialTrim
                                 dragDx = pendingX
                                 isSnappingTrim = false
@@ -389,11 +411,16 @@ internal fun TimelineTrackArea(
                                                     animationSpec = spring(dampingRatio = 0.78f, stiffness = 550f),
                                                 )
                                                 if (finalSpan != td.origSpan) {
-                                                    vm.animationRippleResizeFrame(td.layer, td.frameTime, finalSpan)
+                                                    vm.animationRippleResizeFrame(td.layer, td.frameTime, finalSpan) {
+                                                        trimDrag = null
+                                                        isSnappingTrim = false
+                                                        dragDx = 0f
+                                                    }
+                                                } else {
+                                                    trimDrag = null
+                                                    isSnappingTrim = false
+                                                    dragDx = 0f
                                                 }
-                                                trimDrag = null
-                                                isSnappingTrim = false
-                                                dragDx = 0f
                                             }
                                         } else {
                                             dragDx = 0f
@@ -495,12 +522,18 @@ internal fun TimelineTrackArea(
                                                                 animationSpec = spring(dampingRatio = 0.82f, stiffness = 600f),
                                                             )
                                                             if (layout.targetSlot >= 0) {
-                                                                vm.animationRippleMoveFrame(dr.layer, dr.fromTime, layout.targetSlot)
+                                                                vm.animationRippleMoveFrame(dr.layer, dr.fromTime, layout.targetSlot) {
+                                                                    frameDrag = null
+                                                                    isDropping = false
+                                                                    dragDx = 0f
+                                                                    blockAnimOffsets.clear()
+                                                                }
+                                                            } else {
+                                                                frameDrag = null
+                                                                isDropping = false
+                                                                dragDx = 0f
+                                                                blockAnimOffsets.clear()
                                                             }
-                                                            frameDrag = null
-                                                            isDropping = false
-                                                            dragDx = 0f
-                                                            blockAnimOffsets.clear()
                                                         }
                                                     } else {
                                                         dragDx = 0f
@@ -797,19 +830,22 @@ internal fun TimelineTrackArea(
                                 val gapY = top + 4f
                                 val gapH = rowPx - 8f
 
-                                drawRoundRect(
-                                    color = Morandi.accent.copy(alpha = 0.20f),
-                                    topLeft = Offset(gapX, gapY),
-                                    size = Size(gapW, gapH),
-                                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                )
-                                drawRoundRect(
-                                    color = Morandi.accent.copy(alpha = 0.85f),
-                                    topLeft = Offset(gapX, gapY),
-                                    size = Size(gapW, gapH),
-                                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                    style = Stroke(width = 1.8f),
-                                )
+                                val liftAlpha = dragLift.value.coerceIn(0f, 1f)
+                                if (liftAlpha > 0.02f) {
+                                    drawRoundRect(
+                                        color = Morandi.accent.copy(alpha = 0.20f * liftAlpha),
+                                        topLeft = Offset(gapX, gapY),
+                                        size = Size(gapW, gapH),
+                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                    )
+                                    drawRoundRect(
+                                        color = Morandi.accent.copy(alpha = 0.85f * liftAlpha),
+                                        topLeft = Offset(gapX, gapY),
+                                        size = Size(gapW, gapH),
+                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                        style = Stroke(width = 1.8f),
+                                    )
+                                }
                             }
                         }
                     }
@@ -915,7 +951,7 @@ internal fun TimelineTrackArea(
                             val bubbleH = tipLayout.size.height + 8f
                             val continuousSpanPx = (td.origSpan * frameW + effectiveTrimDx).coerceAtLeast(frameW * 0.4f)
                             val bx = td.frameTime * frameW + continuousSpanPx - bubbleW / 2f
-                            val by = row * rowPx - bubbleH - 6f
+                            val by = if (row * rowPx - bubbleH - 6f < scrollY) (row + 1) * rowPx + 6f else row * rowPx - bubbleH - 6f
 
                             drawRoundRect(
                                 color = Morandi.panelHi.copy(alpha = 0.96f),
