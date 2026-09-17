@@ -50,6 +50,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -142,19 +143,19 @@ fun SettingsPanel(
             ) {
                 TabHeaderItem(
                     icon = R.drawable.ic_canvas_tab,
-                    label = "画布",
+                    label = stringResource(R.string.panel_tab_canvas),
                     selected = currentTab == SettingsTab.CANVAS,
                     onClick = { currentTab = SettingsTab.CANVAS }
                 )
                 TabHeaderItem(
                     icon = R.drawable.ic_export_tab,
-                    label = "导出",
+                    label = stringResource(R.string.panel_tab_export),
                     selected = currentTab == SettingsTab.EXPORT,
                     onClick = { currentTab = SettingsTab.EXPORT }
                 )
                 TabHeaderItem(
                     icon = R.drawable.ic_settings,
-                    label = "设置",
+                    label = stringResource(R.string.panel_tab_settings),
                     selected = currentTab == SettingsTab.SETTINGS,
                     onClick = { currentTab = SettingsTab.SETTINGS }
                 )

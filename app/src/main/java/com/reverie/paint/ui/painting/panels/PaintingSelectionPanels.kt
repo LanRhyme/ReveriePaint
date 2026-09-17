@@ -51,6 +51,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
@@ -120,8 +121,8 @@ internal fun PickerLayerSourceBar(
         ToolFloatPanel(vm = vm, hazeState = hazeState) {
             ToolBubbleDropdown(
                 items = listOf(
-                    ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
-                    ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
+                    ToolDropdownItemData(0, R.drawable.ic_layers, stringResource(R.string.selection_current_layer)),
+                    ToolDropdownItemData(1, R.drawable.ic_layerstack, stringResource(R.string.selection_all_layers)),
                 ),
                 selected = vm.pickerSampleLayers,
                 onSelect = { vm.updatePickerSampleLayers(it) },
@@ -187,21 +188,25 @@ internal fun SelectionFloatPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToolFloatChip(
-                        label = "完成闭合",
+                        label = stringResource(R.string.selection_complete_close),
                         selected = true,
                         onClick = { vm.finishLassoMulti() }
                     )
                     ToolFloatChip(
-                        label = "撤销点",
+                        label = stringResource(R.string.selection_undo_point),
                         onClick = { vm.undoLassoPoint() }
                     )
                     ToolFloatChip(
-                        label = "放弃",
+                        label = stringResource(R.string.selection_discard),
                         danger = true,
                         onClick = { vm.cancelLassoMulti() }
                     )
                     Text(
-                        if (vm.lassoSubMode == LassoSubMode.POLYLINE) "${vm.lassoMultiPoints.size} 点" else "${vm.lassoSegmentCounts.size} 段",
+                        if (vm.lassoSubMode == LassoSubMode.POLYLINE) {
+                            stringResource(R.string.selection_count_points, vm.lassoMultiPoints.size)
+                        } else {
+                            stringResource(R.string.selection_count_segments, vm.lassoSegmentCounts.size)
+                        },
                         color = Morandi.subText,
                         fontSize = 11.sp,
                     )
@@ -215,21 +220,21 @@ internal fun SelectionFloatPanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToolFloatChip(
-                        label = "完成选区",
+                        label = stringResource(R.string.selection_complete_sel),
                         selected = true,
                         onClick = onPolyFinish
                     )
                     ToolFloatChip(
-                        label = "撤销点",
+                        label = stringResource(R.string.selection_undo_point),
                         onClick = onPolyUndo
                     )
                     ToolFloatChip(
-                        label = "取消",
+                        label = stringResource(R.string.common_cancel),
                         danger = true,
                         onClick = onPolyCancel
                     )
                     Text(
-                        "${polyPoints.size} 顶点",
+                        stringResource(R.string.selection_count_vertices, polyPoints.size),
                         color = Morandi.subText,
                         fontSize = 11.sp,
                     )
@@ -248,7 +253,7 @@ internal fun SelectionFloatPanel(
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
                             ToolFloatSlider(
-                                label = "容差",
+                                label = stringResource(R.string.selection_tolerance),
                                 valueText = "${vm.selectionTolerance}",
                                 range = 1f..100f,
                                 value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
@@ -257,8 +262,8 @@ internal fun SelectionFloatPanel(
                         }
                         ToolBubbleDropdown(
                             items = listOf(
-                                ToolDropdownItemData(0, R.drawable.ic_layers, "当前图层"),
-                                ToolDropdownItemData(1, R.drawable.ic_layerstack, "全部图层"),
+                                ToolDropdownItemData(0, R.drawable.ic_layers, stringResource(R.string.selection_current_layer)),
+                                ToolDropdownItemData(1, R.drawable.ic_layerstack, stringResource(R.string.selection_all_layers)),
                             ),
                             selected = vm.selectionSampleLayers,
                             onSelect = { vm.updateSelectionSampleLayers(it) },
@@ -268,7 +273,7 @@ internal fun SelectionFloatPanel(
 
                     if (tool == Tool.MAGICWAND) {
                         ToolFloatSlider(
-                            label = "空隙",
+                            label = stringResource(R.string.selection_close_gap),
                             valueText = "${vm.selectionCloseGap}px",
                             range = 0f..16f,
                             value = vm.selectionCloseGap.toFloat().coerceIn(0f, 16f),
@@ -281,7 +286,7 @@ internal fun SelectionFloatPanel(
                     var expandContractR by remember { mutableFloatStateOf(0f) }
                     var smoothR by remember { mutableFloatStateOf(4f) }
                     ToolFloatSlider(
-                        label = "羽化",
+                        label = stringResource(R.string.selection_feather),
                         valueText = "${featherR.toInt()}px",
                         range = 0f..32f,
                         value = featherR,
@@ -289,7 +294,7 @@ internal fun SelectionFloatPanel(
                         onRelease = { vm.featherSelection(featherR.toInt()) },
                     )
                     ToolFloatSlider(
-                        label = "扩缩",
+                        label = stringResource(R.string.selection_expand_contract),
                         valueText = if (expandContractR.toInt() > 0) "+${expandContractR.toInt()}px" else "${expandContractR.toInt()}px",
                         range = -64f..64f,
                         value = expandContractR,
@@ -304,7 +309,7 @@ internal fun SelectionFloatPanel(
                         },
                     )
                     ToolFloatSlider(
-                        label = "平滑",
+                        label = stringResource(R.string.selection_smooth),
                         valueText = "${smoothR.toInt()}px",
                         range = 1f..16f,
                         value = smoothR,
@@ -323,9 +328,9 @@ internal fun SelectionFloatPanel(
                 if (tool == Tool.LASSO) {
                     ToolBubbleDropdown(
                         items = listOf(
-                            ToolDropdownItemData(LassoSubMode.FREEHAND, R.drawable.ic_lasso, "自由"),
-                            ToolDropdownItemData(LassoSubMode.POLYLINE, R.drawable.ic_polyline, "折线"),
-                            ToolDropdownItemData(LassoSubMode.HYBRID, R.drawable.ic_lasso_multi, "自由+折线"),
+                            ToolDropdownItemData(LassoSubMode.FREEHAND, R.drawable.ic_lasso, stringResource(R.string.selection_submode_freehand)),
+                            ToolDropdownItemData(LassoSubMode.POLYLINE, R.drawable.ic_polyline, stringResource(R.string.selection_submode_polyline)),
+                            ToolDropdownItemData(LassoSubMode.HYBRID, R.drawable.ic_lasso_multi, stringResource(R.string.selection_submode_hybrid)),
                         ),
                         selected = vm.lassoSubMode,
                         onSelect = { vm.updateLassoSubMode(it) },
@@ -336,10 +341,10 @@ internal fun SelectionFloatPanel(
                 // 选区模式 (新建, 增加, 减去, 相交)
                 ToolBubbleDropdown(
                     items = listOf(
-                        ToolDropdownItemData(0, R.drawable.ic_sel_mode_new, "新建"),
-                        ToolDropdownItemData(1, R.drawable.ic_sel_mode_add, "增加"),
-                        ToolDropdownItemData(2, R.drawable.ic_sel_mode_sub, "减去"),
-                        ToolDropdownItemData(3, R.drawable.ic_sel_mode_intersect, "相交"),
+                        ToolDropdownItemData(0, R.drawable.ic_sel_mode_new, stringResource(R.string.selection_mode_new)),
+                        ToolDropdownItemData(1, R.drawable.ic_sel_mode_add, stringResource(R.string.selection_mode_add)),
+                        ToolDropdownItemData(2, R.drawable.ic_sel_mode_sub, stringResource(R.string.selection_mode_sub)),
+                        ToolDropdownItemData(3, R.drawable.ic_sel_mode_intersect, stringResource(R.string.selection_mode_intersect)),
                     ),
                     selected = vm.selectionMode,
                     onSelect = { vm.updateSelectionMode(it) },
@@ -349,20 +354,20 @@ internal fun SelectionFloatPanel(
                 // 操作按钮组: 反选
                 SelectionActionItem(
                     iconRes = R.drawable.ic_refresh,
-                    label = "反选",
+                    label = stringResource(R.string.selection_invert),
                     onClick = { vm.invertSelectionAction() },
                 )
 
                 // 复制 / 剪切 (气泡下拉)
                 ToolBubbleDropdown(
                     items = listOf(
-                        ToolDropdownItemData(0, R.drawable.ic_copy, "复制到新图层"),
-                        ToolDropdownItemData(1, R.drawable.ic_copy, "复制到当前图层"),
-                        ToolDropdownItemData(2, R.drawable.ic_cut, "剪切到新图层"),
-                        ToolDropdownItemData(3, R.drawable.ic_cut, "剪切到当前图层"),
+                        ToolDropdownItemData(0, R.drawable.ic_copy, stringResource(R.string.selection_copy_new)),
+                        ToolDropdownItemData(1, R.drawable.ic_copy, stringResource(R.string.selection_copy_cur)),
+                        ToolDropdownItemData(2, R.drawable.ic_cut, stringResource(R.string.selection_cut_new)),
+                        ToolDropdownItemData(3, R.drawable.ic_cut, stringResource(R.string.selection_cut_cur)),
                     ),
                     selected = null,
-                    labelOverride = "复制/剪切",
+                    labelOverride = stringResource(R.string.selection_copy_cut),
                     iconOverride = R.drawable.ic_copy,
                     onSelect = { option ->
                         when (option) {
@@ -377,7 +382,7 @@ internal fun SelectionFloatPanel(
                 // 取消按钮
                 SelectionActionItem(
                     iconRes = R.drawable.ic_trash,
-                    label = "取消",
+                    label = stringResource(R.string.common_cancel),
                     danger = true,
                     onClick = { vm.clearSelectionAction() },
                 )
@@ -386,7 +391,7 @@ internal fun SelectionFloatPanel(
                 if (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR) {
                     SelectionActionItem(
                         iconRes = R.drawable.ic_sliders,
-                        label = if (propsOpen) "收起" else "属性",
+                        label = if (propsOpen) stringResource(R.string.selection_collapse) else stringResource(R.string.selection_props),
                         active = propsOpen,
                         onClick = { onToggleProps() },
                     )

@@ -120,7 +120,7 @@ fun ColorHarmonyPage(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = mode.label,
+                        text = androidx.compose.ui.res.stringResource(mode.labelRes),
                         color = if (isSel) Color.White else Morandi.subText,
                         fontSize = 10.sp,
                         fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
@@ -160,51 +160,35 @@ fun ColorHarmonyPage(
 
         // 3. Harmony Chord Swatches Row + "存入色卡" button
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Chord Colors Row
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                harmonyHexColors.forEachIndexed { index, hex ->
-                    val isPrimary = index == 0
-                    val isCurrent = hex.equals(vm.brushColor, ignoreCase = true)
-                    val chipColor = try {
-                        Color(android.graphics.Color.parseColor(hex))
-                    } catch (e: Exception) {
-                        Color.Gray
-                    }
-
+                val curHex = vm.brushColor
+                for (hex in harmonyHexColors) {
+                    val isPrimary = hex.equals(curHex, ignoreCase = true)
                     Box(
                         modifier = Modifier
-                            .size(if (isPrimary) 30.dp else 26.dp)
+                            .size(26.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(chipColor)
+                            .background(Color(android.graphics.Color.parseColor(hex)))
                             .then(
-                                if (isCurrent) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
-                                else Modifier.border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                if (isPrimary) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
+                                else Modifier.border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
                             )
                             .clickable {
                                 vm.updateBrushColor(hex)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isPrimary) {
-                            Box(
-                                modifier = Modifier
-                                    .size(5.dp)
-                                    .background(Color.White.copy(alpha = 0.8f), CircleShape)
-                            )
-                        }
-                    }
+                            }
+                    )
                 }
             }
 
-            // Button: Save Harmony Chord to Default Palette
+            // Save Chord to Active Palette Button
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
@@ -215,9 +199,9 @@ fun ColorHarmonyPage(
                             harmonyHexColors.forEach { c ->
                                 vm.addColorToPalette(targetPal.id, c)
                             }
-                            Toast.makeText(context, "已将配色方案存入 ${targetPal.name}", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.color_harmony_saved_toast, targetPal.name), Toast.LENGTH_SHORT).show()
                         } else {
-                            Toast.makeText(context, "暂无可用色卡", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.color_harmony_no_pal_toast), Toast.LENGTH_SHORT).show()
                         }
                     }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -229,11 +213,11 @@ fun ColorHarmonyPage(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_bookmark_plus),
-                        contentDescription = "存入色卡",
+                        contentDescription = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn),
                         tint = Morandi.accent,
                         modifier = Modifier.size(13.dp)
                     )
-                    Text(text = "存入色卡", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    Text(text = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn), color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }

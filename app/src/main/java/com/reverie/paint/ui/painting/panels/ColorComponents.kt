@@ -553,12 +553,12 @@ fun HexInputDialog(
 /**
  * Supported color harmony modes (Procreate parity)
  */
-enum class ColorHarmonyMode(val label: String) {
-    COMPLEMENTARY("互补色"),
-    SPLIT_COMPLEMENTARY("分裂互补"),
-    ANALOGOUS("类似色"),
-    TRIADIC("三等分"),
-    TETRADIC("四角形");
+enum class ColorHarmonyMode(val labelRes: Int, val label: String) {
+    COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_complementary, "互补色"),
+    SPLIT_COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_split, "分裂互补"),
+    ANALOGOUS(com.reverie.paint.R.string.color_harmony_analogous, "类似色"),
+    TRIADIC(com.reverie.paint.R.string.color_harmony_triadic, "三等分"),
+    TETRADIC(com.reverie.paint.R.string.color_harmony_tetradic, "四角形");
 
     fun getHarmoniousHues(baseHue: Float): List<Float> {
         val h = (baseHue % 360f + 360f) % 360f

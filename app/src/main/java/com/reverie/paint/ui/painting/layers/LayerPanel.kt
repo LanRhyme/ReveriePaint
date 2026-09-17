@@ -101,6 +101,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -366,7 +367,7 @@ fun LayerPanel(
                                     else -> null
                                 }
                                 vm.addAdjustmentLayer(
-                                    name = "滤镜 · $filterName",
+                                    name = "${context.getString(R.string.layer_tag_filter_prefix)}$filterName",
                                     filterType = filterId,
                                     p1 = ap?.p1 ?: 0.0,
                                     p2 = ap?.p2 ?: 0.0,
@@ -500,7 +501,7 @@ private fun RenameDialog(
                     .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("重命名图层", color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.layer_rename_dialog_title), color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             androidx.compose.material3.OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -521,7 +522,7 @@ private fun RenameDialog(
                             .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("取消", color = Morandi.subText, fontSize = 13.sp)
+                    Text(stringResource(R.string.common_cancel), color = Morandi.subText, fontSize = 13.sp)
                 }
                 Box(
                     modifier =
@@ -533,7 +534,7 @@ private fun RenameDialog(
                             .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("确定", color = Morandi.onAccent, fontSize = 13.sp)
+                    Text(stringResource(R.string.common_confirm), color = Morandi.onAccent, fontSize = 13.sp)
                 }
             }
         }

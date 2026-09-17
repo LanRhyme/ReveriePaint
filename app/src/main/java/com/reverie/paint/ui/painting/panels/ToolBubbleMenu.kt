@@ -476,7 +476,7 @@ fun <T> ToolBubbleMenu(
                                 if (isSel) {
                                     Icon(
                                         painter = painterResource(id = R.drawable.ic_check),
-                                        contentDescription = "已选择",
+                                        contentDescription = null,
                                         tint = Morandi.accent,
                                         modifier = Modifier.size(16.dp),
                                     )

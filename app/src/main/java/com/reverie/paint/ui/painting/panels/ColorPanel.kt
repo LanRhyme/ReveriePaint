@@ -34,10 +34,12 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Glass
@@ -156,7 +158,7 @@ fun ColorPanel(
                     vm.isColorPanelPinned = !vm.isColorPanelPinned
                     Toast.makeText(
                         context,
-                        if (vm.isColorPanelPinned) "已钉住颜色面板，可在画布上自由绘制" else "已取消钉住",
+                        if (vm.isColorPanelPinned) context.getString(R.string.color_pin_hint) else context.getString(R.string.color_unpin_hint),
                         Toast.LENGTH_SHORT
                     ).show()
                 },
@@ -303,11 +305,11 @@ private fun ColorPanelHeader(
             ) {
                 Text(
                     text = when (activeTab) {
-                        0 -> "色轮"
-                        1 -> "方块"
-                        2 -> "和谐"
-                        3 -> "色卡"
-                        else -> "滑块"
+                        0 -> stringResource(R.string.color_tab_wheel)
+                        1 -> stringResource(R.string.color_tab_square)
+                        2 -> stringResource(R.string.color_tab_harmony)
+                        3 -> stringResource(R.string.color_tab_palette)
+                        else -> stringResource(R.string.color_tab_slider)
                     },
                     color = Morandi.text,
                     fontSize = 14.sp,

@@ -54,6 +54,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -175,7 +176,7 @@ fun ToolbarCustomizeDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "自定义工具栏快捷键",
+                            text = stringResource(R.string.tool_customize_title),
                             color = Morandi.text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -194,7 +195,7 @@ fun ToolbarCustomizeDialog(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_x),
-                                contentDescription = "关闭",
+                                contentDescription = stringResource(R.string.common_close),
                                 tint = Morandi.icon,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -216,7 +217,7 @@ fun ToolbarCustomizeDialog(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        QuickActionPill("恢复默认") {
+                        QuickActionPill(stringResource(R.string.tool_customize_reset_default)) {
                             val defaultSet = listOf(
                                 Tool.BRUSH, Tool.ERASER, Tool.TRANSFORM,
                                 Tool.MOVE, Tool.LASSO, Tool.PICKER,
@@ -224,10 +225,10 @@ fun ToolbarCustomizeDialog(
                             ).filter { it in orderedTools }
                             enabledTools = defaultSet.toSet()
                         }
-                        QuickActionPill("全部启用") {
+                        QuickActionPill(stringResource(R.string.tool_customize_enable_all)) {
                             enabledTools = orderedTools.toSet()
                         }
-                        QuickActionPill("全部禁用") {
+                        QuickActionPill(stringResource(R.string.tool_customize_disable_all)) {
                             enabledTools = emptySet()
                         }
                         Spacer(Modifier.weight(1f))
@@ -374,7 +375,7 @@ fun ToolbarCustomizeDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "完成",
+                                text = stringResource(R.string.common_done),
                                 color = Morandi.onAccent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -402,7 +403,7 @@ private fun ToolRowContent(
         // Drag handle icon
         Icon(
             painter = painterResource(R.drawable.ic_menu),
-            contentDescription = "拖动排序",
+            contentDescription = stringResource(R.string.tool_customize_drag_reorder),
             tint = Morandi.subText.copy(alpha = 0.6f),
             modifier = Modifier.size(16.dp)
         )

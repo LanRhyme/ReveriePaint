@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -88,7 +89,7 @@ fun QuickShapeTopBar(
             )
 
             Text(
-                text = "速创形状: ${shape.type.title}",
+                text = stringResource(R.string.quick_shape_title, shape.type.title),
                 color = Morandi.text,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
@@ -99,20 +100,20 @@ fun QuickShapeTopBar(
             // Type switching buttons
             when (shape.type) {
                 QuickShapeType.CIRCLE -> {
-                    QuickShapePillChip(label = "转为椭圆", selected = false) {
+                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_ellipse), selected = false) {
                         val rx = shape.radiusX
                         val ry = rx * 0.7f
                         vm.activeQuickShape = shape.copy(type = QuickShapeType.ELLIPSE, radiusY = ry)
                     }
                 }
                 QuickShapeType.ELLIPSE -> {
-                    QuickShapePillChip(label = "转为正圆", selected = false) {
+                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_circle), selected = false) {
                         val avgR = (shape.radiusX + shape.radiusY) / 2f
                         vm.activeQuickShape = shape.copy(type = QuickShapeType.CIRCLE, radiusX = avgR, radiusY = avgR)
                     }
                 }
                 QuickShapeType.RECTANGLE -> {
-                    QuickShapePillChip(label = "转为正方", selected = false) {
+                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_square), selected = false) {
                         val pts = shape.points
                         if (pts.size >= 4) {
                             val side = maxOf(pts[0].distanceTo(pts[1]), pts[1].distanceTo(pts[2]))
@@ -148,12 +149,12 @@ fun QuickShapeTopBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painter = painterResource(R.drawable.ic_check),
-                        contentDescription = "完成",
+                        contentDescription = stringResource(R.string.common_done),
                         tint = Color.White,
                         modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text("完成", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.common_done), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -166,7 +167,7 @@ fun QuickShapeTopBar(
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("取消", color = Morandi.subText, fontSize = 12.sp)
+                Text(stringResource(R.string.common_cancel), color = Morandi.subText, fontSize = 12.sp)
             }
         }
     }

@@ -101,6 +101,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -229,6 +230,7 @@ internal fun LayerListView(
     }
 
     val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val rowPx = with(density) { rowHeight.roundToPx() }
     var columnTop by remember { mutableStateOf(0f) }
 
@@ -335,18 +337,18 @@ internal fun LayerListView(
         ) {
             TopIcon(
                 resId = R.drawable.ic_plus,
-                desc = "添加颜料图层",
+                desc = stringResource(R.string.layer_add_paint_layer),
                 onClick = { vm.addLayer() },
             )
             TopIcon(
                 resId = R.drawable.ic_folder,
-                desc = "添加图层组",
+                desc = stringResource(R.string.layer_add_group),
                 onClick = { vm.addGroupLayer() },
             )
             Box {
                 TopIcon(
                     resId = R.drawable.ic_layers,
-                    desc = "更多图层类型",
+                    desc = stringResource(R.string.layer_more_types),
                     active = showNewLayerMenu,
                     onClick = { showNewLayerMenu = true },
                 )
@@ -356,7 +358,7 @@ internal fun LayerListView(
                     modifier = Modifier.background(Morandi.panel).glassBorder(RoundedCornerShape(8.dp)),
                 ) {
                     DropdownMenuItem(
-                        text = { Text("填充图层", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.layer_type_fill), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painterResource(R.drawable.ic_fill),
@@ -371,7 +373,7 @@ internal fun LayerListView(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("滤镜图层", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.layer_type_filter), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painterResource(R.drawable.ic_image_adjust),
@@ -386,7 +388,7 @@ internal fun LayerListView(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("盖印可见图层", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.layer_stamp_visible), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painterResource(R.drawable.ic_layers),
@@ -405,7 +407,7 @@ internal fun LayerListView(
 
             TopIcon(
                 resId = R.drawable.ic_merge_down,
-                desc = "向下合并",
+                desc = stringResource(R.string.layer_op_merge_down),
                 enabled = selectedIndex > 0 && !isBg && !isFilter,
                 onClick = {
                     if (selectedIndex > 0 && !isBg && !isFilter) {
@@ -415,7 +417,7 @@ internal fun LayerListView(
             )
             TopIcon(
                 resId = R.drawable.ic_grid,
-                desc = "锁定透明度",
+                desc = stringResource(R.string.layer_op_alpha_lock),
                 active = selLayer?.alphaLocked == true,
                 enabled = !isBg && !isFilter,
                 onClick = {
@@ -426,7 +428,7 @@ internal fun LayerListView(
             )
             TopIcon(
                 resId = R.drawable.ic_clip,
-                desc = "继承透明度",
+                desc = stringResource(R.string.layer_op_clip),
                 active = selLayer?.clipped == true,
                 enabled = !isBg,
                 onClick = {
@@ -437,7 +439,7 @@ internal fun LayerListView(
             )
             TopIcon(
                 resId = R.drawable.ic_lock,
-                desc = "锁定图层",
+                desc = stringResource(R.string.layer_op_lock_layer),
                 active = selLayer?.locked == true,
                 enabled = !isBg,
                 onClick = {
@@ -498,7 +500,7 @@ internal fun LayerListView(
                                                     lastMergeTime = now
                                                     p1.consume()
                                                     p2.consume()
-                                                    vm.showActionToast("滤镜图层不支持向下合并，请使用栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
+                                                    vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
                                                 } else {
                                                     pinchTriggered = true
                                                     lastMergeTime = now
@@ -506,7 +508,7 @@ internal fun LayerListView(
                                                     p2.consume()
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     vm.mergeDown(upperLayer.index)
-                                                    vm.showActionToast("双指捏合：已向下合并图层", com.reverie.paint.R.drawable.ic_merge_down)
+                                                    vm.showActionToast(context.getString(R.string.layer_toast_pinch_merged), com.reverie.paint.R.drawable.ic_merge_down)
                                                 }
                                             }
                                         }

@@ -103,6 +103,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -313,15 +314,15 @@ internal fun LayerRow(
                         .width(drawerWidth)
                         .fillMaxHeight(),
             ) {
-                DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, "复制") {
+                DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, stringResource(R.string.common_copy)) {
                     vm.copyLayer(index)
                     onRevealClose()
                 }
-                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, "独显") {
+                DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_eye, stringResource(R.string.layer_drawer_solo)) {
                     vm.soloLayer(index)
                     onRevealClose()
                 }
-                DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, "删除") {
+                DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, stringResource(R.string.common_delete)) {
                     if (!isBg) vm.removeLayer(index)
                     onRevealClose()
                 }
@@ -485,8 +486,8 @@ internal fun LayerRowContent(
             val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
             if (modified) {
                 val tag = when {
-                    layer.nodeType == 2 || layer.name.contains("填充") -> "填充 · "
-                    layer.nodeType == 3 || layer.name.contains("滤镜") -> "滤镜 · "
+                    layer.nodeType == 2 || layer.name.contains("填充") -> stringResource(R.string.layer_tag_fill_prefix)
+                    layer.nodeType == 3 || layer.name.contains("滤镜") -> stringResource(R.string.layer_tag_filter_prefix)
                     else -> ""
                 }
                 Text(

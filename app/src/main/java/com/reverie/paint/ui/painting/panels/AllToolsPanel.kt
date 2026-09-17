@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,14 +105,14 @@ fun AllToolsPanel(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "全部工具",
+                        stringResource(R.string.tool_all_tools_title),
                         color = Morandi.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Icon(
                         painter = painterResource(R.drawable.ic_sliders),
-                        contentDescription = "自定义工具栏",
+                        contentDescription = stringResource(R.string.tool_customize_bar),
                         tint = Morandi.icon,
                         modifier = Modifier
                             .size(24.dp)

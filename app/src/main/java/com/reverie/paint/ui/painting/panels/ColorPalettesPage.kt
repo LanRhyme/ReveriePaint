@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,11 +75,11 @@ fun PalettesPage(
                 val bitmap = BitmapFactory.decodeStream(input)
                 input?.close()
                 if (bitmap != null) {
-                    vm.importPaletteFromBitmap(bitmap, "图片色卡")
-                    Toast.makeText(context, "已智能提取 30 色莫兰迪感知色卡", Toast.LENGTH_SHORT).show()
+                    vm.importPaletteFromBitmap(bitmap, context.getString(R.string.color_pal_image_default_name))
+                    Toast.makeText(context, context.getString(R.string.color_pal_extract_success), Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "导入失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.color_pal_extract_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -89,10 +90,10 @@ fun PalettesPage(
     ) { bitmap: Bitmap? ->
         if (bitmap != null) {
             try {
-                vm.importPaletteFromBitmap(bitmap, "拍摄色卡")
-                Toast.makeText(context, "已智能提取 30 色实景感知色卡", Toast.LENGTH_SHORT).show()
+                vm.importPaletteFromBitmap(bitmap, context.getString(R.string.color_pal_camera_default_name))
+                Toast.makeText(context, context.getString(R.string.color_pal_extract_camera_success), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, "拍摄色卡提取失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.color_pal_extract_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -155,7 +156,7 @@ fun PalettesPage(
                         .glassBorder(RoundedCornerShape(10.dp))
                 ) {
                     DropdownMenuItem(
-                        text = { Text("新建色卡", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.color_pal_create_title), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_folder_plus),
@@ -173,7 +174,7 @@ fun PalettesPage(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("从图片提取色卡", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.color_pal_from_image), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_bookmark_plus),
@@ -190,7 +191,7 @@ fun PalettesPage(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("从相机拍摄色卡", color = Morandi.text, fontSize = 13.sp) },
+                        text = { Text(stringResource(R.string.color_pal_from_camera), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(R.drawable.ic_image_adjust),
@@ -210,12 +211,21 @@ fun PalettesPage(
             }
         }
 
-        // Scrollable list of palettes
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Morandi.border.copy(alpha = 0.5f))
+        )
+
+        // Palette List (Scrollable)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .weight(1f)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (vm.allPalettes.isEmpty()) {
                 Box(
@@ -224,7 +234,7 @@ fun PalettesPage(
                         .padding(vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("暂无色卡，点击右上角 + 创建", color = Morandi.subText, fontSize = 12.sp)
+                    Text(stringResource(R.string.color_pal_empty_hint), color = Morandi.subText, fontSize = 12.sp)
                 }
             }
 
@@ -258,7 +268,7 @@ fun PalettesPage(
                                         .padding(horizontal = 4.dp, vertical = 1.dp)
                                 ) {
                                     Text(
-                                        text = "默认",
+                                        text = stringResource(R.string.color_pal_default_tag),
                                         color = Morandi.accent,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.SemiBold
@@ -288,7 +298,7 @@ fun PalettesPage(
                             ) {
                                 if (palette.id != vm.defaultPaletteId) {
                                     DropdownMenuItem(
-                                        text = { Text("设为默认色卡", color = Morandi.text, fontSize = 13.sp) },
+                                        text = { Text(stringResource(R.string.color_pal_set_default), color = Morandi.text, fontSize = 13.sp) },
                                         leadingIcon = {
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_bookmark_plus),
@@ -302,12 +312,12 @@ fun PalettesPage(
                                         onClick = {
                                             vm.setDefaultPalette(palette.id)
                                             activeMenuPalette = null
-                                            Toast.makeText(context, "已设为默认常驻色卡", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.color_pal_set_default_toast), Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("导出色卡代码", color = Morandi.text, fontSize = 13.sp) },
+                                    text = { Text(stringResource(R.string.color_pal_export_code), color = Morandi.text, fontSize = 13.sp) },
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_copy),
@@ -323,11 +333,11 @@ fun PalettesPage(
                                         val hexList = palette.colors.joinToString(", ")
                                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("palette", hexList))
                                         activeMenuPalette = null
-                                        Toast.makeText(context, "已复制 ${palette.name} 色值代码", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.color_pal_export_copied, palette.name), Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("复制色卡", color = Morandi.text, fontSize = 13.sp) },
+                                    text = { Text(stringResource(R.string.color_pal_duplicate), color = Morandi.text, fontSize = 13.sp) },
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_copy),
@@ -341,11 +351,11 @@ fun PalettesPage(
                                     onClick = {
                                         vm.duplicatePalette(palette.id)
                                         activeMenuPalette = null
-                                        Toast.makeText(context, "已复制色卡", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.color_pal_duplicated_toast), Toast.LENGTH_SHORT).show()
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("重命名", color = Morandi.text, fontSize = 13.sp) },
+                                    text = { Text(stringResource(R.string.color_pal_rename), color = Morandi.text, fontSize = 13.sp) },
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_brush),
@@ -363,7 +373,7 @@ fun PalettesPage(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("删除色卡", color = Morandi.accentHi, fontSize = 13.sp) },
+                                    text = { Text(stringResource(R.string.color_pal_delete), color = Morandi.accentHi, fontSize = 13.sp) },
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_erase),
@@ -377,7 +387,7 @@ fun PalettesPage(
                                     onClick = {
                                         vm.deletePalette(palette.id)
                                         activeMenuPalette = null
-                                        Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.color_pal_deleted_toast), Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -391,11 +401,11 @@ fun PalettesPage(
                         onColorSelect = onColorSelected,
                         onColorLongPress = { colorIdx ->
                             vm.removeColorFromPalette(palette.id, colorIdx)
-                            Toast.makeText(context, "已移除颜色", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.color_pal_removed_color), Toast.LENGTH_SHORT).show()
                         },
                         onEmptySlotClick = {
                             vm.addColorToPalette(palette.id, vm.brushColor)
-                            Toast.makeText(context, "已存入当前颜色", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.color_pal_saved_cur_color), Toast.LENGTH_SHORT).show()
                         }
                     )
                 }
@@ -409,7 +419,7 @@ fun PalettesPage(
             onDismissRequest = { showAddColorPalettePicker = false },
             containerColor = Morandi.panel,
             shape = RoundedCornerShape(14.dp),
-            title = { Text("添加当前颜色至色卡", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.color_pal_add_title), color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
             text = {
                 Column(
                     modifier = Modifier
@@ -427,7 +437,7 @@ fun PalettesPage(
                                 .clickable {
                                 vm.addColorToPalette(pal.id, vm.brushColor)
                                 showAddColorPalettePicker = false
-                                Toast.makeText(context, "已存入 ${pal.name}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.color_pal_save_to, pal.name), Toast.LENGTH_SHORT).show()
                             }
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -439,7 +449,7 @@ fun PalettesPage(
             },
             confirmButton = {},
             dismissButton = {
-                ReTextButton("取消", { showAddColorPalettePicker = false }, textColor = Morandi.subText)
+                ReTextButton(stringResource(R.string.common_cancel), { showAddColorPalettePicker = false }, textColor = Morandi.subText)
             }
         )
     }
@@ -450,12 +460,12 @@ fun PalettesPage(
             onDismissRequest = { showCreatePaletteDialog = false },
             containerColor = Morandi.panel,
             shape = RoundedCornerShape(14.dp),
-            title = { Text("新建色卡", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.color_pal_create_title), color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = newPaletteName,
                     onValueChange = { newPaletteName = it },
-                    placeholder = { Text("请输入色卡名称", color = Morandi.subText, fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.color_pal_name_hint), color = Morandi.subText, fontSize = 13.sp) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Morandi.text,
                         unfocusedTextColor = Morandi.text,
@@ -470,7 +480,7 @@ fun PalettesPage(
             },
             confirmButton = {
                 ReTextButton(
-                    "创建",
+                    stringResource(R.string.color_pal_create_btn),
                     onClick = {
                         if (newPaletteName.isNotBlank()) {
                             vm.createNewPalette(newPaletteName.trim(), listOf(vm.brushColor))
@@ -481,7 +491,7 @@ fun PalettesPage(
                 )
             },
             dismissButton = {
-                ReTextButton("取消", { showCreatePaletteDialog = false }, textColor = Morandi.subText)
+                ReTextButton(stringResource(R.string.common_cancel), { showCreatePaletteDialog = false }, textColor = Morandi.subText)
             }
         )
     }
@@ -493,7 +503,7 @@ fun PalettesPage(
             onDismissRequest = { showRenameDialog = null },
             containerColor = Morandi.panel,
             shape = RoundedCornerShape(14.dp),
-            title = { Text("重命名色卡", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.color_pal_rename_title), color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = renamePaletteText,
@@ -512,7 +522,7 @@ fun PalettesPage(
             },
             confirmButton = {
                 ReTextButton(
-                    "确定",
+                    stringResource(R.string.common_confirm),
                     onClick = {
                         if (renamePaletteText.isNotBlank()) {
                             vm.renamePalette(palToRename.id, renamePaletteText.trim())
@@ -523,7 +533,7 @@ fun PalettesPage(
                 )
             },
             dismissButton = {
-                ReTextButton("取消", { showRenameDialog = null }, textColor = Morandi.subText)
+                ReTextButton(stringResource(R.string.common_cancel), { showRenameDialog = null }, textColor = Morandi.subText)
             }
         )
     }

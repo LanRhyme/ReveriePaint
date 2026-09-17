@@ -54,6 +54,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,14 +104,14 @@ internal fun SettingsTabPage(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_arrow_left),
-                                contentDescription = "返回",
+                                contentDescription = stringResource(R.string.common_back),
                                 tint = Morandi.text,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "视图显示",
+                            stringResource(R.string.settings_view_display),
                             color = Morandi.text,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
@@ -129,7 +130,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("快捷滑块", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_quick_slider), color = Morandi.text, fontSize = 13.sp)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -151,7 +152,7 @@ internal fun SettingsTabPage(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "流量",
+                                    stringResource(R.string.settings_quick_slider_flow),
                                     color = if (isFlow) Morandi.text else Morandi.subText,
                                     fontSize = 12.sp,
                                 )
@@ -174,7 +175,7 @@ internal fun SettingsTabPage(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "不透明度",
+                                    stringResource(R.string.settings_quick_slider_opacity),
                                     color = if (isOpacity) Morandi.text else Morandi.subText,
                                     fontSize = 12.sp,
                                 )
@@ -190,7 +191,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("画布可旋转", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_canvas_rotation), color = Morandi.text, fontSize = 13.sp)
                         ReSwitch(
                             checked = vm.canvasRotationEnabled,
                             onChecked = { vm.updateCanvasRotationEnabled(it) },
@@ -205,7 +206,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("放大插值", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_magnification_interpolation), color = Morandi.text, fontSize = 13.sp)
                         ReSwitch(
                             checked = vm.magnificationInterpolation,
                             onChecked = { vm.updateMagnificationInterpolation(it) },
@@ -220,7 +221,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("放大显示网格线", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_pixel_grid), color = Morandi.text, fontSize = 13.sp)
                         ReSwitch(
                             checked = vm.pixelGridEnabled,
                             onChecked = { vm.updatePixelGridEnabled(it) },
@@ -235,7 +236,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("撤销操作提醒", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_undo_toast), color = Morandi.text, fontSize = 13.sp)
                         ReSwitch(
                             checked = vm.undoToastEnabled,
                             onChecked = { vm.updateUndoToastEnabled(it) },
@@ -270,14 +271,14 @@ internal fun SettingsTabPage(
                             ) {
                                 Icon(
                                     painter = painterResource(R.drawable.ic_x),
-                                    contentDescription = "关闭",
+                                    contentDescription = stringResource(R.string.common_close),
                                     tint = Morandi.text,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "快捷键设置",
+                                stringResource(R.string.settings_shortcuts_title),
                                 color = Morandi.text,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
@@ -285,7 +286,7 @@ internal fun SettingsTabPage(
                         }
 
                         Text(
-                            "重置",
+                            stringResource(R.string.settings_shortcut_reset),
                             color = Morandi.accent,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -343,6 +344,7 @@ internal fun SettingsTabPage(
 
                     // Shortcuts List
                     val items = ALL_SHORTCUT_DEFINITIONS.filter { it.category == activeCategory }
+                    val noneStr = stringResource(R.string.shortcut_none)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -351,6 +353,7 @@ internal fun SettingsTabPage(
                     ) {
                         items.forEach { def ->
                             val currentKey = vm.getShortcutKey(def.id)
+                            val isNone = currentKey == "无" || currentKey == "None"
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -373,8 +376,8 @@ internal fun SettingsTabPage(
                                         .padding(horizontal = 10.dp, vertical = 4.dp),
                                 ) {
                                     Text(
-                                        currentKey,
-                                        color = if (currentKey == "无") Morandi.subText else Morandi.text,
+                                        if (isNone) noneStr else currentKey,
+                                        color = if (isNone) Morandi.subText else Morandi.text,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
@@ -407,14 +410,14 @@ internal fun SettingsTabPage(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_arrow_left),
-                                contentDescription = "返回",
+                                contentDescription = stringResource(R.string.common_back),
                                 tint = Morandi.text,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "手势设置",
+                            stringResource(R.string.settings_gestures),
                             color = Morandi.text,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
@@ -433,8 +436,8 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("双指点击屏幕撤销", color = Morandi.text, fontSize = 13.sp)
-                            Text("双指轻点画布撤销上一步操作", color = Morandi.subText, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_two_finger_undo_title), color = Morandi.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_two_finger_undo_desc), color = Morandi.subText, fontSize = 11.sp)
                         }
                         ReSwitch(
                             checked = vm.gestureTwoFingerUndo,
@@ -452,8 +455,8 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("三指点击屏幕恢复（重做）", color = Morandi.text, fontSize = 13.sp)
-                            Text("三指轻点画布恢复已撤销的操作", color = Morandi.subText, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_three_finger_redo_title), color = Morandi.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_three_finger_redo_desc), color = Morandi.subText, fontSize = 11.sp)
                         }
                         ReSwitch(
                             checked = vm.gestureThreeFingerRedo,
@@ -471,8 +474,8 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("双指快速内捏复位画布", color = Morandi.text, fontSize = 13.sp)
-                            Text("双指快速向内收拢捏合时自动平滑居中并满屏复位", color = Morandi.subText, fontSize = 11.sp)
+                            Text(stringResource(R.string.settings_quick_pinch_fit_title), color = Morandi.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_quick_pinch_fit_desc), color = Morandi.subText, fontSize = 11.sp)
                         }
                         ReSwitch(
                             checked = vm.gestureQuickPinchFit,
@@ -489,7 +492,7 @@ internal fun SettingsTabPage(
                             .padding(10.dp),
                     ) {
                         Text(
-                            "提示：多指触控手势不受笔模式影响，手写笔模式下依然可以直接使用双指撤销与三指重做",
+                            stringResource(R.string.settings_gesture_pen_hint),
                             color = Morandi.subText,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
@@ -520,14 +523,14 @@ internal fun SettingsTabPage(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_arrow_left),
-                                contentDescription = "返回",
+                                contentDescription = stringResource(R.string.common_back),
                                 tint = Morandi.text,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "颜色设置",
+                            stringResource(R.string.settings_color_title),
                             color = Morandi.text,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
@@ -546,9 +549,10 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text("长按画布吸色", color = Morandi.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_eyedropper_long_press_title), color = Morandi.text, fontSize = 13.sp)
                             Text(
-                                if (vm.penOnlyMode) "笔模式已开启：手写笔长按画布取色" else "长按画布取色，开启笔模式后由手写笔长按取色",
+                                if (vm.penOnlyMode) stringResource(R.string.settings_eyedropper_long_press_stylus_desc)
+                                else stringResource(R.string.settings_eyedropper_long_press_finger_desc),
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
                             )
@@ -562,7 +566,13 @@ internal fun SettingsTabPage(
                     if (vm.longPressEyedropperEnabled) {
                         Spacer(Modifier.height(10.dp))
 
-                        val sensitivityLabels = listOf("极低", "较慢", "标准", "较快", "极速")
+                        val sensitivityLabels = listOf(
+                            stringResource(R.string.settings_eyedropper_speed_lowest),
+                            stringResource(R.string.settings_eyedropper_speed_slow),
+                            stringResource(R.string.settings_eyedropper_speed_normal),
+                            stringResource(R.string.settings_eyedropper_speed_fast),
+                            stringResource(R.string.settings_eyedropper_speed_highest),
+                        )
                         val sensitivityTimes = listOf("600ms", "520ms", "450ms", "380ms", "320ms")
                         val curIdx = (vm.eyedropperSensitivity - 1).coerceIn(0, 4)
 
@@ -571,7 +581,7 @@ internal fun SettingsTabPage(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("拾色灵敏度", color = Morandi.text, fontSize = 13.sp)
+                            Text(stringResource(R.string.settings_eyedropper_sensitivity), color = Morandi.text, fontSize = 13.sp)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -579,7 +589,12 @@ internal fun SettingsTabPage(
                                     .padding(horizontal = 8.dp, vertical = 2.dp),
                             ) {
                                 Text(
-                                    "${vm.eyedropperSensitivity} 段 · ${sensitivityLabels[curIdx]} (${sensitivityTimes[curIdx]})",
+                                    stringResource(
+                                        R.string.settings_eyedropper_level_summary,
+                                        vm.eyedropperSensitivity,
+                                        sensitivityLabels[curIdx],
+                                        sensitivityTimes[curIdx]
+                                    ),
                                     color = Morandi.subText,
                                     fontSize = 11.sp,
                                 )
@@ -609,7 +624,7 @@ internal fun SettingsTabPage(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        "${i}段",
+                                        stringResource(R.string.settings_eyedropper_level_suffix, i),
                                         color = if (isSelected) Color.White else Morandi.subText,
                                         fontSize = 11.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
@@ -627,9 +642,9 @@ internal fun SettingsTabPage(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                                Text("取色点偏移", color = Morandi.text, fontSize = 13.sp)
+                                Text(stringResource(R.string.settings_eyedropper_offset_title), color = Morandi.text, fontSize = 13.sp)
                                 Text(
-                                    "取色位置偏移到手指上方，避免手指遮挡中心点",
+                                    stringResource(R.string.settings_eyedropper_offset_desc),
                                     color = Morandi.subText,
                                     fontSize = 11.sp,
                                 )
@@ -650,7 +665,7 @@ internal fun SettingsTabPage(
                             .padding(10.dp),
                     ) {
                         Text(
-                            "说明：灵敏度越高，长按触发时间越短；移动容差固定为 1dp（移动超过即不触发）。笔模式开启时，长按取色由手指触控无缝转换为手写笔长按。",
+                            stringResource(R.string.settings_eyedropper_footer_desc),
                             color = Morandi.subText,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
@@ -675,7 +690,7 @@ internal fun SettingsTabPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text("笔模式", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_pen_mode), color = Morandi.text, fontSize = 13.sp)
                         ReSwitch(
                             checked = vm.penOnlyMode,
                             onChecked = { vm.updatePenOnlyMode(it) },
@@ -685,25 +700,25 @@ internal fun SettingsTabPage(
                     Spacer(Modifier.height(6.dp))
 
                     // List item links with chevron
-                    SettingNavRow("视图显示") {
+                    SettingNavRow(stringResource(R.string.settings_view_display)) {
                         currentSubPage = "VIEW"
                     }
-                    SettingNavRow("手势") {
+                    SettingNavRow(stringResource(R.string.settings_gestures)) {
                         currentSubPage = "GESTURE"
                     }
-                    SettingNavRow("手写笔设置") {
+                    SettingNavRow(stringResource(R.string.settings_stylus)) {
                         vm.openMoreSettings("STYLUS")
                         onClose()
                     }
-                    SettingNavRow("快捷键设置") {
+                    SettingNavRow(stringResource(R.string.settings_shortcuts_title)) {
                         currentSubPage = "SHORTCUTS"
                     }
-                    SettingNavRow("颜色设置") {
+                    SettingNavRow(stringResource(R.string.settings_color_title)) {
                         currentSubPage = "COLOR"
                     }
 
                     // 更多设置 -> 绘画页内全屏覆盖层（不退出画布）
-                    SettingNavRow("更多设置") {
+                    SettingNavRow(stringResource(R.string.settings_more_settings)) {
                         vm.openMoreSettings("MAIN")
                         onClose()
                     }
@@ -716,7 +731,7 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("抖动修正", color = Morandi.text, fontSize = 13.sp)
+                        Text(stringResource(R.string.settings_stroke_stabilizer), color = Morandi.text, fontSize = 13.sp)
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
@@ -735,8 +750,6 @@ internal fun SettingsTabPage(
                             .fillMaxWidth()
                             .height(24.dp)
                             .pointerInput(Unit) {
-                                // 必须显式 onTap = : 尾 lambda 会绑到 onDoubleTap,
-                                // 导致单击滑块无反应。
                                 detectTapGestures(
                                     onTap = { offset ->
                                         val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -822,7 +835,7 @@ internal fun SettingsTabPage(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
-                        "设置快捷键",
+                        stringResource(R.string.settings_shortcut_dialog_title),
                         color = Morandi.text,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -834,6 +847,7 @@ internal fun SettingsTabPage(
                         fontWeight = FontWeight.Medium,
                     )
 
+                    val isNone = recordedKey.isBlank() || recordedKey == "无" || recordedKey == "None"
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -844,8 +858,8 @@ internal fun SettingsTabPage(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (recordedKey.isBlank() || recordedKey == "无") "请按下快捷键..." else recordedKey,
-                            color = if (recordedKey.isBlank() || recordedKey == "无") Morandi.subText else Morandi.text,
+                            if (isNone) stringResource(R.string.settings_shortcut_press_key) else recordedKey,
+                            color = if (isNone) Morandi.subText else Morandi.text,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -856,7 +870,7 @@ internal fun SettingsTabPage(
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            "设为无",
+                            stringResource(R.string.settings_shortcut_set_none),
                             color = Morandi.subText,
                             fontSize = 12.sp,
                             modifier = Modifier
@@ -870,7 +884,7 @@ internal fun SettingsTabPage(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "取消",
+                                stringResource(R.string.common_cancel),
                                 color = Morandi.subText,
                                 fontSize = 12.sp,
                                 modifier = Modifier
@@ -879,7 +893,7 @@ internal fun SettingsTabPage(
                                     .padding(8.dp),
                             )
                             Text(
-                                "保存",
+                                stringResource(R.string.common_save),
                                 color = Morandi.onAccent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,

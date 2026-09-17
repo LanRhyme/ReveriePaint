@@ -33,8 +33,8 @@ fun CropPanel(
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
-            ToolFloatChip(label = "应用裁剪", selected = true, onClick = onApply)
-            ToolFloatChip(label = "取消", danger = true, onClick = onCancel)
+            ToolFloatChip(label = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.crop_apply), selected = true, onClick = onApply)
+            ToolFloatChip(label = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.common_cancel), danger = true, onClick = onCancel)
         }
     }
 }

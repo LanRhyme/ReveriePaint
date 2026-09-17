@@ -48,6 +48,7 @@ import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -202,7 +203,7 @@ fun ToolRail(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_menu), // More tools icon
-                        contentDescription = "更多工具",
+                        contentDescription = stringResource(R.string.tool_rail_more_tools),
                         tint = moreToolsTint,
                         modifier = Modifier.size(20.dp),
                     )
@@ -337,7 +338,7 @@ private fun BrushSizeGroup(
 
     ReVerticalSlider(
         label = "S",
-        title = "笔刷大小",
+        title = stringResource(R.string.tool_rail_brush_size),
         iconRes = R.drawable.ic_brush,
         fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
         onFraction = { frac -> onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * frac.toDouble()), false) },
@@ -390,7 +391,7 @@ private fun OpacityGroup(
 
     ReVerticalSlider(
         label = "O",
-        title = "不透明度",
+        title = stringResource(R.string.tool_rail_opacity),
         iconRes = R.drawable.ic_eye,
         fraction = opacity.toFloat(),
         onFraction = { frac -> onOpacity(frac.toDouble(), false) },
@@ -436,7 +437,7 @@ private fun FlowGroup(
 
     ReVerticalSlider(
         label = "F",
-        title = "画笔流量",
+        title = stringResource(R.string.tool_rail_flow),
         iconRes = R.drawable.ic_gradient,
         fraction = flow.toFloat(),
         onFraction = { frac -> onFlow(frac.toDouble(), false) },

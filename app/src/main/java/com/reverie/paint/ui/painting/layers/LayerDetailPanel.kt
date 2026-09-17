@@ -107,6 +107,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -170,13 +171,13 @@ internal fun LayerDetailPage(
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_chevron),
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.common_back),
                         tint = Morandi.icon,
                         modifier = Modifier.size(18.dp),
                     )
                 }
                 Text(
-                    "背景图层设置",
+                    stringResource(R.string.layer_bg_settings_title),
                     color = Morandi.text,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -223,7 +224,7 @@ internal fun LayerDetailPage(
                                     .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
                         )
                         Column {
-                            Text("背景颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(stringResource(R.string.layer_bg_color), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Text(String.format("#%06X", 0xFFFFFF and currentColor), color = Morandi.subText, fontSize = 11.sp)
                         }
                     }
@@ -231,7 +232,7 @@ internal fun LayerDetailPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text("点击取色", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.layer_bg_pick_color), color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Icon(
                             painterResource(R.drawable.ic_chevron),
                             contentDescription = null,
@@ -243,7 +244,7 @@ internal fun LayerDetailPage(
 
                 if (showBgColorPicker) {
                     CompactColorPickerDialog(
-                        title = "设置背景颜色",
+                        title = stringResource(R.string.layer_bg_set_dialog_title),
                         initialColor = Color(currentColor),
                         onColorSelected = { col ->
                             val cInt =
@@ -286,13 +287,13 @@ internal fun LayerDetailPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = Morandi.icon,
                     modifier = Modifier.size(18.dp),
                 )
             }
             Text(
-                "图层设置",
+                stringResource(R.string.layer_settings_title),
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -334,8 +335,8 @@ internal fun LayerDetailPage(
                                 .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
                     )
                     Column {
-                        Text("填充图层颜色", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("点击更换填充色", color = Morandi.subText, fontSize = 11.sp)
+                        Text(stringResource(R.string.layer_fill_color), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.layer_fill_change), color = Morandi.subText, fontSize = 11.sp)
                     }
                 }
                 Icon(
@@ -348,7 +349,7 @@ internal fun LayerDetailPage(
 
             if (showFillColorPicker) {
                 CompactColorPickerDialog(
-                    title = "选择填充图层颜色",
+                    title = stringResource(R.string.layer_fill_select_title),
                     initialColor = Morandi.accent,
                     onColorSelected = { col ->
                         val hex = String.format("#%02X%02X%02X", (col.red * 255).toInt(), (col.green * 255).toInt(), (col.blue * 255).toInt())
@@ -393,8 +394,8 @@ internal fun LayerDetailPage(
                         modifier = Modifier.size(20.dp),
                     )
                     Column {
-                        Text("调整滤镜参数", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("配置或切换此图层应用的滤镜效果", color = Morandi.subText, fontSize = 11.sp)
+                        Text(stringResource(R.string.layer_filter_adjust_title), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.layer_filter_adjust_desc), color = Morandi.subText, fontSize = 11.sp)
                     }
                 }
                 Icon(
@@ -423,7 +424,7 @@ internal fun LayerDetailPage(
                 modifier = Modifier.size(18.dp),
             )
             Text(
-                "混合模式",
+                stringResource(R.string.layer_blend_mode),
                 color = Morandi.text,
                 fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
@@ -458,7 +459,7 @@ internal fun LayerDetailPage(
                     tint = Morandi.icon,
                     modifier = Modifier.size(18.dp),
                 )
-                Text("滤镜与颜色调整", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.layer_filters_and_color), color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = null,
@@ -481,7 +482,7 @@ internal fun LayerDetailPage(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("不透明度", color = Morandi.text, fontSize = 13.sp)
+            Text(stringResource(R.string.layer_opacity), color = Morandi.text, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
             Text("${((layer?.opacity ?: 1.0) * 100).roundToInt()}%", color = Morandi.subText, fontSize = 13.sp)
         }
@@ -576,10 +577,10 @@ internal fun LayerDetailPage(
                             .padding(18.dp),
                 ) {
                     Column {
-                        Text("栅格化滤镜图层", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.layer_rasterize_dialog_title), color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "栅格化会将此滤镜效果永久烘焙合入下方图层并转换为普通绘画图层，此操作不可逆（但可通过撤销恢复）。是否继续？",
+                            stringResource(R.string.layer_rasterize_dialog_desc),
                             color = Morandi.subText,
                             fontSize = 13.sp,
                             lineHeight = 18.sp,
@@ -594,7 +595,7 @@ internal fun LayerDetailPage(
                                         .clickable { showRasterizeConfirm = false }
                                         .padding(horizontal = 14.dp, vertical = 7.dp),
                             ) {
-                                Text("取消", color = Morandi.text, fontSize = 13.sp)
+                                Text(stringResource(R.string.common_cancel), color = Morandi.text, fontSize = 13.sp)
                             }
                             Spacer(Modifier.width(10.dp))
                             Box(
@@ -609,7 +610,7 @@ internal fun LayerDetailPage(
                                         }
                                         .padding(horizontal = 14.dp, vertical = 7.dp),
                             ) {
-                                Text("确定栅格化", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.layer_rasterize_confirm), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -630,11 +631,11 @@ internal fun LayerDetailPage(
                             .padding(18.dp),
                 ) {
                     Column {
-                        Text("移入图层组", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.layer_move_into_group_title), color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(12.dp))
                         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                             if (availableGroups.isEmpty()) {
-                                Text("当前画布中暂无其他图层组", color = Morandi.subText, fontSize = 13.sp)
+                                Text(stringResource(R.string.layer_no_other_groups), color = Morandi.subText, fontSize = 13.sp)
                             } else {
                                 availableGroups.forEach { grp ->
                                     Row(
@@ -669,7 +670,7 @@ internal fun LayerDetailPage(
                                         .clickable { showGroupPicker = false }
                                         .padding(horizontal = 14.dp, vertical = 6.dp),
                             ) {
-                                Text("取消", color = Morandi.text, fontSize = 13.sp)
+                                Text(stringResource(R.string.common_cancel), color = Morandi.text, fontSize = 13.sp)
                             }
                         }
                     }
@@ -680,59 +681,59 @@ internal fun LayerDetailPage(
         if (layer?.isGroup == true) {
             // Group-specific page
             Column {
-                OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层组", enabled = !isBg) {
+                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_group), enabled = !isBg) {
                     vm.removeLayer(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_merge_down, "合并图层组", enabled = !isBg) {
+                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_group), enabled = !isBg) {
                     vm.flattenGroup(index)
                     onBack()
                 }
-                OpToggle(R.drawable.ic_lock, "锁定图层组", layer?.locked == true || isBg, enabled = !isBg) {
+                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_group), layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
-                OpToggle(R.drawable.ic_sliders, "穿透混合模式 (Pass-through)", vm.groupPassThrough(index)) {
+                OpToggle(R.drawable.ic_sliders, stringResource(R.string.layer_op_pass_through), vm.groupPassThrough(index)) {
                     vm.setGroupPassThrough(index, !vm.groupPassThrough(index))
                 }
             }
         } else {
             // Vertical operation list
             Column {
-                OpItem(R.drawable.ic_copy, "复制图层") { vm.copyLayer(index) }
-                OpItem(R.drawable.ic_rename, "重命名") { onRename(name) }
-                OpItem(R.drawable.ic_trash, "删除图层", enabled = !isBg) {
+                OpItem(R.drawable.ic_copy, stringResource(R.string.layer_op_duplicate)) { vm.copyLayer(index) }
+                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg) {
                     vm.removeLayer(index)
                     onBack()
                 }
                 if ((layer?.depth ?: 0) > 0) {
-                    OpItem(R.drawable.ic_folder, "移出图层组") { vm.moveLayerOut(index) }
+                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_out_group)) { vm.moveLayerOut(index) }
                 }
                 if (availableGroups.isNotEmpty()) {
-                    OpItem(R.drawable.ic_folder, "移入图层组") { showGroupPicker = true }
+                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_into_group)) { showGroupPicker = true }
                 }
-                OpItem(R.drawable.ic_flip_h, "水平翻转", enabled = !isFilterLayer) { vm.flipLayerHorizontal(index) }
-                OpItem(R.drawable.ic_flip_v, "垂直翻转", enabled = !isFilterLayer) { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, "向下合并图层", enabled = !isBg && index > 0 && !isFilterLayer) {
+                OpItem(R.drawable.ic_flip_h, stringResource(R.string.layer_op_flip_h), enabled = !isFilterLayer) { vm.flipLayerHorizontal(index) }
+                OpItem(R.drawable.ic_flip_v, stringResource(R.string.layer_op_flip_v), enabled = !isFilterLayer) { vm.flipLayerVertical(index) }
+                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_down), enabled = !isBg && index > 0 && !isFilterLayer) {
                     vm.mergeDown(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_select, "从图层创建选区", enabled = !isFilterLayer) { vm.selectionFromLayer(index) }
-                OpToggle(R.drawable.ic_lock, "锁定图层", layer?.locked == true || isBg, enabled = !isBg) {
+                OpItem(R.drawable.ic_select, stringResource(R.string.layer_op_select_from_layer), enabled = !isFilterLayer) { vm.selectionFromLayer(index) }
+                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_layer), layer?.locked == true || isBg, enabled = !isBg) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_grid, "锁定透明度", layer?.alphaLocked == true, enabled = !isBg && !isFilterLayer) {
+                OpToggle(R.drawable.ic_grid, stringResource(R.string.layer_op_alpha_lock), layer?.alphaLocked == true, enabled = !isBg && !isFilterLayer) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
-                OpToggle(R.drawable.ic_clip, "继承透明度", layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
                 val canRasterize = isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup)
                 if (canRasterize) {
-                    OpItem(R.drawable.ic_fill, "栅格化为普通图层") {
+                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize)) {
                         if (isFilterLayer) {
                             showRasterizeConfirm = true
                         } else {
@@ -937,12 +938,12 @@ internal fun BlendModesPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = Morandi.icon,
                     modifier = Modifier.size(18.dp),
                 )
             }
-            Text("混合模式", color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.layer_blend_mode), color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
         Box(

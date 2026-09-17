@@ -19,13 +19,7 @@ import kotlin.math.roundToInt
 
 import dev.chrisbanes.haze.HazeState
 
-private val liquifyModeOptions = listOf(
-    ToolDropdownItemData(0, R.drawable.ic_lq_push, "推拉"),
-    ToolDropdownItemData(1, R.drawable.ic_lq_bloat, "膨胀"),
-    ToolDropdownItemData(2, R.drawable.ic_lq_pucker, "收缩"),
-    ToolDropdownItemData(3, R.drawable.ic_rotate_cw, "顺时针"),
-    ToolDropdownItemData(4, R.drawable.ic_rotate_ccw, "逆时针"),
-)
+
 
 /**
  * Liquify tool options - floating capsule with compact mode dropdown
@@ -42,6 +36,14 @@ fun LiquifyPanel(
     onBrushSize: (Float) -> Unit,
     hazeState: HazeState? = null,
 ) {
+    val liquifyModeOptions = listOf(
+        ToolDropdownItemData(0, R.drawable.ic_lq_push, androidx.compose.ui.res.stringResource(R.string.liquify_push)),
+        ToolDropdownItemData(1, R.drawable.ic_lq_bloat, androidx.compose.ui.res.stringResource(R.string.liquify_bloat)),
+        ToolDropdownItemData(2, R.drawable.ic_lq_pucker, androidx.compose.ui.res.stringResource(R.string.liquify_pucker)),
+        ToolDropdownItemData(3, R.drawable.ic_rotate_cw, androidx.compose.ui.res.stringResource(R.string.liquify_cw)),
+        ToolDropdownItemData(4, R.drawable.ic_rotate_ccw, androidx.compose.ui.res.stringResource(R.string.liquify_ccw)),
+    )
+
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -58,14 +60,14 @@ fun LiquifyPanel(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 ToolFloatSlider(
-                    label = "大小",
+                    label = androidx.compose.ui.res.stringResource(R.string.liquify_size),
                     valueText = "${brushSize.roundToInt()}px",
                     range = 8f..300f,
                     value = brushSize,
                     onValue = onBrushSize,
                 )
                 ToolFloatSlider(
-                    label = "强度",
+                    label = androidx.compose.ui.res.stringResource(R.string.liquify_strength),
                     valueText = "${(strength * 100).roundToInt()}%",
                     range = 0.05f..2f,
                     value = strength,

@@ -1220,7 +1220,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
                             val hex = String.format("#%02X%02X%02X", r, g, b)
                             v.updateBrushColor(hex)
-                            v.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                            v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
                         }
                         pickerActive?.value = false
                         isLongPressPickerActive = false
@@ -1486,7 +1486,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 透光台对位手势完成：不触发满屏复位或历史撤销
                     } else if (isQuickPinchFit) {
                         animateFitCanvas()
-                        v.showActionToast("画布已平滑满屏复位", R.drawable.ic_refresh)
+                        v.showActionToast(context.getString(R.string.canvas_toast_fit_reset), R.drawable.ic_refresh)
                     } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
                         v.undo()
                     } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers >= 3 && v.gestureThreeFingerRedo && durationMs < 380L) {
@@ -1707,7 +1707,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
                         val hex = String.format("#%02X%02X%02X", r, g, b)
                         v.updateBrushColor(hex)
-                        v.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                        v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
                     }
                     pickerActive?.value = false
                     isLongPressPickerActive = false
@@ -1743,15 +1743,15 @@ class CanvasTouchView(context: Context) : View(context) {
         val isDrawingTool = t.group == ToolGroup.BRUSH || t.group == ToolGroup.FILL || t.group == ToolGroup.SHAPES
 
         if (activeLayer?.isGroup == true && isDrawingTool) {
-            v.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+            v.showActionToast(context.getString(R.string.canvas_toast_group_not_drawable), R.drawable.ic_folder)
             return
         }
         if ((activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true) && isDrawingTool) {
-            v.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
+            v.showActionToast(context.getString(R.string.canvas_toast_filter_not_drawable), R.drawable.ic_image_adjust)
             return
         }
         if (activeLayer?.locked == true && (isDrawingTool || tool == Tool.LIQUIFY)) {
-            v.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+            v.showActionToast(context.getString(R.string.canvas_toast_layer_locked), R.drawable.ic_lock)
             return
         }
 
@@ -2405,7 +2405,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
                     val hex = String.format("#%02X%02X%02X", r, g, b)
                     v.updateBrushColor(hex)
-                    v.showActionToast("已吸取颜色", R.drawable.ic_picker)
+                    v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
                 }
                 if (v.isTemporaryPicker) {
                     v.restorePreviousTool()

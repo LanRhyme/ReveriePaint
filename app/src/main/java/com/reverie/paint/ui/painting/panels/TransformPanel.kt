@@ -44,6 +44,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,7 +84,7 @@ fun TransformPanel(
                 // UP (Chevron points up: rotate 270)
                 TransformIconButton(
                     iconRes = R.drawable.ic_chevron,
-                    label = "上移",
+                    label = stringResource(R.string.transform_move_up),
                     rotation = 270f,
                     onClick = {
                         tfState.ty -= 1f
@@ -101,7 +102,7 @@ fun TransformPanel(
                     // LEFT (Chevron points left: rotate 180)
                     TransformIconButton(
                         iconRes = R.drawable.ic_chevron,
-                        label = "左移",
+                        label = stringResource(R.string.transform_move_left),
                         rotation = 180f,
                         onClick = {
                             tfState.tx -= 1f
@@ -115,7 +116,7 @@ fun TransformPanel(
                     // RIGHT (Chevron points right: rotate 0)
                     TransformIconButton(
                         iconRes = R.drawable.ic_chevron,
-                        label = "右移",
+                        label = stringResource(R.string.transform_move_right),
                         rotation = 0f,
                         onClick = {
                             tfState.tx += 1f
@@ -130,7 +131,7 @@ fun TransformPanel(
                 // DOWN (Chevron points down: rotate 90)
                 TransformIconButton(
                     iconRes = R.drawable.ic_chevron,
-                    label = "下移",
+                    label = stringResource(R.string.transform_move_down),
                     rotation = 90f,
                     onClick = {
                         tfState.ty += 1f
@@ -155,10 +156,10 @@ fun TransformPanel(
                 // 1. 变换模式下拉
                 ToolBubbleDropdown(
                     items = listOf(
-                        ToolDropdownItemData(TransformMode.STANDARD, R.drawable.ic_tf_standard, "标准"),
-                        ToolDropdownItemData(TransformMode.FREE, R.drawable.ic_tf_free, "自由"),
-                        ToolDropdownItemData(TransformMode.PERSPECTIVE, R.drawable.ic_tf_perspective, "透视"),
-                        ToolDropdownItemData(TransformMode.DISTORT, R.drawable.ic_tf_distort, "扭曲"),
+                        ToolDropdownItemData(TransformMode.STANDARD, R.drawable.ic_tf_standard, stringResource(R.string.transform_mode_standard)),
+                        ToolDropdownItemData(TransformMode.FREE, R.drawable.ic_tf_free, stringResource(R.string.transform_mode_free)),
+                        ToolDropdownItemData(TransformMode.PERSPECTIVE, R.drawable.ic_tf_perspective, stringResource(R.string.transform_mode_perspective)),
+                        ToolDropdownItemData(TransformMode.DISTORT, R.drawable.ic_tf_distort, stringResource(R.string.transform_mode_distort)),
                     ),
                     selected = tfState.mode,
                     onSelect = { modeVal ->
@@ -184,11 +185,11 @@ fun TransformPanel(
                 // 2. 翻转下拉 (水平翻转 / 垂直翻转)
                 ToolBubbleDropdown(
                     items = listOf(
-                        ToolDropdownItemData(0, R.drawable.ic_flip_h, "水平翻转"),
-                        ToolDropdownItemData(1, R.drawable.ic_flip_v, "垂直翻转"),
+                        ToolDropdownItemData(0, R.drawable.ic_flip_h, stringResource(R.string.transform_flip_h)),
+                        ToolDropdownItemData(1, R.drawable.ic_flip_v, stringResource(R.string.transform_flip_v)),
                     ),
                     selected = null,
-                    labelOverride = "翻转",
+                    labelOverride = stringResource(R.string.transform_flip),
                     iconOverride = R.drawable.ic_flip_h,
                     onSelect = { option ->
                         if (option == 0) {
@@ -216,12 +217,12 @@ fun TransformPanel(
                 // 3. 旋转下拉 (顺时针 / 逆时针 / 180度)
                 ToolBubbleDropdown(
                     items = listOf(
-                        ToolDropdownItemData(0, R.drawable.ic_rotate_cw, "顺时针 90°"),
-                        ToolDropdownItemData(1, R.drawable.ic_rotate_ccw, "逆时针 90°"),
-                        ToolDropdownItemData(2, R.drawable.ic_refresh, "旋转 180°"),
+                        ToolDropdownItemData(0, R.drawable.ic_rotate_cw, stringResource(R.string.transform_rotate_cw)),
+                        ToolDropdownItemData(1, R.drawable.ic_rotate_ccw, stringResource(R.string.transform_rotate_ccw)),
+                        ToolDropdownItemData(2, R.drawable.ic_refresh, stringResource(R.string.transform_rotate_180)),
                     ),
                     selected = null,
-                    labelOverride = "旋转",
+                    labelOverride = stringResource(R.string.transform_rotate),
                     iconOverride = R.drawable.ic_rotate_cw,
                     onSelect = { option ->
                         val delta = when (option) {
@@ -239,7 +240,7 @@ fun TransformPanel(
                 // 4. 微调手柄开关
                 ToolActionButton(
                     iconRes = R.drawable.ic_move,
-                    label = "微调",
+                    label = stringResource(R.string.transform_nudge),
                     active = showDpad,
                     onClick = { showDpad = !showDpad },
                 )
@@ -247,7 +248,7 @@ fun TransformPanel(
                 // 5. 重置所有变形
                 ToolActionButton(
                     iconRes = R.drawable.ic_refresh,
-                    label = "重置",
+                    label = stringResource(R.string.settings_shortcut_reset),
                     onClick = {
                         val b = tfState.bounds
                         tfState.reset(b)
@@ -258,7 +259,7 @@ fun TransformPanel(
                 // 6. 取消
                 ToolActionButton(
                     iconRes = R.drawable.ic_x,
-                    label = "取消",
+                    label = stringResource(R.string.common_cancel),
                     danger = true,
                     onClick = onCancel,
                 )
@@ -266,7 +267,7 @@ fun TransformPanel(
                 // 7. 完成
                 ToolActionButton(
                     iconRes = R.drawable.ic_check,
-                    label = "完成",
+                    label = stringResource(R.string.common_done),
                     primary = true,
                     onClick = onCommit,
                 )
