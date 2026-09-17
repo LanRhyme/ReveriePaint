@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,7 +69,7 @@ internal fun TimelineBatchBar(
     ) {
         // 退出多选
         GlyphTextButton(
-            text = "退出",
+            text = stringResource(R.string.anim_batch_exit),
             onClick = {
                 vm.anim.isMultiSelectMode = false
                 vm.animationClearSelectedFrames()
@@ -96,7 +97,7 @@ internal fun TimelineBatchBar(
                 label = "batchCountAnim",
             ) { count ->
                 Text(
-                    text = "已选 $count 帧",
+                    text = stringResource(R.string.anim_batch_selected_count, count),
                     color = Morandi.accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -108,17 +109,17 @@ internal fun TimelineBatchBar(
 
         // 一拍 N 快捷操作
         GlyphTextButton(
-            text = "1拍1",
+            text = stringResource(R.string.anim_batch_hold_1),
             onClick = { vm.animationSetSelectedDuration(track, 1) },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "1拍2",
+            text = stringResource(R.string.anim_batch_hold_2),
             onClick = { vm.animationSetSelectedDuration(track, 2) },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "1拍3",
+            text = stringResource(R.string.anim_batch_hold_3),
             onClick = { vm.animationSetSelectedDuration(track, 3) },
         )
 
@@ -126,13 +127,13 @@ internal fun TimelineBatchBar(
 
         // 批量曝光伸缩
         GlyphTextButton(
-            text = "+1帧",
+            text = stringResource(R.string.anim_batch_plus_1),
             onClick = { vm.animationBatchAdjustExposure(track, 1) },
             draw = { drawGlyphPlus() },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "-1帧",
+            text = stringResource(R.string.anim_batch_minus_1),
             onClick = { vm.animationBatchAdjustExposure(track, -1) },
             draw = { drawGlyphMinus() },
         )
@@ -141,13 +142,13 @@ internal fun TimelineBatchBar(
 
         // 左右平移
         GlyphTextButton(
-            text = "左移",
+            text = stringResource(R.string.anim_batch_shift_left),
             onClick = { vm.animationBatchShiftSelected(track, -1) },
             draw = { drawGlyphShiftLeft() },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "右移",
+            text = stringResource(R.string.anim_batch_shift_right),
             onClick = { vm.animationBatchShiftSelected(track, 1) },
             draw = { drawGlyphShiftRight() },
         )
@@ -156,7 +157,7 @@ internal fun TimelineBatchBar(
 
         // 批量复制
         GlyphTextButton(
-            text = "复制",
+            text = stringResource(R.string.anim_duplicate_frame),
             onClick = { vm.animationBatchDuplicateSelected(track) },
             draw = { drawGlyphDuplicate() },
         )
@@ -165,7 +166,7 @@ internal fun TimelineBatchBar(
 
         // 批量删除
         GlyphTextButton(
-            text = "删除",
+            text = stringResource(R.string.anim_delete_frame),
             onClick = { vm.animationBatchDeleteSelected(track) },
             draw = { drawGlyphTrash() },
         )
@@ -174,17 +175,17 @@ internal fun TimelineBatchBar(
 
         // 全选 / 反选 / 清空
         GlyphTextButton(
-            text = "全选",
+            text = stringResource(R.string.anim_batch_select_all),
             onClick = { vm.animationSelectAllFrames(track) },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "反选",
+            text = stringResource(R.string.anim_batch_invert_selection),
             onClick = { vm.animationInvertSelectedFrames(track) },
         )
         Spacer(modifier = Modifier.width(4.dp))
         GlyphTextButton(
-            text = "清空",
+            text = stringResource(R.string.anim_batch_clear_selection),
             onClick = { vm.animationClearSelectedFrames() },
         )
     }

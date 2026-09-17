@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -142,7 +143,7 @@ internal fun HomeBottomBar(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_brush),
-                    contentDescription = "画廊",
+                    contentDescription = stringResource(R.string.gallery_title),
                     tint = if (isGallery) colors.accent else colors.subText,
                     modifier = Modifier.size(20.dp).scale(galleryIconScale.value),
                 )
@@ -154,7 +155,7 @@ internal fun HomeBottomBar(
                     Row {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "画廊",
+                            stringResource(R.string.gallery_title),
                             color = colors.text,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
@@ -177,7 +178,7 @@ internal fun HomeBottomBar(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_plus),
-                    contentDescription = "新建",
+                    contentDescription = stringResource(R.string.home_new_canvas),
                     tint = colors.onAccent,
                     modifier = Modifier.size(28.dp),
                 )
@@ -197,7 +198,7 @@ internal fun HomeBottomBar(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_settings),
-                    contentDescription = "设置",
+                    contentDescription = stringResource(R.string.settings_title),
                     tint = if (isSettings) colors.accent else colors.subText,
                     modifier = Modifier.size(20.dp).scale(settingsIconScale.value),
                 )
@@ -209,7 +210,7 @@ internal fun HomeBottomBar(
                     Row {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "设置",
+                            stringResource(R.string.settings_title),
                             color = colors.text,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,

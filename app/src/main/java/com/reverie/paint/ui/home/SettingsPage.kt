@@ -66,6 +66,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -164,7 +165,7 @@ fun SettingsPageContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "设置",
+                        text = stringResource(R.string.settings_title),
                         color = colors.text,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
@@ -177,31 +178,31 @@ fun SettingsPageContent(
                 ) {
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_settings,
-                        title = "通用设置",
+                        title = stringResource(R.string.settings_general),
                         isSelected = subPage == SettingsSubPage.GENERAL,
                         onClick = { subPage = SettingsSubPage.GENERAL },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_palette,
-                        title = "主题设置",
+                        title = stringResource(R.string.settings_theme),
                         isSelected = subPage == SettingsSubPage.THEME,
                         onClick = { subPage = SettingsSubPage.THEME },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_pencil,
-                        title = "手写笔设置",
+                        title = stringResource(R.string.settings_stylus),
                         isSelected = subPage == SettingsSubPage.STYLUS,
                         onClick = { subPage = SettingsSubPage.STYLUS },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_author,
-                        title = "作者档案",
+                        title = stringResource(R.string.settings_author_profile),
                         isSelected = subPage == SettingsSubPage.AUTHOR,
                         onClick = { subPage = SettingsSubPage.AUTHOR },
                     )
                     SettingMasterNavRow(
                         iconRes = R.drawable.ic_info_circle,
-                        title = "关于应用",
+                        title = stringResource(R.string.settings_about),
                         isSelected = subPage == SettingsSubPage.ABOUT,
                         onClick = { subPage = SettingsSubPage.ABOUT },
                     )
@@ -323,39 +324,39 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
                 .padding(horizontal = 20.dp, vertical = 24.dp),
         ) {
             Text(
-                text = "设置",
+                text = stringResource(R.string.settings_title),
                 color = colors.text,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "应用偏好设置、界面主题与绘图硬件配置",
+                text = stringResource(R.string.settings_main_desc),
                 color = colors.subText,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
 
-            SettingCategoryTitle("偏好与硬件")
+            SettingCategoryTitle(stringResource(R.string.settings_group_tools))
             SettingGroup {
                 SettingNavGroupItem(
                     icon = R.drawable.ic_settings,
-                    title = "通用设置",
-                    summary = "自动保存时间间隔、提示与撤销历史上限",
+                    title = stringResource(R.string.settings_general),
+                    summary = stringResource(R.string.settings_general_sub),
                     shape = settingGroupShape(0, 3),
                     onClick = { onNavigate(SettingsSubPage.GENERAL) },
                 )
                 SettingNavGroupItem(
                     icon = R.drawable.ic_palette,
-                    title = "主题设置",
-                    summary = "主色调、面板透明度与全屏沉浸模式",
+                    title = stringResource(R.string.settings_theme),
+                    summary = stringResource(R.string.settings_nav_theme_sub),
                     shape = settingGroupShape(1, 3),
                     onClick = { onNavigate(SettingsSubPage.THEME) },
                 )
                 SettingNavGroupItem(
                     icon = R.drawable.ic_pencil,
-                    title = "手写笔设置",
-                    summary = "专属手写笔适配、书写震动发声与全局压力曲线",
+                    title = stringResource(R.string.settings_stylus),
+                    summary = stringResource(R.string.settings_nav_stylus_sub),
                     shape = settingGroupShape(2, 3),
                     onClick = { onNavigate(SettingsSubPage.STYLUS) },
                 )
@@ -363,12 +364,12 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
 
             Spacer(Modifier.height(4.dp))
 
-            SettingCategoryTitle("创作与版权")
+            SettingCategoryTitle(stringResource(R.string.settings_group_creation_copyright))
             SettingGroup {
                 SettingNavGroupItem(
                     icon = R.drawable.ic_author,
-                    title = "作者档案",
-                    summary = "创作者署名、团队机构与导出作品默认版权声明",
+                    title = stringResource(R.string.settings_author_profile),
+                    summary = stringResource(R.string.settings_nav_author_sub),
                     shape = settingGroupShape(0, 1),
                     onClick = { onNavigate(SettingsSubPage.AUTHOR) },
                 )
@@ -376,12 +377,12 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
 
             Spacer(Modifier.height(4.dp))
 
-            SettingCategoryTitle("软件信息")
+            SettingCategoryTitle(stringResource(R.string.settings_group_app_info))
             SettingGroup {
                 SettingNavGroupItem(
                     icon = R.drawable.ic_info_circle,
-                    title = "关于应用",
-                    summary = "版本、作者与系统架构信息",
+                    title = stringResource(R.string.settings_about),
+                    summary = stringResource(R.string.settings_nav_about_sub),
                     badge = "v${com.reverie.paint.BuildConfig.VERSION_NAME}",
                     shape = settingGroupShape(0, 1),
                     onClick = { onNavigate(SettingsSubPage.ABOUT) },

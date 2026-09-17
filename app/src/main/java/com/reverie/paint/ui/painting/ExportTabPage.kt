@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -154,7 +155,7 @@ internal fun ExportTabPage(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "静态图像",
+                        text = stringResource(R.string.export_static_image),
                         color = if (!isAnimationMode) Morandi.accent else Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = if (!isAnimationMode) FontWeight.Bold else FontWeight.Medium,
@@ -172,7 +173,7 @@ internal fun ExportTabPage(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "动画导出",
+                        text = stringResource(R.string.export_animation_tab),
                         color = if (isAnimationMode) Morandi.accent else Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = if (isAnimationMode) FontWeight.Bold else FontWeight.Medium,
@@ -286,12 +287,12 @@ private fun StaticExportSection(
                         isExporting = false
                         val targetDesc = uri.lastPathSegment?.let { segment ->
                             if (segment.contains(":")) segment.substringAfterLast(":") else segment
-                        } ?: "所选位置"
-                        Toast.makeText(context, "已成功导出至: $targetDesc", Toast.LENGTH_LONG).show()
+                        } ?: context.getString(R.string.export_selected_location)
+                        Toast.makeText(context, context.getString(R.string.export_toast_success, targetDesc), Toast.LENGTH_LONG).show()
                         onClose()
                     } catch (e: Exception) {
                         isExporting = false
-                        Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.export_toast_save_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
                     }
                 },
                 onError = { err ->
@@ -308,8 +309,8 @@ private fun StaticExportSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("选择导出格式", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text("${vm.coreW} × ${vm.coreH} 像素", color = Morandi.subText, fontSize = 11.sp)
+            Text(stringResource(R.string.export_select_format), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.export_pixel_dimension, vm.coreW, vm.coreH), color = Morandi.subText, fontSize = 11.sp)
         }
 
         // 格式芯片列表
@@ -385,7 +386,7 @@ private fun StaticExportSection(
             if (detail.isLayered) {
                 Icon(
                     painter = painterResource(R.drawable.ic_layerstack),
-                    contentDescription = "包含图层数据",
+                    contentDescription = stringResource(R.string.export_has_layers),
                     tint = Morandi.icon,
                     modifier = Modifier.size(16.dp),
                 )
@@ -417,7 +418,7 @@ private fun StaticExportSection(
                     )
                     Column {
                         Text(
-                            text = "嵌入作者元数据",
+                            text = stringResource(R.string.export_author_meta),
                             color = Morandi.text,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -425,7 +426,7 @@ private fun StaticExportSection(
                         val authorSummary = vm.authorProfile.name.ifBlank { vm.authorProfile.nickname }
                         if (authorSummary.isNotBlank()) {
                             Text(
-                                text = "创作者: $authorSummary",
+                                text = stringResource(R.string.export_creator_meta, authorSummary),
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
                             )
@@ -478,7 +479,7 @@ private fun StaticExportSection(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (isExporting) "正在导出..." else "导出 ${currentItem.format} 文件 (选择保存位置)",
+                text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -508,7 +509,7 @@ private fun StaticExportSection(
                                 embedAuthor = embedAuthor,
                                 onSuccess = { _ ->
                                     isExporting = false
-                                    Toast.makeText(context, "已成功保存到系统相册 (Pictures/ReveriePaint)", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.export_toast_saved_to_gallery), Toast.LENGTH_LONG).show()
                                     onClose()
                                 },
                                 onError = { err ->
@@ -527,7 +528,7 @@ private fun StaticExportSection(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("存入相册", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.export_save_to_gallery), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -573,9 +574,9 @@ private fun StaticExportSection(
                                         putExtra(Intent.EXTRA_STREAM, uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
-                                    context.startActivity(Intent.createChooser(sendIntent, "分享作品"))
+                                    context.startActivity(Intent.createChooser(sendIntent, context.getString(R.string.export_share_artwork)))
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.export_toast_share_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
                                 }
                                 onClose()
                             },
@@ -595,7 +596,7 @@ private fun StaticExportSection(
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("分享作品", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.export_share_artwork), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -699,12 +700,12 @@ private fun AnimationExportSection(
                         isExporting = false
                         val targetDesc = uri.lastPathSegment?.let { segment ->
                             if (segment.contains(":")) segment.substringAfterLast(":") else segment
-                        } ?: "所选位置"
-                        Toast.makeText(context, "动画已成功导出至: $targetDesc", Toast.LENGTH_LONG).show()
+                        } ?: context.getString(R.string.export_selected_location)
+                        Toast.makeText(context, context.getString(R.string.export_anim_toast_success, targetDesc), Toast.LENGTH_LONG).show()
                         onClose()
                     } catch (e: Exception) {
                         isExporting = false
-                        Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.export_toast_save_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
                     }
                 },
                 onError = { err ->
@@ -721,7 +722,7 @@ private fun AnimationExportSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("选择动画格式", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.export_anim_select_format), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text("${vm.anim.framerate} fps · 共 $totalDrawn 帧", color = Morandi.subText, fontSize = 11.sp)
         }
 
@@ -812,7 +813,7 @@ private fun AnimationExportSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("分辨率比例", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.export_anim_scale_ratio), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Text(
                         text = "$finalWidth × $finalHeight 像素",
                         color = Morandi.subText,
@@ -851,7 +852,7 @@ private fun AnimationExportSection(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("导出帧范围", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.export_anim_frame_range), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         val countText = if (rangeMode == "all") {
                             "全部有效帧：第 1 ~ $totalDrawn 帧 (共 $totalDrawn 帧)"
                         } else {
@@ -861,7 +862,7 @@ private fun AnimationExportSection(
                         Text(countText, color = Morandi.subText, fontSize = 10.sp)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("all" to "全部帧", "custom" to "自定义").forEach { (mode, label) ->
+                        listOf("all" to stringResource(R.string.export_anim_range_all), "custom" to stringResource(R.string.export_anim_range_custom)).forEach { (mode, label) ->
                             val isSel = rangeMode == mode
                             Box(
                                 modifier = Modifier
@@ -892,13 +893,13 @@ private fun AnimationExportSection(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("起止帧", color = Morandi.subText, fontSize = 11.sp)
+                        Text(stringResource(R.string.export_anim_start_end_frame), color = Morandi.subText, fontSize = 11.sp)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("从 ", color = Morandi.subText, fontSize = 11.sp)
+                                Text(stringResource(R.string.export_anim_from), color = Morandi.subText, fontSize = 11.sp)
                                 FrameStepper(
                                     value = customStartFrame,
                                     onValueChange = { customStartFrame = it.coerceIn(1, customEndFrame) },
@@ -907,7 +908,7 @@ private fun AnimationExportSection(
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("至 ", color = Morandi.subText, fontSize = 11.sp)
+                                Text(stringResource(R.string.export_anim_to), color = Morandi.subText, fontSize = 11.sp)
                                 FrameStepper(
                                     value = customEndFrame,
                                     onValueChange = { customEndFrame = it.coerceAtLeast(customStartFrame) },
@@ -950,7 +951,7 @@ private fun AnimationExportSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("透明背景", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.export_anim_transparent_bg), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Text(
                         text = if (selectedFormat == "MP4") "MP4 视频格式暂不支持透明背景" else "隐藏画布背景层并导出 Alpha 通道",
                         color = Morandi.subText,
@@ -999,7 +1000,7 @@ private fun AnimationExportSection(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                text = if (isExporting) "正在导出..." else "导出 ${currentItem.format} 文件 (选择保存位置)",
+                text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1036,7 +1037,7 @@ private fun AnimationExportSection(
                                 },
                                 onSuccess = { _ ->
                                     isExporting = false
-                                    Toast.makeText(context, "已成功保存到系统相册 (Pictures/ReveriePaint)", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, context.getString(R.string.export_toast_saved_to_gallery), Toast.LENGTH_LONG).show()
                                     onClose()
                                 },
                                 onError = { err ->
@@ -1055,7 +1056,7 @@ private fun AnimationExportSection(
                         modifier = Modifier.size(16.dp),
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("存入相册", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.export_save_to_gallery), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -1099,9 +1100,9 @@ private fun AnimationExportSection(
                                         putExtra(Intent.EXTRA_STREAM, uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
-                                    context.startActivity(Intent.createChooser(sendIntent, "分享动画作品"))
+                                    context.startActivity(Intent.createChooser(sendIntent, context.getString(R.string.export_share_animation)))
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "分享失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.export_toast_share_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
                                 }
                                 onClose()
                             },
@@ -1121,7 +1122,7 @@ private fun AnimationExportSection(
                     modifier = Modifier.size(16.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("分享作品", color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.export_share_artwork), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -1145,7 +1146,7 @@ private fun AnimationExportSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    text = "正在导出动画",
+                    text = stringResource(R.string.export_anim_progress_title),
                     color = Morandi.text,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
@@ -1186,7 +1187,7 @@ private fun AnimationExportSection(
                 }
                 Spacer(Modifier.height(4.dp))
                 ReTextButton(
-                    text = if (exportCancelled) "正在取消…" else "取消导出",
+                    text = if (exportCancelled) stringResource(R.string.export_anim_canceling) else stringResource(R.string.export_anim_cancel_btn),
                     textColor = if (exportCancelled) Morandi.subText.copy(alpha = 0.5f) else Morandi.subText,
                     onClick = {
                         exportCancelled = true

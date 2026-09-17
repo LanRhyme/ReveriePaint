@@ -110,9 +110,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(LanguageManager.wrapContext(newBase))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         activityInstance = this
+        LanguageManager.init(this)
         applyHighRefreshRate(this)
         // Give Qt's Android layer a live Activity reference (see
         // ReverieCoreBridge.initQtAndroid) so KF6I18n's context() calls

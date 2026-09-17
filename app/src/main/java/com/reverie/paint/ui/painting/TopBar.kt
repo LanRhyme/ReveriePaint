@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,20 +75,20 @@ fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        ReIconButton(R.drawable.ic_undo, "撤销", onUndo)
-        ReIconButton(R.drawable.ic_redo, "重做", onRedo)
+        ReIconButton(R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo)
+        ReIconButton(R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo)
         // 动画画布才显示: 展开/收起底部时间轴面板
         // 用 ic_clock 而不是 ic_layers —— 后者与下面的"图层"按钮撞图标
         if (vm.anim.enabled) {
             ReIconButton(
                 R.drawable.ic_clock,
-                if (vm.anim.panelOpen) "收起时间轴" else "展开时间轴",
+                if (vm.anim.panelOpen) stringResource(R.string.anim_collapse_timeline) else stringResource(R.string.anim_expand_timeline),
                 { vm.anim.panelOpen = !vm.anim.panelOpen },
                 selected = vm.anim.panelOpen,
             )
         }
-        ReIconButton(R.drawable.ic_layers, "图层", onLayers)
-        ReIconButton(R.drawable.ic_settings, "设置", onSettings)
-        ReIconButton(R.drawable.ic_x, "关闭", onBack) // Moved to the right
+        ReIconButton(R.drawable.ic_layers, stringResource(R.string.layer_title), onLayers)
+        ReIconButton(R.drawable.ic_settings, stringResource(R.string.common_settings), onSettings)
+        ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onBack) // Moved to the right
     }
 }

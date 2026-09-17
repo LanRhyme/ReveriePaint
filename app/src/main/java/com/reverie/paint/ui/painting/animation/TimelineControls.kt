@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
@@ -121,7 +122,7 @@ internal fun TimelineControls(
             IconButtonBox(onClick = { vm.animationToggleLoop() }) {
                 Icon(
                     painter = painterResource(if (vm.anim.loopPlayback) R.drawable.ic_repeat_loop else R.drawable.ic_repeat_none),
-                    contentDescription = if (vm.anim.loopPlayback) "循环播放" else "单次播放",
+                    contentDescription = if (vm.anim.loopPlayback) stringResource(R.string.anim_loop) else stringResource(R.string.anim_single_play),
                     tint = if (vm.anim.loopPlayback) Morandi.accent else Morandi.subText,
                     modifier = Modifier.size(16.dp),
                 )
@@ -187,13 +188,13 @@ internal fun TimelineControls(
                     .background(Morandi.border.copy(alpha = 0.5f)),
             )
 
-            GlyphTextButton(text = "新帧", onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
-            GlyphTextButton(text = "复制", onClick = { vm.animationAddKeyframe(duplicate = true) }) { drawGlyphDuplicate() }
-            GlyphTextButton(text = "删帧", onClick = { vm.animationRemoveKeyframe() }) { drawGlyphTrash() }
+            GlyphTextButton(text = stringResource(R.string.anim_new_keyframe), onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
+            GlyphTextButton(text = stringResource(R.string.anim_duplicate_frame), onClick = { vm.animationAddKeyframe(duplicate = true) }) { drawGlyphDuplicate() }
+            GlyphTextButton(text = stringResource(R.string.anim_delete_frame), onClick = { vm.animationRemoveKeyframe() }) { drawGlyphTrash() }
 
             // 多选模式开关
             GlyphTextButton(
-                text = "多选",
+                text = stringResource(R.string.anim_multi_select),
                 onClick = {
                     vm.anim.isMultiSelectMode = true
                     vm.animationToggleFrameSelection(vm.anim.currentTime)
@@ -206,8 +207,8 @@ internal fun TimelineControls(
 
         // 右侧固定状态信息 (手机竖屏紧凑显示, 宽屏全量显示)
         Text(
-            text = if (isPortrait) "${vm.anim.framerate}f · ${vm.anim.currentTime + 1}/${vm.anim.length}"
-            else "${vm.anim.framerate}fps · ${vm.anim.length}帧 · 第 ${vm.anim.currentTime + 1} 帧",
+            text = if (isPortrait) stringResource(R.string.anim_status_compact, vm.anim.framerate, vm.anim.currentTime + 1, vm.anim.length)
+            else stringResource(R.string.anim_status_full, vm.anim.framerate, vm.anim.length, vm.anim.currentTime + 1),
             color = Morandi.subText,
             fontSize = if (isPortrait) 9.5.sp else 10.sp,
             maxLines = 1,

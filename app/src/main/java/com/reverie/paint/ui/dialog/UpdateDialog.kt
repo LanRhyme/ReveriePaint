@@ -34,7 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.BuildConfig
+import com.reverie.paint.R
 import com.reverie.paint.core.UpdateManager
 import com.reverie.paint.model.DownloadStatus
 import com.reverie.paint.model.ReleaseInfo
@@ -105,14 +107,14 @@ fun UpdateDialog(
 
                         Column {
                             Text(
-                                text = "发现新版本",
+                                text = stringResource(R.string.dialog_update_title),
                                 color = colors.text,
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                             )
                             Spacer(Modifier.height(2.dp))
                             Text(
-                                text = "当前: v${BuildConfig.VERSION_NAME}",
+                                text = stringResource(R.string.dialog_update_current, BuildConfig.VERSION_NAME),
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
                             )
@@ -134,7 +136,7 @@ fun UpdateDialog(
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.common_close),
                             tint = Morandi.icon,
                             modifier = Modifier.size(16.dp),
                         )
@@ -162,7 +164,7 @@ fun UpdateDialog(
                         )
                         if (release.publishedAt.isNotBlank()) {
                             Text(
-                                text = "发布于 " + release.publishedAt.take(10),
+                                text = stringResource(R.string.dialog_update_published, release.publishedAt.take(10)),
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
                             )
@@ -190,7 +192,7 @@ fun UpdateDialog(
 
                 // 3. 更新日志内容卡片
                 Text(
-                    text = "更新内容",
+                    text = stringResource(R.string.dialog_update_notes),
                     color = Morandi.subText,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
@@ -208,7 +210,7 @@ fun UpdateDialog(
                         .padding(12.dp)
                         .verticalScroll(scrollState),
                 ) {
-                    val bodyText = release.body.ifBlank { "暂无详细更新说明" }
+                    val bodyText = release.body.ifBlank { stringResource(R.string.dialog_update_notes_empty) }
                     Text(
                         text = bodyText,
                         color = colors.text.copy(alpha = 0.9f),
@@ -232,7 +234,7 @@ fun UpdateDialog(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "正在下载更新...",
+                                    text = stringResource(R.string.dialog_update_downloading),
                                     color = Morandi.accent,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
@@ -269,7 +271,7 @@ fun UpdateDialog(
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                             ) {
                                 Text(
-                                    text = "下载失败: ${UpdateManager.downloadError ?: "网络错误"}",
+                                    text = "${stringResource(R.string.dialog_update_failed)}: ${UpdateManager.downloadError ?: "网络错误"}",
                                     color = Color(0xFFE57373),
                                     fontSize = 12.sp,
                                 )
@@ -295,7 +297,7 @@ fun UpdateDialog(
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
-                                        text = "推荐：使用 Mirror酱 国内免梯高速下载",
+                                        text = stringResource(R.string.dialog_update_mirror_failover),
                                         color = Morandi.accent,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
@@ -320,7 +322,7 @@ fun UpdateDialog(
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
                             Text(
-                                text = "安装包已就绪，正在准备安装...",
+                                text = stringResource(R.string.dialog_update_completed),
                                 color = Morandi.accent,
                                 fontSize = 12.sp,
                             )
@@ -329,7 +331,7 @@ fun UpdateDialog(
 
                     DownloadStatus.CANCELED -> {
                         Text(
-                            text = "已取消下载",
+                            text = stringResource(R.string.dialog_update_canceled),
                             color = Morandi.subText,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(vertical = 4.dp),
@@ -373,7 +375,7 @@ fun UpdateDialog(
                                     modifier = Modifier.size(14.dp),
                                 )
                                 Text(
-                                    text = "Mirror酱高速",
+                                    text = stringResource(R.string.dialog_update_btn_mirror),
                                     color = Morandi.accent,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -390,7 +392,7 @@ fun UpdateDialog(
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.OpenInBrowser,
-                                contentDescription = "浏览器打开",
+                                contentDescription = stringResource(R.string.dialog_update_btn_browser),
                                 tint = Morandi.subText,
                                 modifier = Modifier.size(16.dp),
                             )
@@ -405,7 +407,7 @@ fun UpdateDialog(
                         when (status) {
                             DownloadStatus.IDLE, DownloadStatus.CANCELED -> {
                                 ReTextButton(
-                                    text = "稍后",
+                                    text = stringResource(R.string.common_later),
                                     onClick = onDismiss,
                                     textColor = Morandi.subText,
                                 )
@@ -429,7 +431,7 @@ fun UpdateDialog(
                                         )
                                         Spacer(Modifier.width(4.dp))
                                         Text(
-                                            text = "立即更新",
+                                            text = stringResource(R.string.dialog_update_btn_update),
                                             color = Color.White,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
@@ -440,7 +442,7 @@ fun UpdateDialog(
 
                             DownloadStatus.DOWNLOADING -> {
                                 ReTextButton(
-                                    text = "取消",
+                                    text = stringResource(R.string.common_cancel),
                                     onClick = { UpdateManager.cancelDownload() },
                                     textColor = Morandi.subText,
                                 )
@@ -454,7 +456,7 @@ fun UpdateDialog(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        text = "后台下载",
+                                        text = stringResource(R.string.dialog_update_btn_background),
                                         color = colors.text,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium,
@@ -464,7 +466,7 @@ fun UpdateDialog(
 
                             DownloadStatus.FAILED -> {
                                 ReTextButton(
-                                    text = "关闭",
+                                    text = stringResource(R.string.common_close),
                                     onClick = onDismiss,
                                     textColor = Morandi.subText,
                                 )
@@ -480,7 +482,7 @@ fun UpdateDialog(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        text = "重试下载",
+                                        text = stringResource(R.string.dialog_update_btn_retry),
                                         color = Color.White,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -503,7 +505,7 @@ fun UpdateDialog(
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        text = "立即安装",
+                                        text = stringResource(R.string.dialog_update_btn_install),
                                         color = Color.White,
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,

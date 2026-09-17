@@ -36,6 +36,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -127,14 +128,14 @@ fun AboutSettingsSubPage(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_arrow_left),
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.common_back),
                         tint = colors.text,
                         modifier = Modifier.size(20.dp),
                     )
                 }
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = "关于",
+                    text = stringResource(R.string.settings_about),
                     color = colors.text,
                     fontSize = if (compact) 16.sp else 19.sp,
                     fontWeight = FontWeight.Bold,
@@ -250,7 +251,7 @@ fun AboutSettingsSubPage(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "移动端与平板专业数字绘画创作软件",
+                    text = stringResource(R.string.settings_about_sub),
                     color = colors.subText,
                     fontSize = if (compact) 11.sp else 13.sp,
                     fontWeight = FontWeight.Normal,
@@ -262,7 +263,7 @@ fun AboutSettingsSubPage(
 
         // 3. Contiguous Card Group 1: 项目与社区 (Custom ROM Group Style)
         Text(
-            text = "项目与社区",
+            text = stringResource(R.string.settings_group_project_community),
             color = colors.accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -276,8 +277,8 @@ fun AboutSettingsSubPage(
             // 访问官网 (Top Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Language,
-                title = "项目官网",
-                summary = "访问 ReveriePaint 官方主页",
+                title = stringResource(R.string.settings_website),
+                summary = stringResource(R.string.settings_website_sub),
                 shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
                 onClick = { uriHandler.openUri("https://github.com/LanRhyme/ReveriePaint") },
             )
@@ -285,8 +286,8 @@ fun AboutSettingsSubPage(
             // Mirror酱高速下载 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.CloudDownload,
-                title = "Mirror酱高速下载",
-                summary = "国内免梯高速 CDN 镜像下载最新安装包",
+                title = stringResource(R.string.settings_mirrorchyan),
+                summary = stringResource(R.string.settings_mirrorchyan_sub),
                 shape = RoundedCornerShape(4.dp),
                 onClick = { uriHandler.openUri(UpdateManager.MIRRORCHYAN_PROJECT_URL) },
             )
@@ -294,8 +295,8 @@ fun AboutSettingsSubPage(
             // 参与开源贡献 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.People,
-                title = "贡献者鸣谢",
-                summary = "查看参与项目设计与代码贡献的开发者",
+                title = stringResource(R.string.settings_contributors),
+                summary = stringResource(R.string.settings_contributors_sub),
                 shape = RoundedCornerShape(4.dp),
                 onClick = { showContributorsDialog = true },
             )
@@ -303,8 +304,8 @@ fun AboutSettingsSubPage(
             // 爱发电赞助 (Bottom Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Favorite,
-                title = "赞助与支持",
-                summary = "在爱发电支持作者与后续开发维护",
+                title = stringResource(R.string.settings_sponsors),
+                summary = stringResource(R.string.settings_sponsors_sub),
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
                 onClick = { showSponsorsDialog = true },
             )
@@ -314,7 +315,7 @@ fun AboutSettingsSubPage(
 
         // 4. Contiguous Card Group 2: 应用与系统
         Text(
-            text = "应用与系统",
+            text = stringResource(R.string.settings_group_app_system),
             color = colors.accent,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
@@ -328,8 +329,8 @@ fun AboutSettingsSubPage(
             // 版本 & 检查更新 (Top Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Info,
-                title = "版本",
-                summary = "v${BuildConfig.VERSION_NAME} · 支持 Mirror 酱高速通道",
+                title = stringResource(R.string.settings_version_title),
+                summary = stringResource(R.string.settings_version_summary, BuildConfig.VERSION_NAME),
                 rightWidget = {
                     Box(
                         modifier = Modifier
@@ -354,7 +355,7 @@ fun AboutSettingsSubPage(
                                     color = colors.accent,
                                 )
                                 Text(
-                                    text = "检查中",
+                                    text = stringResource(R.string.settings_checking_update),
                                     color = colors.accent,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -362,7 +363,7 @@ fun AboutSettingsSubPage(
                             }
                         } else {
                             Text(
-                                text = "检查更新",
+                                text = stringResource(R.string.settings_check_update),
                                 color = colors.accent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -381,8 +382,8 @@ fun AboutSettingsSubPage(
             // 启动时自动检查更新 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Sync,
-                title = "启动时自动检查更新",
-                summary = "每次打开应用时在后台检测新版本",
+                title = stringResource(R.string.settings_auto_check_update),
+                summary = stringResource(R.string.settings_auto_check_update_sub),
                 shape = RoundedCornerShape(4.dp),
                 rightWidget = {
                     ReSwitch(
@@ -403,20 +404,21 @@ fun AboutSettingsSubPage(
             // 第三方开源许可 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.Description,
-                title = "第三方开源许可",
-                summary = "查看使用的开源库与许可证",
+                title = stringResource(R.string.settings_licenses),
+                summary = stringResource(R.string.settings_licenses_sub),
                 shape = RoundedCornerShape(4.dp),
                 onClick = { showLicensesDialog = true },
             )
 
+            val logToastMessage = stringResource(R.string.settings_export_log_toast)
             // 导出日志 (Bottom Rounded)
             AboutGroupItem(
                 icon = Icons.AutoMirrored.Rounded.Article,
-                title = "导出日志",
-                summary = "导出应用运行日志以供调试",
+                title = stringResource(R.string.settings_export_log),
+                summary = stringResource(R.string.settings_export_log_sub),
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
                 onClick = {
-                    Toast.makeText(context, "运行日志已准备完毕", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, logToastMessage, Toast.LENGTH_SHORT).show()
                 },
             )
         }
@@ -442,7 +444,7 @@ fun AboutSettingsSubPage(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "软件介绍",
+                        text = stringResource(R.string.settings_intro_title),
                         color = colors.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,

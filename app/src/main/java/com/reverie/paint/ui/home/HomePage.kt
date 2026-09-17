@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -209,6 +210,12 @@ fun HomePage(vm: PaintViewModel) {
         }
     }
 
+    val toastStackCreated = stringResource(R.string.gallery_toast_stack_created)
+    val toastStackDeleted = stringResource(R.string.gallery_toast_stack_deleted)
+    val toastArtworkDeleted = stringResource(R.string.gallery_toast_artwork_deleted)
+    val toastBatchDeleted = stringResource(R.string.gallery_toast_batch_deleted)
+    val defaultProcessingText = stringResource(R.string.gallery_processing)
+
     // Custom Styled Dialog: Create Stack / Folder (新建画集)
     if (showNewFolderDialog) {
         NewFolderDialog(
@@ -217,7 +224,7 @@ fun HomePage(vm: PaintViewModel) {
             onFolderNameChange = { newFolderName = it },
             onCreate = { name ->
                 vm.createFolder(name)
-                Toast.makeText(context, "已创建画集: $name", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, String.format(toastStackCreated, name), Toast.LENGTH_SHORT).show()
             },
             onDismiss = { showNewFolderDialog = false },
         )
@@ -260,21 +267,22 @@ fun HomePage(vm: PaintViewModel) {
             target = deleteTarget,
             onDelete = {
                 vm.deleteProject(deleteTarget)
-                Toast.makeText(context, if (deleteTarget.isFolder) "画集已删除" else "作品已删除", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (deleteTarget.isFolder) toastStackDeleted else toastArtworkDeleted, Toast.LENGTH_SHORT).show()
             },
             onDismiss = { projectToDelete = null },
         )
     }
 
     if (showBatchDeleteConfirm && selectedProjects.isNotEmpty()) {
+        val deleteCount = selectedProjects.size
         BatchDeleteConfirmDialog(
             colors = colors,
-            count = selectedProjects.size,
+            count = deleteCount,
             onConfirm = {
                 selectedProjects.forEach { vm.deleteProject(it) }
                 selectedProjects.clear()
                 isSelectMode = false
-                Toast.makeText(context, "已删除 ${selectedProjects.size} 项内容", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, String.format(toastBatchDeleted, deleteCount), Toast.LENGTH_SHORT).show()
             },
             onDismiss = { showBatchDeleteConfirm = false },
         )
@@ -302,7 +310,7 @@ fun HomePage(vm: PaintViewModel) {
                         strokeWidth = 2.5.dp,
                     )
                     Text(
-                        text = vm.blockingLoadingMessage.ifBlank { "正在处理..." },
+                        text = vm.blockingLoadingMessage.ifBlank { defaultProcessingText },
                         color = colors.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
@@ -385,7 +393,7 @@ fun HomePage(vm: PaintViewModel) {
                                             ) {
                                                 Icon(
                                                     painter = painterResource(R.drawable.ic_arrow_left),
-                                                    contentDescription = "返回",
+                                                    contentDescription = stringResource(R.string.common_back),
                                                     tint = colors.text,
                                                     modifier = Modifier.size(18.dp),
                                                 )
@@ -408,7 +416,7 @@ fun HomePage(vm: PaintViewModel) {
 
                                     "SELECT" -> {
                                         Text(
-                                            text = "已选 ${selectedProjects.size} 项",
+                                            text = stringResource(R.string.gallery_selected_count, selectedProjects.size),
                                             color = colors.text,
                                             fontSize = 17.sp,
                                             fontWeight = FontWeight.SemiBold,
@@ -418,14 +426,14 @@ fun HomePage(vm: PaintViewModel) {
                                     else -> {
                                         Column {
                                             Text(
-                                                text = "画廊",
+                                                text = stringResource(R.string.gallery_title),
                                                 color = colors.text,
                                                 fontSize = 22.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 letterSpacing = 0.5.sp,
                                             )
                                             Text(
-                                                text = "${displayProjects.size} 个项目",
+                                                text = stringResource(R.string.gallery_items_count, displayProjects.size),
                                                 color = colors.subText,
                                                 fontSize = 11.sp,
                                             )
@@ -444,7 +452,7 @@ fun HomePage(vm: PaintViewModel) {
                                 OutlinedTextField(
                                     value = vm.searchQuery,
                                     onValueChange = { vm.searchQuery = it },
-                                    placeholder = { Text("搜索作品...", color = colors.subText, fontSize = 13.sp) },
+                                    placeholder = { Text(stringResource(R.string.gallery_search_hint), color = colors.subText, fontSize = 13.sp) },
                                     singleLine = true,
                                     trailingIcon = {
                                         ReIconButton(
@@ -479,7 +487,7 @@ fun HomePage(vm: PaintViewModel) {
                             if (!isSearchActive) {
                                 if (isSelectMode) {
                                     ReTextButton(
-                                        "完成",
+                                        stringResource(R.string.common_done),
                                         onClick = {
                                         isSelectMode = false
                                         selectedProjects.clear()
@@ -507,11 +515,11 @@ fun HomePage(vm: PaintViewModel) {
                                                     .size(34.dp)
                                                     .clip(CircleShape)
                                                     .clickable { isSearchActive = true },
-                                            contentAlignment = Alignment.Center,
+                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Icon(
                                                 painterResource(R.drawable.ic_search),
-                                                contentDescription = "Search",
+                                                contentDescription = stringResource(R.string.common_search),
                                                 tint = colors.icon,
                                                 modifier = Modifier.size(18.dp),
                                             )
@@ -529,7 +537,7 @@ fun HomePage(vm: PaintViewModel) {
                                             ) {
                                                 Icon(
                                                     painterResource(R.drawable.ic_dots_vertical),
-                                                    contentDescription = "More",
+                                                    contentDescription = stringResource(R.string.common_more),
                                                     tint = colors.icon,
                                                     modifier = Modifier.size(18.dp),
                                                 )
@@ -545,7 +553,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         ).border(1.dp, colors.border, RoundedCornerShape(10.dp)),
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text("导入", color = colors.text) },
+                                                    text = { Text(stringResource(R.string.common_import), color = colors.text) },
                                                     onClick = {
                                                         showMoreMenu = false
                                                         importLauncher.launch(arrayOf("*/*"))
@@ -560,7 +568,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("选择", color = colors.text) },
+                                                    text = { Text(stringResource(R.string.gallery_select), color = colors.text) },
                                                     onClick = {
                                                         showMoreMenu = false
                                                         isSelectMode = true
@@ -575,11 +583,12 @@ fun HomePage(vm: PaintViewModel) {
                                                         )
                                                     },
                                                 )
+                                                val defaultFolderName = stringResource(R.string.gallery_new_stack_default, (System.currentTimeMillis() % 1000).toInt())
                                                 DropdownMenuItem(
-                                                    text = { Text("新建画集", color = colors.text) },
+                                                    text = { Text(stringResource(R.string.gallery_new_stack), color = colors.text) },
                                                     onClick = {
                                                         showMoreMenu = false
-                                                        newFolderName = "画集_${System.currentTimeMillis() % 1000}"
+                                                        newFolderName = defaultFolderName
                                                         showNewFolderDialog = true
                                                     },
                                                     leadingIcon = {
@@ -592,7 +601,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("刷新作品", color = colors.text) },
+                                                    text = { Text(stringResource(R.string.gallery_refresh), color = colors.text) },
                                                     onClick = {
                                                         showMoreMenu = false
                                                         vm.refreshProjects()
@@ -651,13 +660,13 @@ fun HomePage(vm: PaintViewModel) {
                                         Spacer(Modifier.height(16.dp))
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
-                                                "未找到相关作品"
+                                                stringResource(R.string.gallery_empty_search_title)
                                             } else if (targetFolder !=
                                                 null
                                             ) {
-                                                "画集中暂无作品"
+                                                stringResource(R.string.gallery_empty_stack_title)
                                             } else {
-                                                "开启你的第一幅画作"
+                                                stringResource(R.string.gallery_empty_main_title)
                                             },
                                             color = colors.text,
                                             fontSize = 16.sp,
@@ -666,13 +675,13 @@ fun HomePage(vm: PaintViewModel) {
                                         Spacer(Modifier.height(6.dp))
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
-                                                "请尝试使用其他关键词搜索"
+                                                stringResource(R.string.gallery_empty_search_desc)
                                             } else if (targetFolder !=
                                                 null
                                             ) {
-                                                "你可以长按外部作品并选择「移动到画集」"
+                                                stringResource(R.string.gallery_empty_stack_desc)
                                             } else {
-                                                "点击下方「＋」按钮创建新画布或导入图像"
+                                                stringResource(R.string.gallery_empty_main_desc)
                                             },
                                             color = colors.subText,
                                             fontSize = 12.sp,
@@ -988,7 +997,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     )
                                                                     Spacer(Modifier.height(4.dp))
                                                                     Text(
-                                                                        "画集",
+                                                                        stringResource(R.string.gallery_badge_stack),
                                                                         color = Color(0xFF9E9E9E),
                                                                         fontSize = 11.sp,
                                                                         fontWeight = FontWeight.Medium,
@@ -1130,7 +1139,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     )
                                                                     Spacer(Modifier.width(3.dp))
                                                                     Text(
-                                                                        text = "自动保存",
+                                                                        text = stringResource(R.string.gallery_badge_autosave),
                                                                         color = Color.White,
                                                                         fontSize = 10.sp,
                                                                         fontWeight = FontWeight.Bold,
@@ -1160,7 +1169,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     )
                                                                     Spacer(Modifier.width(3.dp))
                                                                     Text(
-                                                                        text = "动画",
+                                                                        text = stringResource(R.string.gallery_badge_anim),
                                                                         color = Color.White,
                                                                         fontSize = 10.sp,
                                                                         fontWeight = FontWeight.Bold,
@@ -1217,6 +1226,8 @@ fun HomePage(vm: PaintViewModel) {
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.SpaceBetween,
                                                 ) {
+                                                    val justNowText = stringResource(R.string.gallery_time_just_now)
+                                                    val autoSavedText = stringResource(R.string.gallery_status_autosave)
                                                     val dateStr =
                                                         remember(p.lastModified) {
                                                             if (p.lastModified > 0) {
@@ -1225,19 +1236,19 @@ fun HomePage(vm: PaintViewModel) {
                                                                     Locale.getDefault(),
                                                                 ).format(Date(p.lastModified))
                                                             } else {
-                                                                "刚刚"
+                                                                justNowText
                                                             }
                                                         }
-                                                    val statusText = if (p.isAutoSaved) "自动保存草稿" else dateStr
+                                                    val statusText = if (p.isAutoSaved) autoSavedText else dateStr
                                                     Text(
-                                                        text = if (p.isFolder) "${p.items.size} 个作品" else statusText,
+                                                        text = if (p.isFolder) stringResource(R.string.gallery_stack_artworks_count, p.items.size) else statusText,
                                                         color = if (p.isAutoSaved) colors.accent else colors.subText,
                                                         fontSize = 11.sp,
                                                         fontWeight = if (p.isAutoSaved) FontWeight.SemiBold else FontWeight.Normal,
                                                     )
                                                     if (!p.isFolder && p.strokeCount > 0) {
                                                         Text(
-                                                            text = "${p.strokeCount} 笔",
+                                                            text = stringResource(R.string.gallery_stroke_count, p.strokeCount),
                                                             color = colors.subText,
                                                             fontSize = 11.sp,
                                                         )
@@ -1256,7 +1267,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         ).border(1.dp, colors.border, RoundedCornerShape(10.dp)),
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text(if (p.isFolder) "打开画集" else "打开作品", color = colors.text) },
+                                                    text = { Text(if (p.isFolder) stringResource(R.string.gallery_action_open_stack) else stringResource(R.string.gallery_action_open_artwork), color = colors.text) },
                                                     onClick = {
                                                         longPressedProject = null
                                                         if (p.isFolder) {
@@ -1277,7 +1288,7 @@ fun HomePage(vm: PaintViewModel) {
                                                 )
                                                 if (!p.isFolder && p.hasRecording) {
                                                     DropdownMenuItem(
-                                                        text = { Text("回放", color = colors.accent) },
+                                                        text = { Text(stringResource(R.string.gallery_action_replay), color = colors.accent) },
                                                         onClick = {
                                                             longPressedProject = null
                                                             vm.goReplay(p)
@@ -1294,7 +1305,7 @@ fun HomePage(vm: PaintViewModel) {
                                                 }
                                                 if (!p.isFolder) {
                                                     DropdownMenuItem(
-                                                        text = { Text("分享作品", color = colors.text) },
+                                                        text = { Text(stringResource(R.string.gallery_action_share_artwork), color = colors.text) },
                                                         onClick = {
                                                             longPressedProject = null
                                                             shareProjectFile(context, p)
@@ -1309,7 +1320,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         },
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("创建副本", color = colors.text) },
+                                                        text = { Text(stringResource(R.string.home_draft_duplicate), color = colors.text) },
                                                         onClick = {
                                                             longPressedProject = null
                                                             vm.duplicateProject(p)
@@ -1324,7 +1335,7 @@ fun HomePage(vm: PaintViewModel) {
                                                         },
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("移动到画集...", color = colors.text) },
+                                                        text = { Text(stringResource(R.string.gallery_action_move_to_stack), color = colors.text) },
                                                         onClick = {
                                                             longPressedProject = null
                                                             targetMoveProjects = listOf(p)
@@ -1341,7 +1352,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     )
                                                 }
                                                 DropdownMenuItem(
-                                                    text = { Text("重命名", color = colors.text) },
+                                                    text = { Text(stringResource(R.string.home_draft_rename), color = colors.text) },
                                                     onClick = {
                                                         longPressedProject = null
                                                         targetRenameProject = p
@@ -1358,7 +1369,7 @@ fun HomePage(vm: PaintViewModel) {
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text(if (p.isFolder) "删除画集" else "删除作品", color = Color(0xFFFF5252)) },
+                                                    text = { Text(if (p.isFolder) stringResource(R.string.gallery_action_delete_stack) else stringResource(R.string.gallery_action_delete_artwork), color = Color(0xFFFF5252)) },
                                                     onClick = {
                                                         longPressedProject = null
                                                         projectToDelete = p
@@ -1401,7 +1412,7 @@ fun HomePage(vm: PaintViewModel) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ReTextButton(
-                                "分享 (${selectedProjects.size})",
+                                stringResource(R.string.gallery_batch_share, selectedProjects.size),
                                 {
                                     shareProjectFiles(context, selectedProjects.toList())
                                 },
@@ -1412,7 +1423,7 @@ fun HomePage(vm: PaintViewModel) {
                             )
                             Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
                             ReTextButton(
-                                "移动 (${selectedProjects.size})",
+                                stringResource(R.string.gallery_batch_move, selectedProjects.size),
                                 {
                                     targetMoveProjects = selectedProjects.toList()
                                     showMoveDialog = true
@@ -1424,7 +1435,7 @@ fun HomePage(vm: PaintViewModel) {
                             )
                             Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
                             ReTextButton(
-                                "删除",
+                                stringResource(R.string.common_delete),
                                 { showBatchDeleteConfirm = true },
                                 icon = R.drawable.ic_trash,
                                 textColor = Color(0xFFFF5252),
@@ -1454,7 +1465,7 @@ fun HomePage(vm: PaintViewModel) {
 
         com.reverie.paint.ui.components.DragHoverOverlay(
             visible = vm.isDraggingExternal,
-            hint = "释放以导入作品到画廊",
+            hint = stringResource(R.string.gallery_drop_hint),
         )
     }
 }

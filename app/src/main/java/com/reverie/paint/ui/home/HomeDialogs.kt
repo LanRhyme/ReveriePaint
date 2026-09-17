@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,7 +75,7 @@ internal fun NewFolderDialog(
         ) {
             Column {
                 Text(
-                    text = "新建画集",
+                    text = stringResource(R.string.home_dialog_new_folder_title),
                     color = colors.text,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -84,7 +85,7 @@ internal fun NewFolderDialog(
                     value = folderName,
                     onValueChange = onFolderNameChange,
                     singleLine = true,
-                    placeholder = { Text("画集名称", color = colors.subText) },
+                    placeholder = { Text(stringResource(R.string.home_dialog_folder_name_hint), color = colors.subText) },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = colors.text,
                         unfocusedTextColor = colors.text,
@@ -101,10 +102,10 @@ internal fun NewFolderDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    ReTextButton("取消", onDismiss, textColor = colors.subText)
+                    ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
                     ReTextButton(
-                        "创建",
+                        stringResource(R.string.common_create),
                         onClick = {
                         if (folderName.isNotBlank()) {
                             onCreate(folderName.trim())
@@ -140,7 +141,7 @@ internal fun RenameProjectDialog(
         ) {
             Column {
                 Text(
-                    text = if (project.isFolder) "重命名画集" else "重命名作品",
+                    text = if (project.isFolder) stringResource(R.string.home_dialog_rename_folder_title) else stringResource(R.string.home_dialog_rename_project_title),
                     color = colors.text,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -166,10 +167,10 @@ internal fun RenameProjectDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    ReTextButton("取消", onDismiss, textColor = colors.subText)
+                    ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
                     ReTextButton(
-                        "确定",
+                        stringResource(R.string.common_confirm),
                         onClick = {
                         if (name.isNotBlank()) onRename(name.trim())
                         onDismiss()
@@ -208,7 +209,7 @@ val context = LocalContext.current
         ) {
             Column {
                 Text(
-                    text = "移动作品到画集",
+                    text = stringResource(R.string.home_dialog_move_title),
                     color = colors.text,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
@@ -226,7 +227,7 @@ val context = LocalContext.current
                                     targetMoveProjects.forEach { p ->
                                         vm.moveProjectToFolder(p, null)
                                     }
-                                    Toast.makeText(context, "已移出到画廊根目录", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.home_toast_moved_to_root), Toast.LENGTH_SHORT).show()
                                     onMoved()
                                 }
                                 .padding(14.dp)
@@ -234,13 +235,13 @@ val context = LocalContext.current
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(painterResource(R.drawable.ic_folder_symlink), contentDescription = null, tint = colors.accent, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("移出到画廊根目录", color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.home_dialog_move_to_root), color = colors.accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
 
                     if (allFolders.isEmpty()) {
-                        Text("当前暂无画集，可先在右上角菜单中新建画集", color = colors.subText, fontSize = 13.sp)
+                        Text(stringResource(R.string.home_dialog_move_empty_folders), color = colors.subText, fontSize = 13.sp)
                     } else {
                         allFolders.forEach { folderName ->
                             if (currentFolder?.name != folderName) {
@@ -253,7 +254,7 @@ val context = LocalContext.current
                                             targetMoveProjects.forEach { p ->
                                                 vm.moveProjectToFolder(p, folderName)
                                             }
-                                            Toast.makeText(context, "已移动到画集: $folderName", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, context.getString(R.string.home_toast_moved_to_folder, folderName), Toast.LENGTH_SHORT).show()
                                             onMoved()
                                         }
                                         .padding(14.dp)
@@ -273,7 +274,7 @@ val context = LocalContext.current
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    ReTextButton("取消", onDismiss, textColor = colors.subText)
+                    ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText)
                 }
             }
         }
@@ -334,7 +335,7 @@ val context = LocalContext.current
                         }
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            text = if (isFolder) "删除画集" else "删除画布",
+                            text = if (isFolder) stringResource(R.string.home_dialog_delete_folder_title) else stringResource(R.string.home_dialog_delete_project_title),
                             color = colors.text,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
@@ -343,9 +344,9 @@ val context = LocalContext.current
                     Spacer(Modifier.height(14.dp))
                     Text(
                         text = if (isFolder) {
-                            "确定要删除画集「${target.name}」吗？画集内的所有作品也将被永久删除，此操作无法撤销。"
+                            stringResource(R.string.home_dialog_delete_folder_confirm, target.name)
                         } else {
-                            "确定要删除作品「${target.name}」吗？文件将被永久删除，此操作无法撤销。"
+                            stringResource(R.string.home_dialog_delete_project_confirm, target.name)
                         },
                         color = colors.subText,
                         fontSize = 13.sp,
@@ -357,10 +358,10 @@ val context = LocalContext.current
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ReTextButton("取消", onDismiss, textColor = colors.subText, fontSize = 14.sp)
+                        ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText, fontSize = 14.sp)
                         Spacer(Modifier.width(8.dp))
                         ReTextButton(
-                            "确认删除",
+                            stringResource(R.string.home_dialog_confirm_delete),
                             {
                                 onDismiss()
                                 onDelete()
@@ -431,7 +432,7 @@ val context = LocalContext.current
                         }
                         Spacer(Modifier.width(12.dp))
                         Text(
-                            text = "批量删除",
+                            text = stringResource(R.string.home_dialog_batch_delete_title),
                             color = colors.text,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
@@ -439,7 +440,7 @@ val context = LocalContext.current
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        text = "确定要删除选中的 ${count} 项内容吗？此操作无法撤销。",
+                        text = stringResource(R.string.home_dialog_batch_delete_confirm, count),
                         color = colors.subText,
                         fontSize = 13.sp,
                         lineHeight = 18.sp
@@ -450,10 +451,10 @@ val context = LocalContext.current
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ReTextButton("取消", onDismiss, textColor = colors.subText, fontSize = 14.sp)
+                        ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText, fontSize = 14.sp)
                         Spacer(Modifier.width(8.dp))
                         ReTextButton(
-                            "确认删除",
+                            stringResource(R.string.home_dialog_confirm_delete),
                             {
                                 onDismiss()
                                 onConfirm()

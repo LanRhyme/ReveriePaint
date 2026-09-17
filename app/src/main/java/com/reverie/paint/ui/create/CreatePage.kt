@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -492,7 +493,7 @@ fun CreatePage(vm: PaintViewModel) {
         ) {
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(colors.panelHi)
                     .clickable {
@@ -506,7 +507,7 @@ fun CreatePage(vm: PaintViewModel) {
             ) {
                 Icon(
                     painterResource(R.drawable.ic_arrow_left),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = colors.text,
                     modifier = Modifier.size(18.dp)
                 )
@@ -515,7 +516,7 @@ fun CreatePage(vm: PaintViewModel) {
             Spacer(Modifier.width(16.dp))
 
             Text(
-                text = "新建画布",
+                text = stringResource(R.string.create_title),
                 color = colors.text,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
@@ -538,12 +539,12 @@ fun CreatePage(vm: PaintViewModel) {
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_image),
-                        contentDescription = "从图片新建",
+                        contentDescription = stringResource(R.string.create_from_image),
                         tint = colors.accent,
                         modifier = Modifier.size(17.dp)
                     )
                     Text(
-                        text = "从图片新建",
+                        text = stringResource(R.string.create_from_image),
                         color = colors.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -568,7 +569,7 @@ fun CreatePage(vm: PaintViewModel) {
                         .fillMaxHeight()
                 ) {
                     SegmentedTabSwitcher(
-                        tabs = listOf("系统预设", "我的预设"),
+                        tabs = listOf(stringResource(R.string.create_tab_system_presets), stringResource(R.string.create_tab_my_presets)),
                         selectedIndex = presetTab.coerceIn(0, 1),
                         onTabSelected = { presetTab = it },
                         modifier = Modifier.fillMaxWidth()
@@ -1048,7 +1049,7 @@ private fun OrientationToggle(
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
-                    text = "横向",
+                    text = stringResource(R.string.create_orientation_landscape),
                     color = if (isLandscape) colors.onAccent else colors.subText,
                     fontSize = 12.sp,
                     fontWeight = if (isLandscape) FontWeight.Bold else FontWeight.Medium
@@ -1076,7 +1077,7 @@ private fun OrientationToggle(
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
-                    text = "纵向",
+                    text = stringResource(R.string.create_orientation_portrait),
                     color = if (!isLandscape) colors.onAccent else colors.subText,
                     fontSize = 12.sp,
                     fontWeight = if (!isLandscape) FontWeight.Bold else FontWeight.Medium
@@ -1111,7 +1112,7 @@ private fun CanvasDimensionsCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "尺寸与分辨率",
+                text = stringResource(R.string.create_size_and_res),
                 color = colors.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
@@ -1127,12 +1128,12 @@ private fun CanvasDimensionsCard(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_flip_horizontal),
-                    contentDescription = "对调宽高",
+                    contentDescription = stringResource(R.string.create_swap_dimensions),
                     tint = colors.accent,
                     modifier = Modifier.size(12.dp)
                 )
                 Text(
-                    text = "对调",
+                    text = stringResource(R.string.create_swap_dimensions),
                     color = colors.text,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
@@ -1147,14 +1148,14 @@ private fun CanvasDimensionsCard(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             SizeInputField(
-                label = "宽度",
+                label = stringResource(R.string.create_width),
                 unit = "PX",
                 value = width,
                 onValueChange = onWidthChange,
                 modifier = Modifier.weight(1f)
             )
             SizeInputField(
-                label = "高度",
+                label = stringResource(R.string.create_height),
                 unit = "PX",
                 value = height,
                 onValueChange = onHeightChange,
@@ -1223,8 +1224,9 @@ private fun PortraitPresetBottomBar(
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(2.dp))
+            val orientationText = if (widthVal >= heightVal) stringResource(R.string.create_orientation_landscape) else stringResource(R.string.create_orientation_portrait)
             Text(
-                text = "${if (widthVal >= heightVal) "横向" else "纵向"} · 最多 ${maxLayers}层",
+                text = "$orientationText · " + stringResource(R.string.create_max_layers_desc, maxLayers),
                 color = colors.subText,
                 fontSize = 11.sp
             )
@@ -1246,13 +1248,13 @@ private fun PortraitPresetBottomBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         painterResource(R.drawable.ic_clock),
-                        contentDescription = "动画画布",
+                        contentDescription = stringResource(R.string.create_anim_canvas),
                         tint = if (animationCanvas) colors.onAccent else colors.text,
                         modifier = Modifier.size(13.dp)
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = if (animationCanvas) "动画" else "静态",
+                        text = if (animationCanvas) stringResource(R.string.create_anim_tag) else stringResource(R.string.create_static_canvas),
                         color = if (animationCanvas) colors.onAccent else colors.text,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -1278,7 +1280,7 @@ private fun PortraitPresetBottomBar(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_flip_horizontal),
-                    contentDescription = "对调方向",
+                    contentDescription = stringResource(R.string.create_swap_dimensions),
                     tint = colors.text,
                     modifier = Modifier.size(15.dp)
                 )
@@ -1294,7 +1296,7 @@ private fun PortraitPresetBottomBar(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "微调",
+                    text = stringResource(R.string.create_adjust),
                     color = colors.text,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium

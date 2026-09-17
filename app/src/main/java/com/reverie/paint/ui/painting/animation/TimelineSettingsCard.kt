@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -102,7 +103,7 @@ internal fun AnimationSettingsCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "动画设置",
+                text = stringResource(R.string.anim_settings),
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -110,7 +111,7 @@ internal fun AnimationSettingsCard(
             )
             ReIconButton(
                 icon = R.drawable.ic_x,
-                desc = "关闭设置",
+                desc = stringResource(R.string.common_close),
                 onTap = onClose,
                 size = 30.dp,
                 iconSize = 15.dp,
@@ -133,12 +134,12 @@ internal fun TimelineSettings(
         var showFpsInput by remember { mutableStateOf(false) }
         var pickingOnionColor by remember { mutableStateOf<OnionColorTarget?>(null) }
 
-        ReSectionTitle(text = "播放", modifier = Modifier.padding(start = 12.dp))
+        ReSectionTitle(text = stringResource(R.string.anim_settings_play), modifier = Modifier.padding(start = 12.dp))
 
-        CompactSettingRow(label = "帧率") {
+        CompactSettingRow(label = stringResource(R.string.anim_fps)) {
             ReIconButton(
                 icon = R.drawable.ic_minus,
-                desc = "降低帧率",
+                desc = stringResource(R.string.anim_fps_decrease),
                 onTap = { vm.animationSetFramerate(vm.anim.framerate - 1) },
                 size = 28.dp,
                 iconSize = 14.dp,
@@ -160,7 +161,7 @@ internal fun TimelineSettings(
             }
             ReIconButton(
                 icon = R.drawable.ic_plus,
-                desc = "提高帧率",
+                desc = stringResource(R.string.anim_fps_increase),
                 onTap = { vm.animationSetFramerate(vm.anim.framerate + 1) },
                 size = 28.dp,
                 iconSize = 14.dp,
@@ -178,9 +179,9 @@ internal fun TimelineSettings(
             )
         }
 
-        ReSectionTitle(text = "洋葱皮", modifier = Modifier.padding(start = 12.dp))
+        ReSectionTitle(text = stringResource(R.string.anim_onion_skin), modifier = Modifier.padding(start = 12.dp))
 
-        CompactSettingRow(label = "显示洋葱皮") {
+        CompactSettingRow(label = stringResource(R.string.anim_onion_show)) {
             ReSwitch(
                 checked = vm.anim.onionSkin,
                 onChecked = {
@@ -191,7 +192,7 @@ internal fun TimelineSettings(
         }
 
         if (vm.anim.onionSkin) {
-            CompactSettingRow(label = "仅关键帧") {
+            CompactSettingRow(label = stringResource(R.string.anim_onion_keyframes_only)) {
                 ReSwitch(
                     checked = vm.anim.onionKeyframesOnly,
                     onChecked = {
@@ -201,7 +202,7 @@ internal fun TimelineSettings(
                 )
             }
 
-            CompactSettingRow(label = "衰减曲线") {
+            CompactSettingRow(label = stringResource(R.string.anim_onion_decay)) {
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
@@ -210,9 +211,9 @@ internal fun TimelineSettings(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     listOf(
-                        com.reverie.paint.core.OnionDecayMode.LINEAR to "线性",
-                        com.reverie.paint.core.OnionDecayMode.SMOOTH to "平滑",
-                        com.reverie.paint.core.OnionDecayMode.CONSTANT to "恒定",
+                        com.reverie.paint.core.OnionDecayMode.LINEAR to stringResource(R.string.anim_onion_decay_linear_short),
+                        com.reverie.paint.core.OnionDecayMode.SMOOTH to stringResource(R.string.anim_onion_decay_smooth_short),
+                        com.reverie.paint.core.OnionDecayMode.CONSTANT to stringResource(R.string.anim_onion_decay_constant_short),
                     ).forEach { (mode, title) ->
                         val sel = vm.anim.onionDecayMode == mode
                         Box(
@@ -237,9 +238,9 @@ internal fun TimelineSettings(
                 }
             }
 
-            CompactSettingRow(label = "前 / 后帧数") {
+            CompactSettingRow(label = stringResource(R.string.anim_onion_frames_prev_next)) {
                 OnionFrameStepper(
-                    prefix = "前",
+                    prefix = stringResource(R.string.anim_onion_prefix_prev),
                     value = vm.anim.onionPrev,
                     onChange = {
                         vm.anim.onionPrev = it
@@ -248,7 +249,7 @@ internal fun TimelineSettings(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OnionFrameStepper(
-                    prefix = "后",
+                    prefix = stringResource(R.string.anim_onion_prefix_next),
                     value = vm.anim.onionNext,
                     onChange = {
                         vm.anim.onionNext = it
@@ -257,7 +258,7 @@ internal fun TimelineSettings(
                 )
             }
 
-            CompactSettingRow(label = "不透明度") {
+            CompactSettingRow(label = stringResource(R.string.layer_opacity)) {
                 val pct = (vm.anim.onionOpacity * 100 + 127) / 255
                 ReSlider(
                     value = vm.anim.onionOpacity / 255f,
@@ -275,7 +276,7 @@ internal fun TimelineSettings(
                 )
             }
 
-            CompactSettingRow(label = "着色强度") {
+            CompactSettingRow(label = stringResource(R.string.anim_onion_tint)) {
                 ReSlider(
                     value = vm.anim.onionTint / 100f,
                     onValue = { vm.anim.onionTint = (it * 100f).roundToInt().coerceIn(0, 100) },
@@ -292,16 +293,16 @@ internal fun TimelineSettings(
                 )
             }
 
-            CompactSettingRow(label = "过去 / 未来") {
+            CompactSettingRow(label = stringResource(R.string.anim_onion_backward_forward)) {
                 OnionColorSwatch(
                     color = Color(vm.anim.onionColorBackward),
-                    label = "过去",
+                    label = stringResource(R.string.anim_onion_backward_short),
                     onPick = { pickingOnionColor = OnionColorTarget.Backward },
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 OnionColorSwatch(
                     color = Color(vm.anim.onionColorForward),
-                    label = "未来",
+                    label = stringResource(R.string.anim_onion_forward_short),
                     onPick = { pickingOnionColor = OnionColorTarget.Forward },
                 )
             }
@@ -310,7 +311,7 @@ internal fun TimelineSettings(
         pickingOnionColor?.let { target ->
             val isBackward = target == OnionColorTarget.Backward
             CompactColorPickerDialog(
-                title = if (isBackward) "过去帧着色" else "未来帧着色",
+                title = if (isBackward) stringResource(R.string.anim_onion_backward_tint_title) else stringResource(R.string.anim_onion_forward_tint_title),
                 initialColor = Color(
                     if (isBackward) vm.anim.onionColorBackward else vm.anim.onionColorForward,
                 ),
@@ -328,9 +329,9 @@ internal fun TimelineSettings(
             )
         }
 
-        ReSectionTitle(text = "显示", modifier = Modifier.padding(start = 12.dp))
+        ReSectionTitle(text = stringResource(R.string.anim_settings_display), modifier = Modifier.padding(start = 12.dp))
 
-        CompactSettingRow(label = "帧缩略图") {
+        CompactSettingRow(label = stringResource(R.string.anim_settings_thumbnails)) {
             ReSwitch(
                 checked = vm.anim.showThumbnails,
                 onChecked = { vm.anim.showThumbnails = it },
@@ -338,19 +339,19 @@ internal fun TimelineSettings(
         }
 
         if (vm.anim.audioAssets.isNotEmpty()) {
-            CompactSettingRow(label = "音频") {
+            CompactSettingRow(label = stringResource(R.string.anim_settings_audio)) {
                 Text(
-                    text = "${vm.anim.audioAssets.size} 条 · 随播放",
+                    text = stringResource(R.string.anim_audio_with_playback, vm.anim.audioAssets.size),
                     color = Morandi.subText,
                     fontSize = 12.sp,
                 )
             }
         }
 
-        ReSectionTitle(text = "导入", modifier = Modifier.padding(start = 12.dp))
+        ReSectionTitle(text = stringResource(R.string.anim_settings_import), modifier = Modifier.padding(start = 12.dp))
         TimelineImportRow(vm = vm)
 
-        ReSectionTitle(text = "导出", modifier = Modifier.padding(start = 12.dp))
+        ReSectionTitle(text = stringResource(R.string.common_export), modifier = Modifier.padding(start = 12.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -358,7 +359,7 @@ internal fun TimelineSettings(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ReChip(
-                text = "导出动画 (GIF / 视频 / 序列帧)",
+                text = stringResource(R.string.anim_export_chip),
                 onTap = {
                     vm.targetSettingsTab = "EXPORT"
                     vm.targetExportAnimation = true
@@ -402,7 +403,7 @@ internal fun FpsInputDialog(
 
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("帧率", color = Morandi.text, fontSize = 15.sp) },
+        title = { Text(stringResource(R.string.anim_fps), color = Morandi.text, fontSize = 15.sp) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 androidx.compose.material3.OutlinedTextField(
@@ -428,7 +429,7 @@ internal fun FpsInputDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "可输入 1 ~ 240, 每秒帧数",
+                    text = stringResource(R.string.anim_fps_dialog_hint),
                     color = Morandi.subText,
                     fontSize = 11.sp,
                 )
@@ -436,7 +437,7 @@ internal fun FpsInputDialog(
         },
         confirmButton = {
             ReTextButton(
-                "确定",
+                stringResource(R.string.common_confirm),
                 onClick = {
                     val v = text.toIntOrNull() ?: initial
                     onConfirm(v.coerceIn(1, 240))
@@ -445,7 +446,7 @@ internal fun FpsInputDialog(
             )
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -462,7 +463,7 @@ internal fun OnionFrameStepper(
         Spacer(modifier = Modifier.width(2.dp))
         ReIconButton(
             icon = R.drawable.ic_minus,
-            desc = "减少",
+            desc = stringResource(R.string.common_decrease),
             onTap = { onChange((value - 1).coerceIn(0, 10)) },
             size = 26.dp,
             iconSize = 13.dp,
@@ -476,7 +477,7 @@ internal fun OnionFrameStepper(
         )
         ReIconButton(
             icon = R.drawable.ic_plus,
-            desc = "增加",
+            desc = stringResource(R.string.common_increase),
             onTap = { onChange((value + 1).coerceIn(0, 10)) },
             size = 26.dp,
             iconSize = 13.dp,
@@ -551,23 +552,23 @@ internal fun TimelineImportRow(vm: PaintViewModel) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ReChip(
-            text = "图像帧",
+            text = stringResource(R.string.anim_import_images),
             onTap = { if (!importing) imagePicker.launch(arrayOf("image/*")) },
         )
         Spacer(modifier = Modifier.width(8.dp))
         ReChip(
-            text = "视频",
+            text = stringResource(R.string.anim_import_video),
             onTap = { if (!importing) videoPicker.launch("video/*") },
         )
         Spacer(modifier = Modifier.width(8.dp))
         ReChip(
-            text = "音频",
+            text = stringResource(R.string.anim_import_audio),
             onTap = { if (!importing) audioPicker.launch("audio/*") },
         )
         if (importing) {
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "导入中…",
+                text = stringResource(R.string.anim_importing),
                 color = Morandi.subText,
                 fontSize = 12.sp,
             )

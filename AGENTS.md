@@ -119,7 +119,7 @@ art/        # 图标素材
 ## 6. Kotlin / Compose 编码规范
 
 - 缩进 4 空格, 行宽 ≤120 (见 `.editorconfig`)。
-- **UI 文案直接写中文字符串字面量** (项目现状, 未接资源国际化); 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色。
+- **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 新增或修改文案需同步提供中英文翻译 (`values/` 与 `values-en/`), 中文文案尽量少用句号; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
 - 状态管理: ViewModel 用 `mutableStateOf/mutableIntStateOf/...` + `by` 委托; 高频数值 (缩放%/旋转°) 用专用 `mutable*StateOf` 重载避免装箱。
 - ViewModel 过大时按域拆分为同包扩展文件 (如 `PaintViewModelBrush.kt`), 保持类名不变, 不要为拆分而引入新接口层。
 - Composable 命名 PascalCase, 普通函数 camelCase; 一个功能族一个文件是允许的 (如 `ToolPanels.kt` 收纳多个小面板), 但单文件超过 ~2000 行时应拆分。
