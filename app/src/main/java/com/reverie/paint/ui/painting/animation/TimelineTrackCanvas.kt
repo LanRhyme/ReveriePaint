@@ -104,35 +104,63 @@ internal fun TimelineRuler(
 
     Canvas(
         modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { off ->
-                        vm.animationSeek(((scroll + off.x) / frameW).toInt())
-                    },
-                )
+            .pointerInput(vm) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val seek = { x: Float ->
+                            val f = ((vm.anim.scrollPx + x) / vm.anim.frameWidthPx).toInt().coerceAtLeast(0)
+                            vm.animationSeek(f)
+                        }
+                        seek(down.position.x)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.filter { it.pressed }
+                            if (pressed.isEmpty()) break
+                            val c = pressed.firstOrNull { it.id == down.id } ?: pressed.first()
+                            seek(c.position.x)
+                            c.consume()
+                        }
+                    }
+                }
             },
     ) {
-        translate(left = -scroll) {
-            val first = (scroll / frameW).toInt() - 1
-            val last = ((scroll + size.width) / frameW).toInt() + 1
-            for (f in first..last) {
-                if (f < 0 || f >= count) continue
-                val x = f * frameW
-                if (f % 5 == 0 || frameW > 26f) {
-                    drawText(
-                        textMeasurer = textMeasurer,
-                        text = f.toString(),
-                        topLeft = Offset(x + 3f, 4f),
-                        style = TextStyle(color = Morandi.subText, fontSize = 9.sp),
-                    )
-                }
-                drawLine(
-                    color = if (f % 5 == 0) Morandi.subText.copy(alpha = 0.7f) else Morandi.border,
-                    start = Offset(x, size.height - 5f),
-                    end = Offset(x, size.height),
-                    strokeWidth = 1f,
+        val first = ((scroll / frameW).toInt() - 2).coerceAtLeast(0)
+        val last = ((scroll + size.width) / frameW).toInt() + 2
+        for (f in first..last) {
+            if (f < 0) continue
+            val screenX = f * frameW - scroll
+            val isDrawn = f < count
+            val textColor = if (isDrawn) Morandi.text else Morandi.subText.copy(alpha = 0.65f)
+            val lineColor = if (f % 5 == 0) {
+                if (isDrawn) Morandi.subText else Morandi.subText.copy(alpha = 0.5f)
+            } else {
+                if (isDrawn) Morandi.border else Morandi.border.copy(alpha = 0.45f)
+            }
+            if (f % 5 == 0 || frameW > 26f) {
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = f.toString(),
+                    topLeft = Offset(screenX + 3f, 4f),
+                    style = TextStyle(color = textColor, fontSize = 9.sp),
+                    size = Size.Unspecified,
                 )
             }
+            drawLine(
+                color = lineColor,
+                start = Offset(screenX, size.height - 5f),
+                end = Offset(screenX, size.height),
+                strokeWidth = 1f,
+            )
+        }
+
+        val headScreenX = vm.anim.currentTime * frameW + frameW / 2f - scroll
+        if (headScreenX in -10f..(size.width + 10f)) {
+            drawCircle(
+                color = Morandi.accent,
+                radius = 3.dp.toPx(),
+                center = Offset(headScreenX, size.height - 4.dp.toPx()),
+            )
         }
     }
 }
