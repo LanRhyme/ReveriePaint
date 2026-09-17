@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
@@ -281,6 +282,15 @@ fun AboutSettingsSubPage(
                 onClick = { uriHandler.openUri("https://github.com/LanRhyme/ReveriePaint") },
             )
 
+            // Mirror酱高速下载 (Middle Rounded)
+            AboutGroupItem(
+                icon = Icons.Rounded.CloudDownload,
+                title = "Mirror酱高速下载",
+                summary = "国内免梯高速 CDN 镜像下载最新安装包",
+                shape = RoundedCornerShape(4.dp),
+                onClick = { uriHandler.openUri(UpdateManager.MIRRORCHYAN_PROJECT_URL) },
+            )
+
             // 参与开源贡献 (Middle Rounded)
             AboutGroupItem(
                 icon = Icons.Rounded.People,
@@ -319,7 +329,7 @@ fun AboutSettingsSubPage(
             AboutGroupItem(
                 icon = Icons.Rounded.Info,
                 title = "版本",
-                summary = BuildConfig.VERSION_NAME,
+                summary = "v${BuildConfig.VERSION_NAME} · 支持 Mirror 酱高速通道",
                 rightWidget = {
                     Box(
                         modifier = Modifier

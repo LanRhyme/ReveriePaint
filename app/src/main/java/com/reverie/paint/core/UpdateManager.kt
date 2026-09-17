@@ -51,6 +51,12 @@ object UpdateManager {
     private const val GITHUB_RELEASES_ATOM_URL =
         "https://github.com/LanRhyme/ReveriePaint/releases.atom"
 
+    const val MIRRORCHYAN_PROJECT_URL =
+        "https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android"
+
+    private const val MIRRORCHYAN_LATEST_API =
+        "https://mirrorchyan.com/api/resources/ReveriePaint/latest?os=android"
+
     private const val PREFS_KEY_AUTO_CHECK = "auto_check_updates"
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
@@ -130,7 +136,7 @@ object UpdateManager {
 
         scope.launch(Dispatchers.IO) {
             try {
-                val release = fetchReleaseFromApi() ?: fetchReleaseFromAtomFeed()
+                val release = fetchReleaseFromApi() ?: fetchReleaseFromAtomFeed() ?: fetchReleaseFromMirrorChyan()
 
                 if (release == null) {
                     withContext(Dispatchers.Main) {
@@ -297,6 +303,38 @@ object UpdateManager {
                     size = 0L,
                     contentType = "application/vnd.android.package-archive",
                 ),
+            )
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    private fun fetchReleaseFromMirrorChyan(): ReleaseInfo? {
+        try {
+            val request = Request.Builder()
+                .url(MIRRORCHYAN_LATEST_API)
+                .header("User-Agent", "ReveriePaint-Android")
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return null
+
+            val bodyStr = response.body?.string() ?: return null
+            val json = JSONObject(bodyStr)
+            if (json.optInt("code", -1) != 0) return null
+
+            val data = json.optJSONObject("data") ?: return null
+            val versionName = data.optString("version_name", "")
+            if (versionName.isBlank()) return null
+            val releaseNote = data.optString("release_note", "")
+
+            return ReleaseInfo(
+                tagName = versionName,
+                name = versionName,
+                body = releaseNote,
+                htmlUrl = MIRRORCHYAN_PROJECT_URL,
+                publishedAt = "",
+                apkAsset = null,
             )
         } catch (_: Exception) {
             return null

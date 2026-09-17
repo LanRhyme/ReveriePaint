@@ -6,6 +6,7 @@
 
 <p>
   <a href="https://github.com/LanRhyme/ReveriePaint/releases"><img src="https://img.shields.io/github/v/release/LanRhyme/ReveriePaint?color=5A6E8A&style=flat-square" alt="Release"></a>
+  <a href="https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android"><img src="https://img.shields.io/badge/Mirror%E9%85%B1-%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD-5A6E8A?style=flat-square" alt="MirrorChyan"></a>
   <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2023%2B)-5A6E8A?style=flat-square" alt="Android Version">
   <img src="https://img.shields.io/badge/Arch-arm64--v8a-7C8F9E?style=flat-square" alt="Architecture">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-8D9E8F?style=flat-square" alt="License"></a>
@@ -66,7 +67,7 @@
 - **推荐设备**: 支持主动式压感手写笔的 Android 平板或大屏移动设备
 
 ### 安装说明
-1. 前往 [Releases 发布页面](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新版本的 APK 安装包
+1. 前往 [Mirror酱 高速下载](https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android) (国内免梯推荐) 或 [GitHub Releases 发布页面](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新版本的 APK 安装包
 2. 在设备上点击 APK 文件并允许安装来自此来源的应用
 3. 授予存储与手写笔相关权限后即可开启创作
 

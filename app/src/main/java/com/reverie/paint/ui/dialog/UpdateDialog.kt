@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -256,18 +257,57 @@ fun UpdateDialog(
                     }
 
                     DownloadStatus.FAILED -> {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFE57373).copy(alpha = 0.15f))
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text(
-                                text = "下载失败: ${UpdateManager.downloadError ?: "网络错误"}",
-                                color = Color(0xFFE57373),
-                                fontSize = 12.sp,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFE57373).copy(alpha = 0.15f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = "下载失败: ${UpdateManager.downloadError ?: "网络错误"}",
+                                    color = Color(0xFFE57373),
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.accent.copy(alpha = 0.12f))
+                                    .clickable { uriHandler.openUri(UpdateManager.MIRRORCHYAN_PROJECT_URL) }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.CloudDownload,
+                                        contentDescription = null,
+                                        tint = Morandi.accent,
+                                        modifier = Modifier.size(15.dp),
+                                    )
+                                    Text(
+                                        text = "推荐：使用 Mirror酱 国内免梯高速下载",
+                                        color = Morandi.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.OpenInBrowser,
+                                    contentDescription = null,
+                                    tint = Morandi.accent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
                         }
                     }
 
@@ -309,26 +349,52 @@ fun UpdateDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    // 左侧：在浏览器中打开兜底按钮
+                    // 左侧：Mirror酱高速下载与浏览器直达
                     Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { uriHandler.openUri(release.htmlUrl) }
-                            .padding(horizontal = 6.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.OpenInBrowser,
-                            contentDescription = "浏览器打开",
-                            tint = Morandi.subText,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = "前往浏览器",
-                            color = Morandi.subText,
-                            fontSize = 12.sp,
-                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.accent.copy(alpha = 0.14f))
+                                .clickable { uriHandler.openUri(UpdateManager.MIRRORCHYAN_PROJECT_URL) }
+                                .padding(horizontal = 9.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CloudDownload,
+                                    contentDescription = null,
+                                    tint = Morandi.accent,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Text(
+                                    text = "Mirror酱高速",
+                                    color = Morandi.accent,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { uriHandler.openUri(release.htmlUrl) }
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.OpenInBrowser,
+                                contentDescription = "浏览器打开",
+                                tint = Morandi.subText,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
 
                     // 右侧动作按钮
