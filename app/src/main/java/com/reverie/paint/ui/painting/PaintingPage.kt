@@ -1469,12 +1469,12 @@ fun PaintingPage(
             }
         }
 
-        // ---- Popup panels (topmost) ----
+        // ---- Popup panels (topmost, must stay above timeline panel zIndex 20f) ----
         AnimatedVisibility(
             visible = brushPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f),
+            modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             BrushPanel(
                 vm = vm,
@@ -1487,7 +1487,7 @@ fun PaintingPage(
             visible = layerPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f),
+            modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             LayerPanel(
                 vm = vm,
@@ -1510,7 +1510,7 @@ fun PaintingPage(
             visible = settingsPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f),
+            modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             SettingsPanel(
                 vm = vm,
@@ -1529,9 +1529,9 @@ fun PaintingPage(
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
             modifier = if (vm.isColorPanelPinned) {
-                Modifier.align(Alignment.BottomStart).zIndex(10f)
+                Modifier.align(Alignment.BottomStart).zIndex(100f)
             } else {
-                Modifier.fillMaxSize().zIndex(10f)
+                Modifier.fillMaxSize().zIndex(100f)
             },
         ) {
             ColorPanel(
@@ -1561,7 +1561,7 @@ fun PaintingPage(
                 fadeIn(Motion.enterSpring()) +
                     slideInHorizontally(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(10f),
+            modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             AllToolsPanel(
                 vm = vm,

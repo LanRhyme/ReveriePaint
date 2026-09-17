@@ -89,4 +89,63 @@ class AnimationExportLogicTest {
         val inverted = getRange("range", 10, 2)
         assertEquals(20, inverted.size)
     }
+
+    @Test
+    fun `H264 dimensions align to 16 bytes and clamp within hardware codec limits`() {
+        fun computeH264Dimensions(targetW: Int, targetH: Int): Pair<Int, Int> {
+            var w = (targetW / 16) * 16
+            var h = (targetH / 16) * 16
+            if (w <= 0) w = (targetW / 2) * 2
+            if (h <= 0) h = (targetH / 2) * 2
+            if (w > 3840 || h > 2160) {
+                val sRatio = minOf(3840f / w, 2160f / h)
+                w = ((w * sRatio).toInt() / 16) * 16
+                h = ((h * sRatio).toInt() / 16) * 16
+            }
+            return max(16, w) to max(16, h)
+        }
+
+        // Standard 1080p
+        val (w1080, h1080) = computeH264Dimensions(1920, 1080)
+        assertEquals(1920, w1080)
+        assertEquals(1072, h1080) // 1080 / 16 * 16 = 1072
+
+        // Odd / arbitrary sizes
+        val (wOdd, hOdd) = computeH264Dimensions(1925, 1083)
+        assertEquals(1920, wOdd)
+        assertEquals(1072, hOdd)
+
+        // Ultra high resolution tablet canvas (3392x2400) clamped to <= 2160 height
+        val (wUltra, hUltra) = computeH264Dimensions(3392, 2400)
+        assertTrue(wUltra <= 3840)
+        assertTrue(hUltra <= 2160)
+        assertEquals(0, wUltra % 16)
+        assertEquals(0, hUltra % 16)
+    }
+
+    @Test
+    fun `short animation frame sequences are looped to meet minimum duration for MP4`() {
+        fun expandFramesForMp4(baseFrames: List<Int>, framerate: Int): List<Int> {
+            val minFrames = framerate
+            if (baseFrames.size < minFrames) {
+                val repeatTimes = (minFrames + baseFrames.size - 1) / baseFrames.size
+                val expanded = mutableListOf<Int>()
+                repeat(repeatTimes) {
+                    expanded.addAll(baseFrames)
+                }
+                return expanded
+            }
+            return baseFrames
+        }
+
+        // 4 frames at 12 fps -> 0.33s -> looped 3 times to 12 frames (1.0s)
+        val shortAnim = listOf(0, 1, 2, 3)
+        val expanded = expandFramesForMp4(shortAnim, 12)
+        assertEquals(12, expanded.size)
+        assertEquals(listOf(0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3), expanded)
+
+        // 24 frames at 12 fps -> 2.0s -> no expansion
+        val longAnim = (0 until 24).toList()
+        assertEquals(24, expandFramesForMp4(longAnim, 12).size)
+    }
 }

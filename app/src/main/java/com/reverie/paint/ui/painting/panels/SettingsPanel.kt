@@ -25,9 +25,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -109,8 +112,9 @@ fun SettingsPanel(
             modifier = Modifier
                 .systemHoverIcon(context)
                 .align(Alignment.TopEnd)
-                .padding(top = 44.dp, end = 8.dp)
-                .width(280.dp)
+                .padding(top = 44.dp, end = 8.dp, bottom = 16.dp)
+                .width(340.dp)
+                .heightIn(max = (LocalConfiguration.current.screenHeightDp - 60).coerceAtLeast(240).dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
                 .then(
@@ -166,6 +170,7 @@ fun SettingsPanel(
                     fadeIn(tween(180, easing = FastOutSlowInEasing))
                         .togetherWith(fadeOut(tween(120)))
                 },
+                modifier = Modifier.weight(1f, fill = false),
                 label = "SettingsTabTransition"
             ) { tab ->
                 when (tab) {

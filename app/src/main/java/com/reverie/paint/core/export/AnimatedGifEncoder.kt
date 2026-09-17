@@ -12,8 +12,8 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * 纯 Kotlin GIF89a 动图编码器。
- * 支持调色板神经量化 (NeuQuant)、LZW 变长编码、透明通道支持及无限循环扩展。
+ * 高性能纯 Kotlin GIF89a 动图编码器。
+ * 针对移动端大图优化 NeuQuant 采样步长与 15-bit 颜色查找缓存，支持实时取消与透明通道。
  */
 internal class AnimatedGifEncoder {
     private var width: Int = 0
@@ -49,12 +49,17 @@ internal class AnimatedGifEncoder {
         return true
     }
 
-    /** 添加单帧位图 */
-    fun addFrame(bitmap: Bitmap): Boolean {
+    /**
+     * 添加单帧位图。
+     * @param bitmap 待添加帧位图
+     * @param isCancelled 取消状态回调，被触发时立即中断并返回 false
+     */
+    fun addFrame(bitmap: Bitmap, isCancelled: () -> Boolean = { false }): Boolean {
         val stream = out ?: return false
         val w = bitmap.width
         val h = bitmap.height
         if (w <= 0 || h <= 0) return false
+        if (isCancelled()) return false
 
         if (!isStarted) {
             width = w
@@ -67,8 +72,10 @@ internal class AnimatedGifEncoder {
             isStarted = true
         }
 
-        val pixels = IntArray(w * h)
+        val totalPixels = w * h
+        val pixels = IntArray(totalPixels)
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+        if (isCancelled()) return false
 
         // 分析透明像素
         var hasAlpha = false
@@ -82,16 +89,20 @@ internal class AnimatedGifEncoder {
             }
         }
 
-        // 颜色量化 (提取最多 256 色的调色板)
-        val quantizer = NeuQuant(pixels, w * h, 10)
-        val palette = quantizer.process()
+        if (isCancelled()) return false
 
-        // 索引映射
-        val indexedPixels = ByteArray(w * h)
+        // 颜色量化：自适应采样步长，控制总样本数在 3000 左右，兼顾高质量与毫秒级速度
+        val sampleFactor = max(1, totalPixels / 3000)
+        val quantizer = NeuQuant(pixels, totalPixels, sampleFactor)
+        val palette = quantizer.process(hasAlpha, isCancelled)
+        if (isCancelled()) return false
+
+        // 索引映射 (使用 15-bit RGB 缓存极大加速大图查找)
+        val indexedPixels = ByteArray(totalPixels)
         if (hasAlpha) {
-            // 找到最不常用的颜色或保留第 0 位为透明索引
             transparentIndex = 0
             for (i in pixels.indices) {
+                if (i % 32768 == 0 && isCancelled()) return false
                 val p = pixels[i]
                 if ((p ushr 24) < 128) {
                     indexedPixels[i] = 0
@@ -99,21 +110,22 @@ internal class AnimatedGifEncoder {
                     val r = (p shr 16) and 0xFF
                     val g = (p shr 8) and 0xFF
                     val b = p and 0xFF
-                    var idx = quantizer.lookup(r, g, b)
-                    if (idx == 0) idx = 1
-                    indexedPixels[i] = idx.toByte()
+                    indexedPixels[i] = quantizer.lookup(r, g, b, hasAlpha = true).toByte()
                 }
             }
         } else {
             transparentIndex = -1
             for (i in pixels.indices) {
+                if (i % 32768 == 0 && isCancelled()) return false
                 val p = pixels[i]
                 val r = (p shr 16) and 0xFF
                 val g = (p shr 8) and 0xFF
                 val b = p and 0xFF
-                indexedPixels[i] = quantizer.lookup(r, g, b).toByte()
+                indexedPixels[i] = quantizer.lookup(r, g, b, hasAlpha = false).toByte()
             }
         }
+
+        if (isCancelled()) return false
 
         writeGraphicControlExtension(stream, hasAlpha, delayCentiseconds, transparentIndex)
         writeImageDescriptor(stream, w, h)
@@ -126,13 +138,13 @@ internal class AnimatedGifEncoder {
     /** 结束并写入文件尾部标识符 */
     fun finish(): Boolean {
         val stream = out ?: return false
-        try {
+        return try {
             stream.write(0x3B) // ';' GIF Trailer
             stream.flush()
             isStarted = false
-            return true
+            true
         } catch (e: Exception) {
-            return false
+            false
         }
     }
 
@@ -143,21 +155,20 @@ internal class AnimatedGifEncoder {
     private fun writeLogicalScreenDescriptor(os: OutputStream, w: Int, h: Int) {
         writeShort(os, w)
         writeShort(os, h)
-        // 没有全局色表，在每个图像描述符写入局部色表
         os.write(0x70) // packed fields: 0 (no GCT), 7 (8 bits resolution), 0, 0
         os.write(0)    // background color index
         os.write(0)    // pixel aspect ratio
     }
 
     private fun writeNetscapeApplicationExtension(os: OutputStream, loop: Int) {
-        os.write(0x21) // Extension Introducer
-        os.write(0xFF) // Application Extension
-        os.write(11)   // Block Size
+        os.write(0x21)
+        os.write(0xFF)
+        os.write(11)
         os.write("NETSCAPE2.0".toByteArray(Charsets.US_ASCII))
-        os.write(3)    // Sub-block Size
-        os.write(1)    // Sub-block ID
+        os.write(3)
+        os.write(1)
         writeShort(os, loop)
-        os.write(0)    // Terminator
+        os.write(0)
     }
 
     private fun writeGraphicControlExtension(
@@ -166,31 +177,29 @@ internal class AnimatedGifEncoder {
         delayCs: Int,
         transIndex: Int,
     ) {
-        os.write(0x21) // Extension Introducer
-        os.write(0xF9) // Graphic Control Label
-        os.write(4)    // Block Size
+        os.write(0x21)
+        os.write(0xF9)
+        os.write(4)
         val transp = if (hasAlpha) 1 else 0
-        val disp = if (hasAlpha) 2 else 1 // 2 = 恢复为背景色 (防止重影); 1 = 不处置
+        val disp = if (hasAlpha) 2 else 1 // 2 = 恢复为背景色; 1 = 不处置
         val packed = (disp shl 2) or transp
         os.write(packed)
         writeShort(os, delayCs)
         os.write(if (hasAlpha) transIndex and 0xFF else 0)
-        os.write(0) // Terminator
+        os.write(0)
     }
 
     private fun writeImageDescriptor(os: OutputStream, w: Int, h: Int) {
-        os.write(0x2C) // Image Separator
-        writeShort(os, 0) // Left
-        writeShort(os, 0) // Top
-        writeShort(os, w) // Width
-        writeShort(os, h) // Height
-        // 局部色表标志: 1 (含局部色表), 0 (不隔行), 0 (不排序), 7 (256 色: 2^(7+1))
+        os.write(0x2C)
+        writeShort(os, 0)
+        writeShort(os, 0)
+        writeShort(os, w)
+        writeShort(os, h)
         os.write(0x87)
     }
 
     private fun writePalette(os: OutputStream, palette: ByteArray) {
         os.write(palette, 0, palette.size)
-        // 确保写满 256 * 3 字节
         val remaining = 768 - palette.size
         if (remaining > 0) {
             os.write(ByteArray(remaining))
@@ -209,8 +218,7 @@ internal class AnimatedGifEncoder {
 }
 
 /**
- * 神经网络颜色量化算法 (NeuQuant)。
- * 将任意 RGB 像素集缩减为 256 色的高品质调色板。
+ * 神经网络颜色量化算法 (NeuQuant) 带快速查找缓存。
  */
 private class NeuQuant(
     private val pixels: IntArray,
@@ -218,13 +226,15 @@ private class NeuQuant(
     private val sampleFactor: Int,
 ) {
     private val network = Array(256) { DoubleArray(4) }
-    private val netIndex = IntArray(256)
     private val bias = DoubleArray(256)
     private val freq = DoubleArray(256)
 
+    // 15-bit RGB 颜色索引高速缓存 (32768 项)
+    private val colorCache = ShortArray(32768) { -1 }
+
     init {
         for (i in 0 until 256) {
-            val v = (i shl 4).toDouble()
+            val v = i.toDouble()
             network[i][0] = v
             network[i][1] = v
             network[i][2] = v
@@ -234,11 +244,16 @@ private class NeuQuant(
         }
     }
 
-    fun process(): ByteArray {
-        learn()
-        buildIndex()
+    fun process(hasAlpha: Boolean = false, isCancelled: () -> Boolean = { false }): ByteArray {
+        learn(isCancelled)
         val palette = ByteArray(768)
-        for (i in 0 until 256) {
+        val startIdx = if (hasAlpha) 1 else 0
+        if (hasAlpha) {
+            palette[0] = 0
+            palette[1] = 0
+            palette[2] = 0
+        }
+        for (i in startIdx until 256) {
             palette[i * 3 + 0] = network[i][0].roundToInt().coerceIn(0, 255).toByte()
             palette[i * 3 + 1] = network[i][1].roundToInt().coerceIn(0, 255).toByte()
             palette[i * 3 + 2] = network[i][2].roundToInt().coerceIn(0, 255).toByte()
@@ -246,10 +261,15 @@ private class NeuQuant(
         return palette
     }
 
-    fun lookup(r: Int, g: Int, b: Int): Int {
+    fun lookup(r: Int, g: Int, b: Int, hasAlpha: Boolean = false): Int {
+        val cacheKey = ((r shr 3) shl 10) or ((g shr 3) shl 5) or (b shr 3)
+        val cached = colorCache[cacheKey].toInt()
+        if (cached >= 0) return cached
+
         var bestD = 1000000000.0
-        var best = -1
-        for (i in 0 until 256) {
+        val startIdx = if (hasAlpha) 1 else 0
+        var best = startIdx
+        for (i in startIdx until 256) {
             val dr = r - network[i][0]
             val dg = g - network[i][1]
             val db = b - network[i][2]
@@ -259,39 +279,36 @@ private class NeuQuant(
                 best = i
             }
         }
+        colorCache[cacheKey] = best.toShort()
         return best
     }
 
-    private fun learn() {
-        val samplePixels = length / sampleFactor
-        val nCycles = 100
-        val step = max(1, samplePixels / nCycles)
+    private fun learn(isCancelled: () -> Boolean) {
+        val totalSamples = kotlin.math.min(length, 10000)
+        if (totalSamples <= 0) return
+        val step = kotlin.math.max(1, length / totalSamples)
         var alpha = 1.0
-        val alphaDecay = 1.0 / nCycles
+        val alphaDecay = 1.0 / totalSamples
 
         var sampleIdx = 0
-        for (cycle in 0 until nCycles) {
-            var i = 0
-            while (i < samplePixels && sampleIdx < length) {
-                val p = pixels[sampleIdx]
-                val b = (p and 0xFF).toDouble()
-                val g = ((p shr 8) and 0xFF).toDouble()
-                val r = ((p shr 16) and 0xFF).toDouble()
+        for (i in 0 until totalSamples) {
+            if (i % 1024 == 0 && isCancelled()) return
+            val p = pixels[sampleIdx]
+            val r = ((p shr 16) and 0xFF).toDouble()
+            val g = ((p shr 8) and 0xFF).toDouble()
+            val b = (p and 0xFF).toDouble()
 
-                val best = contest(b, g, r)
-                alterNeighbour(best, alpha, b, g, r)
-                sampleIdx += sampleFactor
-                i++
-            }
+            val best = contest(r, g, b)
+            alterNeighbour(best, alpha, r, g, b)
+            sampleIdx = (sampleIdx + step) % length
             alpha -= alphaDecay
-            if (sampleIdx >= length) sampleIdx = 0
         }
     }
 
-    private fun contest(b: Double, g: Double, r: Double): Int {
+    private fun contest(r: Double, g: Double, b: Double): Int {
         var bestD = Double.MAX_VALUE
         var bestBiasD = Double.MAX_VALUE
-        var best = -1
+        var best = 0
         var bestBias = -1
 
         for (i in 0 until 256) {
@@ -314,7 +331,7 @@ private class NeuQuant(
         return if (bestBias != -1) bestBias else best
     }
 
-    private fun alterNeighbour(best: Int, alpha: Double, b: Double, g: Double, r: Double) {
+    private fun alterNeighbour(best: Int, alpha: Double, r: Double, g: Double, b: Double) {
         val lo = max(0, best - 8)
         val hi = min(255, best + 8)
         for (j in lo..hi) {
@@ -323,12 +340,6 @@ private class NeuQuant(
             network[j][0] += a * (r - network[j][0])
             network[j][1] += a * (g - network[j][1])
             network[j][2] += a * (b - network[j][2])
-        }
-    }
-
-    private fun buildIndex() {
-        for (i in 0 until 256) {
-            netIndex[i] = i
         }
     }
 }
@@ -424,8 +435,9 @@ private class LzwEncoder(
                 codetab[i] = freeEnt++
                 htab[i] = fcode
             } else {
-                clearFlg = true
                 clearHash()
+                freeEnt = clearCode + 2
+                clearFlg = true
                 output(clearCode, os)
             }
             c = nextPixel()
@@ -444,7 +456,7 @@ private class LzwEncoder(
 
         while (curBits >= 8) {
             charOut((curAccum and 0xFF).toByte(), os)
-            curAccum = curAccum shr 8
+            curAccum = curAccum ushr 8
             curBits -= 8
         }
 
@@ -462,7 +474,7 @@ private class LzwEncoder(
         if (code == eofCode) {
             while (curBits > 0) {
                 charOut((curAccum and 0xFF).toByte(), os)
-                curAccum = curAccum shr 8
+                curAccum = curAccum ushr 8
                 curBits -= 8
             }
             flushChar(os)

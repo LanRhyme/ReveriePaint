@@ -38,6 +38,8 @@ internal class Mp4VideoEncoder {
     private var muxerStarted = false
     private val bufferInfo = MediaCodec.BufferInfo()
 
+    private var currentOutputFile: File? = null
+
     private var width = 0
     private var height = 0
     private var fps = 12
@@ -47,8 +49,8 @@ internal class Mp4VideoEncoder {
     /**
      * 初始化并启动编码器。
      * @param outputFile 目标 MP4 文件
-     * @param targetWidth 期望宽度 (自动下取整为偶数)
-     * @param targetHeight 期望高度 (自动下取整为偶数)
+     * @param targetWidth 期望宽度 (自动按 16 字节对齐以适配全平台硬件芯片)
+     * @param targetHeight 期望高度 (自动按 16 字节对齐以适配全平台硬件芯片)
      * @param targetFps 帧率
      */
     fun start(
@@ -57,9 +59,20 @@ internal class Mp4VideoEncoder {
         targetHeight: Int,
         targetFps: Int,
     ): Boolean {
-        // H.264 编码器强制要求宽高为偶数
-        width = max(2, (targetWidth / 2) * 2)
-        height = max(2, (targetHeight / 2) * 2)
+        currentOutputFile = outputFile
+        // H.264 编码器要求偶数尺寸，推荐 16 字节对齐保证移动端芯片兼容
+        var w = (targetWidth / 16) * 16
+        var h = (targetHeight / 16) * 16
+        if (w <= 0) w = (targetWidth / 2) * 2
+        if (h <= 0) h = (targetHeight / 2) * 2
+        if (w > 3840 || h > 2160) {
+            val scale = minOf(3840f / w, 2160f / h)
+            w = ((w * scale).toInt() / 16) * 16
+            h = ((h * scale).toInt() / 16) * 16
+        }
+        width = max(16, w)
+        height = max(16, h)
+
         fps = targetFps.coerceIn(1, 120)
         frameDurationNs = 1_000_000_000L / fps
         currentPtsNs = 0L
@@ -99,13 +112,14 @@ internal class Mp4VideoEncoder {
     }
 
     /** 提交单帧位图 */
-    fun addFrame(bitmap: Bitmap): Boolean {
+    fun addFrame(bitmap: Bitmap, isCancelled: () -> Boolean = { false }): Boolean {
+        if (isCancelled()) return false
         val helper = eglHelper ?: return false
         try {
             helper.drawBitmap(bitmap)
             helper.setPresentationTime(currentPtsNs)
             helper.swapBuffers()
-            drainEncoder(endOfStream = false)
+            drainEncoder(endOfStream = false, isCancelled = isCancelled)
             currentPtsNs += frameDurationNs
             return true
         } catch (e: Exception) {
@@ -114,28 +128,39 @@ internal class Mp4VideoEncoder {
     }
 
     /** 结束编码并封装 MP4 文件 */
-    fun finish(): Boolean {
+    fun finish(isCancelled: () -> Boolean = { false }): Boolean {
         val mediaCodec = codec ?: return false
+        val mediaMuxer = muxer ?: return false
+        var success = false
         try {
             mediaCodec.signalEndOfInputStream()
-            drainEncoder(endOfStream = true)
-            return true
+            drainEncoder(endOfStream = true, isCancelled = isCancelled)
+            if (muxerStarted) {
+                mediaMuxer.stop()
+                muxerStarted = false
+                success = currentOutputFile?.let { it.exists() && it.length() > 0L } ?: false
+            }
         } catch (e: Exception) {
-            return false
+            success = false
         } finally {
             release()
         }
+        return success
     }
 
-    private fun drainEncoder(endOfStream: Boolean) {
+    private fun drainEncoder(endOfStream: Boolean, isCancelled: () -> Boolean) {
         val mediaCodec = codec ?: return
         val mediaMuxer = muxer ?: return
 
         val timeoutUs = if (endOfStream) 10_000L else 1_000L
+        var emptyCount = 0
         while (true) {
+            if (isCancelled()) throw InterruptedException("用户取消导出")
             val status = mediaCodec.dequeueOutputBuffer(bufferInfo, timeoutUs)
             if (status == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!endOfStream) break
+                emptyCount++
+                if (emptyCount >= 20) break
             } else if (status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 if (muxerStarted) {
                     throw IllegalStateException("格式重复变更")
@@ -190,6 +215,7 @@ internal class Mp4VideoEncoder {
         } catch (_: Exception) {}
         muxer = null
         muxerStarted = false
+        currentOutputFile = null
     }
 
     /**

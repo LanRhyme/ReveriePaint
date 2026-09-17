@@ -32,7 +32,8 @@ internal class PngSequenceZipEncoder {
     }
 
     /** 写入一帧 PNG */
-    fun addFrame(bitmap: Bitmap): Boolean {
+    fun addFrame(bitmap: Bitmap, isCancelled: () -> Boolean = { false }): Boolean {
+        if (isCancelled()) return false
         val zip = zipOut ?: return false
         return try {
             val entryName = String.format(Locale.US, "frame_%04d.png", frameIndex)

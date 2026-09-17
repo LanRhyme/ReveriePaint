@@ -30,7 +30,8 @@ import kotlin.math.roundToInt
 internal data class AnimationExportOptions(
     val format: String, // "gif", "mp4", "zip"
     val scale: Float = 1.0f, // 1.0f, 0.5f, 0.25f
-    val rangeMode: String = "all", // "all", "range"
+    val startFrame: Int = 0,
+    val endFrame: Int = 0,
     val transparentBg: Boolean = false,
 )
 
@@ -52,21 +53,28 @@ internal fun PaintViewModel.exportAnimation(
 
     runCore(render = false) {
         val originalTime = anim.currentTime
-        val totalLength = anim.length
-        val (startFrame, endFrame) = if (options.rangeMode == "range") {
-            val s = anim.playbackStart.coerceAtLeast(0)
-            val e = anim.playbackEnd.coerceIn(0, max(0, totalLength - 1))
-            if (s <= e) s to e else 0 to max(0, totalLength - 1)
-        } else {
-            0 to max(0, totalLength - 1)
-        }
-
-        val frameList = (startFrame..endFrame).toList()
-        val totalFrames = frameList.size
-        if (totalFrames <= 0) {
+        val s = options.startFrame.coerceAtLeast(0)
+        val e = options.endFrame.coerceAtLeast(s)
+        var frameList = (s..e).toList()
+        if (frameList.isEmpty()) {
             mainHandler.post { onError("导出帧数为空") }
             return@runCore
         }
+
+        // 对于 MP4 格式，若有效动画时长过短 (如 < 1.0 秒)，许多播放器及相册无法正常缓冲或循环展示
+        // 自动循环倍增帧序列至至少 1.0 秒，保证 MP4 生成具有合法可播时长
+        if (fmt == "mp4" && anim.framerate > 0) {
+            val minFrames = anim.framerate
+            if (frameList.size < minFrames) {
+                val repeatTimes = (minFrames + frameList.size - 1) / frameList.size
+                val expandedList = mutableListOf<Int>()
+                repeat(repeatTimes) {
+                    expandedList.addAll(frameList)
+                }
+                frameList = expandedList
+            }
+        }
+        val totalFrames = frameList.size
 
         // 查找背景层并处理透明背景
         val bgLayer = layers.firstOrNull { it.isBackground } ?: layers.firstOrNull()
@@ -83,9 +91,14 @@ internal fun PaintViewModel.exportAnimation(
         var targetH = max(2, (h * scale).roundToInt())
 
         if (fmt == "mp4") {
-            // H.264 视频尺寸必须为偶数
-            if (targetW % 2 != 0) targetW -= 1
-            if (targetH % 2 != 0) targetH -= 1
+            // H.264 视频尺寸必须为 16 的倍数或偶数，且不可超过常见芯片 3840x2160
+            targetW = max(16, (targetW / 16) * 16)
+            targetH = max(16, (targetH / 16) * 16)
+            if (targetW > 3840 || targetH > 2160) {
+                val sRatio = minOf(3840f / targetW, 2160f / targetH)
+                targetW = max(16, ((targetW * sRatio).toInt() / 16) * 16)
+                targetH = max(16, ((targetH * sRatio).toInt() / 16) * 16)
+            }
         }
 
         val fullFrameBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -163,19 +176,22 @@ internal fun PaintViewModel.exportAnimation(
 
                 when (fmt) {
                     "gif" -> {
-                        if (!gifEncoder!!.addFrame(outBitmap)) {
+                        if (!gifEncoder!!.addFrame(outBitmap, isCancelled)) {
+                            if (isCancelled()) throw InterruptedException("用户取消导出")
                             throw RuntimeException("添加 GIF 帧失败 (帧 $frameTime)")
                         }
                     }
 
                     "mp4" -> {
-                        if (!mp4Encoder!!.addFrame(outBitmap)) {
+                        if (!mp4Encoder!!.addFrame(outBitmap, isCancelled)) {
+                            if (isCancelled()) throw InterruptedException("用户取消导出")
                             throw RuntimeException("添加视频帧失败 (帧 $frameTime)")
                         }
                     }
 
                     "zip" -> {
-                        if (!zipEncoder!!.addFrame(outBitmap)) {
+                        if (!zipEncoder!!.addFrame(outBitmap, isCancelled)) {
+                            if (isCancelled()) throw InterruptedException("用户取消导出")
                             throw RuntimeException("写入序列帧失败 (帧 $frameTime)")
                         }
                     }
@@ -193,13 +209,14 @@ internal fun PaintViewModel.exportAnimation(
                     gifFos = null
                     ok
                 }
-                "mp4" -> mp4Encoder?.finish() ?: false
+                "mp4" -> mp4Encoder?.finish(isCancelled) ?: false
                 "zip" -> zipEncoder?.finish() ?: false
                 else -> false
             }
 
-            if (!finishOk) {
-                throw RuntimeException("文件封装完成阶段失败")
+            if (!finishOk || !targetFile.exists() || targetFile.length() <= 0L) {
+                targetFile.delete()
+                throw RuntimeException("文件封装完成阶段失败或输出为空")
             }
 
             mainHandler.post { onSuccess(targetFile) }
@@ -266,8 +283,7 @@ internal fun PaintViewModel.exportAnimationToGallery(
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        val subDir = if (isGif) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_MOVIES
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, "$subDir/ReveriePaint")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ReveriePaint")
                         put(MediaStore.MediaColumns.IS_PENDING, 1)
                     }
                 }
@@ -289,6 +305,23 @@ internal fun PaintViewModel.exportAnimationToGallery(
                         resolver.update(uri, values, null, null)
                     }
                     tempFile.delete()
+
+                    // 触发 MediaScanner 扫描，确保系统相册立即建立索引与视频缩略图
+                    try {
+                        val pathQuery = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                        val fullPath = pathQuery?.use { c ->
+                            if (c.moveToFirst()) c.getString(0) else null
+                        }
+                        if (fullPath != null) {
+                            android.media.MediaScannerConnection.scanFile(
+                                appContext,
+                                arrayOf(fullPath),
+                                arrayOf(mimeType),
+                                null,
+                            )
+                        }
+                    } catch (_: Exception) {}
+
                     onSuccess(uri)
                 } else {
                     onError("无法创建系统媒体库文件")
