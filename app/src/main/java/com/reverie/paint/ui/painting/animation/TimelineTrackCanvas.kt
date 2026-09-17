@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -204,6 +205,7 @@ internal fun TimelineTrackArea(
     onScrollYChange: (Float) -> Unit,
     maxScrollY: Float = Float.MAX_VALUE,
     modifier: Modifier = Modifier,
+    trackHeaderW: Dp = TRACK_HEADER_W,
 ) {
     val liveScrollY = rememberUpdatedState(scrollY)
     val liveMaxScrollY = rememberUpdatedState(maxScrollY)
@@ -212,12 +214,13 @@ internal fun TimelineTrackArea(
     val density = LocalDensity.current
     val eyePainter = painterResource(R.drawable.ic_eye)
     val eyeOffPainter = painterResource(R.drawable.ic_eye_off)
-    val headerW = with(density) { TRACK_HEADER_W.toPx() }
-    val headPadPx = with(density) { 6.dp.toPx() }
-    val eyeZonePx = with(density) { 24.dp.toPx() }
-    val eyeIconSizePx = with(density) { 17.dp.toPx() }
-    val eyeBgSizePx = with(density) { 22.dp.toPx() }
-    val textGapPx = with(density) { 4.dp.toPx() }
+    val headerW = with(density) { trackHeaderW.toPx() }
+    val isCompactHeader = trackHeaderW < 80.dp
+    val headPadPx = with(density) { (if (isCompactHeader) 4.dp else 6.dp).toPx() }
+    val eyeZonePx = with(density) { (if (isCompactHeader) 20.dp else 24.dp).toPx() }
+    val eyeIconSizePx = with(density) { (if (isCompactHeader) 15.dp else 17.dp).toPx() }
+    val eyeBgSizePx = with(density) { (if (isCompactHeader) 18.dp else 22.dp).toPx() }
+    val textGapPx = with(density) { (if (isCompactHeader) 2.dp else 4.dp).toPx() }
     val textX = headPadPx + eyeZonePx + textGapPx
     val textMaxW = (headerW - textX - headPadPx).coerceAtLeast(1f)
 

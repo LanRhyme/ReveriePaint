@@ -17,10 +17,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +73,11 @@ internal fun AnimationSettingsCard(
 ) {
     val shape = RoundedCornerShape(18.dp)
     val alpha = vm.popupPanelOpacity
+    val config = LocalConfiguration.current
+    val isPortrait = config.screenWidthDp < config.screenHeightDp || config.screenWidthDp < 600
+    val cardWidth = if (isPortrait) (config.screenWidthDp - 44).coerceIn(240, 320).dp else 320.dp
+    val maxCardHeight = (config.screenHeightDp - 90).coerceAtLeast(200).dp
+
     Column(
         modifier = Modifier
             .padding(end = 8.dp, bottom = 8.dp)
@@ -82,7 +91,8 @@ internal fun AnimationSettingsCard(
                 },
             )
             .glassBorder(shape)
-            .width(320.dp)
+            .width(cardWidth)
+            .heightIn(max = maxCardHeight)
             .padding(bottom = 8.dp),
     ) {
         Row(
@@ -106,7 +116,7 @@ internal fun AnimationSettingsCard(
                 iconSize = 15.dp,
             )
         }
-        TimelineSettings(vm = vm)
+        TimelineSettings(vm = vm, modifier = Modifier.weight(1f, fill = false))
     }
 }
 
@@ -115,7 +125,11 @@ internal fun TimelineSettings(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.padding(bottom = 4.dp)) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 4.dp),
+    ) {
         var showFpsInput by remember { mutableStateOf(false) }
         var pickingOnionColor by remember { mutableStateOf<OnionColorTarget?>(null) }
 

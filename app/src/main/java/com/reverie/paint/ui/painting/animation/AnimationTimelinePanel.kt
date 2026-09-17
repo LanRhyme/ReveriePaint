@@ -27,11 +27,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -83,8 +85,12 @@ internal fun AnimationTimelinePanel(
 ) {
     val density = LocalDensity.current
     val d = density.density
+    val config = LocalConfiguration.current
+    val isPortrait = config.screenWidthDp < config.screenHeightDp || config.screenWidthDp < 600
+    val trackHeaderW = if (isPortrait) 64.dp else 104.dp
+    val maxPanelHDp = if (isPortrait) (config.screenHeightDp * 0.52f).coerceAtLeast(260f) else MAX_PANEL_H
     val minPx = MIN_PANEL_H * d
-    val maxPx = MAX_PANEL_H * d
+    val maxPx = maxPanelHDp * d
 
     // 三种形态:
     //   bar   —— 只留顶部小横条 (把手拖到最底部松手进入, 点击展开)
@@ -104,7 +110,11 @@ internal fun AnimationTimelinePanel(
     val maxScrollY = (contentHeightPx - trackViewportPx).coerceAtLeast(0f)
 
     val mediumHeightDp = with(density) {
-        if (vm.railSliderPanelHeightPx > 200f) vm.railSliderPanelHeightPx.toDp() else 240.dp
+        if (isPortrait) {
+            (config.screenHeightDp * 0.28f).coerceIn(180f, 240f).dp
+        } else {
+            if (vm.railSliderPanelHeightPx > 200f) vm.railSliderPanelHeightPx.toDp() else 240.dp
+        }
     }
 
     LaunchedEffect(
@@ -139,7 +149,11 @@ internal fun AnimationTimelinePanel(
 
     val useHaze = hazeState != null && !dragging
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
+    ) {
         AnimatedVisibility(
             visible = vm.anim.toolbarExpanded && mode == "custom",
             enter = fadeIn(spring(stiffness = 500f)) + slideInHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
@@ -178,6 +192,7 @@ internal fun AnimationTimelinePanel(
             minPx = minPx,
             maxPx = maxPx,
             mediumHeightDp = mediumHeightDp,
+            trackHeaderW = trackHeaderW,
         )
     }
 }
@@ -209,6 +224,7 @@ private fun TimelinePanelSurface(
     minPx: Float,
     maxPx: Float,
     mediumHeightDp: Dp,
+    trackHeaderW: Dp = TRACK_HEADER_W,
 ) {
     Column(
         modifier = Modifier
@@ -282,6 +298,7 @@ private fun TimelinePanelSurface(
                     scrollY = miniScrollY,
                     onScrollYChange = {},
                     modifier = Modifier.weight(1f).fillMaxWidth(),
+                    trackHeaderW = trackHeaderW,
                 )
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
@@ -301,7 +318,7 @@ private fun TimelinePanelSurface(
 
             else -> {
                 Row(modifier = Modifier.fillMaxWidth().height(RULER_H)) {
-                    Spacer(modifier = Modifier.width(TRACK_HEADER_W))
+                    Spacer(modifier = Modifier.width(trackHeaderW))
                     TimelineRuler(vm = vm, modifier = Modifier.weight(1f).fillMaxSize())
                 }
 
@@ -315,6 +332,7 @@ private fun TimelinePanelSurface(
                         .weight(1f)
                         .fillMaxWidth()
                         .onSizeChanged { onTrackViewportChange(it.height.toFloat()) },
+                    trackHeaderW = trackHeaderW,
                 )
 
                 AnimatedContent(
