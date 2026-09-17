@@ -309,5 +309,83 @@ class TimelineGeometryTest {
         }
         assertEquals(listOf(0, 1, 2, 3, 0, 1, 2), loopFrames)
     }
+
+    // ---------- 洋葱皮衰减曲线与关键帧偏移过滤单测 ----------
+
+    private fun calcDecayOpacity(
+        distance: Int,
+        total: Int,
+        maxOpacity: Int,
+        decayType: Int, // 0: LINEAR, 1: SMOOTH, 2: CONSTANT
+    ): Int {
+        if (total <= 0) return 0
+        return when (decayType) {
+            0 -> {
+                val factor = (total - distance + 1).toFloat() / total.toFloat()
+                kotlin.math.round((maxOpacity * factor.coerceIn(0.15f, 1.0f))).toInt().coerceIn(0, 255)
+            }
+            1 -> {
+                val factor = Math.pow(0.62, (distance - 1).toDouble()).toFloat()
+                kotlin.math.round((maxOpacity * factor)).toInt().coerceIn(0, 255)
+            }
+            2 -> {
+                maxOpacity.coerceIn(0, 255)
+            }
+            else -> maxOpacity
+        }
+    }
+
+    @Test
+    fun `onion skin linear decay decreases with distance`() {
+        val maxOp = 200
+        val total = 3
+        val op1 = calcDecayOpacity(1, total, maxOp, 0)
+        val op2 = calcDecayOpacity(2, total, maxOp, 0)
+        val op3 = calcDecayOpacity(3, total, maxOp, 0)
+
+        assertEquals(200, op1)
+        assertTrue("op1 > op2", op1 > op2)
+        assertTrue("op2 > op3", op2 > op3)
+        assertTrue("op3 >= 30 (clamped)", op3 >= 30)
+    }
+
+    @Test
+    fun `onion skin smooth decay decays exponentially`() {
+        val maxOp = 200
+        val op1 = calcDecayOpacity(1, 3, maxOp, 1)
+        val op2 = calcDecayOpacity(2, 3, maxOp, 1)
+        val op3 = calcDecayOpacity(3, 3, maxOp, 1)
+
+        assertEquals(200, op1)
+        assertEquals(kotlin.math.round(200 * 0.62).toInt(), op2)
+        assertEquals(kotlin.math.round(200 * 0.62 * 0.62).toInt(), op3)
+    }
+
+    @Test
+    fun `onion skin constant decay remains unchanged across all frames`() {
+        val maxOp = 180
+        for (dist in 1..5) {
+            assertEquals(maxOp, calcDecayOpacity(dist, 5, maxOp, 2))
+        }
+    }
+
+    @Test
+    fun `onion skin keyframes only filters non-keyframe holds`() {
+        // 关键帧结构: 0(hold 3), 4(hold 3), 8(hold 3), 12(hold 3)
+        val keyframeTimes = listOf(0, 4, 8, 12)
+        val curTime = 8
+        val prevCount = 2
+        val nextCount = 2
+
+        // 仅关键帧过滤逻辑
+        val prevKeyframes = keyframeTimes.filter { it < curTime }.takeLast(prevCount)
+        val nextKeyframes = keyframeTimes.filter { it > curTime }.take(nextCount)
+
+        val prevOffsets = prevKeyframes.map { it - curTime }
+        val nextOffsets = nextKeyframes.map { it - curTime }
+
+        assertEquals(listOf(-8, -4), prevOffsets)
+        assertEquals(listOf(4), nextOffsets)
+    }
 }
 

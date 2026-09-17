@@ -94,6 +94,7 @@ import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.painting.animation.AnimationTimelinePanel
+import com.reverie.paint.ui.painting.animation.ShiftTraceCapsule
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -1468,6 +1469,16 @@ fun PaintingPage(
                 }
             }
         }
+
+        // ---- Shift & Trace 对位悬浮胶囊 (透光台临时偏移动画对齐) ----
+        ShiftTraceCapsule(
+            vm = vm,
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 56.dp)
+                    .zIndex(23f),
+        )
 
         // ---- Popup panels (topmost, must stay above timeline panel zIndex 20f) ----
         AnimatedVisibility(

@@ -42,6 +42,7 @@ import com.reverie.paint.core.animationStartTemporaryOnionSkin
 import com.reverie.paint.core.animationToggleFrameSelection
 import com.reverie.paint.core.animationToggleLoop
 import com.reverie.paint.core.animationTogglePlay
+import com.reverie.paint.core.animationToggleShiftTrace
 import com.reverie.paint.ui.theme.Morandi
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -141,6 +142,15 @@ internal fun TimelineControls(
             contentAlignment = Alignment.Center,
         ) {
             Canvas(modifier = Modifier.size(16.dp)) { drawGlyphOnionSkin() }
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // 透光台对位快捷开关 (Shift & Trace)
+        GlyphButton(
+            onClick = { vm.animationToggleShiftTrace() },
+            active = vm.anim.shiftTraceActive,
+        ) {
+            drawGlyphShiftTrace()
         }
         Spacer(modifier = Modifier.width(12.dp))
         GlyphTextButton(text = "新帧", onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }

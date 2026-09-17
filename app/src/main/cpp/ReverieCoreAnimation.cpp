@@ -338,6 +338,60 @@ void ReverieCore::configureOnionSkin(bool enabled, int prev, int next, int maxOp
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
 }
 
+void ReverieCore::configureOnionSkinExplicit(bool enabled,
+                                            const QVector<int> &offsets,
+                                            const QVector<int> &opacities,
+                                            int tintFactor,
+                                            int tintBackwardArgb,
+                                            int tintForwardArgb)
+{
+    KisImageSP image = m_document;
+    if (!image) return;
+
+    tintFactor = qBound(0, tintFactor, 100);
+    const bool effective = enabled && !offsets.isEmpty();
+
+    {
+        KisImageConfig config(true);
+        int maxOffset = 1;
+        for (int off : offsets) {
+            maxOffset = qMax(maxOffset, qAbs(off));
+        }
+        config.setNumberOfOnionSkins(qBound(1, maxOffset, 60));
+        config.setOnionSkinTintFactor(tintFactor * 255 / 100);
+        config.setOnionSkinState(0, true);
+        config.setOnionSkinOpacity(0, 255);
+        if (tintBackwardArgb != 0) {
+            config.setOnionSkinTintColorBackward(QColor::fromRgb(QRgb(tintBackwardArgb)));
+        }
+        if (tintForwardArgb != 0) {
+            config.setOnionSkinTintColorForward(QColor::fromRgb(QRgb(tintForwardArgb)));
+        }
+
+        // 清理常用范围既有状态 (覆盖历史残留值)
+        for (int i = -30; i <= 30; ++i) {
+            if (i == 0) continue;
+            config.setOnionSkinState(i, false);
+            config.setOnionSkinOpacity(i, 0);
+        }
+
+        if (effective) {
+            for (int k = 0; k < offsets.size() && k < opacities.size(); ++k) {
+                const int off = offsets[k];
+                if (off == 0) continue;
+                const int op = qBound(0, opacities[k], 255);
+                config.setOnionSkinState(off, op > 0);
+                config.setOnionSkinOpacity(off, op);
+            }
+        }
+    }
+    KisOnionSkinCompositor::instance()->configChanged();
+    invalidateStrokeOnionCache();
+    m_onionSkinActive = effective;
+    applyOnionSkinGate(true);
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+}
+
 // 把洋葱皮"渲染门"落实到各图层。per-layer node property (onionskin) 是
 // Krita 投影路径 (copyOriginalToProjection) 与自研笔触叠加路径
 // (compositeLayersRange / strokeOnionProjection) 共同的开关, 所以门在这
@@ -866,6 +920,42 @@ bool ReverieCore::renderKeyframeThumb(
     for (int y = 0; y < copyH; ++y) {
         memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
                out.constScanLine(y), size_t(w) * 4);
+    }
+    return true;
+}
+
+bool ReverieCore::renderKeyframeFull(
+    int layerIndex, int time, void *dstPixels, int dstW, int dstH, int dstStride)
+{
+    if (!m_document || layerIndex < 0 || layerIndex >= m_layers.size()
+        || !dstPixels || dstW <= 0 || dstH <= 0) {
+        return false;
+    }
+    KisRasterKeyframeChannel *channel =
+        rasterChannelOf(nodeAtIndex(m_layers, layerIndex), false);
+    if (!channel || time < 0 || !channel->keyframeAt(time)) {
+        return false;
+    }
+    KisPaintDeviceWSP srcDevice = channel->paintDevice();
+    const KoColorSpace *cs = srcDevice ? srcDevice->colorSpace() : m_document->colorSpace();
+    if (!cs) return false;
+
+    KisPaintDeviceSP tmp = new KisPaintDevice(cs);
+    channel->writeToDevice(time, tmp);
+
+    const QImage img = tmp->convertToQImage(nullptr, 0, 0, m_docWidth, m_docHeight);
+    if (img.isNull()) return false;
+
+    QImage scaled = (img.width() == dstW && img.height() == dstH)
+        ? img.convertToFormat(QImage::Format_RGBA8888)
+        : img.scaled(dstW, dstH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+              .convertToFormat(QImage::Format_RGBA8888);
+
+    const int copyH = qMin(dstH, scaled.height());
+    const int copyW = qMin(dstW, scaled.width());
+    for (int y = 0; y < copyH; ++y) {
+        memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+               scaled.constScanLine(y), size_t(copyW) * 4);
     }
     return true;
 }

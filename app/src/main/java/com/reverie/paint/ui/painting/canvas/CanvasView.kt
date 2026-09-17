@@ -314,6 +314,18 @@ fun CanvasView(
             },
         )
 
+        // 透光台对位覆盖层 (Shift & Trace 独立位移参考帧叠影)
+        if (vm.anim.shiftTraceActive) {
+            com.reverie.paint.ui.painting.animation.ShiftTraceOverlay(
+                vm = vm,
+                zoom = zoom,
+                rotation = rotation,
+                panX = panX,
+                panY = panY,
+                fitScale = fitScale,
+            )
+        }
+
         // 顶层辅助覆盖层 (选区蚂蚁线/选区蒙版/变换控制点/裁剪线/辅助线)
         CanvasOverlay(
             vm = vm,

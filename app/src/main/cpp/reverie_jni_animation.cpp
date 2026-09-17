@@ -86,6 +86,35 @@ Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkin(
                                tintBackwardArgb, tintForwardArgb);
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_configureOnionSkinExplicit(
+    JNIEnv *env, jobject, jboolean enabled, jintArray offsetsArr, jintArray opacitiesArr,
+    jint tintFactor, jint tintBackwardArgb, jint tintForwardArgb)
+{
+    QVector<int> offsets;
+    QVector<int> opacities;
+    if (offsetsArr) {
+        const jsize len = env->GetArrayLength(offsetsArr);
+        jint *buf = env->GetIntArrayElements(offsetsArr, nullptr);
+        if (buf) {
+            offsets.resize(len);
+            for (int i = 0; i < len; ++i) offsets[i] = buf[i];
+            env->ReleaseIntArrayElements(offsetsArr, buf, JNI_ABORT);
+        }
+    }
+    if (opacitiesArr) {
+        const jsize len = env->GetArrayLength(opacitiesArr);
+        jint *buf = env->GetIntArrayElements(opacitiesArr, nullptr);
+        if (buf) {
+            opacities.resize(len);
+            for (int i = 0; i < len; ++i) opacities[i] = buf[i];
+            env->ReleaseIntArrayElements(opacitiesArr, buf, JNI_ABORT);
+        }
+    }
+    core()->configureOnionSkinExplicit(
+        enabled == JNI_TRUE, offsets, opacities, tintFactor, tintBackwardArgb, tintForwardArgb);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_anyLayerOnionSkin(JNIEnv *, jobject)
 {
@@ -301,6 +330,25 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderKeyframeThumb(
     }
     const bool ok = core()->renderKeyframeThumb(
         layerIndex, time, info.width, info.height, pixels, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderKeyframeFull(
+    JNIEnv *env, jobject, jint layerIndex, jint time, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    const bool ok = core()->renderKeyframeFull(
+        layerIndex, time, pixels, info.width, info.height, info.stride);
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }

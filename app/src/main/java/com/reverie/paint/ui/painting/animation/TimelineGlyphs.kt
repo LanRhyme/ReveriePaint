@@ -272,3 +272,23 @@ internal fun DrawScope.drawGlyphFlip() {
     drawRoundRectCompat(Morandi.text.copy(alpha = 0.45f), Offset(w * 0.15f, h * 0.18f), Size(w * 0.45f, h * 0.64f))
     drawRoundRectCompat(Morandi.text, Offset(w * 0.40f, h * 0.18f), Size(w * 0.45f, h * 0.64f))
 }
+
+internal fun DrawScope.drawGlyphShiftTrace() {
+    val h = size.height
+    val w = size.width
+    val strokeWidth = 1.4f
+    drawRoundRect(
+        color = Morandi.text.copy(alpha = 0.40f),
+        topLeft = Offset(w * 0.12f, h * 0.12f),
+        size = Size(w * 0.55f, h * 0.55f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5f, 2.5f),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth),
+    )
+    drawRoundRect(
+        color = Morandi.text,
+        topLeft = Offset(w * 0.33f, h * 0.33f),
+        size = Size(w * 0.55f, h * 0.55f),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5f, 2.5f),
+        style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidth),
+    )
+}

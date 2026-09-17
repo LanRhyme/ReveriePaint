@@ -170,6 +170,16 @@ object ReverieCoreBridge {
         tintForwardArgb: Int,
     )
 
+    /** 显式离散偏移与衰减透明度洋葱皮配置 (供仅关键帧模式与自定义衰减曲线使用) */
+    external fun configureOnionSkinExplicit(
+        enabled: Boolean,
+        offsets: IntArray,
+        opacities: IntArray,
+        tintFactor: Int = 100,
+        tintBackwardArgb: Int = 0,
+        tintForwardArgb: Int = 0,
+    )
+
     external fun anyLayerOnionSkin(): Boolean
 
     /** 读回洋葱皮全局配置: [过去色 ARGB, 未来色 ARGB, 着色强度 0~255] */
@@ -277,6 +287,15 @@ object ReverieCoreBridge {
      * 引擎侧走 writeToDevice 拷帧, 不改变文档 currentTime, 画布不会跳帧。
      */
     external fun renderKeyframeThumb(
+        layerIndex: Int,
+        time: Int,
+        bitmap: Bitmap,
+    ): Boolean
+
+    /**
+     * 渲染关键帧完整画布内容到指定 [bitmap] (供透光台对位 Shift & Trace 使用)。
+     */
+    external fun renderKeyframeFull(
         layerIndex: Int,
         time: Int,
         bitmap: Bitmap,

@@ -177,6 +177,52 @@ internal fun TimelineSettings(
         }
 
         if (vm.anim.onionSkin) {
+            CompactSettingRow(label = "仅关键帧") {
+                ReSwitch(
+                    checked = vm.anim.onionKeyframesOnly,
+                    onChecked = {
+                        vm.anim.onionKeyframesOnly = it
+                        vm.animationApplyOnionSkin()
+                    },
+                )
+            }
+
+            CompactSettingRow(label = "衰减曲线") {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panelHi)
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    listOf(
+                        com.reverie.paint.core.OnionDecayMode.LINEAR to "线性",
+                        com.reverie.paint.core.OnionDecayMode.SMOOTH to "平滑",
+                        com.reverie.paint.core.OnionDecayMode.CONSTANT to "恒定",
+                    ).forEach { (mode, title) ->
+                        val sel = vm.anim.onionDecayMode == mode
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
+                                .clickable {
+                                    vm.anim.onionDecayMode = mode
+                                    vm.animationApplyOnionSkin()
+                                }
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = title,
+                                color = if (sel) Morandi.accent else Morandi.subText,
+                                fontSize = 11.sp,
+                                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            }
+
             CompactSettingRow(label = "前 / 后帧数") {
                 OnionFrameStepper(
                     prefix = "前",

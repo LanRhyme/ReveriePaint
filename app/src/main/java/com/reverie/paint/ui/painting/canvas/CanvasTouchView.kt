@@ -1255,6 +1255,8 @@ class CanvasTouchView(context: Context) : View(context) {
             longPressToken++
             isPendingLongPress = false
 
+            val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
+
             if (numFingers >= 2) {
                 val idx0 = fingerIndices[0]
                 val idx1 = fingerIndices[1]
@@ -1289,10 +1291,12 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
-                    if (numFingers == 2 && v.gestureTwoFingerUndo) {
-                        postDelayed(continuousUndoRunnable, 420L)
-                    } else if (numFingers >= 3 && v.gestureThreeFingerRedo) {
-                        postDelayed(continuousRedoRunnable, 420L)
+                    if (!isShiftTraceAlign) {
+                        if (numFingers == 2 && v.gestureTwoFingerUndo) {
+                            postDelayed(continuousUndoRunnable, 420L)
+                        } else if (numFingers >= 3 && v.gestureThreeFingerRedo) {
+                            postDelayed(continuousRedoRunnable, 420L)
+                        }
                     }
                 } else {
                     val distCentroidMoved = hypot(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y)
@@ -1300,6 +1304,47 @@ class CanvasTouchView(context: Context) : View(context) {
                         prevCentroid = centroid
                         prevDistance = distance
                         prevAngle = angle
+                    } else if (isShiftTraceAlign) {
+                        isPinchMotion = true
+                        val target = v.anim.shiftTraceTarget
+                        val curTf = if (target == ShiftTraceTarget.PREV) v.anim.shiftTracePrevTransform else v.anim.shiftTraceNextTransform
+
+                        val viewScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                        val bmpW = (v.renderW.takeIf { it > 0 } ?: v.docWidth.coerceAtLeast(1)).toFloat()
+                        val docW = v.docWidth.coerceAtLeast(1).toFloat()
+                        val docToBmpRatio = bmpW / docW
+
+                        val dScreenX = centroid.x - prevCentroid.x
+                        val dScreenY = centroid.y - prevCentroid.y
+                        val viewRad = -Math.toRadians(canvasRotation.toDouble())
+                        val cosV = kotlin.math.cos(viewRad).toFloat()
+                        val sinV = kotlin.math.sin(viewRad).toFloat()
+                        val unrotDx = (dScreenX * cosV - dScreenY * sinV) / viewScale
+                        val unrotDy = (dScreenX * sinV + dScreenY * cosV) / viewScale
+                        val docDx = unrotDx / docToBmpRatio
+                        val docDy = unrotDy / docToBmpRatio
+
+                        val k = (distance / prevDistance).coerceIn(0.7f, 1.4f)
+                        val dRot = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
+
+                        val newScale = (curTf.scale * k).coerceIn(0.05f, 20f)
+                        val newRot = normalizeAngle(curTf.rotation + dRot)
+                        val newTrans = curTf.translation + Offset(docDx, docDy)
+
+                        val updated = ShiftTransform(
+                            translation = newTrans,
+                            rotation = newRot,
+                            scale = newScale,
+                        )
+                        if (target == ShiftTraceTarget.PREV) {
+                            v.anim.shiftTracePrevTransform = updated
+                        } else {
+                            v.anim.shiftTraceNextTransform = updated
+                        }
+                        prevCentroid = centroid
+                        prevDistance = distance
+                        prevAngle = angle
+                        invalidate()
                     } else {
                         val k = (distance / prevDistance).coerceIn(0.7f, 1.4f)
                         val dRot = if (v.canvasRotationEnabled) normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f) else 0f
@@ -1352,7 +1397,45 @@ class CanvasTouchView(context: Context) : View(context) {
                 val dist0 = hypot(cur.x - lastPos0.x, cur.y - lastPos0.y)
                 val dist1 = hypot(cur.x - lastPos1.x, cur.y - lastPos1.y)
 
-                if (dist0 < dist1 && dist0 < 60f * density) {
+                if (isShiftTraceAlign) {
+                    val (dx, dy) = if (dist0 < dist1 && dist0 < 60f * density) {
+                        val d = Pair(cur.x - lastPos0.x, cur.y - lastPos0.y)
+                        lastPos0 = cur
+                        prevCentroid = prevCentroid + Offset(d.first / 2f, d.second / 2f)
+                        d
+                    } else if (dist1 <= dist0 && dist1 < 60f * density) {
+                        val d = Pair(cur.x - lastPos1.x, cur.y - lastPos1.y)
+                        lastPos1 = cur
+                        prevCentroid = prevCentroid + Offset(d.first / 2f, d.second / 2f)
+                        d
+                    } else {
+                        lastPos0 = cur
+                        Pair(0f, 0f)
+                    }
+                    if (hypot(dx, dy) > 0.2f) {
+                        val target = v.anim.shiftTraceTarget
+                        val curTf = if (target == ShiftTraceTarget.PREV) v.anim.shiftTracePrevTransform else v.anim.shiftTraceNextTransform
+                        val viewScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                        val bmpW = (v.renderW.takeIf { it > 0 } ?: v.docWidth.coerceAtLeast(1)).toFloat()
+                        val docW = v.docWidth.coerceAtLeast(1).toFloat()
+                        val docToBmpRatio = bmpW / docW
+                        val viewRad = -Math.toRadians(canvasRotation.toDouble())
+                        val cosV = kotlin.math.cos(viewRad).toFloat()
+                        val sinV = kotlin.math.sin(viewRad).toFloat()
+                        val unrotDx = (dx * cosV - dy * sinV) / viewScale
+                        val unrotDy = (dx * sinV + dy * cosV) / viewScale
+                        val docDx = unrotDx / docToBmpRatio
+                        val docDy = unrotDy / docToBmpRatio
+                        val updated = curTf.copy(translation = curTf.translation + Offset(docDx, docDy))
+                        if (target == ShiftTraceTarget.PREV) {
+                            v.anim.shiftTracePrevTransform = updated
+                        } else {
+                            v.anim.shiftTraceNextTransform = updated
+                        }
+                        invalidate()
+                    }
+                    lastTransformTimestamp = nowMs
+                } else if (dist0 < dist1 && dist0 < 60f * density) {
                     val dx = cur.x - lastPos0.x
                     val dy = cur.y - lastPos0.y
                     lastPos0 = cur
@@ -1399,7 +1482,9 @@ class CanvasTouchView(context: Context) : View(context) {
                         prevDistance < initialDistance * 0.45f &&
                         (initialDistance - prevDistance) / durationMs > 0.60f * density
 
-                    if (isQuickPinchFit) {
+                    if (isShiftTraceAlign) {
+                        // 透光台对位手势完成：不触发满屏复位或历史撤销
+                    } else if (isQuickPinchFit) {
                         animateFitCanvas()
                         v.showActionToast("画布已平滑满屏复位", R.drawable.ic_refresh)
                     } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers == 2 && v.gestureTwoFingerUndo && durationMs < 360L) {
@@ -1548,13 +1633,38 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
+                val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
                 if (isPenOnlyPan) {
-                    // 笔模式开启且处于绘图工具：单指丝滑平移画布
-                    canvasPanX += deltaX
-                    canvasPanY += deltaY
-                    onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
-                    invalidate()
-                    return true
+                    if (isShiftTraceAlign) {
+                        val target = v.anim.shiftTraceTarget
+                        val curTf = if (target == ShiftTraceTarget.PREV) v.anim.shiftTracePrevTransform else v.anim.shiftTraceNextTransform
+                        val viewScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                        val bmpW = (v.renderW.takeIf { it > 0 } ?: v.docWidth.coerceAtLeast(1)).toFloat()
+                        val docW = v.docWidth.coerceAtLeast(1).toFloat()
+                        val docToBmpRatio = bmpW / docW
+                        val viewRad = -Math.toRadians(canvasRotation.toDouble())
+                        val cosV = kotlin.math.cos(viewRad).toFloat()
+                        val sinV = kotlin.math.sin(viewRad).toFloat()
+                        val unrotDx = (deltaX * cosV - deltaY * sinV) / viewScale
+                        val unrotDy = (deltaX * sinV + deltaY * cosV) / viewScale
+                        val docDx = unrotDx / docToBmpRatio
+                        val docDy = unrotDy / docToBmpRatio
+                        val updated = curTf.copy(translation = curTf.translation + Offset(docDx, docDy))
+                        if (target == ShiftTraceTarget.PREV) {
+                            v.anim.shiftTracePrevTransform = updated
+                        } else {
+                            v.anim.shiftTraceNextTransform = updated
+                        }
+                        invalidate()
+                        return true
+                    } else {
+                        // 笔模式开启且处于绘图工具：单指丝滑平移画布
+                        canvasPanX += deltaX
+                        canvasPanY += deltaY
+                        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        invalidate()
+                        return true
+                    }
                 } else {
                     if (isPendingLongPress) {
                         val moveSlopPx = (1.5f + (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density

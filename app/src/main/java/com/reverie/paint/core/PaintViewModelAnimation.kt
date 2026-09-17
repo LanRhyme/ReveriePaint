@@ -11,15 +11,39 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import android.graphics.Bitmap
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import com.reverie.paint.R
 
 /** 新建动画画布的默认帧率。 */
 internal const val DEFAULT_ANIMATION_FPS = 12
+
+/** 透光台对位目标帧 (前帧 / 后帧) */
+enum class ShiftTraceTarget {
+    PREV, NEXT
+}
+
+/** 透光台手势作用目标 (对齐参考帧 / 缩放平移画布视口) */
+enum class ShiftTraceGestureMode {
+    ALIGN_FRAME, MOVE_CANVAS
+}
+
+/** 洋葱皮衰减模式 (线性 / 平滑 / 恒定) */
+enum class OnionDecayMode {
+    LINEAR, SMOOTH, CONSTANT
+}
+
+/** 透光台单个参考帧的相对变换 */
+data class ShiftTransform(
+    val translation: Offset = Offset.Zero,
+    val rotation: Float = 0f,
+    val scale: Float = 1f,
+)
 
 /**
  * 动画 (帧 / 轨道 / 时间轴) 的 UI 状态镜像。
@@ -174,6 +198,33 @@ internal class AnimationState {
 
     var onionColorForward by mutableStateOf(0xFF4E9E6A.toInt())
 
+    /** 洋葱皮是否开启“仅关键帧”模式 (跳过一拍多重复帧) */
+    var onionKeyframesOnly by mutableStateOf(false)
+
+    /** 洋葱皮衰减曲线模式 (线性 / 平滑 / 恒定) */
+    var onionDecayMode by mutableStateOf(OnionDecayMode.LINEAR)
+
+    /** 透光台对位 (Shift & Trace) 是否激活 */
+    var shiftTraceActive by mutableStateOf(false)
+
+    /** 透光台当前正在调整的参考帧 (前帧 / 后帧) */
+    var shiftTraceTarget by mutableStateOf(ShiftTraceTarget.PREV)
+
+    /** 透光台两指手势作用目标 (对齐参考帧 / 缩放平移画布视口) */
+    var shiftTraceGestureMode by mutableStateOf(ShiftTraceGestureMode.ALIGN_FRAME)
+
+    /** 前一参考帧的相对偏移与旋转 */
+    var shiftTracePrevTransform by mutableStateOf(ShiftTransform())
+
+    /** 后一参考帧的相对偏移与旋转 */
+    var shiftTraceNextTransform by mutableStateOf(ShiftTransform())
+
+    /** 前一参考帧的高清位图 (用于 Overlay 硬件加速渲染) */
+    var shiftTracePrevBitmap by mutableStateOf<Bitmap?>(null)
+
+    /** 后一参考帧的高清位图 (用于 Overlay 硬件加速渲染) */
+    var shiftTraceNextBitmap by mutableStateOf<Bitmap?>(null)
+
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
 
@@ -257,6 +308,9 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     anim.lastFrameHold = holdsMap
 
     anim.revision++
+    if (anim.shiftTraceActive) {
+        mainHandler.post { animationFetchShiftTraceBitmaps() }
+    }
     // 洋葱皮开关与音频资源: 与引擎/文档保持一致 (打开动画项目后还原保存时的状态)
     anim.onionSkin = ReverieCoreBridge.anyLayerOnionSkin()
     // 色板/强度也要还原: 它们存在 KisImageConfig (随工程持久化), 不回读的话
@@ -336,6 +390,9 @@ internal fun PaintViewModel.animationSeek(
             if (!anim.isMultiSelectMode) {
                 anim.selectedFrames = emptySet()
             }
+            if (anim.shiftTraceActive) {
+                animationFetchShiftTraceBitmaps()
+            }
         },
     ) {
         ReverieCoreBridge.setAnimationCurrentTime(t, recordUndo)
@@ -406,12 +463,167 @@ internal fun PaintViewModel.animationSetPlaybackRange(
 /** 洋葱皮: 任何参数变化都经此统一入口下发引擎 (全局配置 + 逐图层开关)。 */
 internal fun PaintViewModel.animationApplyOnionSkin() {
     val effectiveOnion = anim.onionSkin || anim.isTemporaryOnionSkin
+    if (!effectiveOnion) {
+        runCore(after = {}) {
+            ReverieCoreBridge.configureOnionSkin(
+                false, 0, 0, 0, anim.onionTint,
+                anim.onionColorBackward, anim.onionColorForward,
+            )
+        }
+        return
+    }
+
+    val layer = anim.selectedTrack.takeIf { it >= 0 } ?: currentLayerIndex
+    val cur = anim.currentTime
+
+    val offsets = mutableListOf<Int>()
+    val opacities = mutableListOf<Int>()
+
+    if (anim.onionKeyframesOnly) {
+        val times = anim.keyframeCache[layer].orEmpty()
+        val prevTimes = times.filter { it < cur }.takeLast(anim.onionPrev)
+        val nextTimes = times.filter { it > cur }.take(anim.onionNext)
+
+        val pCount = prevTimes.size
+        for (i in prevTimes.indices) {
+            val t = prevTimes[i]
+            val off = t - cur
+            val dist = pCount - i
+            val op = calcDecayOpacity(dist, pCount, anim.onionOpacity, anim.onionDecayMode)
+            offsets.add(off)
+            opacities.add(op)
+        }
+
+        val nCount = nextTimes.size
+        for (i in nextTimes.indices) {
+            val t = nextTimes[i]
+            val off = t - cur
+            val dist = i + 1
+            val op = calcDecayOpacity(dist, nCount, anim.onionOpacity, anim.onionDecayMode)
+            offsets.add(off)
+            opacities.add(op)
+        }
+    } else {
+        for (i in 1..anim.onionPrev) {
+            offsets.add(-i)
+            opacities.add(calcDecayOpacity(i, anim.onionPrev, anim.onionOpacity, anim.onionDecayMode))
+        }
+        for (i in 1..anim.onionNext) {
+            offsets.add(i)
+            opacities.add(calcDecayOpacity(i, anim.onionNext, anim.onionOpacity, anim.onionDecayMode))
+        }
+    }
+
     runCore(after = {}) {
-        ReverieCoreBridge.configureOnionSkin(
-            effectiveOnion, anim.onionPrev, anim.onionNext,
-            anim.onionOpacity, anim.onionTint,
-            anim.onionColorBackward, anim.onionColorForward,
+        ReverieCoreBridge.configureOnionSkinExplicit(
+            true,
+            offsets.toIntArray(),
+            opacities.toIntArray(),
+            anim.onionTint,
+            anim.onionColorBackward,
+            anim.onionColorForward,
         )
+    }
+}
+
+internal fun calcDecayOpacity(
+    distance: Int,
+    total: Int,
+    maxOpacity: Int,
+    mode: OnionDecayMode,
+): Int {
+    if (total <= 0) return 0
+    return when (mode) {
+        OnionDecayMode.LINEAR -> {
+            val factor = (total - distance + 1).toFloat() / total.toFloat()
+            (maxOpacity * factor.coerceIn(0.15f, 1.0f)).roundToInt().coerceIn(0, 255)
+        }
+        OnionDecayMode.SMOOTH -> {
+            val factor = Math.pow(0.62, (distance - 1).toDouble()).toFloat()
+            (maxOpacity * factor).roundToInt().coerceIn(0, 255)
+        }
+        OnionDecayMode.CONSTANT -> {
+            maxOpacity.coerceIn(0, 255)
+        }
+    }
+}
+
+// ============================================================
+// 透光台对位 (Shift & Trace)
+// ============================================================
+
+/** 开启 / 关闭透光台对位模式 (Shift & Trace) */
+internal fun PaintViewModel.animationToggleShiftTrace() {
+    val willActive = !anim.shiftTraceActive
+    anim.shiftTraceActive = willActive
+    if (willActive) {
+        anim.shiftTraceGestureMode = ShiftTraceGestureMode.ALIGN_FRAME
+        animationFetchShiftTraceBitmaps()
+        if (anim.onionSkin) {
+            renderHandler?.post {
+                ReverieCoreBridge.setOnionSkinSuppressed(true)
+                doRender()
+            }
+        }
+    } else {
+        anim.shiftTracePrevBitmap?.recycle()
+        anim.shiftTracePrevBitmap = null
+        anim.shiftTraceNextBitmap?.recycle()
+        anim.shiftTraceNextBitmap = null
+        if (anim.onionSkin) {
+            renderHandler?.post {
+                ReverieCoreBridge.setOnionSkinSuppressed(false)
+                doRender()
+            }
+        }
+    }
+}
+
+/** 复位透光台参考帧偏移: target 为空则全部复位 */
+internal fun PaintViewModel.animationResetShiftTrace(target: ShiftTraceTarget? = null) {
+    when (target) {
+        ShiftTraceTarget.PREV -> anim.shiftTracePrevTransform = ShiftTransform()
+        ShiftTraceTarget.NEXT -> anim.shiftTraceNextTransform = ShiftTransform()
+        null -> {
+            anim.shiftTracePrevTransform = ShiftTransform()
+            anim.shiftTraceNextTransform = ShiftTransform()
+        }
+    }
+}
+
+/** 异步拉取前一帧与后一帧的全画幅参考位图 (供 Overlay 硬件加速渲染) */
+internal fun PaintViewModel.animationFetchShiftTraceBitmaps() {
+    val cur = anim.currentTime
+    val layer = anim.selectedTrack.takeIf { it >= 0 } ?: currentLayerIndex
+    val times = anim.keyframeCache[layer].orEmpty()
+    val prevT = times.filter { it < cur }.maxOrNull() ?: (cur - 1).takeIf { it >= 0 }
+    val nextT = times.filter { it > cur }.minOrNull() ?: (cur + 1).takeIf { it < anim.length }
+
+    renderHandler?.post {
+        val w = renderW
+        val h = renderH
+        if (w <= 0 || h <= 0) return@post
+
+        var pBmp: Bitmap? = null
+        if (prevT != null && prevT >= 0) {
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val ok = ReverieCoreBridge.renderKeyframeFull(layer, prevT, bmp)
+            if (ok) pBmp = bmp else bmp.recycle()
+        }
+
+        var nBmp: Bitmap? = null
+        if (nextT != null && nextT >= 0) {
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val ok = ReverieCoreBridge.renderKeyframeFull(layer, nextT, bmp)
+            if (ok) nBmp = bmp else bmp.recycle()
+        }
+
+        mainHandler.post {
+            anim.shiftTracePrevBitmap?.recycle()
+            anim.shiftTracePrevBitmap = pBmp
+            anim.shiftTraceNextBitmap?.recycle()
+            anim.shiftTraceNextBitmap = nBmp
+        }
     }
 }
 

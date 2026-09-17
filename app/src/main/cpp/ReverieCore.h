@@ -225,6 +225,13 @@ public:
     void configureOnionSkin(bool enabled, int prev, int next, int maxOpacity,
                             int tintFactor, int tintBackwardArgb = 0,
                             int tintForwardArgb = 0);
+    // 显式离散偏移与透明度洋葱皮配置 (供仅关键帧模式与自定义衰减曲线使用)
+    void configureOnionSkinExplicit(bool enabled,
+                                    const QVector<int> &offsets,
+                                    const QVector<int> &opacities,
+                                    int tintFactor = 100,
+                                    int tintBackwardArgb = 0,
+                                    int tintForwardArgb = 0);
     // 是否有任一图层开着洋葱皮 (打开动画项目后 UI 同步开关状态用)
     bool anyLayerOnionSkin() const;
     // 读回当前全局洋葱皮配置 (打开项目后 UI 还原色板/强度用)。
@@ -310,6 +317,8 @@ public:
     // 不会让画布跳帧, 也不需要额外的同步/还原步骤。
     // time < 0 或该位置无关键帧时回退到当前帧内容。
     bool renderKeyframeThumb(int layerIndex, int time, int w, int h, void *dstPixels, int dstStride);
+    // 渲染关键帧完整画布内容到指定像素缓冲区 (供透光台对位 Shift & Trace 使用)
+    bool renderKeyframeFull(int layerIndex, int time, void *dstPixels, int dstW, int dstH, int dstStride);
 
     // 帧缩略图缓存代际自增: 笔画落笔 / 关键帧增删改后调用, 使 UI 侧
     // (layerIndex, time) 缓存整体失效。
