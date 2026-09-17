@@ -361,4 +361,80 @@ Java_com_reverie_paint_core_ReverieCoreBridge_storeRevAsset(JNIEnv *env, jobject
     env->ReleaseStringUTFChars(name, nameChars);
 }
 
+// 自动中割 (Auto In-betweening)
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationGenerateInbetween(
+    JNIEnv *, jobject, jint layerIndex, jint timeA, jint timeB, jint targetTime, jfloat t)
+{
+    return core()->generateInbetween(layerIndex, timeA, timeB, targetTime, t) ? JNI_TRUE : JNI_FALSE;
+}
+
+// 关键帧色标与标签
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationKeyframeTag(
+    JNIEnv *, jobject, jint layerIndex, jint time)
+{
+    return core()->keyframeTag(layerIndex, time);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationSetKeyframeTag(
+    JNIEnv *, jobject, jint layerIndex, jint time, jint tag)
+{
+    core()->setKeyframeTag(layerIndex, time, tag);
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationAllKeyframeTags(JNIEnv *env, jobject)
+{
+    const QHash<quint64, int> tags = core()->allKeyframeTags();
+    jintArray arr = env->NewIntArray(jsize(tags.size() * 3));
+    if (!arr) return nullptr;
+    QVector<jint> buf;
+    buf.reserve(tags.size() * 3);
+    for (auto it = tags.constBegin(); it != tags.constEnd(); ++it) {
+        buf.append(jint(quint32(it.key() >> 32)));
+        buf.append(jint(quint32(it.key() & 0xFFFFFFFFULL)));
+        buf.append(jint(it.value()));
+    }
+    if (!buf.isEmpty()) {
+        env->SetIntArrayRegion(arr, 0, jsize(buf.size()), buf.constData());
+    }
+    return arr;
+}
+
+// 轨道末帧保持时长
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationLastFrameHold(
+    JNIEnv *, jobject, jint layerIndex)
+{
+    return core()->lastFrameHold(layerIndex);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationSetLastFrameHold(
+    JNIEnv *, jobject, jint layerIndex, jint hold, jboolean recordUndo)
+{
+    core()->setLastFrameHold(layerIndex, hold, recordUndo == JNI_TRUE);
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_animationAllLastFrameHolds(JNIEnv *env, jobject)
+{
+    const QHash<int, int> holds = core()->allLastFrameHolds();
+    jintArray arr = env->NewIntArray(jsize(holds.size() * 2));
+    if (!arr) return nullptr;
+    QVector<jint> buf;
+    buf.reserve(holds.size() * 2);
+    for (auto it = holds.constBegin(); it != holds.constEnd(); ++it) {
+        buf.append(jint(it.key()));
+        buf.append(jint(it.value()));
+    }
+    if (!buf.isEmpty()) {
+        env->SetIntArrayRegion(arr, 0, jsize(buf.size()), buf.constData());
+    }
+    return arr;
+}
+
 } // extern "C"
+

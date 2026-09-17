@@ -16,6 +16,7 @@
 
 #include "ReverieCore.h"
 #include "ReverieCoreInternal.h"
+#include "ReverieCoreInbetween.h"
 
 #include <kis_image.h>
 #include <kis_image_animation_interface.h>
@@ -868,3 +869,147 @@ bool ReverieCore::renderKeyframeThumb(
     }
     return true;
 }
+
+// ============================================================
+// 关键帧色标与末帧曝光保持
+// ============================================================
+
+namespace {
+
+class KeyframeTagCommand : public KUndo2Command {
+public:
+    KeyframeTagCommand(ReverieCore *core, int layer, int time, int oldTag, int newTag)
+        : KUndo2Command(kundo2_noi18n("Set Keyframe Tag")), m_core(core), m_layer(layer), m_time(time), m_oldTag(oldTag), m_newTag(newTag) {}
+    void redo() override { m_core->loadKeyframeTag(m_layer, m_time, m_newTag); }
+    void undo() override { m_core->loadKeyframeTag(m_layer, m_time, m_oldTag); }
+private:
+    ReverieCore *m_core;
+    int m_layer, m_time, m_oldTag, m_newTag;
+};
+
+class LastFrameHoldCommand : public KUndo2Command {
+public:
+    LastFrameHoldCommand(ReverieCore *core, int layer, int oldHold, int newHold)
+        : KUndo2Command(kundo2_noi18n("Set Last Frame Hold")), m_core(core), m_layer(layer), m_oldHold(oldHold), m_newHold(newHold) {}
+    void redo() override { m_core->loadLastFrameHold(m_layer, m_newHold); }
+    void undo() override { m_core->loadLastFrameHold(m_layer, m_oldHold); }
+private:
+    ReverieCore *m_core;
+    int m_layer, m_oldHold, m_newHold;
+};
+
+} // namespace
+
+int ReverieCore::keyframeTag(int layerIndex, int time) const
+{
+    const quint64 key = (quint64(quint32(layerIndex)) << 32) | quint32(time);
+    return m_keyframeTags.value(key, 0);
+}
+
+void ReverieCore::setKeyframeTag(int layerIndex, int time, int tag)
+{
+    const quint64 key = (quint64(quint32(layerIndex)) << 32) | quint32(time);
+    const int oldTag = m_keyframeTags.value(key, 0);
+    if (oldTag == tag) return;
+    KeyframeTagCommand *cmd = new KeyframeTagCommand(this, layerIndex, time, oldTag, tag);
+    m_keyframeTags[key] = tag;
+    pushUndoCommand(cmd);
+}
+
+void ReverieCore::loadKeyframeTag(int layerIndex, int time, int tag)
+{
+    const quint64 key = (quint64(quint32(layerIndex)) << 32) | quint32(time);
+    if (tag == 0) {
+        m_keyframeTags.remove(key);
+    } else {
+        m_keyframeTags[key] = tag;
+    }
+}
+
+int ReverieCore::lastFrameHold(int layerIndex) const
+{
+    return m_lastFrameHold.value(layerIndex, 1);
+}
+
+void ReverieCore::setLastFrameHold(int layerIndex, int hold, bool recordUndo)
+{
+    if (layerIndex < 0 || hold < 1) return;
+    const int oldHold = m_lastFrameHold.value(layerIndex, 1);
+    if (oldHold == hold) return;
+
+    if (recordUndo) {
+        LastFrameHoldCommand *cmd = new LastFrameHoldCommand(this, layerIndex, oldHold, hold);
+        m_lastFrameHold[layerIndex] = hold;
+        pushUndoCommand(cmd);
+    } else {
+        m_lastFrameHold[layerIndex] = hold;
+    }
+}
+
+void ReverieCore::loadLastFrameHold(int layerIndex, int hold)
+{
+    m_lastFrameHold[layerIndex] = qMax(1, hold);
+}
+
+// ============================================================
+// 自动中割 (Auto In-betweening)
+// ============================================================
+
+bool ReverieCore::generateInbetween(int layerIndex, int timeA, int timeB, int targetTime, float t,
+                                    qreal epsilon, int blurPasses, int denoiseArea)
+{
+    if (!m_document || layerIndex < 0 || layerIndex >= m_layers.size()
+        || timeA < 0 || timeB < 0 || targetTime < 0 || timeA == timeB) {
+        return false;
+    }
+    KisRasterKeyframeChannel *channel = rasterChannelOf(nodeAtIndex(m_layers, layerIndex), false);
+    if (!channel || !channel->keyframeAt(timeA) || !channel->keyframeAt(timeB)) {
+        return false;
+    }
+
+    KisPaintDeviceWSP srcDev = channel->paintDevice();
+    const KoColorSpace *cs = srcDev ? srcDev->colorSpace() : m_document->colorSpace();
+    if (!cs) return false;
+
+    // 提取两帧内容转换为 QImage
+    KisPaintDeviceSP devA = new KisPaintDevice(cs);
+    channel->writeToDevice(timeA, devA);
+    const QImage imgA = devA->convertToQImage(nullptr, 0, 0, m_docWidth, m_docHeight);
+
+    KisPaintDeviceSP devB = new KisPaintDevice(cs);
+    channel->writeToDevice(timeB, devB);
+    const QImage imgB = devB->convertToQImage(nullptr, 0, 0, m_docWidth, m_docHeight);
+
+    if (imgA.isNull() || imgB.isNull()) return false;
+
+    ReverieInbetween::Options opts;
+    opts.epsilon = epsilon;
+    opts.blurPasses = blurPasses;
+    opts.denoiseArea = denoiseArea;
+    opts.strokeColor = m_brushColor;
+
+    const QImage midImg = ReverieInbetween::interpolate(imgA, imgB, t, opts);
+    if (midImg.isNull()) return false;
+
+    KUndo2Command *macro = new KUndo2Command(kundo2_noi18n("Generate In-between"));
+    if (channel->keyframeAt(targetTime)) {
+        channel->removeKeyframe(targetTime, macro);
+    }
+    channel->addKeyframe(targetTime, macro);
+    KisRasterKeyframeSP key = channel->keyframeAt<KisRasterKeyframe>(targetTime);
+    if (!key) {
+        delete macro;
+        return false;
+    }
+
+    KisPaintDeviceSP tmp = new KisPaintDevice(cs);
+    tmp->convertFromQImage(midImg, nullptr);
+    channel->paintDevice()->framesInterface()->uploadFrame(key->frameID(), tmp);
+    channel->paintDevice()->setDirty();
+
+    pushUndoCommand(macro);
+    markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
+    dirtyKeyframeThumb(layerIndex, targetTime);
+    return true;
+}
+

@@ -298,6 +298,44 @@ object ReverieCoreBridge {
      */
     external fun setOnionSkinSuppressed(suppressed: Boolean)
 
+    /** 自动中割: 在 timeA 与 timeB 之间按 t(0~1) 距离场插值生成中间帧并写入 targetTime */
+    external fun animationGenerateInbetween(
+        layerIndex: Int,
+        timeA: Int,
+        timeB: Int,
+        targetTime: Int,
+        t: Float,
+    ): Boolean
+
+    /** 查询关键帧色标 (0=无, 1=原画, 2=中割, 3=草稿) */
+    external fun animationKeyframeTag(
+        layerIndex: Int,
+        time: Int,
+    ): Int
+
+    /** 设置关键帧色标并记录撤销 */
+    external fun animationSetKeyframeTag(
+        layerIndex: Int,
+        time: Int,
+        tag: Int,
+    )
+
+    /** 读取所有关键帧色标: 交替 [layer, time, tag, ...] */
+    external fun animationAllKeyframeTags(): IntArray
+
+    /** 查询轨道末帧持续帧数 (默认 1) */
+    external fun animationLastFrameHold(layerIndex: Int): Int
+
+    /** 设置轨道末帧持续帧数并记录撤销 */
+    external fun animationSetLastFrameHold(
+        layerIndex: Int,
+        hold: Int,
+        recordUndo: Boolean,
+    )
+
+    /** 读取所有轨道末帧持续帧数: 交替 [layer, hold, ...] */
+    external fun animationAllLastFrameHolds(): IntArray
+
     external fun setToolMode(mode: Int)
 
     external fun drawPolygon(

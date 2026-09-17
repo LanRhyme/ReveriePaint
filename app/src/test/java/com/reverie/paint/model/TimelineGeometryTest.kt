@@ -215,4 +215,99 @@ class TimelineGeometryTest {
         assertTrue(g.stepX > 0f)
         assertEquals(0, g.frameAtViewportX(0f))
     }
+
+    // ---------- 播放范围与回环步进换算 ----------
+
+    @Test
+    fun `playback bounds strictly respect keyframes and hold`() {
+        fun calcEnd(
+            hasCustomRange: Boolean,
+            pbStart: Int,
+            pbEnd: Int,
+            keyframeCache: Map<Int, List<Int>>,
+            lastFrameHold: Map<Int, Int>,
+            fallbackLength: Int,
+        ): Int {
+            if (hasCustomRange && pbEnd > pbStart) return pbEnd
+            var maxKey = -1
+            for ((layer, times) in keyframeCache) {
+                if (times.isNotEmpty()) {
+                    val lastT = times.last()
+                    val hold = lastFrameHold[layer] ?: 1
+                    val end = lastT + hold - 1
+                    if (end > maxKey) maxKey = end
+                }
+            }
+            return if (maxKey >= 0) maxKey else maxOf(0, fallbackLength - 1)
+        }
+
+        // 仅在 0 帧有关键帧, hold 1: end 必须是 0, 绝不可落入 23 (fallbackLength - 1)
+        val endSingle = calcEnd(
+            hasCustomRange = false,
+            pbStart = 0,
+            pbEnd = 23,
+            keyframeCache = mapOf(1 to listOf(0)),
+            lastFrameHold = emptyMap(),
+            fallbackLength = 24,
+        )
+        assertEquals(0, endSingle)
+
+        // 关键帧在 0, 2; hold 3: 2 + 3 - 1 = 4
+        val endWithHold = calcEnd(
+            hasCustomRange = false,
+            pbStart = 0,
+            pbEnd = 23,
+            keyframeCache = mapOf(1 to listOf(0, 2)),
+            lastFrameHold = mapOf(1 to 3),
+            fallbackLength = 24,
+        )
+        assertEquals(4, endWithHold)
+
+        // 自定义范围开启时遵从自定义范围
+        val endCustom = calcEnd(
+            hasCustomRange = true,
+            pbStart = 1,
+            pbEnd = 8,
+            keyframeCache = mapOf(1 to listOf(0, 2)),
+            lastFrameHold = emptyMap(),
+            fallbackLength = 24,
+        )
+        assertEquals(8, endCustom)
+    }
+
+    @Test
+    fun `loop playback wraps at end while single playback pauses at end`() {
+        val start = 0
+        val end = 3
+
+        fun nextFrame(cur: Int, loop: Boolean): Pair<Int, Boolean> {
+            if (cur >= end && !loop) return cur to true // pause
+            val next = if (cur >= end || cur < start) start else cur + 1
+            val shouldPause = !loop && next >= end
+            return next to shouldPause
+        }
+
+        // 单次播放: 0 -> 1 -> 2 -> 3 (暂停)
+        var cur = 0
+        val singleFrames = mutableListOf(cur)
+        var paused = false
+        while (!paused) {
+            val (nxt, p) = nextFrame(cur, loop = false)
+            singleFrames.add(nxt)
+            cur = nxt
+            paused = p
+        }
+        assertEquals(listOf(0, 1, 2, 3), singleFrames)
+
+        // 循环播放: 0 -> 1 -> 2 -> 3 -> 0 -> 1 ...
+        cur = 0
+        val loopFrames = mutableListOf(cur)
+        for (step in 1..6) {
+            val (nxt, _) = nextFrame(cur, loop = true)
+            loopFrames.add(nxt)
+            cur = nxt
+        }
+        assertEquals(listOf(0, 1, 2, 3, 0, 1, 2), loopFrames)
+    }
 }
+

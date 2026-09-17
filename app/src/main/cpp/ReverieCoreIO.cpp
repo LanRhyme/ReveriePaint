@@ -404,6 +404,24 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         animObj["playbackStart"] = pbStart;
         animObj["playbackEnd"] = pbEnd;
         animObj["currentTime"] = animationCurrentTime();
+
+        // 关键帧色标与末帧保持时长
+        QJsonArray tagsArr;
+        for (auto it = m_keyframeTags.constBegin(); it != m_keyframeTags.constEnd(); ++it) {
+            QJsonObject tagObj;
+            tagObj["layer"] = int(quint32(it.key() >> 32));
+            tagObj["time"] = int(quint32(it.key() & 0xFFFFFFFFULL));
+            tagObj["tag"] = it.value();
+            tagsArr.append(tagObj);
+        }
+        animObj["keyframeTags"] = tagsArr;
+
+        QJsonObject holdsObj;
+        for (auto it = m_lastFrameHold.constBegin(); it != m_lastFrameHold.constEnd(); ++it) {
+            holdsObj[QString::number(it.key())] = it.value();
+        }
+        animObj["lastFrameHolds"] = holdsObj;
+
         meta["animation"] = animObj;
     }
 
@@ -551,6 +569,24 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         animObj["playbackStart"] = pbStart;
         animObj["playbackEnd"] = pbEnd;
         animObj["currentTime"] = animationCurrentTime();
+
+        // 关键帧色标与末帧保持时长
+        QJsonArray tagsArr;
+        for (auto it = m_keyframeTags.constBegin(); it != m_keyframeTags.constEnd(); ++it) {
+            QJsonObject tagObj;
+            tagObj["layer"] = int(quint32(it.key() >> 32));
+            tagObj["time"] = int(quint32(it.key() & 0xFFFFFFFFULL));
+            tagObj["tag"] = it.value();
+            tagsArr.append(tagObj);
+        }
+        animObj["keyframeTags"] = tagsArr;
+
+        QJsonObject holdsObj;
+        for (auto it = m_lastFrameHold.constBegin(); it != m_lastFrameHold.constEnd(); ++it) {
+            holdsObj[QString::number(it.key())] = it.value();
+        }
+        animObj["lastFrameHolds"] = holdsObj;
+
         meta["animation"] = animObj;
     }
 
@@ -941,6 +977,20 @@ bool ReverieCore::loadRevp(const QString &path)
                     }
                 }
             }
+        }
+
+        // 还原关键帧色标与末帧保持时长
+        m_keyframeTags.clear();
+        const QJsonArray tagsArr = animObj["keyframeTags"].toArray();
+        for (int k = 0; k < tagsArr.size(); ++k) {
+            QJsonObject tagObj = tagsArr[k].toObject();
+            loadKeyframeTag(tagObj["layer"].toInt(), tagObj["time"].toInt(), tagObj["tag"].toInt());
+        }
+
+        m_lastFrameHold.clear();
+        const QJsonObject holdsObj = animObj["lastFrameHolds"].toObject();
+        for (auto it = holdsObj.constBegin(); it != holdsObj.constEnd(); ++it) {
+            loadLastFrameHold(it.key().toInt(), it.value().toInt(1));
         }
 
         if (fps > 0) setAnimationFramerate(fps);

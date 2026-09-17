@@ -58,6 +58,9 @@ internal class AnimationState {
     /** 是否循环播放 (true: 循环播放, false: 单次播放) */
     var loopPlayback by mutableStateOf(true)
 
+    /** 是否手动设置了自定义播放范围 (若为 false, 播放起止范围自动取时间轴已有关键帧范围) */
+    var hasCustomPlaybackRange by mutableStateOf(false)
+
     /**
      * 时间轴上的选中轨道 (图层索引)。-1 表示跟随当前图层。
      * 动画里"轨道"就是图层, 不引入第二套层级。
@@ -182,6 +185,23 @@ internal class AnimationState {
     /** 轨道各层末帧保持时长 (Hold Duration), 未记录时默认为 1 帧 */
     var lastFrameHold by mutableStateOf<Map<Int, Int>>(emptyMap())
 
+    /** 关键帧色标映射: (图层, 帧号) -> 标签 (0=无, 1=原画/Key-橙红, 2=中割/Breakdown-群青, 3=草稿/Guide-青绿) */
+    var keyframeTags by mutableStateOf<Map<Long, Int>>(emptyMap())
+
+    /** 临时透光状态 (长按洋葱皮图标触发) */
+    var isTemporaryOnionSkin by mutableStateOf(false)
+
+    /** 临时翻帧比对状态 (长按上一帧临时预览前一帧) */
+    var isFlipPeeking by mutableStateOf(false)
+    var flipOriginalTime by mutableIntStateOf(-1)
+
+    /** 播放帧缓存 (RAM Playback Cache: 循环播放 JIT 缓存) */
+    val playbackRamCache = HashMap<Int, Bitmap>()
+
+    /** 音轨归一化波形振幅数据 (0f ~ 1f) */
+    var audioWaveform by mutableStateOf<List<Float>>(emptyList())
+    var cachedAudioFile by mutableStateOf<java.io.File?>(null)
+
     /** 结构版本号: 关键帧增删改后自增, 驱动 Compose 重组 */
     var revision by mutableIntStateOf(0)
 
@@ -213,6 +233,29 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     }
 
     anim.keyframeCache = readKeyframeCache()
+
+    // 读回关键帧色标与末帧持续帧数
+    val tagsArr = ReverieCoreBridge.animationAllKeyframeTags()
+    val tagsMap = HashMap<Long, Int>(tagsArr.size / 3)
+    var ti = 0
+    while (ti + 2 < tagsArr.size) {
+        val l = tagsArr[ti]
+        val t = tagsArr[ti + 1]
+        val tag = tagsArr[ti + 2]
+        tagsMap[frameThumbKey(l, t)] = tag
+        ti += 3
+    }
+    anim.keyframeTags = tagsMap
+
+    val holdsArr = ReverieCoreBridge.animationAllLastFrameHolds()
+    val holdsMap = HashMap<Int, Int>(holdsArr.size / 2)
+    var hi = 0
+    while (hi + 1 < holdsArr.size) {
+        holdsMap[holdsArr[hi]] = holdsArr[hi + 1]
+        hi += 2
+    }
+    anim.lastFrameHold = holdsMap
+
     anim.revision++
     // 洋葱皮开关与音频资源: 与引擎/文档保持一致 (打开动画项目后还原保存时的状态)
     anim.onionSkin = ReverieCoreBridge.anyLayerOnionSkin()
@@ -225,7 +268,25 @@ internal fun PaintViewModel.syncAnimationFromNative() {
         // Krita 侧是 0~255, UI 是百分比
         anim.onionTint = (onionCfg[2] * 100 + 127) / 255
     }
-    anim.audioAssets = ReverieCoreBridge.revAssetNames().toList()
+    val assets = ReverieCoreBridge.revAssetNames().toList()
+    anim.audioAssets = assets
+    if (assets.isNotEmpty() && anim.audioWaveform.isEmpty()) {
+        val firstName = assets.first()
+        val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
+        val f = java.io.File(dir, firstName.replace('/', '_'))
+        if (!f.exists()) {
+            val bytes = runCatching { ReverieCoreBridge.revAssetBytes(firstName) }.getOrNull()
+            if (bytes != null && bytes.isNotEmpty()) {
+                f.writeBytes(bytes)
+            }
+        }
+        if (f.exists()) {
+            anim.cachedAudioFile = f
+            AudioWaveformExtractor.extractWaveform(f, targetSamples = 240) { samples ->
+                anim.audioWaveform = samples
+            }
+        }
+    }
 }
 
 /** 逐轨道读取关键帧位置, 组成绘制缓存。必须在 reverie-render 线程调用。 */
@@ -265,6 +326,10 @@ internal fun PaintViewModel.animationSeek(
     recordUndo: Boolean = false,
 ) {
     val t = time.coerceAtLeast(0)
+    if (anim.audioAssets.isNotEmpty()) {
+        val timeMs = (t * 1000L) / anim.framerate.coerceAtLeast(1)
+        AudioWaveformExtractor.scrub(appContext, anim.cachedAudioFile, timeMs)
+    }
     runCore(
         after = {
             anim.currentTime = t
@@ -325,6 +390,7 @@ internal fun PaintViewModel.animationSetPlaybackRange(
     val e = maxOf(end, s)
     runCore(
         after = {
+            anim.hasCustomPlaybackRange = true
             anim.playbackStart = s
             anim.playbackEnd = e
         },
@@ -339,12 +405,57 @@ internal fun PaintViewModel.animationSetPlaybackRange(
 
 /** 洋葱皮: 任何参数变化都经此统一入口下发引擎 (全局配置 + 逐图层开关)。 */
 internal fun PaintViewModel.animationApplyOnionSkin() {
+    val effectiveOnion = anim.onionSkin || anim.isTemporaryOnionSkin
     runCore(after = {}) {
         ReverieCoreBridge.configureOnionSkin(
-            anim.onionSkin, anim.onionPrev, anim.onionNext,
+            effectiveOnion, anim.onionPrev, anim.onionNext,
             anim.onionOpacity, anim.onionTint,
             anim.onionColorBackward, anim.onionColorForward,
         )
+    }
+}
+
+/** 临时透光: 按住洋葱皮按钮触发 */
+internal fun PaintViewModel.animationStartTemporaryOnionSkin() {
+    if (anim.onionSkin || anim.isTemporaryOnionSkin) return
+    anim.isTemporaryOnionSkin = true
+    animationApplyOnionSkin()
+}
+
+internal fun PaintViewModel.animationEndTemporaryOnionSkin() {
+    if (!anim.isTemporaryOnionSkin) return
+    anim.isTemporaryOnionSkin = false
+    animationApplyOnionSkin()
+}
+
+/** 临时翻帧比对 (Flip Peek): 按住上一帧极速预览前一关键帧, 松手立刻还原 */
+internal fun PaintViewModel.animationStartFlipPeek() {
+    if (anim.isFlipPeeking) return
+    val cur = anim.currentTime
+    val layer = anim.selectedTrack.takeIf { it >= 0 } ?: currentLayerIndex
+    val times = anim.keyframeCache[layer].orEmpty()
+    val prev = times.filter { it < cur }.maxOrNull() ?: (cur - 1).coerceAtLeast(0)
+    if (prev == cur) return
+    anim.isFlipPeeking = true
+    anim.flipOriginalTime = cur
+    anim.currentTime = prev
+    renderHandler?.post {
+        ReverieCoreBridge.setAnimationCurrentTime(prev, false)
+        doRender()
+    }
+}
+
+internal fun PaintViewModel.animationEndFlipPeek() {
+    if (!anim.isFlipPeeking) return
+    val orig = anim.flipOriginalTime
+    anim.isFlipPeeking = false
+    anim.flipOriginalTime = -1
+    if (orig >= 0) {
+        anim.currentTime = orig
+        renderHandler?.post {
+            ReverieCoreBridge.setAnimationCurrentTime(orig, false)
+            doRender()
+        }
     }
 }
 
@@ -876,13 +987,16 @@ internal fun PaintViewModel.animationRippleResizeFrame(
         }
         rearrangeKeyframesMacro(layerIndex, times, newTimes, "调整帧曝光", after = onDone)
     } else {
-        // 末帧曝光扩展: 仅更新最后关键帧的保持时长 (Hold Duration), 不污染轨道创建空白关键帧
-        anim.lastFrameHold = anim.lastFrameHold + (layerIndex to newSpan)
-        if (frameTime + newSpan > anim.length) {
-            anim.length = frameTime + newSpan
+        // 末帧曝光扩展: 更新引擎侧保持时长, 记录单步撤销
+        runCore(after = {
+            if (frameTime + newSpan > anim.length) {
+                anim.length = frameTime + newSpan
+            }
+            syncAnimationFromNativeAfter()
+            onDone()
+        }) {
+            ReverieCoreBridge.animationSetLastFrameHold(layerIndex, newSpan, true)
         }
-        anim.revision++
-        onDone()
     }
 }
 
@@ -1065,6 +1179,113 @@ internal fun PaintViewModel.animationBatchDuplicateSelected(
     }
 }
 
+/** 批量调整选中帧的曝光时长 (每个选中帧增加/减少 delta 帧, 整体顺延推挤) */
+internal fun PaintViewModel.animationBatchAdjustExposure(
+    layerIndex: Int,
+    delta: Int,
+) {
+    val selected = anim.selectedFrames.sorted()
+    if (layerIndex < 0 || delta == 0 || selected.isEmpty()) return
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    if (times.isEmpty()) return
+
+    val newTimes = times.toMutableList()
+    var cumulativeShift = 0
+    val lastHold = anim.lastFrameHold[layerIndex] ?: 1
+
+    for (i in times.indices) {
+        val t = times[i]
+        newTimes[i] = (times[i] + cumulativeShift).coerceAtLeast(if (i > 0) newTimes[i - 1] + 1 else 0)
+        if (selected.contains(t)) {
+            val curSpan = if (i + 1 < times.size) times[i + 1] - times[i] else lastHold
+            val finalSpan = (curSpan + delta).coerceAtLeast(1)
+            val diff = finalSpan - curSpan
+            cumulativeShift += diff
+        }
+    }
+
+    val lastSelected = selected.lastOrNull()
+    val isLastSelected = lastSelected == times.lastOrNull()
+    val updatedHold = if (isLastSelected) (lastHold + delta).coerceAtLeast(1) else lastHold
+
+    rearrangeKeyframesMacro(layerIndex, times, newTimes, "批量调整曝光") {
+        if (updatedHold != lastHold) {
+            anim.lastFrameHold = anim.lastFrameHold + (layerIndex to updatedHold)
+            runCore {
+                ReverieCoreBridge.animationSetLastFrameHold(layerIndex, updatedHold, true)
+            }
+        }
+        val updatedSelected = selected.mapNotNull { oldT ->
+            val idx = times.indexOf(oldT)
+            if (idx in newTimes.indices) newTimes[idx] else null
+        }.toSet()
+        anim.selectedFrames = updatedSelected
+    }
+}
+
+/** 设置关键帧色标 (0=无, 1=原画/Key-橙红, 2=中割/Breakdown-群青, 3=草稿/Guide-青绿) */
+internal fun PaintViewModel.animationSetKeyframeTag(
+    layerIndex: Int,
+    time: Int,
+    tag: Int,
+) {
+    if (layerIndex < 0 || time < 0) return
+    val key = frameThumbKey(layerIndex, time)
+    val old = anim.keyframeTags
+    anim.keyframeTags = if (tag == 0) old - key else old + (key to tag)
+    runCore(after = { syncAnimationFromNativeAfter() }) {
+        ReverieCoreBridge.animationSetKeyframeTag(layerIndex, time, tag)
+    }
+}
+
+/** 自动中割 (Auto In-betweening): 在两帧之间依据 Chamfer 距离场生成中间帧 */
+internal fun PaintViewModel.animationGenerateInbetween(
+    layerIndex: Int,
+    timeA: Int,
+    timeB: Int = -1,
+    targetTime: Int = -1,
+    t: Float = 0.5f,
+    onDone: (Boolean) -> Unit = {},
+) {
+    val times = anim.keyframeCache[layerIndex].orEmpty()
+    val curIdx = times.indexOf(timeA)
+    val actualB = if (timeB >= 0) timeB else {
+        if (curIdx in times.indices && curIdx + 1 < times.size) times[curIdx + 1] else -1
+    }
+    if (layerIndex < 0 || timeA < 0 || actualB < 0 || timeA == actualB) {
+        onDone(false)
+        return
+    }
+
+    if (actualB == timeA + 1 && targetTime < 0) {
+        // 两关键帧紧邻: 自动推挤后方关键帧 1 帧以插入中割帧
+        val curHold = if (curIdx in times.indices && curIdx + 1 < times.size) times[curIdx + 1] - times[curIdx] else (anim.lastFrameHold[layerIndex] ?: 1)
+        animationRippleResizeFrame(layerIndex, timeA, curHold + 1) {
+            val updatedTimes = anim.keyframeCache[layerIndex].orEmpty()
+            val newCurIdx = updatedTimes.indexOf(timeA)
+            val newB = if (newCurIdx in updatedTimes.indices && newCurIdx + 1 < updatedTimes.size) updatedTimes[newCurIdx + 1] else timeA + 2
+            val mid = (timeA + newB) / 2
+            runCore(after = {
+                syncAnimationFromNativeAfter()
+                animationSeek(mid)
+                onDone(true)
+            }) {
+                ReverieCoreBridge.animationGenerateInbetween(layerIndex, timeA, newB, mid, t)
+            }
+        }
+        return
+    }
+
+    val actualTarget = if (targetTime >= 0) targetTime else (timeA + actualB) / 2
+    runCore(after = {
+        syncAnimationFromNativeAfter()
+        animationSeek(actualTarget)
+        onDone(true)
+    }) {
+        ReverieCoreBridge.animationGenerateInbetween(layerIndex, timeA, actualB, actualTarget, t)
+    }
+}
+
 // ============================================================
 // 播放
 // ============================================================
@@ -1107,9 +1328,30 @@ internal fun PaintViewModel.animationPause() {
     anim.isPlaying = false
     anim.playGen++
     stopAnimAudio()
-    // 恢复洋葱皮: 与引擎同线程串行, 排在已入队的播放步进之后 (FIFO 保证
-    // 不会出现"恢复后仍有一帧播放渲染"的乱序)。
-    renderHandler?.post { ReverieCoreBridge.setOnionSkinSuppressed(false) }
+    // 恢复洋葱皮并重新渲染当前静止帧, 然后释放 RAM 缓存
+    renderHandler?.post {
+        ReverieCoreBridge.setOnionSkinSuppressed(false)
+        doRender()
+        for ((_, bmp) in anim.playbackRamCache) {
+            if (!bmp.isRecycled) {
+                bmp.recycle()
+            }
+        }
+        anim.playbackRamCache.clear()
+    }
+}
+
+/** 清理循环播放帧 RAM 缓存 (释放位图堆内存) */
+internal fun PaintViewModel.clearPlaybackRamCache() {
+    renderHandler?.post {
+        displayBitmap = frontBuffer
+        for ((_, bmp) in anim.playbackRamCache) {
+            if (!bmp.isRecycled) {
+                bmp.recycle()
+            }
+        }
+        anim.playbackRamCache.clear()
+    }
 }
 
 // ============================================================
@@ -1129,7 +1371,7 @@ private fun PaintViewModel.startAnimAudio() {
             f.writeBytes(bytes)
             val mp = android.media.MediaPlayer()
             mp.setDataSource(f.absolutePath)
-            mp.isLooping = true
+            mp.isLooping = anim.loopPlayback
             mp.prepare()
             mp.start()
             animAudioPlayers.add(mp)
@@ -1137,6 +1379,7 @@ private fun PaintViewModel.startAnimAudio() {
     }
 }
 
+/** 停止动画音频播放并释放播放器 */
 private fun PaintViewModel.stopAnimAudio() {
     for (mp in animAudioPlayers) {
         runCatching { if (mp.isPlaying) mp.stop() }
@@ -1152,6 +1395,9 @@ internal fun PaintViewModel.animationTogglePlay() {
 /** 切换单次 / 循环播放 */
 internal fun PaintViewModel.animationToggleLoop() {
     anim.loopPlayback = !anim.loopPlayback
+    for (mp in animAudioPlayers) {
+        runCatching { mp.isLooping = anim.loopPlayback }
+    }
     showActionToast(
         if (anim.loopPlayback) "循环播放" else "单次播放",
         if (anim.loopPlayback) R.drawable.ic_repeat_loop else R.drawable.ic_repeat_none,
@@ -1164,24 +1410,36 @@ internal fun PaintViewModel.animationStop() {
     animationSeek(playbackStartFrame())
 }
 
-/** 起始帧: 取所有轨道上已有关键帧的最小帧号 (无帧块处不播放) */
-private fun PaintViewModel.playbackStartFrame(): Int {
+// ============================================================
+// 播放驱动: 步进逻辑与代际令牌机制
+// ============================================================
+
+/**
+ * 实际用于播放的起始帧号: 优先用范围勾选时的起点, 否则是整个时间轴已有帧起点。
+ */
+internal fun PaintViewModel.playbackStartFrame(): Int {
+    if (anim.hasCustomPlaybackRange && anim.playbackEnd > anim.playbackStart) return anim.playbackStart
     val allTimes = anim.keyframeCache.values.flatten()
     return allTimes.minOrNull() ?: 0
 }
 
-/** 结束帧: 取所有轨道上已有关键帧的最大结束帧号 (包括末帧保持时长, 无帧块处不播放) */
+/**
+ * 实际用于播放的结束帧号 (闭区间端点):
+ * 优先用范围勾选时的终点; 若未设置, 取各轨道关键帧终点 (含末帧 hold)。
+ */
 internal fun PaintViewModel.playbackEndFrame(): Int {
-    var maxEnd = -1
+    if (anim.hasCustomPlaybackRange && anim.playbackEnd > anim.playbackStart) return anim.playbackEnd
+
+    var maxKey = -1
     for ((layer, times) in anim.keyframeCache) {
         if (times.isNotEmpty()) {
             val lastT = times.last()
             val hold = anim.lastFrameHold[layer] ?: 1
-            val end = lastT + hold
-            if (end > maxEnd) maxEnd = end
+            val end = lastT + hold - 1
+            if (end > maxKey) maxKey = end
         }
     }
-    return if (maxEnd > 0) maxEnd else maxOf(0, anim.length - 1)
+    return if (maxKey >= 0) maxKey else maxOf(0, anim.length - 1)
 }
 
 /** 单步播放。运行在 reverie-render 线程上 (由 animationPlay 投递)。 */
@@ -1206,7 +1464,28 @@ private fun PaintViewModel.animationStep(gen: Int) {
 
     ReverieCoreBridge.setAnimationCurrentTime(next, false)
     anim.currentTime = next
-    scheduleRender(immediate = true)
+
+    val cachedBmp = anim.playbackRamCache[next]
+    if (cachedBmp != null && !cachedBmp.isRecycled && cachedBmp.width == renderW && cachedBmp.height == renderH) {
+        displayBitmap = cachedBmp
+        val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
+            tv?.postInvalidateOnAnimation()
+        } else {
+            tv?.postInvalidate()
+        }
+    } else {
+        doRender()
+        if (anim.playbackRamCache.size < 120) {
+            val front = frontBuffer
+            if (front != null && !front.isRecycled) {
+                val copy = front.copy(Bitmap.Config.ARGB_8888, false)
+                if (copy != null) {
+                    anim.playbackRamCache[next] = copy
+                }
+            }
+        }
+    }
 
     if (!anim.loopPlayback && next >= end) {
         // 单次播放到达终点: 渲染完此最后一帧后停在最后一帧并暂停

@@ -250,3 +250,25 @@ internal fun DrawScope.drawRoundRectCompat(
         cornerRadius = CornerRadius(3f, 3f),
     )
 }
+
+internal fun DrawScope.drawGlyphOnionSkin() {
+    val r = size.width * 0.28f
+    val cy = size.height * 0.5f
+    drawCircle(
+        color = Morandi.text.copy(alpha = 0.40f),
+        radius = r,
+        center = Offset(size.width * 0.38f, cy),
+    )
+    drawCircle(
+        color = Morandi.text,
+        radius = r,
+        center = Offset(size.width * 0.62f, cy),
+    )
+}
+
+internal fun DrawScope.drawGlyphFlip() {
+    val h = size.height
+    val w = size.width
+    drawRoundRectCompat(Morandi.text.copy(alpha = 0.45f), Offset(w * 0.15f, h * 0.18f), Size(w * 0.45f, h * 0.64f))
+    drawRoundRectCompat(Morandi.text, Offset(w * 0.40f, h * 0.18f), Size(w * 0.45f, h * 0.64f))
+}

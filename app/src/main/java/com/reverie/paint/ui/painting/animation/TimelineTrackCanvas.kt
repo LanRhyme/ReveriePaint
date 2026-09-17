@@ -36,7 +36,9 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -56,6 +58,7 @@ import com.reverie.paint.core.FRAME_THUMB_H
 import com.reverie.paint.core.FRAME_THUMB_W
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
+import com.reverie.paint.core.animationBatchAdjustExposure
 import com.reverie.paint.core.animationRippleMoveFrame
 import com.reverie.paint.core.animationRippleResizeFrame
 import com.reverie.paint.core.animationSeek
@@ -127,6 +130,30 @@ internal fun TimelineRuler(
     ) {
         val first = ((scroll / frameW).toInt() - 2).coerceAtLeast(0)
         val last = ((scroll + size.width) / frameW).toInt() + 2
+
+        val waveform = vm.anim.audioWaveform
+        if (waveform.isNotEmpty()) {
+            val totalFrames = maxOf(1, vm.anim.length)
+            val samplesPerFrame = waveform.size.toFloat() / totalFrames
+            val rulerMidY = size.height * 0.58f
+            val maxAmpH = size.height * 0.35f
+            for (f in first..last) {
+                if (f < 0 || f >= totalFrames) continue
+                val screenX = f * frameW - scroll
+                val sIdx = (f * samplesPerFrame).toInt().coerceIn(0, waveform.size - 1)
+                val amp = waveform[sIdx]
+                val barH = amp * maxAmpH
+                if (barH > 0.8f) {
+                    drawRoundRect(
+                        color = Morandi.accent.copy(alpha = 0.35f),
+                        topLeft = Offset(screenX + 2f, rulerMidY - barH),
+                        size = Size((frameW - 4f).coerceAtLeast(2f), barH * 2f),
+                        cornerRadius = CornerRadius(2f, 2f),
+                    )
+                }
+            }
+        }
+
         for (f in first..last) {
             if (f < 0) continue
             val screenX = f * frameW - scroll
@@ -217,6 +244,7 @@ internal fun TimelineTrackArea(
     var trimDrag by remember { mutableStateOf<TrimDragState?>(null) }
     var dragDx by remember { mutableFloatStateOf(0f) }
     var canvasWpx by remember { mutableFloatStateOf(0f) }
+    var trackAreaTopInWindow by remember { mutableFloatStateOf(0f) }
     val liveHaptics = rememberUpdatedState(LocalHapticFeedback.current)
 
     val coroutineScope = rememberCoroutineScope()
@@ -253,7 +281,12 @@ internal fun TimelineTrackArea(
         )
     }
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { coords ->
+                trackAreaTopInWindow = coords.positionInWindow().y
+            },
+    ) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -293,9 +326,9 @@ internal fun TimelineTrackArea(
                         return if (inBlock) Triple(layer, hit, true) else Triple(layer, frame, false)
                     }
 
-                    // 检查是否命中单帧右边缘的拉伸手柄
+                    // 检查是否命中帧右边缘的拉伸手柄 (单选及多选均支持)
                     fun hitTestTrimHandle(x: Float, y: Float): TrimDragState? {
-                        if (vm.anim.isMultiSelectMode || vm.anim.isPlaying) return null
+                        if (vm.anim.isPlaying) return null
                         val ls = liveLayers.value
                         val rpx = liveRowPx.value
                         val hw = liveHeaderW.value
@@ -309,11 +342,15 @@ internal fun TimelineTrackArea(
                         if (times.isEmpty()) return null
 
                         val activeTime = vm.anim.currentTime
-                        // 严格仅允许拉伸当前处于选中/激活状态的帧 (与界面唯一绘制的 5dp 手柄视觉对应, 杜绝误匹配未选中帧块)
                         for (i in times.indices) {
                             val t = times[i]
                             val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
-                            if (activeTime in t until nxt) {
+                            val isTarget = if (vm.anim.isMultiSelectMode) {
+                                vm.anim.selectedFrames.contains(t)
+                            } else {
+                                activeTime in t until nxt
+                            }
+                            if (isTarget) {
                                 val span = (nxt - t).coerceAtLeast(1)
                                 val rightEdgeX = hw + (t + span) * vm.anim.frameWidthPx - vm.anim.scrollPx
                                 val touchMinX = rightEdgeX - trimTouchRadius
@@ -321,7 +358,6 @@ internal fun TimelineTrackArea(
                                 if (x in touchMinX..touchMaxX) {
                                     return TrimDragState(layer, t, span)
                                 }
-                                return null
                             }
                         }
                         return null
@@ -456,10 +492,17 @@ internal fun TimelineTrackArea(
                                                     animationSpec = spring(dampingRatio = 0.78f, stiffness = 550f),
                                                 )
                                                 if (finalSpan != td.origSpan) {
-                                                    vm.animationRippleResizeFrame(td.layer, td.frameTime, finalSpan) {
+                                                    if (vm.anim.isMultiSelectMode) {
+                                                        vm.animationBatchAdjustExposure(td.layer, deltaF)
                                                         trimDrag = null
                                                         isSnappingTrim = false
                                                         dragDx = 0f
+                                                    } else {
+                                                        vm.animationRippleResizeFrame(td.layer, td.frameTime, finalSpan) {
+                                                            trimDrag = null
+                                                            isSnappingTrim = false
+                                                            dragDx = 0f
+                                                        }
                                                     }
                                                 } else {
                                                     trimDrag = null
@@ -493,7 +536,8 @@ internal fun TimelineTrackArea(
                                 if (!vm.anim.isPlaying && downPos.x < hw && row in ls.indices) {
                                     val layer = ls[row]
                                     liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    trackMenu = TrackMenuState(layer.index, layer.name, downPos.x, downPos.y)
+                                    val rowTop = row * rpx - liveScroll.value
+                                    trackMenu = TrackMenuState(layer.index, layer.name, hw / 2f, rowTop)
                                     while (true) {
                                         val ev = awaitPointerEvent()
                                         val pressed = ev.changes.filter { it.pressed }
@@ -526,8 +570,19 @@ internal fun TimelineTrackArea(
                                         if (abs(pendingX) > slop || abs(pendingY) > slop) { b = 1; break }
                                     }
                                     if (b == 0) {
+                                        val rowTop = row * rpx - liveScroll.value
+                                        val times = vm.anim.keyframeCache[hitLayer].orEmpty()
+                                        val idx = times.indexOf(hitTime)
+                                        val hold = if (idx >= 0 && idx + 1 < times.size) {
+                                            (times[idx + 1] - hitTime).coerceAtLeast(1)
+                                        } else {
+                                            (vm.anim.lastFrameHold[hitLayer] ?: 1)
+                                        }
+                                        val span = if (hitOnBlock) hold else 1
+                                        val cellStartX = hw + hitTime * vm.anim.frameWidthPx - vm.anim.scrollPx
+                                        val cellCenterX = cellStartX + (span * vm.anim.frameWidthPx) / 2f
                                         frameMenu = FrameMenuState(
-                                            hitLayer, hitTime, downPos.x, downPos.y, hitOnBlock,
+                                            hitLayer, hitTime, cellCenterX, rowTop, hitOnBlock,
                                         )
                                         continue@gesture
                                     }
@@ -871,29 +926,62 @@ internal fun TimelineTrackArea(
                                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
                                         style = Stroke(width = bw),
                                     )
+                                }
 
-                                    // 单选状态下的右边缘拉伸手柄 (精致纤细的 5dp 胶囊把手)
-                                    if (!vm.anim.isMultiSelectMode && !vm.anim.isPlaying) {
-                                        val handleX = cellX + cellW - trimHandleVisualW / 2f
-                                        val handleH = (cellH * 0.52f).coerceAtLeast(with(density) { 14.dp.toPx() })
-                                        val handleY = cellY + (cellH - handleH) / 2f
-                                        drawRoundRect(
-                                            color = Morandi.accent,
-                                            topLeft = Offset(handleX, handleY),
-                                            size = Size(trimHandleVisualW, handleH),
-                                            cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
-                                        )
-                                        drawRoundRect(
-                                            color = Color.White.copy(alpha = 0.90f),
-                                            topLeft = Offset(handleX + 0.5f, handleY + 0.5f),
-                                            size = Size(
-                                                (trimHandleVisualW - 1f).coerceAtLeast(1f),
-                                                (handleH - 1f).coerceAtLeast(1f),
-                                            ),
-                                            cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
-                                            style = Stroke(width = 1f),
-                                        )
+                                // 关键帧色标标签 (在选中框顶层绘制, 配合边框内缩, 绝不被遮挡)
+                                val tag = vm.anim.keyframeTags[frameThumbKey(layer.index, t)] ?: 0
+                                if (tag > 0) {
+                                    val tagColor = when (tag) {
+                                        1 -> Color(0xFFE55D42) // 原画 Key (橙红)
+                                        2 -> Color(0xFF3F77B0) // 中割 Breakdown (群青)
+                                        3 -> Color(0xFF4FA06B) // 草稿 Guide (青绿)
+                                        else -> Color.Transparent
                                     }
+                                    val borderInset = if (active || isMultiSelected) selBorderPx + 1.5f else 2.5f
+                                    val stripH = 3.5f.dp.toPx()
+                                    val tagTop = cellY + borderInset
+                                    val tagLeft = cellX + borderInset + 1f
+                                    val tagW = (cellW - (borderInset + 1f) * 2f).coerceAtLeast(1f)
+                                    // 微暗衬底增强对比度, 使色标在任何明暗底色与高亮边框内均清晰醒目
+                                    drawRoundRect(
+                                        color = Color.Black.copy(alpha = 0.35f),
+                                        topLeft = Offset(tagLeft - 0.5f, tagTop - 0.5f),
+                                        size = Size(tagW + 1f, stripH + 1f),
+                                        cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+                                    )
+                                    drawRoundRect(
+                                        color = tagColor,
+                                        topLeft = Offset(tagLeft, tagTop),
+                                        size = Size(tagW, stripH),
+                                        cornerRadius = CornerRadius(1.8f.dp.toPx(), 1.8f.dp.toPx()),
+                                    )
+                                }
+
+                                // 右边缘拉伸手柄 (单选及多选均展示)
+                                val showTrimHandle = !vm.anim.isPlaying && (
+                                    (!vm.anim.isMultiSelectMode && active) ||
+                                    (vm.anim.isMultiSelectMode && isMultiSelected)
+                                )
+                                if (showTrimHandle) {
+                                    val handleX = cellX + cellW - trimHandleVisualW / 2f
+                                    val handleH = (cellH * 0.52f).coerceAtLeast(with(density) { 14.dp.toPx() })
+                                    val handleY = cellY + (cellH - handleH) / 2f
+                                    drawRoundRect(
+                                        color = Morandi.accent,
+                                        topLeft = Offset(handleX, handleY),
+                                        size = Size(trimHandleVisualW, handleH),
+                                        cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
+                                    )
+                                    drawRoundRect(
+                                        color = Color.White.copy(alpha = 0.90f),
+                                        topLeft = Offset(handleX + 0.5f, handleY + 0.5f),
+                                        size = Size(
+                                            (trimHandleVisualW - 1f).coerceAtLeast(1f),
+                                            (handleH - 1f).coerceAtLeast(1f),
+                                        ),
+                                        cornerRadius = CornerRadius(trimHandleRadius, trimHandleRadius),
+                                        style = Stroke(width = 1f),
+                                    )
                                 }
                             }
 
@@ -1124,6 +1212,7 @@ internal fun TimelineTrackArea(
                 menu = menu,
                 vm = vm,
                 canvasWpx = canvasWpx,
+                trackAreaTopInWindow = trackAreaTopInWindow,
                 rowPx = rowPx,
                 haptics = liveHaptics.value,
                 onDismiss = { frameMenu = null },
@@ -1135,6 +1224,7 @@ internal fun TimelineTrackArea(
                 menu = menu,
                 vm = vm,
                 canvasWpx = canvasWpx,
+                trackAreaTopInWindow = trackAreaTopInWindow,
                 rowPx = rowPx,
                 onDismiss = { trackMenu = null },
             )

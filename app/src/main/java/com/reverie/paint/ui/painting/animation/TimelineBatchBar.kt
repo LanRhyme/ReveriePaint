@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.animationBatchAdjustExposure
 import com.reverie.paint.core.animationBatchDeleteSelected
 import com.reverie.paint.core.animationBatchDuplicateSelected
 import com.reverie.paint.core.animationBatchShiftSelected
@@ -48,7 +49,7 @@ import com.reverie.paint.ui.theme.Morandi
  * 时间轴多选模式下的底部批量操作栏。
  *
  * 替代常态控制条展示, 提供:
- * 退出多选 / 选中帧数计数 / 一拍N (1/2/3) / 左右平移 / 批量复制 / 批量删除 / 全选 / 反选 / 清空。
+ * 退出多选 / 选中帧数计数 / 一拍N (1/2/3) / 批量曝光伸缩 (+1/-1) / 左右平移 / 批量复制 / 批量删除 / 全选 / 反选 / 清空。
  */
 @Composable
 internal fun TimelineBatchBar(
@@ -119,6 +120,21 @@ internal fun TimelineBatchBar(
         GlyphTextButton(
             text = "1拍3",
             onClick = { vm.animationSetSelectedDuration(track, 3) },
+        )
+
+        Spacer(modifier = Modifier.width(6.dp))
+
+        // 批量曝光伸缩
+        GlyphTextButton(
+            text = "+1帧",
+            onClick = { vm.animationBatchAdjustExposure(track, 1) },
+            draw = { drawGlyphPlus() },
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        GlyphTextButton(
+            text = "-1帧",
+            onClick = { vm.animationBatchAdjustExposure(track, -1) },
+            draw = { drawGlyphMinus() },
         )
 
         Spacer(modifier = Modifier.width(10.dp))

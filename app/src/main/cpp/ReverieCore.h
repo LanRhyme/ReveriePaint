@@ -287,6 +287,22 @@ public:
     // 一拍N (选中帧版): 只重排选中的帧, 区间内未选中帧保持原间距整体后移
     bool setSelectedKeyframesDuration(int layerIndex, const QVector<int> &selectedTimes, int duration);
 
+    // 自动中割 (Auto In-betweening): 在两帧 (timeA, timeB) 之间依据 Chamfer 距离场生成中间帧并写入 targetTime
+    bool generateInbetween(int layerIndex, int timeA, int timeB, int targetTime, float t = 0.5f,
+                           qreal epsilon = 1.2, int blurPasses = 1, int denoiseArea = 6);
+
+    // 关键帧色标/类型标签 (0=无, 1=原画/Key-橙红, 2=中割/Breakdown-群青, 3=草稿/Guide-青绿)
+    int keyframeTag(int layerIndex, int time) const;
+    void setKeyframeTag(int layerIndex, int time, int tag);
+    QHash<quint64, int> allKeyframeTags() const { return m_keyframeTags; }
+    void loadKeyframeTag(int layerIndex, int time, int tag);
+
+    // 轨道末帧保持时长 (Hold Duration): 末关键帧持续帧数 (默认 1)
+    int lastFrameHold(int layerIndex) const;
+    void setLastFrameHold(int layerIndex, int hold, bool recordUndo = true);
+    QHash<int, int> allLastFrameHolds() const { return m_lastFrameHold; }
+    void loadLastFrameHold(int layerIndex, int hold);
+
     // 把 [time] 位置关键帧的画面渲染成缩略图 (RGBA, w*h*4 字节, 行跨距 dstStride)。
     // 与 renderLayerThumb 的区别: 后者总是画图层的"当前"内容, 而时间轴需要
     // 让每个帧块显示它自己那一帧。实现走 KisRasterKeyframeChannel::writeToDevice
@@ -707,6 +723,10 @@ private:
 
     // 导入资源 (音频/视频等二进制), 保存 .revp 时写入 assets/ 条目
     QMap<QString, QByteArray> m_revAssets;
+    // 关键帧色标与标签: (图层, 帧号) -> 标签值
+    QHash<quint64, int> m_keyframeTags;
+    // 轨道末帧保持时长 (Hold Duration): 图层索引 -> 持续帧数 (默认 1)
+    QHash<int, int> m_lastFrameHold;
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
