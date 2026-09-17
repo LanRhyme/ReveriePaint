@@ -317,6 +317,8 @@ class PaintViewModel : ViewModel() {
     var favoriteBrushNames by mutableStateOf<Set<String>>(emptySet())
     var recentBrushNames by mutableStateOf<List<String>>(emptyList())
     var settingsPanelOpen by mutableStateOf(false)
+    var targetSettingsTab by mutableStateOf<String?>(null)
+    var targetExportAnimation by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
 
     fun toggleFavoriteBrush(name: String) {

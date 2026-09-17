@@ -289,6 +289,23 @@ internal fun TimelineSettings(
 
         ReSectionTitle(text = "导入", modifier = Modifier.padding(start = 12.dp))
         TimelineImportRow(vm = vm)
+
+        ReSectionTitle(text = "导出", modifier = Modifier.padding(start = 12.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReChip(
+                text = "导出动画 (GIF / 视频 / 序列帧)",
+                onTap = {
+                    vm.targetSettingsTab = "EXPORT"
+                    vm.targetExportAnimation = true
+                    vm.settingsPanelOpen = true
+                },
+            )
+        }
     }
 }
 

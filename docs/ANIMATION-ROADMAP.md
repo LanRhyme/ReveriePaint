@@ -274,3 +274,4 @@ root 身份运行 gradle 需显式指定 `GRADLE_USER_HOME` 与 `ANDROID_USER_HO
 4. 撤销后的关键帧缓存同步（需挂到 undo 流程）
 5. 音频/视频导入（图层即轨道的模型天然容纳音轨层）
 6. 一拍 N / 批量移动等 TVPaint 语义的 UI 入口（引擎侧已实现，缺交互）
+7. 动画导出（已完成：纯 Kotlin GIF89a 动图编码器、MediaCodec H.264 MP4 视频硬件编码器、PNG 序列帧 Zip 归档打包器）

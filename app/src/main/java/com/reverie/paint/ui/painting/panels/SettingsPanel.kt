@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,7 +82,20 @@ fun SettingsPanel(
     onOpenFilters: ((List<Int>) -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var currentTab by remember { mutableStateOf(SettingsTab.CANVAS) }
+    val initialTab = when (vm.targetSettingsTab) {
+        "EXPORT" -> SettingsTab.EXPORT
+        "SETTINGS" -> SettingsTab.SETTINGS
+        else -> SettingsTab.CANVAS
+    }
+    var currentTab by remember { mutableStateOf(initialTab) }
+    LaunchedEffect(vm.targetSettingsTab) {
+        when (vm.targetSettingsTab) {
+            "EXPORT" -> currentTab = SettingsTab.EXPORT
+            "SETTINGS" -> currentTab = SettingsTab.SETTINGS
+            "CANVAS" -> currentTab = SettingsTab.CANVAS
+        }
+        vm.targetSettingsTab = null
+    }
     val panelShape = RoundedCornerShape(14.dp)
 
     Box(
