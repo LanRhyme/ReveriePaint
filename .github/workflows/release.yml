@@ -90,3 +90,12 @@ jobs:
         with:
           files: ci-artifacts/ReveriePaint-${{ steps.tag.outputs.tag }}.apk
           generate_release_notes: true
+
+      - name: Trigger MirrorChyanUploading
+        if: startsWith(github.ref, 'refs/tags/') && github.repository_owner == 'LanRhyme'
+        shell: bash
+        run: |
+          gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_release.yml -f tag=${{ steps.tag.outputs.tag }}
+          gh workflow run --repo $GITHUB_REPOSITORY mirrorchyan_release_note.yml -f tag=${{ steps.tag.outputs.tag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
