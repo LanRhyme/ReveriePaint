@@ -327,7 +327,7 @@ internal fun LayerListView(
         val haptic = LocalHapticFeedback.current
         val selLayer = vm.layers.getOrNull(selectedIndex)
         val isBg = selLayer?.isBackground ?: true
-        val isFilter = selLayer?.nodeType == 3 || selLayer?.name?.contains("滤镜") == true
+        val isFilter = selLayer?.nodeType == 3 || selLayer?.name?.contains("滤镜") == true || selLayer?.name?.contains("Filter", ignoreCase = true) == true
 
         // Top actions: + new paint layer | folder group | more layers (menu) | lock layer | lock alpha | clip mask | merge down
         Row(
@@ -492,8 +492,8 @@ internal fun LayerListView(
                                         val bottomVisual = maxOf(pinchRow1, pinchRow2)
                                         if (topVisual < bottomVisual && topVisual in displayList.indices) {
                                             val upperLayer = displayList[topVisual]
-                                            val isBg = upperLayer.index == 0 || upperLayer.name == "背景"
-                                            val isFilter = upperLayer.nodeType == 3 || upperLayer.name.contains("滤镜")
+                                            val isBg = upperLayer.index == 0 || upperLayer.name == "背景" || upperLayer.name.equals("Background", ignoreCase = true)
+                                            val isFilter = upperLayer.nodeType == 3 || upperLayer.name.contains("滤镜") || upperLayer.name.contains("Filter", ignoreCase = true)
                                             if (!isBg) {
                                                 if (isFilter) {
                                                     pinchTriggered = true

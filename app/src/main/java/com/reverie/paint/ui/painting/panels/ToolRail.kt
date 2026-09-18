@@ -141,7 +141,7 @@ fun ToolRail(
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
                         ReIconButton(
                             toolIcon(t),
-                            t.label,
+                            t.displayName,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
                                 if (t == Tool.REFERENCE) {
@@ -175,7 +175,7 @@ fun ToolRail(
                                         .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
                                     Text(
-                                        t.label,
+                                        t.displayName,
                                         color = Morandi.text,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium

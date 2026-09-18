@@ -212,6 +212,7 @@ internal fun TimelineTrackArea(
     val layers = remember(vm.layers) { vm.layers.reversed() }
 
     val density = LocalDensity.current
+    val context = LocalContext.current
     val eyePainter = painterResource(R.drawable.ic_eye)
     val eyeOffPainter = painterResource(R.drawable.ic_eye_off)
     val headerW = with(density) { trackHeaderW.toPx() }
@@ -1117,7 +1118,7 @@ internal fun TimelineTrackArea(
                         if (row >= 0) {
                             val effectiveTrimDx = if (isSnappingTrim) trimSnapDx.value else dragDx
                             val curSpan = (td.origSpan + (effectiveTrimDx / frameW).roundToInt()).coerceAtLeast(1)
-                            val tipText = "$curSpan 帧 · 1拍$curSpan"
+                            val tipText = context.getString(R.string.timeline_span_tip, curSpan, curSpan)
                             val tipLayout = textMeasurer.measure(
                                 text = tipText,
                                 style = TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold),

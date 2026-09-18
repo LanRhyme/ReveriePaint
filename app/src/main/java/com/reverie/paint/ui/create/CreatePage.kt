@@ -109,29 +109,29 @@ fun getDeviceScreenResolution(context: Context): Pair<Int, Int> {
 /**
  * Returns human-readable aspect ratio label.
  */
-fun getAspectRatioLabel(w: Int, h: Int): String {
+fun getAspectRatioLabel(w: Int, h: Int, context: Context? = null): String {
     if (w <= 0 || h <= 0) return ""
     // Specific standard paper / comic dimensions
     if ((w == 2150 && h == 3035) || (w == 3035 && h == 2150)) {
-        return if (w <= h) "B5 漫画" else "B5 横版"
+        return if (w <= h) context?.getString(R.string.create_ratio_b5_comic) ?: "B5 漫画" else context?.getString(R.string.create_ratio_b5_landscape) ?: "B5 横版"
     }
     if ((w == 2480 && h == 3508) || (w == 3508 && h == 2480)) {
-        return if (w <= h) "A4 纸张" else "A4 横版"
+        return if (w <= h) context?.getString(R.string.create_ratio_a4_paper) ?: "A4 纸张" else context?.getString(R.string.create_ratio_a4_landscape) ?: "A4 横版"
     }
     val ratio = w.toFloat() / h.toFloat()
     return when {
-        abs(ratio - 1.0f) < 0.01f -> "1:1 正方形"
-        abs(ratio - 16f / 9f) < 0.02f -> "16:9 宽屏"
-        abs(ratio - 9f / 16f) < 0.02f -> "9:16 竖屏"
-        abs(ratio - 4f / 3f) < 0.02f -> "4:3 标准"
-        abs(ratio - 3f / 4f) < 0.02f -> "3:4 竖屏"
-        abs(ratio - 1080f / 2400f) < 0.02f -> "20:9 手机壁纸"
-        abs(ratio - 1080f / 4000f) < 0.02f -> "长图条漫"
+        abs(ratio - 1.0f) < 0.01f -> context?.getString(R.string.create_ratio_square) ?: "1:1 正方形"
+        abs(ratio - 16f / 9f) < 0.02f -> context?.getString(R.string.create_ratio_widescreen) ?: "16:9 宽屏"
+        abs(ratio - 9f / 16f) < 0.02f -> context?.getString(R.string.create_ratio_portrait_9_16) ?: "9:16 竖屏"
+        abs(ratio - 4f / 3f) < 0.02f -> context?.getString(R.string.create_ratio_standard_4_3) ?: "4:3 标准"
+        abs(ratio - 3f / 4f) < 0.02f -> context?.getString(R.string.create_ratio_portrait_3_4) ?: "3:4 竖屏"
+        abs(ratio - 1080f / 2400f) < 0.02f -> context?.getString(R.string.create_ratio_wallpaper_20_9) ?: "20:9 手机壁纸"
+        abs(ratio - 1080f / 4000f) < 0.02f -> context?.getString(R.string.create_ratio_webtoon) ?: "长图条漫"
         else -> {
             val gcdVal = gcd(w, h)
             val rw = w / gcdVal
             val rh = h / gcdVal
-            if (rw in 1..20 && rh in 1..20) "$rw:$rh" else if (w >= h) "横屏画幅" else "竖屏画幅"
+            if (rw in 1..20 && rh in 1..20) "$rw:$rh" else if (w >= h) context?.getString(R.string.create_ratio_landscape) ?: "横屏画幅" else context?.getString(R.string.create_ratio_portrait) ?: "竖屏画幅"
         }
     }
 }
@@ -202,27 +202,27 @@ fun getSystemPresets(context: Context): List<CanvasPresetItem> {
     return listOf(
         CanvasPresetItem(
             id = "sys_screen",
-            name = "当前设备全屏",
+            name = context.getString(R.string.create_preset_current_screen),
             width = screenW,
             height = screenH,
             defaultPpi = 300,
-            description = "完美铺满当前设备物理屏幕"
+            description = context.getString(R.string.create_preset_current_screen_desc)
         ),
         CanvasPresetItem(
             id = "sys_square_2k",
-            name = "正方形 2K",
+            name = context.getString(R.string.create_preset_square_2k),
             width = 2048,
             height = 2048,
             defaultPpi = 300,
-            description = "头像、插画与社交贴图常用规格"
+            description = context.getString(R.string.create_preset_square_2k_desc)
         ),
         CanvasPresetItem(
             id = "sys_square_4k",
-            name = "正方形 4K",
+            name = context.getString(R.string.create_preset_square_4k),
             width = 4096,
             height = 4096,
             defaultPpi = 300,
-            description = "超高清正方形精细绘制与高细节输出"
+            description = context.getString(R.string.create_preset_square_4k_desc)
         ),
         CanvasPresetItem(
             id = "sys_16_9_4k",
@@ -230,7 +230,7 @@ fun getSystemPresets(context: Context): List<CanvasPresetItem> {
             width = 3840,
             height = 2160,
             defaultPpi = 150,
-            description = "超清横屏概念设计、影视与场景绘制"
+            description = context.getString(R.string.create_preset_4k_landscape_desc)
         ),
         CanvasPresetItem(
             id = "sys_16_9_2k",
@@ -238,55 +238,55 @@ fun getSystemPresets(context: Context): List<CanvasPresetItem> {
             width = 2560,
             height = 1440,
             defaultPpi = 100,
-            description = "标准高清横屏壁纸与概念插画"
+            description = context.getString(R.string.create_preset_2k_landscape_desc)
         ),
         CanvasPresetItem(
             id = "sys_16_9_fhd",
-            name = "全高清 FHD (16:9)",
+            name = context.getString(R.string.create_preset_fhd),
             width = 1920,
             height = 1080,
             defaultPpi = 72,
-            description = "经典 16:9 影视标准与游戏插图"
+            description = context.getString(R.string.create_preset_fhd_desc)
         ),
         CanvasPresetItem(
             id = "sys_9_16_poster",
-            name = "竖屏海报 (9:16)",
+            name = context.getString(R.string.create_preset_poster_9_16),
             width = 1080,
             height = 1920,
             defaultPpi = 72,
-            description = "移动端全屏短视频封面与竖屏宣传海报"
+            description = context.getString(R.string.create_preset_poster_9_16_desc)
         ),
         CanvasPresetItem(
             id = "sys_mobile_wallpaper",
-            name = "手机壁纸",
+            name = context.getString(R.string.create_preset_phone_wallpaper),
             width = 1080,
             height = 2400,
             defaultPpi = 300,
-            description = "主流全面屏手机高分辨率锁屏与桌面"
+            description = context.getString(R.string.create_preset_phone_wallpaper_desc)
         ),
         CanvasPresetItem(
             id = "sys_a4_print",
-            name = "A4 纸张印刷",
+            name = context.getString(R.string.create_preset_a4_print),
             width = 2480,
             height = 3508,
             defaultPpi = 300,
-            description = "国际标准 A4 规格 (210×297 mm @ 300 DPI)"
+            description = context.getString(R.string.create_preset_a4_print_desc)
         ),
         CanvasPresetItem(
             id = "sys_b5_comic",
-            name = "B5 漫画原稿",
+            name = context.getString(R.string.create_preset_b5_comic),
             width = 2150,
             height = 3035,
             defaultPpi = 350,
-            description = "日系漫画单页与同人志标准黑白/彩色原稿"
+            description = context.getString(R.string.create_preset_b5_comic_desc)
         ),
         CanvasPresetItem(
             id = "sys_strip_comic",
-            name = "网络长图条漫",
+            name = context.getString(R.string.create_preset_webtoon),
             width = 1080,
             height = 4000,
             defaultPpi = 150,
-            description = "长条漫画排版与多格剧情连载长图"
+            description = context.getString(R.string.create_preset_webtoon_desc)
         )
     )
 }
@@ -308,7 +308,7 @@ fun CreatePage(vm: PaintViewModel) {
         if (uri != null) {
             val bmp = ImageImportHelper.decodeUriSafely(context, uri)
             if (bmp != null) {
-                val name = ImageImportHelper.getFileName(context, uri) ?: "导入图片"
+                val name = ImageImportHelper.getFileName(context, uri) ?: context.getString(R.string.canvas_action_import_image)
                 val snapFile = ImageImportHelper.writeTempPng(context, bmp)
                 vm.startPainting(
                     w = bmp.width,
@@ -318,7 +318,7 @@ fun CreatePage(vm: PaintViewModel) {
                     initialSnapshotFile = snapFile,
                 )
             } else {
-                android.widget.Toast.makeText(context, "无法载入该图片", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -379,10 +379,10 @@ fun CreatePage(vm: PaintViewModel) {
     if (showSavePresetDialog) {
         AlertDialog(
             onDismissRequest = { showSavePresetDialog = false },
-            title = { Text("保存预设", color = colors.text, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.create_preset_save_title), color = colors.text, fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("为此预设命名：", color = colors.subText, fontSize = 13.sp)
+                    Text(stringResource(R.string.create_preset_name_hint), color = colors.subText, fontSize = 13.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = newPresetName,
@@ -402,15 +402,15 @@ fun CreatePage(vm: PaintViewModel) {
             },
             confirmButton = {
                 ReTextButton(
-                    "保存",
+                    stringResource(R.string.common_save),
                     onClick = {
-                        val pName = newPresetName.ifBlank { "预设 ${widthVal}×${heightVal}" }
+                        val pName = newPresetName.ifBlank { context.getString(R.string.create_preset_default_title_format, widthVal, heightVal) }
                         val newItem = CanvasPresetItem(
                             name = pName,
                             width = widthVal,
                             height = heightVal,
                             defaultPpi = ppiVal,
-                            description = "自定义预设 · $pName",
+                            description = context.getString(R.string.create_custom_preset_desc_format, pName),
                             isCustom = true
                         )
                         customPresets.add(0, newItem)
@@ -423,7 +423,7 @@ fun CreatePage(vm: PaintViewModel) {
                 )
             },
             dismissButton = {
-                ReTextButton("取消", { showSavePresetDialog = false }, textColor = colors.subText)
+                ReTextButton(stringResource(R.string.common_cancel), { showSavePresetDialog = false }, textColor = colors.subText)
             },
             containerColor = colors.panel
         )
@@ -434,11 +434,11 @@ fun CreatePage(vm: PaintViewModel) {
         val target = presetToDelete!!
         AlertDialog(
             onDismissRequest = { presetToDelete = null },
-            title = { Text("删除预设", color = colors.text, fontWeight = FontWeight.Bold) },
-            text = { Text("确定要删除自定义预设「${target.name}」吗？", color = colors.subText, fontSize = 14.sp) },
+            title = { Text(stringResource(R.string.create_preset_delete_title), color = colors.text, fontWeight = FontWeight.Bold) },
+            text = { Text(context.getString(R.string.create_preset_delete_confirm, target.name), color = colors.subText, fontSize = 14.sp) },
             confirmButton = {
                 ReTextButton(
-                    "删除",
+                    stringResource(R.string.common_delete),
                     onClick = {
                         customPresets.removeAll { it.id == target.id }
                         CustomPresetManager.savePresets(context, customPresets)
@@ -449,7 +449,7 @@ fun CreatePage(vm: PaintViewModel) {
                 )
             },
             dismissButton = {
-                ReTextButton("取消", onClick = { presetToDelete = null }, textColor = colors.subText)
+                ReTextButton(stringResource(R.string.common_cancel), onClick = { presetToDelete = null }, textColor = colors.subText)
             },
             containerColor = colors.panel
         )
@@ -676,12 +676,12 @@ fun CreatePage(vm: PaintViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "预计最大图层",
+                                text = stringResource(R.string.create_expected_max_layers),
                                 color = colors.subText,
                                 fontSize = 12.sp
                             )
                             Text(
-                                text = "最多 $maxLayers 层",
+                                text = stringResource(R.string.create_max_layers_desc, maxLayers),
                                 color = colors.accent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
@@ -695,7 +695,7 @@ fun CreatePage(vm: PaintViewModel) {
 
                     CreateCanvasActions(
                         onSavePreset = {
-                            newPresetName = "预设 ${widthVal}×${heightVal}"
+                            newPresetName = context.getString(R.string.create_preset_default_title_format, widthVal, heightVal)
                             showSavePresetDialog = true
                         },
                         onCreate = onStartPainting,
@@ -714,7 +714,7 @@ fun CreatePage(vm: PaintViewModel) {
             ) {
                 // Top Segmented Switcher: [ 常用预设 | 自定义尺寸 ]
                 SegmentedTabSwitcher(
-                    tabs = listOf("常用预设", "自定义尺寸"),
+                    tabs = listOf(stringResource(R.string.create_tab_common_presets), stringResource(R.string.create_tab_custom_size)),
                     selectedIndex = portraitTab,
                     onTabSelected = { portraitTab = it },
                     modifier = Modifier.fillMaxWidth()
@@ -731,7 +731,7 @@ fun CreatePage(vm: PaintViewModel) {
                     ) {
                         // Sub-switcher between System and Saved presets
                         SegmentedTabSwitcher(
-                            tabs = listOf("系统预设", "我的预设"),
+                            tabs = listOf(stringResource(R.string.create_tab_system_presets), stringResource(R.string.create_tab_my_presets)),
                             selectedIndex = presetTab.coerceIn(0, 1),
                             onTabSelected = { presetTab = it },
                             modifier = Modifier.fillMaxWidth()
@@ -848,12 +848,12 @@ fun CreatePage(vm: PaintViewModel) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "预计最大图层",
+                                    text = stringResource(R.string.create_expected_max_layers),
                                     color = colors.subText,
                                     fontSize = 12.sp
                                 )
                                 Text(
-                                    text = "最多 $maxLayers 层",
+                                    text = stringResource(R.string.create_max_layers_desc, maxLayers),
                                     color = colors.accent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold
@@ -864,7 +864,7 @@ fun CreatePage(vm: PaintViewModel) {
 
                         CreateCanvasActions(
                             onSavePreset = {
-                                newPresetName = "预设 ${widthVal}×${heightVal}"
+                                newPresetName = context.getString(R.string.create_preset_default_title_format, widthVal, heightVal)
                                 showSavePresetDialog = true
                             },
                             onCreate = onStartPainting,
@@ -887,8 +887,9 @@ private fun PaperCanvasPreview(
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
+    val context = LocalContext.current
     val isLandscape = widthVal >= heightVal
-    val ratioLabel = remember(widthVal, heightVal) { getAspectRatioLabel(widthVal, heightVal) }
+    val ratioLabel = remember(widthVal, heightVal) { getAspectRatioLabel(widthVal, heightVal, context) }
 
     Column(
         modifier = modifier
@@ -1170,7 +1171,7 @@ private fun CanvasDimensionsCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("分辨率 (DPI)", color = colors.subText, fontSize = 12.sp)
+            Text(stringResource(R.string.create_dpi_label), color = colors.subText, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(72, 150, 300, 350).forEach { ppiOption ->
                     val isSelected = ppi == ppiOption.toString()
@@ -1322,7 +1323,7 @@ private fun PortraitPresetBottomBar(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "创建画布",
+                    text = stringResource(R.string.create_title),
                     color = colors.onAccent,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
@@ -1357,7 +1358,7 @@ private fun CreateCanvasActions(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = "动画画布",
+                    text = stringResource(R.string.create_anim_canvas_title),
                     color = colors.text,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1379,7 +1380,7 @@ private fun CreateCanvasActions(
                 }
             }
             Text(
-                text = if (animationCanvas) "含时间轴" else "静态单帧",
+                text = if (animationCanvas) stringResource(R.string.create_anim_timeline_active) else stringResource(R.string.create_anim_single_frame),
                 color = colors.subText,
                 fontSize = 11.sp
             )
@@ -1413,7 +1414,7 @@ private fun CreateCanvasActions(
                     tint = colors.text,
                     modifier = Modifier.size(16.dp)
                 )
-                Text("保存预设", color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.create_save_preset_btn), color = colors.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -1436,7 +1437,7 @@ private fun CreateCanvasActions(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "创建画布",
+                text = stringResource(R.string.create_title),
                 color = colors.onAccent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
@@ -1524,7 +1525,7 @@ private fun CanvasPresetCard(
                             .background(colors.accent.copy(alpha = 0.15f))
                             .padding(horizontal = 5.dp, vertical = 2.dp)
                     ) {
-                        Text("自定义", color = colors.accent, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.create_custom_badge), color = colors.accent, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -1550,7 +1551,7 @@ private fun CanvasPresetCard(
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                text = "${item.defaultPpi} DPI · ${maxLayers}层",
+                text = stringResource(R.string.create_preset_stat_format, item.defaultPpi, maxLayers),
                 color = colors.subText,
                 fontSize = 11.sp
             )
@@ -1568,7 +1569,7 @@ private fun CanvasPresetCard(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_trash),
-                    contentDescription = "删除预设",
+                    contentDescription = stringResource(R.string.create_preset_delete_title),
                     tint = colors.subText,
                     modifier = Modifier.size(15.dp)
                 )
@@ -1602,20 +1603,20 @@ private fun SavedPresetsEmptyState(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_bookmark_plus),
+                    painterResource(R.drawable.ic_bookmark_plus),
                     contentDescription = null,
                     tint = colors.subText,
                     modifier = Modifier.size(20.dp)
                 )
             }
             Text(
-                text = "暂无保存的预设",
+                text = stringResource(R.string.create_no_saved_presets_title),
                 color = colors.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "在自定义尺寸中配置好画幅后，点击保存预设即可在此随时调用",
+                text = stringResource(R.string.create_no_saved_presets_desc),
                 color = colors.subText,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center

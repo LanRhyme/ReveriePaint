@@ -121,7 +121,7 @@ internal fun ShiftTraceCapsule(
                             .background(prevColor),
                     )
                     Text(
-                        text = "前帧",
+                        text = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.timeline_shift_trace_prev),
                         color = if (isPrev) Morandi.accent else Morandi.subText,
                         fontSize = 11.5.sp,
                         fontWeight = if (isPrev) FontWeight.SemiBold else FontWeight.Normal,
@@ -150,7 +150,7 @@ internal fun ShiftTraceCapsule(
                             .background(nextColor),
                     )
                     Text(
-                        text = "后帧",
+                        text = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.timeline_shift_trace_next),
                         color = if (!isPrev) Morandi.accent else Morandi.subText,
                         fontSize = 11.5.sp,
                         fontWeight = if (!isPrev) FontWeight.SemiBold else FontWeight.Normal,
@@ -185,7 +185,7 @@ internal fun ShiftTraceCapsule(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = if (isAlign) "手势: 对位" else "手势: 移画布",
+                    text = if (isAlign) androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.timeline_shift_trace_align) else androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.timeline_shift_trace_move_canvas),
                     color = if (isAlign) Morandi.accent else Morandi.subText,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
@@ -208,7 +208,7 @@ internal fun ShiftTraceCapsule(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "复位",
+                    text = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.reset),
                     color = Morandi.text,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
@@ -231,7 +231,7 @@ internal fun ShiftTraceCapsule(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "完成",
+                    text = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.confirm),
                     color = Color.White,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.SemiBold,

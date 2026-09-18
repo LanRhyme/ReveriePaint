@@ -59,6 +59,10 @@ object LanguageManager {
         }
     }
 
+    fun isChinese(language: AppLanguage = currentLanguage): Boolean {
+        return getLocale(language).language.startsWith("zh")
+    }
+
     fun setLanguage(activity: Activity, language: AppLanguage) {
         currentLanguage = language
         activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

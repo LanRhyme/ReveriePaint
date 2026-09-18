@@ -40,8 +40,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.*
@@ -280,7 +282,7 @@ fun CompactHsvSlider(
 
     if (showDirectInputDialog) {
         NumericValueInputDialog(
-            label = label.ifEmpty { "数值" },
+            label = label.ifEmpty { stringResource(R.string.brush_preview_slider_value) },
             currentValue = value,
             min = 0f,
             max = max,
@@ -322,7 +324,7 @@ fun NumericValueInputDialog(
         shape = RoundedCornerShape(14.dp),
         title = {
             Text(
-                text = "设置 $label 数值",
+                text = stringResource(R.string.color_num_dialog_title, label),
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
@@ -330,14 +332,12 @@ fun NumericValueInputDialog(
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val rangeHint = remember(min, max, unitSuffix, isIntegerOnly) {
-                    if (isIntegerOnly) {
-                        "有效范围: ${min.roundToInt()} ~ ${max.roundToInt()}$unitSuffix"
-                    } else {
-                        val minStr = String.format(Locale.US, "%.2f", min).trimEnd('0').trimEnd('.')
-                        val maxStr = String.format(Locale.US, "%.2f", max).trimEnd('0').trimEnd('.')
-                        "有效范围: $minStr ~ $maxStr$unitSuffix"
-                    }
+                val rangeHint = if (isIntegerOnly) {
+                    stringResource(R.string.color_num_dialog_range, min.roundToInt().toString(), max.roundToInt().toString(), unitSuffix)
+                } else {
+                    val minStr = String.format(Locale.US, "%.2f", min).trimEnd('0').trimEnd('.')
+                    val maxStr = String.format(Locale.US, "%.2f", max).trimEnd('0').trimEnd('.')
+                    stringResource(R.string.color_num_dialog_range, minStr, maxStr, unitSuffix)
                 }
                 Text(
                     text = rangeHint,
@@ -410,7 +410,7 @@ fun NumericValueInputDialog(
         },
         confirmButton = {
             ReTextButton(
-                text = "确定",
+                text = stringResource(R.string.confirm),
                 onClick = {
                     val v = text.toFloatOrNull()
                     if (v != null) {
@@ -422,7 +422,7 @@ fun NumericValueInputDialog(
             )
         },
         dismissButton = {
-            ReTextButton(text = "取消", onClick = onDismiss, textColor = Morandi.subText)
+            ReTextButton(text = stringResource(R.string.cancel), onClick = onDismiss, textColor = Morandi.subText)
         }
     )
 }
@@ -455,7 +455,7 @@ fun HexInputDialog(
         shape = RoundedCornerShape(14.dp),
         title = {
             Text(
-                text = "输入十六进制色值",
+                text = stringResource(R.string.color_hex_dialog_title),
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold
@@ -508,7 +508,7 @@ fun HexInputDialog(
                     horizontalArrangement = Arrangement.End
                 ) {
                     ReTextButton(
-                        text = "从剪贴板粘贴",
+                        text = stringResource(R.string.color_hex_paste),
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             val clip = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
@@ -516,12 +516,12 @@ fun HexInputDialog(
                                 val clean = clip.removePrefix("#").filter { it.isLetterOrDigit() }.take(6).uppercase()
                                 if (clean.length == 6) {
                                     hexText = clean
-                                    Toast.makeText(context, "已粘贴 #$clean", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.color_hex_pasted, clean), Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "剪贴板无有效色值", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.color_hex_no_valid), Toast.LENGTH_SHORT).show()
                                 }
                             } else {
-                                Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.color_hex_empty), Toast.LENGTH_SHORT).show()
                             }
                         },
                         textColor = Morandi.accent
@@ -531,21 +531,21 @@ fun HexInputDialog(
         },
         confirmButton = {
             ReTextButton(
-                text = "确定",
+                text = stringResource(R.string.confirm),
                 onClick = {
                     if (parsedColor != null) {
                         val finalHex = if (hexText.startsWith("#")) hexText else "#$hexText"
                         onColorConfirmed(finalHex)
                         onDismiss()
                     } else {
-                        Toast.makeText(context, "请输入 6 位有效十六进制颜色代码", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.color_hex_invalid_tip), Toast.LENGTH_SHORT).show()
                     }
                 },
                 textColor = if (parsedColor != null) Morandi.accent else Morandi.subText
             )
         },
         dismissButton = {
-            ReTextButton(text = "取消", onClick = onDismiss, textColor = Morandi.subText)
+            ReTextButton(text = stringResource(R.string.cancel), onClick = onDismiss, textColor = Morandi.subText)
         }
     )
 }
@@ -553,12 +553,12 @@ fun HexInputDialog(
 /**
  * Supported color harmony modes (Procreate parity)
  */
-enum class ColorHarmonyMode(val labelRes: Int, val label: String) {
-    COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_complementary, "互补色"),
-    SPLIT_COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_split, "分裂互补"),
-    ANALOGOUS(com.reverie.paint.R.string.color_harmony_analogous, "类似色"),
-    TRIADIC(com.reverie.paint.R.string.color_harmony_triadic, "三等分"),
-    TETRADIC(com.reverie.paint.R.string.color_harmony_tetradic, "四角形");
+enum class ColorHarmonyMode(val labelRes: Int) {
+    COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_complementary),
+    SPLIT_COMPLEMENTARY(com.reverie.paint.R.string.color_harmony_split),
+    ANALOGOUS(com.reverie.paint.R.string.color_harmony_analogous),
+    TRIADIC(com.reverie.paint.R.string.color_harmony_triadic),
+    TETRADIC(com.reverie.paint.R.string.color_harmony_tetradic);
 
     fun getHarmoniousHues(baseHue: Float): List<Float> {
         val h = (baseHue % 360f + 360f) % 360f
@@ -592,13 +592,13 @@ fun RecentColorsSection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "记忆色",
+                text = stringResource(R.string.color_recent_colors),
                 color = Morandi.text,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "清除",
+                text = stringResource(R.string.clear),
                 color = Morandi.subText,
                 fontSize = 11.sp,
                 modifier = Modifier
@@ -644,7 +644,7 @@ fun BottomQuickSwatchesSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "记忆色",
+                    text = stringResource(R.string.color_recent_colors),
                     color = if (!showPaletteMode) Morandi.text else Morandi.subText,
                     fontSize = 11.sp,
                     fontWeight = if (!showPaletteMode) FontWeight.Bold else FontWeight.Normal,
@@ -659,7 +659,7 @@ fun BottomQuickSwatchesSection(
                     fontSize = 10.sp
                 )
                 Text(
-                    text = defaultPal?.name ?: "常驻色卡",
+                    text = defaultPal?.name ?: stringResource(R.string.color_default_palette),
                     color = if (showPaletteMode) Morandi.text else Morandi.subText,
                     fontSize = 11.sp,
                     fontWeight = if (showPaletteMode) FontWeight.Bold else FontWeight.Normal,
@@ -672,7 +672,7 @@ fun BottomQuickSwatchesSection(
 
             if (!showPaletteMode) {
                 Text(
-                    text = "清除",
+                    text = stringResource(R.string.clear),
                     color = Morandi.subText,
                     fontSize = 11.sp,
                     modifier = Modifier
@@ -682,7 +682,7 @@ fun BottomQuickSwatchesSection(
                 )
             } else if (defaultPal != null) {
                 Text(
-                    text = "+存入",
+                    text = stringResource(R.string.color_save_to_palette),
                     color = Morandi.accent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,

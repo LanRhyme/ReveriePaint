@@ -76,8 +76,10 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -162,6 +164,7 @@ fun PaintingPage(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         try {
@@ -375,7 +378,7 @@ fun PaintingPage(
             vm.customUndoHook = {
                 if (polyPoints.isNotEmpty()) {
                     polyPoints = polyPoints.dropLast(1)
-                    vm.showActionToast("撤销顶点", R.drawable.ic_undo)
+                    vm.showActionToast(context.getString(R.string.toast_undo_vertex), R.drawable.ic_undo)
                     true
                 } else {
                     false
@@ -386,7 +389,7 @@ fun PaintingPage(
                 if (vm.lassoMultiPoints.isNotEmpty()) {
                     val undone = vm.undoLassoPoint()
                     if (undone) {
-                        vm.showActionToast("撤销套索点", R.drawable.ic_undo)
+                        vm.showActionToast(context.getString(R.string.toast_undo_lasso_point), R.drawable.ic_undo)
                     }
                     undone
                 } else {
@@ -425,13 +428,13 @@ fun PaintingPage(
         val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
         when {
             activeLayer?.isGroup == true ->
-                vm.showActionToast("图层组不可直接绘制，请选择组内图层", R.drawable.ic_folder)
+                vm.showActionToast(context.getString(R.string.canvas_toast_group_not_drawable), R.drawable.ic_folder)
 
-            activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true ->
-                vm.showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", R.drawable.ic_image_adjust)
+            activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true || activeLayer?.name?.contains("Filter", ignoreCase = true) == true ->
+                vm.showActionToast(context.getString(R.string.canvas_toast_filter_not_drawable), R.drawable.ic_image_adjust)
 
             activeLayer?.locked == true ->
-                vm.showActionToast("图层已锁定，无法编辑", R.drawable.ic_lock)
+                vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), R.drawable.ic_lock)
 
             else -> {
                 val bmpW = vm.displayBitmap?.width ?: vm.docWidth
@@ -454,7 +457,7 @@ fun PaintingPage(
                     vm.floodFill(docPos.x, docPos.y)
                     triggerFillDiffusion(dropScreenPos, parseColor(colorDropHex))
                 } else {
-                    vm.showActionToast("请在画布范围内填色", R.drawable.ic_fill)
+                    vm.showActionToast(context.getString(R.string.toast_fill_inside_canvas), R.drawable.ic_fill)
                 }
             }
         }
@@ -727,7 +730,7 @@ fun PaintingPage(
                     showExitSaveDialog = false
                     vm.saveProject(vm.docName) {
                         android.widget.Toast
-                            .makeText(exitContext, "工程已保存", android.widget.Toast.LENGTH_SHORT)
+                            .makeText(exitContext, exitContext.getString(R.string.toast_project_saved), android.widget.Toast.LENGTH_SHORT)
                             .show()
                         vm.goHome()
                     }
@@ -757,7 +760,7 @@ fun PaintingPage(
 
         com.reverie.paint.ui.components.DragHoverOverlay(
             visible = vm.isDraggingExternal,
-            hint = "释放以导入图层或参考图",
+            hint = stringResource(R.string.drag_drop_import_hint),
         )
 
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
@@ -852,16 +855,16 @@ fun PaintingPage(
                                     .glassBorder(RoundedCornerShape(10.dp)),
                         ) {
                             Column {
-                                SelectionMenuItem("选中图层") { vm.selectAllAction() }
-                                SelectionMenuItem("反选") { vm.invertSelectionAction() }
-                                SelectionMenuItem("清除选区", danger = true) { vm.clearSelectionAction() }
+                                SelectionMenuItem(stringResource(R.string.selection_select_layer)) { vm.selectAllAction() }
+                                SelectionMenuItem(stringResource(R.string.selection_invert)) { vm.invertSelectionAction() }
+                                SelectionMenuItem(stringResource(R.string.selection_clear), danger = true) { vm.clearSelectionAction() }
                                 Box(
                                     Modifier
                                         .fillMaxWidth()
                                         .height(1.dp)
                                         .background(Morandi.border),
                                 )
-                                SelectionMenuItem("关闭") { selectionMenuOpen = false }
+                                SelectionMenuItem(stringResource(R.string.common_close)) { selectionMenuOpen = false }
                             }
                         }
                     }
@@ -1150,14 +1153,14 @@ fun PaintingPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToolFloatChip(
-                        label = "常规",
+                        label = stringResource(R.string.category_general),
                         selected = !vm.soloRawMode,
                         onClick = {
                             if (vm.soloRawMode) vm.toggleSoloRawMode()
                         },
                     )
                     ToolFloatChip(
-                        label = "取消所有效果",
+                        label = stringResource(R.string.action_cancel_all_effects),
                         selected = vm.soloRawMode,
                         onClick = {
                             if (!vm.soloRawMode) vm.toggleSoloRawMode()
@@ -1255,7 +1258,7 @@ fun PaintingPage(
                 onPolyUndo = {
                     if (polyPoints.isNotEmpty()) {
                         polyPoints = polyPoints.dropLast(1)
-                        vm.showActionToast("撤销顶点", R.drawable.ic_undo)
+                        vm.showActionToast(context.getString(R.string.toast_undo_vertex), R.drawable.ic_undo)
                     }
                 },
                 onPolyCancel = { polyPoints = emptyList() },
@@ -1297,7 +1300,7 @@ fun PaintingPage(
                             .background(Morandi.accent)
                     )
                     Text(
-                        "选区生效中",
+                        stringResource(R.string.selection_active_hint),
                         color = Morandi.text,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
@@ -1310,7 +1313,7 @@ fun PaintingPage(
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
-                            "取消选区",
+                            stringResource(R.string.selection_cancel),
                             color = Morandi.subText,
                             fontSize = 10.sp,
                         )
@@ -1450,7 +1453,7 @@ fun PaintingPage(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "缩放 $zoomPct%",
+                        stringResource(R.string.canvas_zoom_format, zoomPct),
                         color = Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
@@ -1461,7 +1464,7 @@ fun PaintingPage(
                             .background(Morandi.border, CircleShape),
                     )
                     Text(
-                        "旋转 $rotDeg°",
+                        stringResource(R.string.canvas_rotation_format, rotDeg),
                         color = Morandi.text,
                         fontSize = 12.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
@@ -1675,9 +1678,9 @@ fun PaintingPage(
                                 .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ReIconButton(R.drawable.ic_arrow_left, "返回画布", { vm.closeMoreSettings() }, tint = Morandi.text)
+                        ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.nav_back_to_canvas), { vm.closeMoreSettings() }, tint = Morandi.text)
                         Text(
-                            "更多设置",
+                            stringResource(R.string.settings_more_title),
                             color = Morandi.text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
@@ -1786,7 +1789,7 @@ fun PaintingPage(
                         )
                         Spacer(Modifier.height(14.dp))
                         Text(
-                            text = vm.blockingLoadingMessage.ifBlank { "请稍候..." },
+                            text = vm.blockingLoadingMessage.ifBlank { stringResource(R.string.loading_please_wait) },
                             color = Morandi.text,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
@@ -1849,14 +1852,14 @@ fun TextInputDialog(
     var fontSize by remember { mutableStateOf(48f) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("输入文字", color = Morandi.text) },
+        title = { Text(stringResource(R.string.text_input_dialog_title), color = Morandi.text) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 androidx.compose.material3.OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
                     singleLine = true,
-                    placeholder = { Text("在这里输入...", color = Morandi.subText) },
+                    placeholder = { Text(stringResource(R.string.text_input_placeholder), color = Morandi.subText) },
                     colors =
                         androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = Morandi.accent,
@@ -1870,7 +1873,7 @@ fun TextInputDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("字号", color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(40.dp))
+                    Text(stringResource(R.string.text_font_size), color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(40.dp))
                     ReSlider(
                         value = ((fontSize - 8f) / 192f).coerceIn(0f, 1f),
                         onValue = { frac -> fontSize = 8f + frac * 192f },
@@ -1881,10 +1884,10 @@ fun TextInputDialog(
             }
         },
         confirmButton = {
-            ReTextButton("确定", { onConfirm(text, fontSize.toDouble()) }, textColor = Morandi.accentHi)
+            ReTextButton(stringResource(R.string.common_confirm), { onConfirm(text, fontSize.toDouble()) }, textColor = Morandi.accentHi)
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )

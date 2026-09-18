@@ -271,7 +271,7 @@ fun UpdateDialog(
                                     .padding(horizontal = 12.dp, vertical = 8.dp),
                             ) {
                                 Text(
-                                    text = "${stringResource(R.string.dialog_update_failed)}: ${UpdateManager.downloadError ?: "网络错误"}",
+                                    text = "${stringResource(R.string.dialog_update_failed)}: ${UpdateManager.downloadError ?: stringResource(R.string.network_error)}",
                                     color = Color(0xFFE57373),
                                     fontSize = 12.sp,
                                 )

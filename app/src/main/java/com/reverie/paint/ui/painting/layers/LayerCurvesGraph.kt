@@ -100,6 +100,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -155,7 +156,12 @@ internal fun RealCurvesGraph(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            listOf("RGB" to 0, "红 (R)" to 1, "绿 (G)" to 2, "蓝 (B)" to 3).forEach { (name, ch) ->
+            listOf(
+                "RGB" to 0,
+                stringResource(R.string.curves_ch_red) to 1,
+                stringResource(R.string.curves_ch_green) to 2,
+                stringResource(R.string.curves_ch_blue) to 3,
+            ).forEach { (name, ch) ->
                 val isSel = (activeChannel == ch)
                 val chCol = when (ch) {
                     1 -> Color(0xFFFF5252)
@@ -390,14 +396,14 @@ internal fun RealCurvesGraph(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "入: ${selPt.x.roundToInt()} 出: ${selPt.y.roundToInt()}",
+                        stringResource(R.string.curves_in_out, selPt.x.roundToInt(), selPt.y.roundToInt()),
                         color = Morandi.text,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                     if (selectedIndex > 0 && selectedIndex < points.size - 1) {
                         Text(
-                            "删除点",
+                            stringResource(R.string.curves_delete_point),
                             color = Color(0xFFFF5252),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -410,11 +416,11 @@ internal fun RealCurvesGraph(
                     }
                 }
             } else {
-                Text("点击添加控制点，拖动平滑调整", color = Morandi.subText, fontSize = 10.sp)
+                Text(stringResource(R.string.curves_hint), color = Morandi.subText, fontSize = 10.sp)
             }
 
             Text(
-                "重置通道",
+                stringResource(R.string.curves_reset_channel),
                 color = Morandi.accent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,

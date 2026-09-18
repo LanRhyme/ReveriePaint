@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.ReSlider
+import androidx.compose.ui.res.stringResource
+import com.reverie.paint.R
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -53,7 +55,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.painterResource
-import com.reverie.paint.R
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import dev.chrisbanes.haze.hazeChild
@@ -112,14 +113,14 @@ internal fun ExitSaveDialog(
             ) {
                 Column {
                     Text(
-                        text = "保存工程",
+                        text = stringResource(R.string.painting_dialog_save_project_title),
                         color = Morandi.text,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        text = "是否在退出绘画之前保存当前工程 (${vm.docName}.revp)？",
+                        text = stringResource(R.string.painting_dialog_save_project_msg, vm.docName),
                         color = Morandi.subText,
                         fontSize = 13.sp,
                         lineHeight = 18.sp
@@ -130,11 +131,11 @@ internal fun ExitSaveDialog(
                         horizontalArrangement = Arrangement.End,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ReTextButton("取消", onDismiss, textColor = Morandi.subText, fontSize = 13.sp)
+                        ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText, fontSize = 13.sp)
                         Spacer(Modifier.width(4.dp))
-                        ReTextButton("不保存", onDiscard, textColor = Color(0xFFFF5252), fontSize = 13.sp)
+                        ReTextButton(stringResource(R.string.painting_dialog_dont_save), onDiscard, textColor = Color(0xFFFF5252), fontSize = 13.sp)
                         Spacer(Modifier.width(4.dp))
-                        ReTextButton("保存并退出", onSaveAndExit, textColor = Morandi.accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        ReTextButton(stringResource(R.string.painting_dialog_save_and_exit), onSaveAndExit, textColor = Morandi.accent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
             }
@@ -200,11 +201,11 @@ internal fun DiscardConfirmDialog(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFFFF5252).copy(alpha = 0.12f)),
+                                    .background(Color(0xFFFF5252).copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    painterResource(R.drawable.ic_alert_triangle),
+                                    painter = painterResource(R.drawable.ic_trash),
                                     contentDescription = null,
                                     tint = Color(0xFFFF5252),
                                     modifier = Modifier.size(22.dp)
@@ -213,14 +214,14 @@ internal fun DiscardConfirmDialog(
                             Spacer(Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = "确认丢弃未保存的修改？",
+                                    text = stringResource(R.string.painting_dialog_discard_title),
                                     color = Morandi.text,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    text = "未保存的笔迹与图层调整将无法恢复",
+                                    text = stringResource(R.string.painting_dialog_discard_subtitle),
                                     color = Morandi.subText,
                                     fontSize = 12.sp
                                 )
@@ -229,7 +230,7 @@ internal fun DiscardConfirmDialog(
 
                         Spacer(Modifier.height(14.dp))
                         Text(
-                            text = "退出后，工程将恢复至上次保存的状态。若继续退出，当前画布上的所有新绘制内容都将被永久丢弃。",
+                            text = stringResource(R.string.painting_dialog_discard_desc),
                             color = Morandi.subText,
                             fontSize = 13.sp,
                             lineHeight = 18.sp,
@@ -240,7 +241,7 @@ internal fun DiscardConfirmDialog(
 
                         // Top Action: Continue Editing (Cancel)
                         ReTextButton(
-                            "继续编辑",
+                            stringResource(R.string.painting_dialog_continue_editing),
                             onDismiss,
                             modifier = Modifier.fillMaxWidth(),
                             containerColor = Morandi.border.copy(alpha = 0.4f),
@@ -252,7 +253,7 @@ internal fun DiscardConfirmDialog(
 
                         // Bottom Action: Discard Changes & Exit (Pushed to bottom of screen)
                         ReTextButton(
-                            "丢弃修改并退出",
+                            stringResource(R.string.painting_dialog_discard_and_exit),
                             onDiscard,
                             modifier = Modifier.fillMaxWidth(),
                             icon = R.drawable.ic_trash,
@@ -312,7 +313,7 @@ fun ExternalImageImportDialog(
                     }
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = "外部图片导入",
+                        text = stringResource(R.string.painting_dialog_import_image_title),
                         color = Morandi.text,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -321,7 +322,7 @@ fun ExternalImageImportDialog(
 
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text = "检测到从外部拖入或分享的图片，请选择处理方式：",
+                    text = stringResource(R.string.painting_dialog_import_image_desc),
                     color = Morandi.subText,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -332,7 +333,7 @@ fun ExternalImageImportDialog(
 
                 // 选项一：插入为新图层
                 ReTextButton(
-                    text = "插入为新图层",
+                    text = stringResource(R.string.painting_dialog_import_as_layer),
                     onClick = {
                         onDismiss()
                         vm.importImageUriToNewLayer(uri, context)
@@ -349,7 +350,7 @@ fun ExternalImageImportDialog(
 
                 // 选项二：载入为参考图
                 ReTextButton(
-                    text = "载入参考图窗口",
+                    text = stringResource(R.string.painting_dialog_import_as_reference),
                     onClick = {
                         onDismiss()
                         vm.importReferenceImageFromUri(uri)
@@ -365,7 +366,7 @@ fun ExternalImageImportDialog(
 
                 // 选项三：导入为新工程
                 ReTextButton(
-                    text = "导入为画廊新作品",
+                    text = stringResource(R.string.painting_dialog_import_as_project),
                     onClick = {
                         onDismiss()
                         vm.importDocuments(listOf(uri), context)
@@ -381,7 +382,7 @@ fun ExternalImageImportDialog(
 
                 // 取消
                 ReTextButton(
-                    text = "取消",
+                    text = stringResource(R.string.common_cancel),
                     onClick = onDismiss,
                     modifier = Modifier.fillMaxWidth(),
                     containerColor = Color.Transparent,

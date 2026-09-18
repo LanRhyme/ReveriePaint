@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.R
 import com.reverie.paint.ui.theme.Morandi
@@ -239,7 +240,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                             strokeWidth = 3.dp,
                         )
                         Text(
-                            "正在加载贡献者列表...",
+                            stringResource(R.string.contributors_loading),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Morandi.subText,
                         )
@@ -254,7 +255,7 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
                     ) {
                         Text("⚠️", fontSize = 48.sp)
                         Text(
-                            error ?: "加载失败",
+                            error ?: stringResource(R.string.contributors_load_failed),
                             color = Morandi.subText,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
@@ -297,21 +298,21 @@ fun ContributorsDialog(onDismiss: () -> Unit) {
             ) {
                 Column {
                     Text(
-                        "贡献者",
+                        stringResource(R.string.contributors_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Morandi.accent,
                     )
                     if (bubbles.isNotEmpty()) {
                         Text(
-                            "共 ${bubbles.size} 位贡献者",
+                            stringResource(R.string.contributors_total, bubbles.size),
                             style = MaterialTheme.typography.bodySmall,
                             color = Morandi.subText,
                         )
                     }
                 }
 
-                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
+                ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
             }
         }
     }
@@ -459,7 +460,7 @@ private fun ContributorBubbleItem(
         )
 
         Text(
-            text = "${bubble.contributor.contributions} 次贡献",
+            text = stringResource(R.string.contributors_count, bubble.contributor.contributions),
             fontSize = 10.sp,
             color = Morandi.subText,
             maxLines = 1,

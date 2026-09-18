@@ -106,6 +106,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.rememberCoroutineScope
@@ -151,6 +152,7 @@ internal fun LayerDetailPage(
     onOpenFilterAdjust: (Int, String) -> Unit = { _, _ -> onOpenFilters() },
     onRename: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     val layer = vm.layers.firstOrNull { it.index == index }
     val isBg = layer?.isBackground == true
     val name = layer?.name ?: ""
@@ -305,8 +307,8 @@ internal fun LayerDetailPage(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        val isFillLayer = (layer?.nodeType == 2) || name.contains("填充")
-        val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜")
+        val isFillLayer = (layer?.nodeType == 2) || name.contains("填充") || name.contains("Fill", ignoreCase = true)
+        val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜") || name.contains("Filter", ignoreCase = true)
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }
@@ -374,7 +376,7 @@ internal fun LayerDetailPage(
                             val json = vm.snapshotAdjustmentConfig(index)
                             val cfg = AdjustmentConfigCodec.decodeJson(json)
                             if (cfg != null) {
-                                onOpenFilterAdjust(cfg.type, filterNameOf(cfg.type))
+                                onOpenFilterAdjust(cfg.type, filterNameOf(cfg.type, context))
                             } else {
                                 onOpenFilters()
                             }
@@ -429,11 +431,7 @@ internal fun LayerDetailPage(
                 fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
-            val curBlendName = if (layer?.blendMode == "copy") {
-                "正常"
-            } else {
-                vm.blendModes.firstOrNull { it.first == layer?.blendMode }?.second ?: layer?.blendMode ?: "正常"
-            }
+            val curBlendName = stringResource(blendModeResId(layer?.blendMode ?: "normal"))
             Text(
                 curBlendName,
                 color = Morandi.subText,
@@ -655,7 +653,7 @@ internal fun LayerDetailPage(
                                             tint = Morandi.icon,
                                             modifier = Modifier.size(18.dp),
                                         )
-                                        Text(grp.name, color = Morandi.text, fontSize = 14.sp)
+                                        Text(layerDisplayName(grp.name), color = Morandi.text, fontSize = 14.sp)
                                     }
                                 }
                             }
@@ -982,7 +980,8 @@ internal fun BlendModesPage(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = padV),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(vm.blendModes) { itemIdx, (opId, name) ->
+                itemsIndexed(vm.blendModes) { itemIdx, (opId, _) ->
+                    val name = stringResource(blendModeResId(opId))
                     val isSelected = opId == current
                     val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                     val t by remember(itemIdx) {
@@ -1038,3 +1037,32 @@ internal fun BlendModesPage(
 // ---------------------------------------------------------------------------
 // Filters sub page (HuaShijie Pro style list matching user screenshot)
 // ---------------------------------------------------------------------------
+
+internal fun blendModeResId(opId: String): Int = when (opId) {
+    "normal", "copy" -> R.string.blend_normal
+    "multiply" -> R.string.blend_multiply
+    "screen" -> R.string.blend_screen
+    "overlay" -> R.string.blend_overlay
+    "darken" -> R.string.blend_darken
+    "lighten" -> R.string.blend_lighten
+    "dodge" -> R.string.blend_color_dodge
+    "burn" -> R.string.blend_color_burn
+    "linear_burn" -> R.string.blend_linear_burn
+    "linear_dodge" -> R.string.blend_linear_dodge
+    "difference" -> R.string.blend_difference
+    "add" -> R.string.blend_add
+    "subtract" -> R.string.blend_subtract
+    "divide" -> R.string.blend_divide
+    "hard_light" -> R.string.blend_hard_light
+    "soft_light" -> R.string.blend_soft_light
+    "vivid_light" -> R.string.blend_vivid_light
+    "pin_light" -> R.string.blend_pin_light
+    "linear light" -> R.string.blend_linear_light
+    "exclusion" -> R.string.blend_exclusion
+    "hue" -> R.string.blend_hue
+    "saturation" -> R.string.blend_saturation
+    "color" -> R.string.blend_color
+    "value" -> R.string.blend_value
+    "erase" -> R.string.blend_erase
+    else -> R.string.blend_normal
+}

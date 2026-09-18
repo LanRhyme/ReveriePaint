@@ -184,7 +184,7 @@ fun SlidersNumericPage(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_brush),
-                    contentDescription = "编辑 Hex",
+                    contentDescription = androidx.compose.ui.res.stringResource(R.string.color_edit_hex),
                     tint = Morandi.accent,
                     modifier = Modifier.size(12.dp)
                 )
@@ -215,20 +215,20 @@ fun SlidersNumericPage(
                                         val hsv = FloatArray(3)
                                         AColor.colorToHSV(parsed, hsv)
                                         onHsvChange(hsv[0], hsv[1], hsv[2])
-                                        Toast.makeText(context, "已应用色值 $formatted", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.color_slider_applied, formatted), Toast.LENGTH_SHORT).show()
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "色值解析失败", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.color_slider_parse_failed), Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    Toast.makeText(context, "剪贴板无有效色值", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.color_hex_no_valid), Toast.LENGTH_SHORT).show()
                                 }
                             } else {
-                                Toast.makeText(context, "剪贴板为空", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.color_hex_empty), Toast.LENGTH_SHORT).show()
                             }
                         }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(text = "粘贴", color = Morandi.subText, fontSize = 11.sp)
+                    Text(text = androidx.compose.ui.res.stringResource(R.string.paste), color = Morandi.subText, fontSize = 11.sp)
                 }
 
                 // Copy to clipboard
@@ -239,11 +239,11 @@ fun SlidersNumericPage(
                         .clickable {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("hex", "#$hexStr"))
-                            Toast.makeText(context, "已复制 #$hexStr", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(R.string.color_slider_copied, hexStr), Toast.LENGTH_SHORT).show()
                         }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Text(text = "复制", color = Morandi.subText, fontSize = 11.sp)
+                    Text(text = androidx.compose.ui.res.stringResource(R.string.copy), color = Morandi.subText, fontSize = 11.sp)
                 }
             }
         }
@@ -301,7 +301,7 @@ fun SlidersNumericPage(
                     AColor.colorToHSV(parsed, hsv)
                     onHsvChange(hsv[0], hsv[1], hsv[2])
                 } catch (e: Exception) {
-                    Toast.makeText(context, "色值格式无效", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.color_slider_format_invalid), Toast.LENGTH_SHORT).show()
                 }
             },
             onDismiss = { showHexInputDialog = false }

@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import androidx.annotation.StringRes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -621,7 +622,7 @@ class PaintViewModel : ViewModel() {
     fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
         if (!::appContext.isInitialized || uris.isEmpty()) return
         if (isImportingMedia) {
-            showActionToast("正在导入媒体，请稍候...", R.drawable.ic_image)
+            showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
             return
         }
         isImportingMedia = true
@@ -658,7 +659,7 @@ class PaintViewModel : ViewModel() {
                     resetReferenceTransform()
                     persistReferenceImages()
                     persistReferenceState()
-                    showActionToast("已导入 ${newBitmaps.size} 张参考图", R.drawable.ic_image)
+                    showActionToast(R.string.toast_imported_ref_images, R.drawable.ic_image, newBitmaps.size)
                 }
             }
         }
@@ -1049,6 +1050,25 @@ class PaintViewModel : ViewModel() {
         actionToastRevision++
     }
 
+    fun showActionToast(
+        @StringRes messageRes: Int,
+        iconRes: Int? = null,
+        vararg formatArgs: Any,
+    ) {
+        val msg = if (::appContext.isInitialized) {
+            if (formatArgs.isEmpty()) appContext.getString(messageRes)
+            else appContext.getString(messageRes, *formatArgs)
+        } else ""
+        showActionToast(msg, iconRes)
+    }
+
+    fun getString(@StringRes resId: Int, vararg formatArgs: Any): String {
+        return if (::appContext.isInitialized) {
+            if (formatArgs.isEmpty()) appContext.getString(resId)
+            else appContext.getString(resId, *formatArgs)
+        } else ""
+    }
+
     var longPressEyedropperEnabled by mutableStateOf(true)
     var eyedropperSensitivity by mutableIntStateOf(3) // 1..5, default 3
     var eyedropperOffsetEnabled by mutableStateOf(true) // offset sampling point to avoid finger blocking
@@ -1206,7 +1226,7 @@ class PaintViewModel : ViewModel() {
                         } else {
                             "${finalSize.toInt()}"
                         }
-                        showActionToast("画笔粗细: ${formatted}px", R.drawable.ic_brush)
+                        showActionToast(R.string.toast_brush_size, R.drawable.ic_brush, formatted)
                     }
                 }
                 true
@@ -1221,7 +1241,7 @@ class PaintViewModel : ViewModel() {
                 updateBrushOpacity(newOpacity)
                 if (::appContext.isInitialized) {
                     mainHandler.post {
-                        showActionToast("不透明度: ${kotlin.math.round(newOpacity * 100).toInt()}%", R.drawable.ic_brush)
+                        showActionToast(R.string.toast_brush_opacity, R.drawable.ic_brush, kotlin.math.round(newOpacity * 100).toInt())
                     }
                 }
                 true
@@ -1325,13 +1345,16 @@ class PaintViewModel : ViewModel() {
         executeShortcutAction(action.actionId)
         when (action) {
             com.reverie.paint.core.stylus.StylusAction.TOGGLE_ERASER -> {
-                showActionToast(if (currentToolId == "eraser") "已切换为橡皮擦" else "已切换为画笔", if (currentToolId == "eraser") R.drawable.ic_eraser else R.drawable.ic_brush)
+                showActionToast(
+                    if (currentToolId == "eraser") R.string.toast_switched_to_eraser else R.string.toast_switched_to_brush,
+                    if (currentToolId == "eraser") R.drawable.ic_eraser else R.drawable.ic_brush,
+                )
             }
-            com.reverie.paint.core.stylus.StylusAction.UNDO -> showActionToast("撤销", R.drawable.ic_undo)
-            com.reverie.paint.core.stylus.StylusAction.REDO -> showActionToast("重做", R.drawable.ic_redo)
-            com.reverie.paint.core.stylus.StylusAction.COLOR_PICKER -> showActionToast("吸管取色", R.drawable.ic_picker)
-            com.reverie.paint.core.stylus.StylusAction.TOGGLE_LAST_TOOL -> showActionToast("切换上一工具", R.drawable.ic_brush)
-            com.reverie.paint.core.stylus.StylusAction.SHOW_COLOR_PALETTE -> showActionToast("调色盘", R.drawable.ic_palette)
+            com.reverie.paint.core.stylus.StylusAction.UNDO -> showActionToast(R.string.toast_undo, R.drawable.ic_undo)
+            com.reverie.paint.core.stylus.StylusAction.REDO -> showActionToast(R.string.toast_redo, R.drawable.ic_redo)
+            com.reverie.paint.core.stylus.StylusAction.COLOR_PICKER -> showActionToast(R.string.stylus_action_eyedropper, R.drawable.ic_picker)
+            com.reverie.paint.core.stylus.StylusAction.TOGGLE_LAST_TOOL -> showActionToast(R.string.toast_toggle_last_tool, R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.SHOW_COLOR_PALETTE -> showActionToast(R.string.toast_color_palette, R.drawable.ic_palette)
             else -> {}
         }
     }

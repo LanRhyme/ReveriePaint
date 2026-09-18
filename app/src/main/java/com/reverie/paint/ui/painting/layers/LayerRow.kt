@@ -386,7 +386,7 @@ internal fun LayerRowContent(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
-                    contentDescription = if (collapsed) "展开" else "折叠",
+                    contentDescription = if (collapsed) stringResource(R.string.layer_expand) else stringResource(R.string.layer_collapse),
                     tint = Morandi.subText,
                     modifier = Modifier.size(14.dp).rotate(if (collapsed) 0f else 90f),
                 )
@@ -404,7 +404,7 @@ internal fun LayerRowContent(
         ) {
             Icon(
                 painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                contentDescription = "可见性",
+                contentDescription = stringResource(R.string.layer_visibility),
                 tint = if (visible) Morandi.icon else Morandi.subText,
                 modifier = Modifier.size(17.dp),
             )
@@ -435,7 +435,7 @@ internal fun LayerRowContent(
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
-                        contentDescription = "滤镜图层",
+                        contentDescription = stringResource(R.string.layer_filter_layer),
                         tint = Morandi.accent,
                         modifier = Modifier.size(20.dp),
                     )
@@ -444,7 +444,7 @@ internal fun LayerRowContent(
                 vm.thumbFor(layer.index, layer.name)?.let { thumb ->
                     Image(
                         bitmap = thumb.asImageBitmap(),
-                        contentDescription = "图层缩略图",
+                        contentDescription = stringResource(R.string.layer_thumbnail),
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -458,20 +458,20 @@ internal fun LayerRowContent(
                 if (layer.nodeType == 2 || layer.name.contains("填充")) {
                     Icon(
                         painterResource(R.drawable.ic_fill),
-                        contentDescription = "填充图层",
+                        contentDescription = stringResource(R.string.layer_fill_layer),
                         tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
-                } else if (layer.nodeType == 3 || layer.name.contains("滤镜")) {
+                } else if (layer.nodeType == 3 || layer.name.contains("滤镜") || layer.name.contains("Filter", ignoreCase = true)) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
-                        contentDescription = "滤镜图层",
+                        contentDescription = stringResource(R.string.layer_filter_layer),
                         tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 }
                 Text(
-                    text = layer.name,
+                    text = layerDisplayName(layer.name),
                     color = if (selected) Morandi.onAccent else Morandi.text,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -479,10 +479,8 @@ internal fun LayerRowContent(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            val blendName =
-                vm.blendModes.firstOrNull { it.first == layer.blendMode }?.second
-                    ?: layer.blendMode
-            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || layer.name.contains("填充") || layer.name.contains("滤镜")
+            val blendName = stringResource(blendModeResId(layer.blendMode))
+            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || layer.name.contains("填充") || layer.name.contains("Fill", ignoreCase = true) || layer.name.contains("滤镜") || layer.name.contains("Filter", ignoreCase = true)
             val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
             if (modified) {
                 val tag = when {
@@ -503,7 +501,7 @@ internal fun LayerRowContent(
         if (vm.layerSoloed(index)) {
             Icon(
                 painterResource(R.drawable.ic_eye),
-                contentDescription = "独显中",
+                contentDescription = stringResource(R.string.layer_solo),
                 tint = Morandi.accent,
                 modifier = Modifier.size(13.dp),
             )
@@ -511,7 +509,7 @@ internal fun LayerRowContent(
         if (layer.clipped) {
             Icon(
                 painterResource(R.drawable.ic_clip),
-                contentDescription = "继承透明度",
+                contentDescription = stringResource(R.string.layer_alpha_inherit),
                 tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
                 modifier = Modifier.size(13.dp),
             )
@@ -519,7 +517,7 @@ internal fun LayerRowContent(
         if (layer.alphaLocked && !isBg) {
             Icon(
                 painterResource(R.drawable.ic_grid),
-                contentDescription = "锁定透明度",
+                contentDescription = stringResource(R.string.layer_alpha_lock),
                 tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
                 modifier = Modifier.size(13.dp),
             )
@@ -527,7 +525,7 @@ internal fun LayerRowContent(
         if (layer.locked || isBg) {
             Icon(
                 painterResource(R.drawable.ic_lock),
-                contentDescription = "锁定",
+                contentDescription = stringResource(R.string.layer_locked),
                 tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
                 modifier = Modifier.size(13.dp),
             )

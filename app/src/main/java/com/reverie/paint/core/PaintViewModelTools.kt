@@ -152,16 +152,16 @@ internal fun PaintViewModel.touchStart(
         }
     }
     val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
-    if (curLayer?.nodeType == 3 || curLayer?.name?.contains("滤镜") == true) {
-        showActionToast("滤镜图层不可直接绘制，请在普通图层绘制或栅格化", com.reverie.paint.R.drawable.ic_image_adjust)
+    if (curLayer?.nodeType == 3 || curLayer?.name?.contains("滤镜") == true || curLayer?.name?.contains("Filter", ignoreCase = true) == true) {
+        showActionToast(R.string.canvas_toast_filter_not_drawable, com.reverie.paint.R.drawable.ic_image_adjust)
         return false
     }
     if (curLayer?.isGroup == true) {
-        showActionToast("图层组不可直接绘制，请选择组内图层", com.reverie.paint.R.drawable.ic_folder)
+        showActionToast(R.string.canvas_toast_group_not_drawable, com.reverie.paint.R.drawable.ic_folder)
         return false
     }
     if (curLayer?.locked == true) {
-        showActionToast("图层已锁定，无法编辑", com.reverie.paint.R.drawable.ic_lock)
+        showActionToast(R.string.canvas_toast_layer_locked, com.reverie.paint.R.drawable.ic_lock)
         return false
     }
     if (recorder.recording) {
@@ -872,10 +872,10 @@ internal fun PaintViewModel.undo() {
     }
     if (currentToolId == "lasso" && lassoMultiPoints.isNotEmpty()) {
         undoLassoPoint()
-        showActionToast("撤销套索点", R.drawable.ic_undo)
+        showActionToast(R.string.toast_undo_lasso_point, R.drawable.ic_undo)
         return
     }
-    showActionToast("撤销", R.drawable.ic_undo)
+    showActionToast(R.string.toast_undo, R.drawable.ic_undo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
@@ -893,7 +893,7 @@ internal fun PaintViewModel.undo() {
 }
 
 internal fun PaintViewModel.redo() {
-    showActionToast("恢复", R.drawable.ic_redo)
+    showActionToast(R.string.toast_redo, R.drawable.ic_redo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
         refreshSelection()
@@ -1032,7 +1032,7 @@ internal fun PaintViewModel.cancelTransformPreview() {
 
 internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean) {
     if (!hasSelection) {
-        showActionToast("请先创建选区", R.drawable.ic_lasso)
+        showActionToast(R.string.toast_selection_required, R.drawable.ic_lasso)
         return
     }
 
@@ -1040,7 +1040,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         var success = false
         runCore(render = true, after = {
             if (!success) {
-                showActionToast("选区范围内无像素", R.drawable.ic_lasso)
+                showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
                 return@runCore
             }
             syncLayersFromNative()
@@ -1053,6 +1053,9 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         }) {
             val newIdx = ReverieCoreBridge.copySelectionToNewLayer(cut)
             if (newIdx >= 0) {
+                if (!LanguageManager.isChinese()) {
+                    ReverieCoreBridge.setLayerName(newIdx, "Selection $newIdx")
+                }
                 success = true
                 ReverieCoreBridge.clearSelection()
                 refreshDisplay()
@@ -1061,7 +1064,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
     } else {
         val bounds = contentBounds()
         if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) {
-            showActionToast("选区范围内无像素", R.drawable.ic_lasso)
+            showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
             return
         }
         transformCopyOnly = !cut
@@ -1311,7 +1314,7 @@ internal fun PaintViewModel.finishLassoMulti() {
     if (pts.size >= 3) {
         lassoSelect(pts)
     } else if (pts.isNotEmpty()) {
-        showActionToast("选区至少需要3个点", R.drawable.ic_lasso)
+        showActionToast(R.string.toast_selection_points_min, R.drawable.ic_lasso)
     }
     lassoMultiPoints = emptyList()
     lassoSegmentCounts.clear()
@@ -1726,7 +1729,7 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
     }
 
     isTypographyEditing = false
-    showActionToast("文字已生成", R.drawable.ic_check)
+    showActionToast(R.string.toast_text_created, R.drawable.ic_check)
 }
 
 internal fun PaintViewModel.commitActiveShape() {
@@ -1902,12 +1905,12 @@ internal fun PaintViewModel.commitActiveShape() {
     }
 
     state.clear()
-    showActionToast("形状已生成", R.drawable.ic_check)
+    showActionToast(R.string.toast_shape_created, R.drawable.ic_check)
 }
 
 internal fun PaintViewModel.cancelActiveShape() {
     shapeState.clear()
-    showActionToast("已取消", R.drawable.ic_x)
+    showActionToast(R.string.toast_cancelled, R.drawable.ic_x)
 }
 
 internal fun PaintViewModel.undoShapeNode() {
@@ -1915,7 +1918,7 @@ internal fun PaintViewModel.undoShapeNode() {
     if (state.nodes.isNotEmpty()) {
         state.nodes.removeAt(state.nodes.size - 1)
         state.selectedNodeIndex = state.nodes.size - 1
-        showActionToast("撤销顶点", R.drawable.ic_undo)
+        showActionToast(R.string.toast_undo_vertex, R.drawable.ic_undo)
     }
 }
 

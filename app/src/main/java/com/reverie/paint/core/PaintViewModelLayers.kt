@@ -140,24 +140,108 @@ internal fun PaintViewModel.notifyLayerChanged(
     scheduleRender(immediate = immediateRender)
 }
 
+internal fun PaintViewModel.generateDefaultLayerName(): String {
+    val isZh = LanguageManager.isChinese()
+    val prefix = if (isZh) "颜料图层" else "Paint Layer"
+    val existing = layers.map { it.name }
+    var idx = 1
+    val regex = Regex("""^(?:颜料图层|Paint Layer)\s*(\d+)$""", RegexOption.IGNORE_CASE)
+    for (name in existing) {
+        val match = regex.find(name.trim())
+        if (match != null) {
+            val num = match.groupValues[1].toIntOrNull() ?: 0
+            if (num >= idx) idx = num + 1
+        }
+    }
+    return "$prefix $idx"
+}
+
+internal fun PaintViewModel.generateDefaultFillLayerName(): String {
+    val isZh = LanguageManager.isChinese()
+    val prefix = if (isZh) "填充图层" else "Fill Layer"
+    val existing = layers.map { it.name }
+    var idx = 1
+    val regex = Regex("""^(?:填充图层|Fill Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
+    var hasPlain = false
+    for (name in existing) {
+        val match = regex.find(name.trim())
+        if (match != null) {
+            val numStr = match.groupValues[1]
+            if (numStr.isEmpty()) {
+                hasPlain = true
+            } else {
+                val num = numStr.toIntOrNull() ?: 0
+                if (num >= idx) idx = num + 1
+            }
+        }
+    }
+    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
+}
+
+internal fun PaintViewModel.generateDefaultFilterLayerName(): String {
+    val isZh = LanguageManager.isChinese()
+    val prefix = if (isZh) "滤镜图层" else "Filter Layer"
+    val existing = layers.map { it.name }
+    var idx = 1
+    val regex = Regex("""^(?:滤镜图层|Filter Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
+    var hasPlain = false
+    for (name in existing) {
+        val match = regex.find(name.trim())
+        if (match != null) {
+            val numStr = match.groupValues[1]
+            if (numStr.isEmpty()) {
+                hasPlain = true
+            } else {
+                val num = numStr.toIntOrNull() ?: 0
+                if (num >= idx) idx = num + 1
+            }
+        }
+    }
+    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
+}
+
+internal fun PaintViewModel.generateDefaultGroupName(): String {
+    val isZh = LanguageManager.isChinese()
+    val prefix = if (isZh) "图层组" else "Group"
+    val existing = layers.map { it.name }
+    var idx = 1
+    val regex = Regex("""^(?:图层组|Group)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
+    var hasPlain = false
+    for (name in existing) {
+        val match = regex.find(name.trim())
+        if (match != null) {
+            val numStr = match.groupValues[1]
+            if (numStr.isEmpty()) {
+                hasPlain = true
+            } else {
+                val num = numStr.toIntOrNull() ?: 0
+                if (num >= idx) idx = num + 1
+            }
+        }
+    }
+    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
+}
+
 internal fun PaintViewModel.addLayer() {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
     }
+    val defaultName = generateDefaultLayerName()
     runCore(after = ::notifyLayerChanged) {
-        // empty name -> C++ generates 颜料图层 N
-        ReverieCoreBridge.addLayer("")
+        ReverieCoreBridge.addLayer(defaultName)
     }
 }
 
 internal fun PaintViewModel.importImageToNewLayer(
     bitmap: Bitmap,
-    layerName: String = "导入图片",
+    layerName: String = "",
     onComplete: () -> Unit = {},
 ) {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
     }
+    val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
+    val finalName = layerName.ifBlank { defaultImportName }
     runCore(
         after = {
             notifyLayerChanged(pixelChanged = true)
@@ -165,7 +249,7 @@ internal fun PaintViewModel.importImageToNewLayer(
         },
     ) {
         try {
-            ReverieCoreBridge.addLayer(layerName.ifBlank { "导入图片" })
+            ReverieCoreBridge.addLayer(finalName)
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
                 docH = coreH,
@@ -264,11 +348,12 @@ internal fun PaintViewModel.addGroupLayer() {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD_GROUP)
     }
+    val groupName = generateDefaultGroupName()
     runCore(after = {
         notifyLayerChanged()
         clearLayerSelection()
     }) {
-        val newGroupIndex = ReverieCoreBridge.addGroupLayer("")
+        val newGroupIndex = ReverieCoreBridge.addGroupLayer(groupName)
         if (selected.isNotEmpty() && newGroupIndex >= 0) {
             val groupIdx = ReverieCoreBridge.currentLayerIndex()
             for (idx in selected) {
@@ -295,11 +380,19 @@ internal fun PaintViewModel.copyLayer(i: Int) {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_COPY, i)
     }
+    val isZh = LanguageManager.isChinese()
     runCore(after = {
         isCopyingLayer = false
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.copyLayer(i)
+        val newIdx = ReverieCoreBridge.copyLayer(i)
+        if (!isZh && newIdx >= 0 && newIdx < ReverieCoreBridge.layerCount()) {
+            val createdName = ReverieCoreBridge.layerName(newIdx)
+            if (createdName.contains(" 副本")) {
+                val engName = createdName.replace(" 副本", " Copy")
+                ReverieCoreBridge.setLayerName(newIdx, engName)
+            }
+        }
     }
 }
 
@@ -462,8 +555,12 @@ internal fun PaintViewModel.stampVisibleLayers() {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
+    val isZh = LanguageManager.isChinese()
     runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.stampVisibleLayers()
+        val newIdx = ReverieCoreBridge.stampVisibleLayers()
+        if (!isZh && newIdx >= 0) {
+            ReverieCoreBridge.setLayerName(newIdx, "Stamp Visible Layers")
+        }
     }
 }
 
@@ -712,11 +809,12 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
     } catch (_: Exception) {
         0xFFFFFFFF.toInt()
     }
+    val fillLayerName = generateDefaultFillLayerName()
     if (recorder.recording) {
         recorder.layerOp(
             com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
             0,
-            "填充图层|0|$colorInt",
+            "$fillLayerName|0|$colorInt",
         )
     }
     // 回滚至稳定行为: type=0 预填色颜料层 + floodFill 补刀 (generator 填充层暂缓)
@@ -726,7 +824,7 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
         },
     ) {
-        ReverieCoreBridge.addLayerWithType("填充图层", 0, colorInt)
+        ReverieCoreBridge.addLayerWithType(fillLayerName, 0, colorInt)
     }
 }
 
@@ -735,11 +833,12 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         // 与 stampVisibleLayers 包装一致: 盖印可见层作为滤镜底图层
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
+    val filterLayerName = generateDefaultFilterLayerName()
     runCore(after = {
         notifyLayerChanged()
         val cur = currentLayerIndex
         if (cur >= 0) {
-            renameLayer(cur, "滤镜图层")
+            renameLayer(cur, filterLayerName)
             onOpenFilters(cur)
         }
     }) {

@@ -101,6 +101,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -249,7 +250,7 @@ internal fun FilterAdjustPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val displayTitle = if (indices.size > 1) "$filterName (${indices.size}个图层)" else filterName
+            val displayTitle = if (indices.size > 1) stringResource(R.string.filter_multi_layers_format, filterName, indices.size) else filterName
             Text(
                 text = displayTitle,
                 color = Morandi.text,
@@ -285,7 +286,7 @@ internal fun FilterAdjustPage(
                 ) {
                     Icon(
                         painterResource(if (eyeVisible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                        contentDescription = "预览",
+                        contentDescription = stringResource(R.string.preview),
                         tint = if (eyeVisible) Morandi.accent else Morandi.subText,
                         modifier = Modifier.size(16.dp)
                     )
@@ -332,7 +333,7 @@ internal fun FilterAdjustPage(
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_refresh),
-                        contentDescription = "重置",
+                        contentDescription = stringResource(R.string.reset),
                         tint = Morandi.icon,
                         modifier = Modifier.size(16.dp)
                     )
@@ -356,7 +357,7 @@ internal fun FilterAdjustPage(
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_x),
-                        contentDescription = "取消",
+                        contentDescription = stringResource(R.string.common_cancel),
                         tint = Morandi.icon,
                         modifier = Modifier.size(16.dp)
                     )
@@ -396,7 +397,7 @@ internal fun FilterAdjustPage(
                 ) {
                     Icon(
                         painterResource(R.drawable.ic_check),
-                        contentDescription = "应用",
+                        contentDescription = stringResource(R.string.common_apply),
                         tint = Color.White,
                         modifier = Modifier.size(16.dp)
                     )

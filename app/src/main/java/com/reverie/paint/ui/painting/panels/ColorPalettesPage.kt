@@ -123,7 +123,7 @@ fun PalettesPage(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_bookmark_plus),
-                    contentDescription = "添加颜色至色卡",
+                    contentDescription = stringResource(R.string.color_palette_add_color),
                     tint = Morandi.icon,
                     modifier = Modifier.size(16.dp)
                 )

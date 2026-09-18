@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReFab
@@ -107,6 +108,8 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var reloadTrigger by remember { mutableIntStateOf(0) }
     val uriHandler = LocalUriHandler.current
+    val networkErrorMsg = stringResource(R.string.sponsor_network_error)
+    val apiErrorMsg = stringResource(R.string.sponsor_api_error)
 
     LaunchedEffect(reloadTrigger) {
         withContext(Dispatchers.IO) {
@@ -181,7 +184,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                         break
                                     }
                                 } else {
-                                    error = json.optString("em", "API 响应异常")
+                                    error = json.optString("em", apiErrorMsg)
                                     break
                                 }
                             } else {
@@ -210,7 +213,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         if (attempt < 3) {
                             delay(800)
                         } else {
-                            error = "网络连接受阻，请检查设备联网状态或稍后重试"
+                            error = networkErrorMsg
                             isLoading = false
                         }
                     }
@@ -243,7 +246,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             strokeWidth = 3.dp,
                         )
                         Text(
-                            "正在加载爱发电赞助者数据...",
+                            stringResource(R.string.sponsor_loading),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Morandi.subText,
                         )
@@ -258,7 +261,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                     ) {
                         Text("⚠️", fontSize = 42.sp)
                         Text(
-                            error ?: "加载失败",
+                            error ?: androidx.compose.ui.res.stringResource(R.string.failed),
                             color = Morandi.subText,
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
@@ -275,12 +278,12 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Refresh,
-                                contentDescription = "重试",
+                                contentDescription = androidx.compose.ui.res.stringResource(R.string.retry),
                                 tint = Morandi.accent,
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("重新加载", color = Morandi.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(androidx.compose.ui.res.stringResource(R.string.retry), color = Morandi.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -300,18 +303,18 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             ) {
                                 Column {
                                     Text(
-                                        "赞助者",
+                                        androidx.compose.ui.res.stringResource(R.string.sponsor_title),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = Morandi.accent,
                                     )
                                     Text(
-                                        "0 位赞助者",
+                                        androidx.compose.ui.res.stringResource(R.string.sponsor_total, 0),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Morandi.subText,
                                     )
                                 }
-                                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
+                                ReIconButton(R.drawable.ic_x, androidx.compose.ui.res.stringResource(R.string.close), onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
                             }
 
                             // Disclaimer banner (MicYou Style)
@@ -324,7 +327,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                     .padding(horizontal = 14.dp, vertical = 10.dp),
                             ) {
                                 Text(
-                                    "此处仅显示爱发电上对项目发起者个人 LanRhyme 的赞助。",
+                                    androidx.compose.ui.res.stringResource(R.string.sponsor_disclaimer),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Morandi.subText,
                                     lineHeight = 18.sp,
@@ -343,7 +346,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                 Text("❤️", fontSize = 48.sp)
                                 Spacer(Modifier.height(12.dp))
                                 Text(
-                                    "暂无赞助者，等待好心人出现 (｡•́︿•̀｡)",
+                                    androidx.compose.ui.res.stringResource(R.string.sponsor_empty),
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Morandi.subText,
                                     textAlign = TextAlign.Center,
@@ -354,7 +357,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         // Floating Action Button
                         ReFab(
                             R.drawable.ic_heart,
-                            "前往爱发电赞助",
+                            androidx.compose.ui.res.stringResource(R.string.sponsor_afdian_btn),
                             {
                                 try {
                                     uriHandler.openUri("https://afdian.com/a/LanRhyme")
@@ -381,18 +384,18 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                             ) {
                                 Column {
                                     Text(
-                                        "赞助者",
+                                        androidx.compose.ui.res.stringResource(R.string.sponsor_title),
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = Morandi.accent,
                                     )
                                     Text(
-                                        "${sponsors.size} 位赞助者",
+                                        androidx.compose.ui.res.stringResource(R.string.sponsor_total, sponsors.size),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = Morandi.subText,
                                     )
                                 }
-                                ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
+                                ReIconButton(R.drawable.ic_x, androidx.compose.ui.res.stringResource(R.string.close), onDismiss, size = 36.dp, tint = Morandi.text, iconSize = 18.dp)
                             }
 
                             // Disclaimer banner
@@ -405,7 +408,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                                     .padding(horizontal = 14.dp, vertical = 10.dp),
                             ) {
                                 Text(
-                                    "此处仅显示爱发电上对项目发起者个人 LanRhyme 的赞助。",
+                                    androidx.compose.ui.res.stringResource(R.string.sponsor_disclaimer),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Morandi.subText,
                                     lineHeight = 18.sp,
@@ -429,7 +432,7 @@ fun SponsorsDialog(onDismiss: () -> Unit) {
                         // Floating Action Button
                         ReFab(
                             R.drawable.ic_heart,
-                            "前往爱发电赞助",
+                            androidx.compose.ui.res.stringResource(R.string.sponsor_afdian_btn),
                             {
                                 try {
                                     uriHandler.openUri("https://afdian.com/a/LanRhyme")
@@ -507,8 +510,9 @@ private fun SponsorListItem(item: SponsorItem) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(2.dp))
+                    val defaultPlanName = stringResource(R.string.sponsor_afdian_sponsor)
                     Text(
-                        text = "${item.planName ?: "爱发电赞助"} · $dateStr",
+                        text = "${item.planName ?: defaultPlanName} · $dateStr",
                         fontSize = 11.sp,
                         color = Morandi.subText,
                     )

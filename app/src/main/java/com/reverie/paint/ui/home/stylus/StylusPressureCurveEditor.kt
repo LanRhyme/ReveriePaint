@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,8 +67,14 @@ internal fun CompactPressureCurveCard(
     onOpenHelpDialog: () -> Unit,
 ) {
     val colors = Theme.current
-    val presetNames = listOf("标准线性", "轻压灵敏 (凸)", "用力扎实 (凹)", "S型过渡", "自定义曲线")
-    val currentPresetName = presetNames.getOrElse(presetIndex) { "自定义曲线" }
+    val presetNames = listOf(
+        stringResource(R.string.stylus_curve_preset_linear),
+        stringResource(R.string.stylus_curve_preset_soft),
+        stringResource(R.string.stylus_curve_preset_hard),
+        stringResource(R.string.stylus_curve_preset_scurve),
+        stringResource(R.string.stylus_curve_preset_custom),
+    )
+    val currentPresetName = presetNames.getOrElse(presetIndex) { presetNames.last() }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // 曲线紧凑预览区 (点击直接唤起全功能弹窗)
@@ -137,7 +144,7 @@ internal fun CompactPressureCurveCard(
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            text = if (presetIndex == 4) "自定义" else "预设",
+                            text = if (presetIndex == 4) stringResource(R.string.stylus_curve_tag_custom) else stringResource(R.string.stylus_curve_tag_preset),
                             color = colors.accent,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
@@ -147,7 +154,7 @@ internal fun CompactPressureCurveCard(
 
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "点击展开详细面板调整控制点，并可在专属画板下笔试画压感",
+                    text = stringResource(R.string.stylus_curve_editor_hint),
                     color = colors.subText,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -176,7 +183,7 @@ internal fun CompactPressureCurveCard(
                                 modifier = Modifier.size(12.dp),
                             )
                             Text(
-                                text = "编辑自定义曲线",
+                                text = stringResource(R.string.stylus_curve_edit_btn),
                                 color = colors.accent,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -204,7 +211,7 @@ internal fun CompactPressureCurveCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "重置为线性",
+                    text = stringResource(R.string.stylus_curve_reset_linear),
                     color = colors.subText,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
@@ -230,7 +237,7 @@ internal fun CompactPressureCurveCard(
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_help_circle),
-                        contentDescription = "帮助",
+                        contentDescription = stringResource(R.string.common_help),
                         tint = colors.subText,
                         modifier = Modifier.size(20.dp),
                     )
@@ -276,7 +283,7 @@ internal fun PressureCurveDetailDialog(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "压力曲线微调",
+                            text = stringResource(R.string.stylus_curve_fine_tune),
                             color = colors.text,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
@@ -291,7 +298,7 @@ internal fun PressureCurveDetailDialog(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_help_circle),
-                                contentDescription = "帮助",
+                                contentDescription = stringResource(R.string.common_help),
                                 tint = colors.subText,
                                 modifier = Modifier.size(16.dp),
                             )
@@ -308,7 +315,7 @@ internal fun PressureCurveDetailDialog(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_x),
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.common_close),
                             tint = colors.subText,
                             modifier = Modifier.size(16.dp),
                         )
@@ -332,7 +339,7 @@ internal fun PressureCurveDetailDialog(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            text = "重置为线性",
+                            text = stringResource(R.string.stylus_curve_reset_linear),
                             color = colors.subText,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -385,7 +392,7 @@ internal fun PressureCurveDetailDialog(
 
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "提示：拖动控制点调整；空白处轻点添加点 (最多6个)；双击或拖出边界删除控制点",
+                    text = stringResource(R.string.stylus_curve_drag_hint),
                     color = colors.subText.copy(alpha = 0.7f),
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
@@ -399,7 +406,7 @@ internal fun PressureCurveDetailDialog(
                     horizontalArrangement = Arrangement.End,
                 ) {
                     ReTextButton(
-                        text = "完成",
+                        text = stringResource(R.string.common_done),
                         onClick = onDismiss,
                         textColor = colors.accent,
                         fontWeight = FontWeight.Bold,
@@ -502,7 +509,7 @@ internal fun StylusTestStrokeCanvas(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "实时试笔区\n下笔体验压感粗细过渡",
+                    text = stringResource(R.string.stylus_curve_scratchpad_title),
                     color = colors.subText.copy(alpha = 0.45f),
                     fontSize = 12.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -522,7 +529,11 @@ internal fun StylusTestStrokeCanvas(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Text(
-                    text = "输入: ${(currentRawPressure * 100).toInt()}% → 响应: ${(currentMappedPressure * 100).toInt()}%",
+                    text = stringResource(
+                        R.string.stylus_curve_input_output,
+                        (currentRawPressure * 100).toInt(),
+                        (currentMappedPressure * 100).toInt(),
+                    ),
                     color = colors.accent,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
@@ -544,7 +555,7 @@ internal fun StylusTestStrokeCanvas(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_trash),
-                    contentDescription = "清空试笔笔迹",
+                    contentDescription = stringResource(R.string.stylus_curve_clear_ink),
                     tint = colors.subText,
                     modifier = Modifier.size(14.dp),
                 )
@@ -860,14 +871,14 @@ internal fun PressureCurveHelpDialog(onDismiss: () -> Unit) {
         ) {
             Column {
                 Text(
-                    text = "压力曲线说明",
+                    text = stringResource(R.string.stylus_curve_help_title),
                     color = colors.text,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "压力曲线用于调整手写笔从轻压到重压的感应输出。\n\n• 曲线向上凸起：轻握笔时即可输出较大粗细与浓度，适合手劲轻或压力较硬的手写笔。\n• 曲线向下凹陷：需要较用力按压才会达到最大粗细，手感更扎实。\n• S型曲线：两端平缓中间灵敏，层次更分明。",
+                    text = stringResource(R.string.stylus_curve_help_content),
                     color = colors.subText,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -877,7 +888,7 @@ internal fun PressureCurveHelpDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("我知道了", onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
+                    ReTextButton(stringResource(R.string.stylus_curve_i_know), onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

@@ -115,6 +115,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateListOf
+import androidx.annotation.StringRes
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
@@ -125,14 +128,14 @@ import kotlin.math.roundToInt
 
 data class FilterItemDef(
     val id: Int,
-    val name: String,
+    @StringRes val nameRes: Int,
     val hasSliders: Boolean,
-    val desc: String = ""
+    @StringRes val descRes: Int = 0
 )
 
 data class FilterCategoryDef(
     val id: String,
-    val name: String,
+    @StringRes val nameRes: Int,
     val iconRes: Int,
     val filters: List<FilterItemDef>
 )
@@ -145,83 +148,84 @@ internal fun FiltersPage(
     onSelectFilter: (Int, String) -> Unit,
     initialCategoryId: String? = null,
 ) {
+    val context = LocalContext.current
     val categories = remember {
         listOf(
             FilterCategoryDef(
                 id = "color",
-                name = "调整图像/颜色",
+                nameRes = R.string.filter_cat_adjust_color,
                 iconRes = R.drawable.ic_image_adjust,
                 filters = listOf(
-                    FilterItemDef(0, "色相 / 饱和度 / 明度 / 对比度", true, "色相偏移、饱和度与明暗对比调节"),
-                    FilterItemDef(13, "曲线 (颜色调整)", true, "交互式多通道RGB调色曲线"),
-                    FilterItemDef(14, "色阶", true, "黑场、白场与中间调伽马调整"),
-                    FilterItemDef(28, "自然饱和度 (Vibrance)", true, "保护肤色与低饱和度色彩提升"),
-                    FilterItemDef(1, "色彩平衡", true, "青红、洋绿、黄蓝平衡"),
-                    FilterItemDef(15, "色温与色调", true, "冷暖色温与绿-洋红色调"),
-                    FilterItemDef(27, "阴影与高光", true, "暗部提亮与高光过曝抑制"),
-                    FilterItemDef(24, "曝光度与伽马", true, "线性曝光值与伽马曲线"),
-                    FilterItemDef(12, "去色 (灰度化)", true, "转为黑白灰度图"),
-                    FilterItemDef(6, "反相 (底片效果)", true, "反转通道颜色"),
-                    FilterItemDef(16, "阈值 (黑白二值化)", true, "明度门限黑白分割"),
+                    FilterItemDef(0, R.string.filter_name_hsv, true, R.string.filter_desc_hsv),
+                    FilterItemDef(13, R.string.filter_name_curves, true, R.string.filter_desc_curves),
+                    FilterItemDef(14, R.string.filter_name_levels, true, R.string.filter_desc_levels),
+                    FilterItemDef(28, R.string.filter_name_vibrance, true, R.string.filter_desc_vibrance),
+                    FilterItemDef(1, R.string.filter_name_color_balance, true, R.string.filter_desc_color_balance),
+                    FilterItemDef(15, R.string.filter_name_temp_tint, true, R.string.filter_desc_temp_tint),
+                    FilterItemDef(27, R.string.filter_name_shadow_highlight, true, R.string.filter_desc_shadow_highlight),
+                    FilterItemDef(24, R.string.filter_name_exposure, true, R.string.filter_desc_exposure),
+                    FilterItemDef(12, R.string.filter_name_desaturate, true, R.string.filter_desc_desaturate),
+                    FilterItemDef(6, R.string.filter_name_invert, true, R.string.filter_desc_invert),
+                    FilterItemDef(16, R.string.filter_name_threshold, true, R.string.filter_desc_threshold),
                 )
             ),
             FilterCategoryDef(
                 id = "blur",
-                name = "模糊与平滑",
+                nameRes = R.string.filter_cat_blur_smooth,
                 iconRes = R.drawable.ic_smudge,
                 filters = listOf(
-                    FilterItemDef(2, "高斯模糊", true, "Alpha加权多核高斯平滑"),
-                    FilterItemDef(3, "动感模糊", true, "任意角度线性积分模糊"),
-                    FilterItemDef(22, "径向/缩放模糊", true, "中心辐射聚焦模糊"),
-                    FilterItemDef(33, "保边平滑 (Surface Blur)", true, "磨皮降噪且保留清晰轮廓边缘"),
-                    FilterItemDef(26, "散焦模糊 (镜头光圈)", true, "圆形弥散斑镜头虚化"),
+                    FilterItemDef(2, R.string.filter_name_gaussian_blur, true, R.string.filter_desc_gaussian_blur),
+                    FilterItemDef(3, R.string.filter_name_motion_blur, true, R.string.filter_desc_motion_blur),
+                    FilterItemDef(22, R.string.filter_name_radial_blur, true, R.string.filter_desc_radial_blur),
+                    FilterItemDef(33, R.string.filter_name_surface_blur, true, R.string.filter_desc_surface_blur),
+                    FilterItemDef(26, R.string.filter_name_defocus, true, R.string.filter_desc_defocus),
                 )
             ),
             FilterCategoryDef(
                 id = "enhance",
-                name = "图像增强",
+                nameRes = R.string.filter_cat_enhance,
                 iconRes = R.drawable.ic_magicwand,
                 filters = listOf(
-                    FilterItemDef(18, "泛光 / 辉光 (Bloom)", true, "高光溢出扩散光晕"),
-                    FilterItemDef(4, "锐化", true, "拉普拉斯边缘对比度锐化"),
-                    FilterItemDef(19, "投影效果 (Drop Shadow)", true, "自定义角度与模糊阴影"),
-                    FilterItemDef(25, "边缘霓虹发光", true, "边缘高亮荧光发光"),
-                    FilterItemDef(8, "查找边缘 (Sobel)", true, "轮廓边缘检测提取"),
-                    FilterItemDef(9, "浮雕效果", true, "立体凹凸光影浮雕"),
+                    FilterItemDef(18, R.string.filter_name_bloom, true, R.string.filter_desc_bloom),
+                    FilterItemDef(4, R.string.filter_name_sharpen, true, R.string.filter_desc_sharpen),
+                    FilterItemDef(19, R.string.filter_name_drop_shadow, true, R.string.filter_desc_drop_shadow),
+                    FilterItemDef(25, R.string.filter_name_edge_glow, true, R.string.filter_desc_edge_glow),
+                    FilterItemDef(8, R.string.filter_name_sobel, true, R.string.filter_desc_sobel),
+                    FilterItemDef(9, R.string.filter_name_emboss, true, R.string.filter_desc_emboss),
                 )
             ),
             FilterCategoryDef(
                 id = "map",
-                name = "映射与通道",
+                nameRes = R.string.filter_cat_map_channels,
                 iconRes = R.drawable.ic_gradient,
                 filters = listOf(
-                    FilterItemDef(30, "渐变映射 (自定义调色板)", true, "灰度映射至多色阶调调色板"),
-                    FilterItemDef(7, "亮度转透明度 (提取线稿)", true, "纯黑线稿透明化提取"),
-                    FilterItemDef(29, "颜色转透明度 (抠图)", true, "指定颜色转透明并羽化边缘"),
-                    FilterItemDef(20, "亮度转不透明度", true, "明度保留色彩并调制Alpha通道"),
+                    FilterItemDef(30, R.string.filter_name_gradient_map, true, R.string.filter_desc_gradient_map),
+                    FilterItemDef(7, R.string.filter_name_lum_to_alpha, true, R.string.filter_desc_lum_to_alpha),
+                    FilterItemDef(29, R.string.filter_name_color_to_alpha, true, R.string.filter_desc_color_to_alpha),
+                    FilterItemDef(20, R.string.filter_name_lum_to_opacity, true, R.string.filter_desc_lum_to_opacity),
                 )
             ),
             FilterCategoryDef(
                 id = "artistic",
-                name = "艺术效果",
+                nameRes = R.string.filter_cat_artistic,
                 iconRes = R.drawable.ic_brush,
                 filters = listOf(
-                    FilterItemDef(10, "杂色 / 噪点", true, "胶片颗粒感噪点添加"),
-                    FilterItemDef(21, "油画效果 (Kuwahara)", true, "基于局部方差的写生油画质感"),
-                    FilterItemDef(17, "色调分离", true, "色彩阶数离散量化"),
-                    FilterItemDef(5, "马赛克 / 像素化", true, "网格块状像素化"),
-                    FilterItemDef(23, "半色调网点", true, "印刷漫画网点风格"),
-                    FilterItemDef(34, "扫描线与 CRT 风格", true, "复古显像管扫描光栅效果"),
+                    FilterItemDef(10, R.string.filter_name_noise, true, R.string.filter_desc_noise),
+                    FilterItemDef(21, R.string.filter_name_oil, true, R.string.filter_desc_oil),
+                    FilterItemDef(17, R.string.filter_name_posterize, true, R.string.filter_desc_posterize),
+                    FilterItemDef(5, R.string.filter_name_mosaic, true, R.string.filter_desc_mosaic),
+                    FilterItemDef(23, R.string.filter_name_halftone, true, R.string.filter_desc_halftone),
+                    FilterItemDef(34, R.string.filter_name_scanline, true, R.string.filter_desc_scanline),
                 )
             ),
             FilterCategoryDef(
                 id = "distort",
-                name = "空间与扭曲",
+                nameRes = R.string.filter_cat_distort,
                 iconRes = R.drawable.ic_crop,
                 filters = listOf(
-                    FilterItemDef(11, "色散错位 (Glitch)", true, "红蓝RGB通道错位色散"),
-                    FilterItemDef(31, "水波纹 / 涟漪扭曲", true, "正弦水面波浪波动畸变"),
-                    FilterItemDef(32, "旋涡扭曲 (Swirl)", true, "中心渐进旋转扭曲"),
+                    FilterItemDef(11, R.string.filter_name_glitch, true, R.string.filter_desc_glitch),
+                    FilterItemDef(31, R.string.filter_name_ripple, true, R.string.filter_desc_ripple),
+                    FilterItemDef(32, R.string.filter_name_swirl, true, R.string.filter_desc_swirl),
                 )
             ),
         )
@@ -255,12 +259,14 @@ internal fun FiltersPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.back),
                     tint = Morandi.icon,
                     modifier = Modifier.size(18.dp),
                 )
             }
-            val titleText = selectedCategory?.name ?: if (indices.size > 1) "滤镜库 (${indices.size}个图层)" else "滤镜库"
+            val titleText = selectedCategory?.let { stringResource(it.nameRes) }
+                ?: if (indices.size > 1) stringResource(R.string.filter_library_multi_layers, indices.size)
+                else stringResource(R.string.filter_library_title)
             Text(
                 text = titleText,
                 color = Morandi.text,
@@ -310,8 +316,8 @@ internal fun FiltersPage(
                                     )
                                 }
                                 Column {
-                                    Text(cat.name, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                    Text("${cat.filters.size} 个滤镜", color = Morandi.subText, fontSize = 11.sp)
+                                    Text(stringResource(cat.nameRes), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                    Text(stringResource(R.string.filter_count_format, cat.filters.size), color = Morandi.subText, fontSize = 11.sp)
                                 }
                             }
                             Icon(
@@ -332,19 +338,20 @@ internal fun FiltersPage(
                         .verticalScroll(rememberScrollState())
                 ) {
                     category.filters.forEach { item ->
+                        val itemName = stringResource(item.nameRes)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .noRippleClickable {
-                                    onSelectFilter(item.id, item.name)
+                                    onSelectFilter(item.id, itemName)
                                 }.padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(item.name, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                if (item.desc.isNotEmpty()) {
-                                    Text(item.desc, color = Morandi.subText, fontSize = 11.sp)
+                                Text(itemName, color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                if (item.descRes != 0) {
+                                    Text(stringResource(item.descRes), color = Morandi.subText, fontSize = 11.sp)
                                 }
                             }
                             Icon(

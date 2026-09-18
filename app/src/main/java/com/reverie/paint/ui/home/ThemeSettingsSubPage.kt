@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,24 +102,24 @@ internal fun ThemeSettingsSubPage(
                 .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
         ) {
             SettingSubPageHeader(
-                title = "主题设置",
-                subtitle = "全局莫兰迪调色盘、暗黑模式与界面视觉缩放",
+                title = stringResource(R.string.theme_settings_title),
+                subtitle = stringResource(R.string.theme_settings_subtitle),
                 showBackButton = showBackButton,
                 compact = compact,
                 onBack = onBack,
             )
 
             // Section 1: 色彩与主题模式
-            SettingCategoryTitle("色彩与主题模式")
+            SettingCategoryTitle(stringResource(R.string.theme_category_color_mode))
             SettingGroup {
                 SettingSegmentGroupItem(
                     icon = Icons.Rounded.Brightness4,
-                    title = "色彩模式",
-                    summary = "深浅色外观切换或跟随系统自动感知",
+                    title = stringResource(R.string.theme_color_mode_title),
+                    summary = stringResource(R.string.theme_color_mode_summary),
                     options = listOf(
-                        "DARK" to "深色",
-                        "LIGHT" to "浅色",
-                        "SYSTEM" to "跟随系统",
+                        "DARK" to stringResource(R.string.theme_mode_dark),
+                        "LIGHT" to stringResource(R.string.theme_mode_light),
+                        "SYSTEM" to stringResource(R.string.theme_mode_system),
                     ),
                     selected = vm.themeMode,
                     shape = settingGroupShape(0, 2),
@@ -127,11 +128,11 @@ internal fun ThemeSettingsSubPage(
 
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.ColorLens,
-                    title = "莫奈取色 (Monet 动态色彩)",
+                    title = stringResource(R.string.theme_monet_title),
                     summary = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        "跟随系统壁纸与 Material You 动态提取界面主题色"
+                        stringResource(R.string.theme_monet_summary)
                     } else {
-                        "需要 Android 12 及以上系统支持"
+                        stringResource(R.string.theme_monet_unsupported)
                     },
                     checked = vm.monetEnabled,
                     enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
@@ -141,7 +142,7 @@ internal fun ThemeSettingsSubPage(
             }
 
             // Section 2: 主色调
-            SettingCategoryTitle("主色调")
+            SettingCategoryTitle(stringResource(R.string.theme_category_accent))
             SettingGroup {
                 SettingCardBox(shape = settingGroupShape(0, 1)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -153,7 +154,7 @@ internal fun ThemeSettingsSubPage(
                             Spacer(Modifier.width(14.dp))
                             Column {
                                 Text(
-                                    text = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "预设色调 (莫奈接管中)" else "强调色色板",
+                                    text = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) stringResource(R.string.theme_accent_palette_monet) else stringResource(R.string.theme_accent_palette),
                                     color = colors.text,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium,
@@ -161,9 +162,9 @@ internal fun ThemeSettingsSubPage(
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     text = if (vm.monetEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                        "点击下方色块可关闭莫奈取色并应用指定莫兰迪色"
+                                        stringResource(R.string.theme_monet_override_hint)
                                     } else {
-                                        "应用于按钮、滑块及高亮强调色，默认采用低饱和莫兰迪色"
+                                        stringResource(R.string.theme_accent_desc)
                                     },
                                     color = colors.subText,
                                     fontSize = 12.sp,
@@ -229,7 +230,7 @@ internal fun ThemeSettingsSubPage(
                                 ) {
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
-                                        contentDescription = "自定义颜色",
+                                        contentDescription = stringResource(R.string.color_custom),
                                         tint = if (isCustomSelected) Color.White else colors.icon,
                                         modifier = Modifier.size(18.dp),
                                     )
@@ -241,7 +242,7 @@ internal fun ThemeSettingsSubPage(
             }
 
             // Section 3: 画布工作区背景
-            SettingCategoryTitle("画布工作区背景")
+            SettingCategoryTitle(stringResource(R.string.theme_category_canvas_bg))
             SettingGroup {
                 SettingCardBox(shape = settingGroupShape(0, 1)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -253,14 +254,14 @@ internal fun ThemeSettingsSubPage(
                             Spacer(Modifier.width(14.dp))
                             Column {
                                 Text(
-                                    text = "工作区底色",
+                                    text = stringResource(R.string.theme_canvas_bg_title),
                                     color = colors.text,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium,
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    text = "自定义绘画与回放界面中画布周围工作区的底色",
+                                    text = stringResource(R.string.theme_canvas_bg_desc),
                                     color = colors.subText,
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp,
@@ -299,7 +300,7 @@ internal fun ThemeSettingsSubPage(
                                                 Spacer(Modifier.width(4.dp))
                                             }
                                             Text(
-                                                text = "跟随主题",
+                                                text = stringResource(R.string.theme_canvas_bg_follow),
                                                 color = if (isDefaultSelected) colors.accent else colors.text,
                                                 fontSize = 12.sp,
                                                 fontWeight = if (isDefaultSelected) FontWeight.Bold else FontWeight.Normal,
@@ -313,11 +314,11 @@ internal fun ThemeSettingsSubPage(
                                         modifier = Modifier
                                             .size(38.dp)
                                             .clip(CircleShape)
-                                            .background(swatchColor)
-                                            .then(
-                                                if (isSelected) Modifier.border(2.5.dp, colors.accent, CircleShape) else Modifier
-                                            )
-                                            .clickable { vm.updateCanvasBgColor(hex) },
+                                        .background(swatchColor)
+                                        .then(
+                                            if (isSelected) Modifier.border(2.5.dp, colors.accent, CircleShape) else Modifier
+                                        )
+                                        .clickable { vm.updateCanvasBgColor(hex) },
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isSelected) {
@@ -353,7 +354,7 @@ internal fun ThemeSettingsSubPage(
                                     } else colors.icon
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
-                                        contentDescription = "自定义画布背景",
+                                        contentDescription = stringResource(R.string.theme_custom_canvas_bg),
                                         tint = iconTint,
                                         modifier = Modifier.size(18.dp),
                                     )
@@ -365,12 +366,12 @@ internal fun ThemeSettingsSubPage(
             }
 
             // Section 4: 界面不透明度
-            SettingCategoryTitle("界面不透明度")
+            SettingCategoryTitle(stringResource(R.string.theme_category_opacity))
             SettingGroup {
                 SettingSliderGroupItem(
                     icon = Icons.Rounded.Opacity,
-                    title = "主界面面板",
-                    summary = "工具栏与顶部栏不透明度",
+                    title = stringResource(R.string.theme_opacity_main_panel),
+                    summary = stringResource(R.string.theme_opacity_main_panel_desc),
                     valueText = "${(vm.uiOpacity * 100).toInt()}%",
                     sliderFraction = ((vm.uiOpacity - 0.2f) / 0.8f).coerceIn(0f, 1f),
                     shape = settingGroupShape(0, 2),
@@ -379,8 +380,8 @@ internal fun ThemeSettingsSubPage(
 
                 SettingSliderGroupItem(
                     icon = Icons.Rounded.Layers,
-                    title = "浮动面板",
-                    summary = "图层、笔刷、颜色等弹窗不透明度",
+                    title = stringResource(R.string.theme_opacity_floating_panel),
+                    summary = stringResource(R.string.theme_opacity_floating_panel_desc),
                     valueText = "${(vm.popupPanelOpacity * 100).toInt()}%",
                     sliderFraction = ((vm.popupPanelOpacity - 0.2f) / 0.8f).coerceIn(0f, 1f),
                     shape = settingGroupShape(1, 2),
@@ -389,12 +390,12 @@ internal fun ThemeSettingsSubPage(
             }
 
             // Section 5: 界面尺寸
-            SettingCategoryTitle("界面尺寸")
+            SettingCategoryTitle(stringResource(R.string.theme_category_ui_scale))
             SettingGroup {
                 SettingSliderGroupItem(
                     icon = Icons.Rounded.AspectRatio,
-                    title = "绘画界面整体大小",
-                    summary = "缩放画布四周的工具栏、顶栏及各浮动面板",
+                    title = stringResource(R.string.theme_ui_scale_title),
+                    summary = stringResource(R.string.theme_ui_scale_desc),
                     valueText = "${(vm.paintingUiScale * 100).toInt()}%",
                     sliderFraction = ((vm.paintingUiScale - 0.75f) / (1.35f - 0.75f)).coerceIn(0f, 1f),
                     shape = settingGroupShape(0, 1),
@@ -406,13 +407,13 @@ internal fun ThemeSettingsSubPage(
             }
 
             // Section 6: 显示与效果
-            SettingCategoryTitle("显示与效果")
+            SettingCategoryTitle(stringResource(R.string.theme_category_effects))
             SettingGroup {
                 val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.BlurOn,
-                    title = "背景毛玻璃效果",
-                    summary = if (blurSupported) "为所有面板与工具栏启用半透明背景高斯模糊" else "此设备系统版本不支持模糊效果",
+                    title = stringResource(R.string.theme_blur_title),
+                    summary = if (blurSupported) stringResource(R.string.theme_blur_desc) else stringResource(R.string.theme_blur_unsupported),
                     checked = vm.blurBackground,
                     enabled = blurSupported,
                     shape = settingGroupShape(0, 2),
@@ -421,8 +422,8 @@ internal fun ThemeSettingsSubPage(
 
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Fullscreen,
-                    title = "沉浸模式",
-                    summary = "隐藏系统状态栏与导航栏，并将画布延展至刘海挖孔区域",
+                    title = stringResource(R.string.theme_immersive_title),
+                    summary = stringResource(R.string.theme_immersive_desc),
                     checked = vm.immersiveMode,
                     shape = settingGroupShape(1, 2),
                     onCheckedChange = {

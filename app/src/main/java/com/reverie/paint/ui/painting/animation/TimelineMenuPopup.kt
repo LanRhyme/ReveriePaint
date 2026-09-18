@@ -173,20 +173,28 @@ internal fun FrameMenuPopup(
         return t
     }
 
+    val strInbetween = androidx.compose.ui.res.stringResource(R.string.timeline_inbetween)
+    val strNewFrame = androidx.compose.ui.res.stringResource(R.string.timeline_new_frame)
+    val strDupFrame = androidx.compose.ui.res.stringResource(R.string.timeline_duplicate_frame)
+    val strCopy = androidx.compose.ui.res.stringResource(R.string.timeline_copy_frame)
+    val strCut = androidx.compose.ui.res.stringResource(R.string.timeline_cut_frame)
+    val strPaste = androidx.compose.ui.res.stringResource(R.string.timeline_paste_frame)
+    val strDeleteFrame = androidx.compose.ui.res.stringResource(R.string.timeline_delete_frame)
+
     val items: List<Pair<String, () -> Unit>> = buildList {
         if (menu.onBlock) {
             val times = vm.anim.keyframeCache[menu.layer].orEmpty()
             val curIdx = times.indexOf(menu.time)
             val hasNextKey = curIdx in times.indices && curIdx + 1 < times.size
             if (hasNextKey) {
-                add("自动中割" to {
+                add(strInbetween to {
                     vm.animationGenerateInbetween(menu.layer, menu.time)
                 })
             }
-            add("新建帧" to {
+            add(strNewFrame to {
                 vm.animationAddBlankKeyframeAt(menu.layer, menu.time + 1)
             })
-            add("复制帧" to {
+            add(strDupFrame to {
                 val t2 = nextFreeSlot(menu.layer, menu.time + 1)
                 vm.animationCopyCurrentFrameTo(
                     t2,
@@ -196,11 +204,11 @@ internal fun FrameMenuPopup(
                 )
                 vm.animationSeek(t2)
             })
-            add("拷贝" to {
+            add(strCopy to {
                 frameClipboard = menu.layer to menu.time
                 haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             })
-            add("剪切" to {
+            add(strCut to {
                 frameClipboard = menu.layer to menu.time
                 vm.animationRemoveKeyframe(menu.layer, menu.time)
             })
@@ -210,7 +218,7 @@ internal fun FrameMenuPopup(
             if (clip != null) {
                 val clipTime = clip.second
                 val target = if (menu.onBlock) nextFreeSlot(menu.layer, menu.time + 1) else menu.time
-                add("粘贴" to {
+                add(strPaste to {
                     vm.animationCopyCurrentFrameTo(
                         target,
                         menu.layer,
@@ -222,7 +230,7 @@ internal fun FrameMenuPopup(
             }
         }
         if (menu.onBlock) {
-            add("删除帧" to {
+            add(strDeleteFrame to {
                 vm.animationRemoveKeyframe(menu.layer, menu.time)
             })
         }
@@ -294,7 +302,7 @@ internal fun FrameMenuPopup(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "色标",
+                        text = androidx.compose.ui.res.stringResource(R.string.timeline_color_tag),
                         color = Morandi.subText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
@@ -352,8 +360,8 @@ internal fun FrameMenuPopup(
                 )
             }
             items.forEach { (label, action) ->
-                val isDelete = label == "删除帧"
-                val isAi = label == "自动中割"
+                val isDelete = label == strDeleteFrame
+                val isAi = label == strInbetween
                 FrameMenuItem(
                     text = label,
                     isDestructive = isDelete,
@@ -382,14 +390,19 @@ internal fun TrackMenuPopup(
     val menuW = 146.dp
     val canDelete = vm.layers.size > 1
 
+    val strCopyLayer = androidx.compose.ui.res.stringResource(R.string.layer_op_duplicate)
+    val strClearLayer = androidx.compose.ui.res.stringResource(R.string.clear)
+    val strDeleteLayer = androidx.compose.ui.res.stringResource(R.string.layer_op_delete_layer)
+    val strCannotDelete = androidx.compose.ui.res.stringResource(R.string.timeline_cannot_delete_only_layer)
+
     val items = listOf(
-        "复制图层" to { vm.copyLayer(menu.layerIndex) },
-        "清空图层" to { vm.clearLayer(menu.layerIndex) },
-        "删除图层" to {
+        strCopyLayer to { vm.copyLayer(menu.layerIndex) },
+        strClearLayer to { vm.clearLayer(menu.layerIndex) },
+        strDeleteLayer to {
             if (canDelete) {
                 vm.removeLayer(menu.layerIndex)
             } else {
-                vm.showActionToast("无法删除唯一的图层", R.drawable.ic_x)
+                vm.showActionToast(strCannotDelete, R.drawable.ic_x)
             }
         },
     )
@@ -447,7 +460,7 @@ internal fun TrackMenuPopup(
                 .padding(horizontal = 2.dp, vertical = 5.dp),
         ) {
             items.forEach { (label, action) ->
-                val isDelete = label == "删除图层"
+                val isDelete = label == strDeleteLayer
                 FrameMenuItem(
                     text = label,
                     isDestructive = isDelete,

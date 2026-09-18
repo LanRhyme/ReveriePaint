@@ -99,9 +99,9 @@ private class CreateDocumentWithMime : ActivityResultContract<Pair<String, Strin
 
 data class ExportFormatItem(
     val format: String,
-    val name: String,
-    val description: String,
-    val tag: String,
+    val nameRes: Int,
+    val descriptionRes: Int,
+    val tagRes: Int,
     val isLayered: Boolean,
 )
 
@@ -217,51 +217,51 @@ private fun StaticExportSection(
         listOf(
             ExportFormatItem(
                 format = "PNG",
-                name = "PNG 图像",
-                description = "无损透明合层，最常用的位图格式",
-                tag = "无损合层",
+                nameRes = R.string.export_format_png_name,
+                descriptionRes = R.string.export_format_png_desc,
+                tagRes = R.string.export_format_png_tag,
                 isLayered = false,
             ),
             ExportFormatItem(
                 format = "JPEG",
-                name = "JPEG 图像",
-                description = "高品质压缩合并图，适合网络快速分享",
-                tag = "轻量分享",
+                nameRes = R.string.export_format_jpeg_name,
+                descriptionRes = R.string.export_format_jpeg_desc,
+                tagRes = R.string.export_format_jpeg_tag,
                 isLayered = false,
             ),
             ExportFormatItem(
                 format = "WEBP",
-                name = "WebP 现代图像",
-                description = "新一代网络图像格式，支持高压缩率与无损透明",
-                tag = "高效网络",
+                nameRes = R.string.export_format_webp_name,
+                descriptionRes = R.string.export_format_webp_desc,
+                tagRes = R.string.export_format_webp_tag,
                 isLayered = false,
             ),
             ExportFormatItem(
                 format = "PSD",
-                name = "Photoshop 分层",
-                description = "完整保留各图层、混合模式与剪裁属性",
-                tag = "分层工程",
+                nameRes = R.string.export_format_psd_name,
+                descriptionRes = R.string.export_format_psd_desc,
+                tagRes = R.string.export_format_psd_tag,
                 isLayered = true,
             ),
             ExportFormatItem(
                 format = "KRA",
-                name = "Krita 原生工程",
-                description = "标准 Krita 规范，含继承透明度与正片叠底",
-                tag = "Krita 原生",
+                nameRes = R.string.export_format_kra_name,
+                descriptionRes = R.string.export_format_kra_desc,
+                tagRes = R.string.export_format_kra_tag,
                 isLayered = true,
             ),
             ExportFormatItem(
                 format = "REVP",
-                name = "ReveriePaint 原生",
-                description = "专有工程包，完整保留活跃作画耗时与图层数据",
-                tag = "原生工程",
+                nameRes = R.string.export_format_revp_name,
+                descriptionRes = R.string.export_format_revp_desc,
+                tagRes = R.string.export_format_revp_tag,
                 isLayered = true,
             ),
             ExportFormatItem(
                 format = "TIFF",
-                name = "TIFF 图像",
-                description = "高保真出版级无损位图，色彩还原精准",
-                tag = "出版印刷",
+                nameRes = R.string.export_format_tiff_name,
+                descriptionRes = R.string.export_format_tiff_desc,
+                tagRes = R.string.export_format_tiff_tag,
                 isLayered = false,
             ),
         )
@@ -366,18 +366,18 @@ private fun StaticExportSection(
                     .background(Morandi.subText.copy(alpha = 0.12f))
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             ) {
-                Text(detail.tag, color = Morandi.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(detail.tagRes), color = Morandi.subText, fontSize = 10.sp, fontWeight = FontWeight.Medium)
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = detail.name,
+                    text = stringResource(detail.nameRes),
                     color = Morandi.text,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = detail.description,
+                    text = stringResource(detail.descriptionRes),
                     color = Morandi.subText,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -617,23 +617,23 @@ private fun AnimationExportSection(
         listOf(
             ExportFormatItem(
                 format = "GIF",
-                name = "GIF 动图",
-                description = "网络通用动态图片，支持循环与透明背景",
-                tag = "动态分享",
+                nameRes = R.string.export_format_gif_name,
+                descriptionRes = R.string.export_format_gif_desc,
+                tagRes = R.string.export_format_gif_tag,
                 isLayered = false,
             ),
             ExportFormatItem(
                 format = "MP4",
-                name = "MP4 视频",
-                description = "H.264 硬件加速高清视频，兼容各大视频平台",
-                tag = "高清视频",
+                nameRes = R.string.export_format_mp4_name,
+                descriptionRes = R.string.export_format_mp4_desc,
+                tagRes = R.string.export_format_mp4_tag,
                 isLayered = false,
             ),
             ExportFormatItem(
                 format = "ZIP",
-                name = "PNG 序列帧",
-                description = "无损透明 PNG 序列帧归档包，适合专业后期合成",
-                tag = "分帧无损",
+                nameRes = R.string.export_format_png_seq_name,
+                descriptionRes = R.string.export_format_png_seq_desc,
+                tagRes = R.string.export_format_png_seq_tag,
                 isLayered = false,
             ),
         )
@@ -723,7 +723,7 @@ private fun AnimationExportSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(stringResource(R.string.export_anim_select_format), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text("${vm.anim.framerate} fps · 共 $totalDrawn 帧", color = Morandi.subText, fontSize = 11.sp)
+            Text(stringResource(R.string.export_anim_fps_frames_format, vm.anim.framerate, totalDrawn), color = Morandi.subText, fontSize = 11.sp)
         }
 
         // 格式芯片选择
@@ -778,18 +778,18 @@ private fun AnimationExportSection(
                     .background(Morandi.accent.copy(alpha = 0.12f))
                     .padding(horizontal = 7.dp, vertical = 2.dp),
             ) {
-                Text(currentItem.tag, color = Morandi.accent, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(currentItem.tagRes), color = Morandi.accent, fontSize = 10.sp, fontWeight = FontWeight.Medium)
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = currentItem.name,
+                    text = stringResource(currentItem.nameRes),
                     color = Morandi.text,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = currentItem.description,
+                    text = stringResource(currentItem.descriptionRes),
                     color = Morandi.subText,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -815,7 +815,7 @@ private fun AnimationExportSection(
                 Column {
                     Text(stringResource(R.string.export_anim_scale_ratio), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        text = "$finalWidth × $finalHeight 像素",
+                        text = stringResource(R.string.export_dimensions_pixels_format, finalWidth, finalHeight),
                         color = Morandi.subText,
                         fontSize = 10.sp,
                     )
@@ -854,10 +854,10 @@ private fun AnimationExportSection(
                     Column {
                         Text(stringResource(R.string.export_anim_frame_range), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         val countText = if (rangeMode == "all") {
-                            "全部有效帧：第 1 ~ $totalDrawn 帧 (共 $totalDrawn 帧)"
+                            stringResource(R.string.export_anim_all_frames_range_format, totalDrawn)
                         } else {
                             val count = max(1, customEndFrame - customStartFrame + 1)
-                            "指定范围：第 $customStartFrame ~ $customEndFrame 帧 (共 $count 帧)"
+                            stringResource(R.string.export_anim_custom_frames_range_format, customStartFrame, customEndFrame, count)
                         }
                         Text(countText, color = Morandi.subText, fontSize = 10.sp)
                     }
@@ -937,7 +937,7 @@ private fun AnimationExportSection(
                         modifier = Modifier.size(13.dp),
                     )
                     Text(
-                        text = "动画创作支持任意长帧数，无上限限制；默认导出已绘制全部帧",
+                        text = stringResource(R.string.export_anim_frames_unlimited_tip),
                         color = Morandi.subText,
                         fontSize = 10.sp,
                     )
@@ -953,7 +953,7 @@ private fun AnimationExportSection(
                 Column {
                     Text(stringResource(R.string.export_anim_transparent_bg), color = Morandi.text, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        text = if (selectedFormat == "MP4") "MP4 视频格式暂不支持透明背景" else "隐藏画布背景层并导出 Alpha 通道",
+                        text = if (selectedFormat == "MP4") stringResource(R.string.export_mp4_no_alpha_tip) else stringResource(R.string.export_alpha_channel_tip),
                         color = Morandi.subText,
                         fontSize = 10.sp,
                     )
@@ -1132,7 +1132,7 @@ private fun AnimationExportSection(
         Dialog(
             onDismissRequest = {
                 exportCancelled = true
-                exportStage = "正在取消…"
+                exportStage = context.getString(R.string.export_anim_canceling)
             },
         ) {
             Column(
@@ -1152,7 +1152,7 @@ private fun AnimationExportSection(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = exportStage.ifBlank { "准备中…" },
+                    text = exportStage.ifBlank { stringResource(R.string.export_anim_preparing) },
                     color = Morandi.subText,
                     fontSize = 12.sp,
                 )
@@ -1174,7 +1174,7 @@ private fun AnimationExportSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "$exportCurrentFrame / $exportTotalFrames 帧",
+                        text = stringResource(R.string.export_anim_frame_progress_format, exportCurrentFrame, exportTotalFrames),
                         color = Morandi.subText,
                         fontSize = 11.sp,
                     )
@@ -1191,7 +1191,7 @@ private fun AnimationExportSection(
                     textColor = if (exportCancelled) Morandi.subText.copy(alpha = 0.5f) else Morandi.subText,
                     onClick = {
                         exportCancelled = true
-                        exportStage = "正在取消…"
+                        exportStage = context.getString(R.string.export_anim_canceling)
                     },
                 )
             }

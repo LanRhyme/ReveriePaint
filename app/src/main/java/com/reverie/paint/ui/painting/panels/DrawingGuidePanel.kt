@@ -95,7 +95,7 @@ fun DrawingGuidePanel(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "绘图辅助与参考线",
+                        androidx.compose.ui.res.stringResource(R.string.guide_title),
                         color = Morandi.text,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -119,28 +119,28 @@ fun DrawingGuidePanel(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 GuideModeChip(
-                    label = "关闭",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_mode_off),
                     selected = guide.mode == GuideMode.OFF,
                     modifier = Modifier.weight(1f),
                 ) {
                     vm.drawingGuide = guide.copy(mode = GuideMode.OFF)
                 }
                 GuideModeChip(
-                    label = "2D网格",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_mode_2d_grid),
                     selected = guide.mode == GuideMode.GRID_2D,
                     modifier = Modifier.weight(1f),
                 ) {
                     vm.drawingGuide = guide.copy(mode = GuideMode.GRID_2D, assistedDrawing = true)
                 }
                 GuideModeChip(
-                    label = "等轴测",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_mode_isometric),
                     selected = guide.mode == GuideMode.ISOMETRIC,
                     modifier = Modifier.weight(1f),
                 ) {
                     vm.drawingGuide = guide.copy(mode = GuideMode.ISOMETRIC, assistedDrawing = true)
                 }
                 GuideModeChip(
-                    label = "透视",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_mode_perspective),
                     selected = guide.mode == GuideMode.PERSPECTIVE,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -154,7 +154,7 @@ fun DrawingGuidePanel(
                     )
                 }
                 GuideModeChip(
-                    label = "对称",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_mode_symmetry),
                     selected = guide.mode == GuideMode.SYMMETRY,
                     modifier = Modifier.weight(1f),
                 ) {
@@ -174,9 +174,9 @@ fun DrawingGuidePanel(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column {
-                        Text("绘图辅助 (Drawing Assist)", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(androidx.compose.ui.res.stringResource(R.string.guide_assist_title), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Text(
-                            if (guide.mode == GuideMode.SYMMETRY) "笔画将实时对称镜像" else "笔画自动对齐参考线",
+                            if (guide.mode == GuideMode.SYMMETRY) androidx.compose.ui.res.stringResource(R.string.guide_assist_symmetry_desc) else androidx.compose.ui.res.stringResource(R.string.guide_assist_align_desc),
                             color = Morandi.subText,
                             fontSize = 11.sp,
                         )
@@ -197,20 +197,20 @@ fun DrawingGuidePanel(
 
                 // Perspective vanishing point presets (1-point, 2-point, 3-point)
                 if (guide.mode == GuideMode.PERSPECTIVE) {
-                    Text("透视灭点配置", color = Morandi.subText, fontSize = 12.sp)
+                    Text(androidx.compose.ui.res.stringResource(R.string.guide_perspective_config), color = Morandi.subText, fontSize = 12.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         val ptCount = guide.perspectiveVanishingPoints.size.coerceIn(1, 3)
-                        SymmetryChip("1点透视", selected = ptCount == 1, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_perspective_1pt), selected = ptCount == 1, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(
                                 perspectiveVanishingPoints = listOf(
                                     Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f)
                                 )
                             )
                         }
-                        SymmetryChip("2点透视", selected = ptCount == 2, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_perspective_2pt), selected = ptCount == 2, Modifier.weight(1f)) {
                             val horizonY = vm.docHeight * 0.38f
                             vm.drawingGuide = guide.copy(
                                 perspectiveVanishingPoints = listOf(
@@ -219,7 +219,7 @@ fun DrawingGuidePanel(
                                 )
                             )
                         }
-                        SymmetryChip("3点透视", selected = ptCount == 3, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_perspective_3pt), selected = ptCount == 3, Modifier.weight(1f)) {
                             val horizonY = vm.docHeight * 0.35f
                             vm.drawingGuide = guide.copy(
                                 perspectiveVanishingPoints = listOf(
@@ -234,27 +234,27 @@ fun DrawingGuidePanel(
 
                 // Symmetry Type Selector
                 if (guide.mode == GuideMode.SYMMETRY) {
-                    Text("对称类型", color = Morandi.subText, fontSize = 12.sp)
+                    Text(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_type), color = Morandi.subText, fontSize = 12.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        SymmetryChip("垂直", selected = guide.symmetryType == SymmetryType.VERTICAL, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_vertical), selected = guide.symmetryType == SymmetryType.VERTICAL, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(symmetryType = SymmetryType.VERTICAL)
                         }
-                        SymmetryChip("水平", selected = guide.symmetryType == SymmetryType.HORIZONTAL, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_horizontal), selected = guide.symmetryType == SymmetryType.HORIZONTAL, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(symmetryType = SymmetryType.HORIZONTAL)
                         }
-                        SymmetryChip("四象限", selected = guide.symmetryType == SymmetryType.QUADRANT, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_quadrant), selected = guide.symmetryType == SymmetryType.QUADRANT, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(symmetryType = SymmetryType.QUADRANT)
                         }
-                        SymmetryChip("放射状", selected = guide.symmetryType == SymmetryType.RADIAL, Modifier.weight(1f)) {
+                        SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_radial), selected = guide.symmetryType == SymmetryType.RADIAL, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(symmetryType = SymmetryType.RADIAL)
                         }
                     }
 
                     ToolFloatSlider(
-                        label = "对称轴中心",
+                        label = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_center),
                         valueText = "${(guide.symmetryCenterX * 100f).roundToInt()}%",
                         range = 0.1f..0.9f,
                         value = guide.symmetryCenterX,
@@ -265,7 +265,7 @@ fun DrawingGuidePanel(
                 // Grid Size / Density
                 if (guide.mode == GuideMode.GRID_2D || guide.mode == GuideMode.ISOMETRIC) {
                     ToolFloatSlider(
-                        label = "网格尺寸",
+                        label = androidx.compose.ui.res.stringResource(R.string.guide_grid_size),
                         valueText = "${guide.gridSize.roundToInt()}px",
                         range = 16f..240f,
                         value = guide.gridSize,
@@ -275,7 +275,7 @@ fun DrawingGuidePanel(
 
                 // Opacity Slider
                 ToolFloatSlider(
-                    label = "参考线不透明度",
+                    label = androidx.compose.ui.res.stringResource(R.string.guide_line_opacity),
                     valueText = "${(guide.opacity * 100f).roundToInt()}%",
                     range = 0.1f..1f,
                     value = guide.opacity,

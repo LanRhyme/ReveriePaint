@@ -70,6 +70,7 @@ import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 import com.reverie.paint.ui.painting.panels.toolIcon
+import com.reverie.paint.ui.painting.panels.displayName
 
 private val rowHeight = 48.dp
 
@@ -411,14 +412,14 @@ private fun ToolRowContent(
         // Tool Icon
         Icon(
             painter = painterResource(toolIcon(tool)),
-            contentDescription = tool.label,
+            contentDescription = tool.displayName,
             tint = if (isEnabled) Morandi.accent else Morandi.icon,
             modifier = Modifier.size(20.dp)
         )
 
         // Tool Label
         Text(
-            text = tool.label,
+            text = tool.displayName,
             color = if (isEnabled) Morandi.text else Morandi.subText,
             fontSize = 14.sp,
             fontWeight = if (isEnabled) FontWeight.Medium else FontWeight.Normal,

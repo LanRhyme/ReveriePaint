@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -83,20 +84,20 @@ internal fun AuthorSettingsSubPage(
                 .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
         ) {
             SettingSubPageHeader(
-                title = "作者档案",
-                subtitle = "创作者元数据配置，导出 KRA、REVP 与 PNG 时自动嵌入",
+                title = stringResource(R.string.author_settings_title),
+                subtitle = stringResource(R.string.author_settings_subtitle),
                 showBackButton = showBackButton,
                 compact = compact,
                 onBack = onBack,
             )
 
             // Section 1: 总开关
-            SettingCategoryTitle("档案启用")
+            SettingCategoryTitle(stringResource(R.string.author_category_enable))
             SettingGroup {
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.AccountCircle,
-                    title = "嵌入作者档案",
-                    summary = "导出作品时自动将作者姓名、版权声明与机构信息写入文件",
+                    title = stringResource(R.string.author_switch_title),
+                    summary = stringResource(R.string.author_switch_summary),
                     checked = profile.enabled,
                     shape = settingGroupShape(0, 1),
                     onCheckedChange = { vm.updateAuthorProfile(profile.copy(enabled = it)) },
@@ -106,26 +107,26 @@ internal fun AuthorSettingsSubPage(
             Spacer(Modifier.height(8.dp))
 
             // Section 2: 创作者信息
-            SettingCategoryTitle("创作者信息")
+            SettingCategoryTitle(stringResource(R.string.author_category_info))
             SettingGroup {
                 AuthorInputFieldItem(
-                    label = "姓名 / 署名",
+                    label = stringResource(R.string.author_field_full_name),
                     value = profile.name,
-                    placeholder = "例：LanRhyme (用于 Dublin Core full-name 与 PNG Author)",
+                    placeholder = stringResource(R.string.author_field_full_name_placeholder),
                     shape = settingGroupShape(0, 3),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(name = it)) },
                 )
                 AuthorInputFieldItem(
-                    label = "笔名 / 昵称",
+                    label = stringResource(R.string.author_field_nickname),
                     value = profile.nickname,
-                    placeholder = "例：Lan (用于 Krita creator)",
+                    placeholder = stringResource(R.string.author_field_nickname_placeholder),
                     shape = settingGroupShape(1, 3),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(nickname = it)) },
                 )
                 AuthorInputFieldItem(
-                    label = "组织 / 团队",
+                    label = stringResource(R.string.author_field_organization),
                     value = profile.organization,
-                    placeholder = "例：Reverie Studio (用于 company / organization)",
+                    placeholder = stringResource(R.string.author_field_organization_placeholder),
                     shape = settingGroupShape(2, 3),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(organization = it)) },
                 )
@@ -134,20 +135,20 @@ internal fun AuthorSettingsSubPage(
             Spacer(Modifier.height(8.dp))
 
             // Section 3: 联系与主页
-            SettingCategoryTitle("联系与主页")
+            SettingCategoryTitle(stringResource(R.string.author_category_contact))
             SettingGroup {
                 AuthorInputFieldItem(
-                    label = "电子邮箱",
+                    label = stringResource(R.string.author_field_email),
                     value = profile.email,
-                    placeholder = "例：contact@example.com",
+                    placeholder = stringResource(R.string.author_field_email_placeholder),
                     keyboardType = KeyboardType.Email,
                     shape = settingGroupShape(0, 2),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(email = it)) },
                 )
                 AuthorInputFieldItem(
-                    label = "个人主页 / 社交网络",
+                    label = stringResource(R.string.author_field_website),
                     value = profile.website,
-                    placeholder = "例：https://reverie.paint",
+                    placeholder = stringResource(R.string.author_field_website_placeholder),
                     keyboardType = KeyboardType.Uri,
                     shape = settingGroupShape(1, 2),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(website = it)) },
@@ -157,7 +158,7 @@ internal fun AuthorSettingsSubPage(
             Spacer(Modifier.height(8.dp))
 
             // Section 4: 默认版权声明
-            SettingCategoryTitle("默认版权与许可协议")
+            SettingCategoryTitle(stringResource(R.string.author_category_copyright))
             SettingGroup {
                 Column(
                     modifier = Modifier
@@ -167,7 +168,7 @@ internal fun AuthorSettingsSubPage(
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
                     Text(
-                        text = "版权声明 (Copyright)",
+                        text = stringResource(R.string.author_field_copyright),
                         color = colors.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
@@ -176,7 +177,7 @@ internal fun AuthorSettingsSubPage(
                     OutlinedTextField(
                         value = profile.copyright,
                         onValueChange = { vm.updateAuthorProfile(profile.copy(copyright = it)) },
-                        placeholder = { Text("例：Copyright © 2026 LanRhyme. All rights reserved.", color = colors.subText.copy(alpha = 0.5f), fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.author_field_copyright_placeholder), color = colors.subText.copy(alpha = 0.5f), fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
@@ -190,7 +191,7 @@ internal fun AuthorSettingsSubPage(
 
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        text = "常用版权模板：",
+                        text = stringResource(R.string.author_templates_label),
                         color = colors.subText,
                         fontSize = 11.sp,
                     )
@@ -245,7 +246,7 @@ internal fun AuthorSettingsSubPage(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "清空作者档案字段",
+                        text = stringResource(R.string.author_clear_fields),
                         color = Color(0xFFE05555),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,

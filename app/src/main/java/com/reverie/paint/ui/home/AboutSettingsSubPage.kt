@@ -452,7 +452,7 @@ fun AboutSettingsSubPage(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "ReveriePaint 是一款专注于移动端与平板体验的专业级数字绘图软件，搭载强大的笔刷绘制引擎，支持多图层合成、选区操作与丰富的工具生态，带来流畅自然的数字绘画创作体验。",
+                    text = stringResource(R.string.about_app_description),
                     color = colors.subText,
                     fontSize = 12.sp,
                     lineHeight = 18.sp,
@@ -510,14 +510,14 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Text(
-                    text = "第三方开源许可",
+                    text = stringResource(R.string.about_oss_title),
                     color = colors.text,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "ReveriePaint 使用了以下优秀的开源项目与组件",
+                    text = stringResource(R.string.about_oss_subtitle),
                     color = colors.subText,
                     fontSize = 12.sp,
                 )
@@ -585,7 +585,7 @@ private fun LicensesDialog(onDismiss: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("确定", onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
+                    ReTextButton(stringResource(R.string.common_confirm), onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

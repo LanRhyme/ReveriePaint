@@ -129,7 +129,7 @@ fun AllToolsPanel(
                     groupedTools.forEach { (group, tools) ->
                         item(key = group.name) {
                             Text(
-                                group.label,
+                                group.displayName,
                                 color = Morandi.subText,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -176,13 +176,13 @@ fun AllToolsPanel(
                                     ) {
                                         Icon(
                                             painter = painterResource(toolIcon(t)),
-                                            contentDescription = t.label,
+                                            contentDescription = t.displayName,
                                             tint = if (isSelected) Morandi.accentHi else Morandi.icon,
                                             modifier = Modifier.size(22.dp)
                                         )
                                         Spacer(Modifier.height(3.dp))
                                         Text(
-                                            t.label,
+                                            t.displayName,
                                             color = if (isSelected) Morandi.accentHi else Morandi.text,
                                             fontSize = 11.sp,
                                             maxLines = 1,

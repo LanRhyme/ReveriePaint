@@ -689,7 +689,7 @@ internal fun PaintViewModel.animationImportImages(
 ) {
     if (uris.isEmpty()) return
     if (isImportingMedia) {
-        showActionToast("正在导入媒体，请稍候...", R.drawable.ic_image)
+        showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
         return
     }
     isImportingMedia = true
@@ -742,7 +742,7 @@ internal fun PaintViewModel.animationImportVideo(
     onDone: (Int) -> Unit = {},
 ) {
     if (isImportingMedia) {
-        showActionToast("正在导入媒体，请稍候...", R.drawable.ic_image)
+        showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
         return
     }
     isImportingMedia = true
@@ -1514,7 +1514,7 @@ internal fun PaintViewModel.animationPlay() {
     val start = playbackStartFrame()
     val end = playbackEndFrame()
     if (start >= end) {
-        showActionToast("当前仅有 1 帧", R.drawable.ic_repeat_none)
+        showActionToast(R.string.toast_single_frame, R.drawable.ic_repeat_none)
         return
     }
     // 若当前播放头在已有帧块范围外或正好在末尾, 从起点开始播放
@@ -1611,7 +1611,7 @@ internal fun PaintViewModel.animationToggleLoop() {
         runCatching { mp.isLooping = anim.loopPlayback }
     }
     showActionToast(
-        if (anim.loopPlayback) "循环播放" else "单次播放",
+        if (anim.loopPlayback) R.string.anim_loop else R.string.anim_single_play,
         if (anim.loopPlayback) R.drawable.ic_repeat_loop else R.drawable.ic_repeat_none,
     )
 }

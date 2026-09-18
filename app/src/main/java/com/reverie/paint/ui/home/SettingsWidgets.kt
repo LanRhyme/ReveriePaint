@@ -52,6 +52,7 @@ import com.reverie.paint.ui.components.ReSlider
 import androidx.compose.ui.draw.scale
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -551,7 +552,7 @@ internal fun <T> SettingSegmentGroupItem(
  */
 @Composable
 internal fun SettingInfoCard(
-    title: String = "说明",
+    title: String = stringResource(R.string.common_info),
     text: String,
     modifier: Modifier = Modifier,
 ) {
@@ -620,7 +621,7 @@ internal fun SettingSubPageHeader(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_arrow_left),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = colors.text,
                     modifier = Modifier.size(20.dp),
                 )
@@ -720,7 +721,7 @@ internal fun SettingStylusDeviceRow(
                                     .padding(horizontal = 7.dp, vertical = 1.5.dp),
                             ) {
                                 Text(
-                                    text = "已连接",
+                                    text = stringResource(R.string.stylus_connected),
                                     color = colors.accent,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -735,7 +736,7 @@ internal fun SettingStylusDeviceRow(
                                     .padding(horizontal = 7.dp, vertical = 1.5.dp),
                             ) {
                                 Text(
-                                    text = "当前机型支持",
+                                    text = stringResource(R.string.stylus_model_supported),
                                     color = colors.subText,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Medium,
@@ -835,7 +836,7 @@ internal fun CustomColorDialog(
         ) {
             Column {
                 Text(
-                    text = "自定义颜色",
+                    text = stringResource(R.string.color_custom),
                     color = colors.text,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -880,7 +881,7 @@ internal fun CustomColorDialog(
                 }
 
                 Spacer(Modifier.height(16.dp))
-                Text("快速选取色盘", color = colors.subText, fontSize = 12.sp)
+                Text(stringResource(R.string.color_palette_quick_pick), color = colors.subText, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
 
                 Row(
@@ -923,10 +924,10 @@ internal fun CustomColorDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("取消", onDismiss, textColor = colors.subText)
+                    ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText)
                     Spacer(Modifier.width(8.dp))
                     ReTextButton(
-                        "确定",
+                        stringResource(R.string.common_confirm),
                         onClick = {
                             val hex = if (hexInput.length == 6) "#$hexInput" else initialHex
                             onConfirm(hex)

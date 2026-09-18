@@ -99,9 +99,9 @@ fun ReplayPage(vm: PaintViewModel) {
                         .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ReIconButton(R.drawable.ic_arrow_left, "返回", { vm.exitReplay() }, tint = colors.text)
+                ReIconButton(R.drawable.ic_arrow_left, androidx.compose.ui.res.stringResource(R.string.back), { vm.exitReplay() }, tint = colors.text)
                 Text(
-                    text = if (vm.docName.isNotBlank()) "回放 · ${vm.docName}" else "回放",
+                    text = if (vm.docName.isNotBlank()) androidx.compose.ui.res.stringResource(R.string.replay_title_with_doc, vm.docName) else androidx.compose.ui.res.stringResource(R.string.replay_title),
                     color = colors.text,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
@@ -136,7 +136,7 @@ fun ReplayPage(vm: PaintViewModel) {
                         val v = s.speed
                         if (v == v.toInt().toFloat()) "${v.toInt()}x" else "${v}x"
                     } else {
-                        "自定义"
+                        androidx.compose.ui.res.stringResource(R.string.brush_preset_custom_tag)
                     }
                     Text(
                         text = customLabel,
@@ -181,7 +181,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                 .padding(10.dp),
                     )
                 } else {
-                    Text("正在准备画布...", color = colors.subText, fontSize = 14.sp)
+                    Text(androidx.compose.ui.res.stringResource(R.string.replay_preparing_canvas), color = colors.subText, fontSize = 14.sp)
                 }
 
                 if (s != null && s.isPlaying) {
@@ -202,7 +202,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                 .background(Color(0xFFFF6B6B)),
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("回放中", color = Color.White, fontSize = 12.sp)
+                        Text(androidx.compose.ui.res.stringResource(R.string.replay_playing_status), color = Color.White, fontSize = 12.sp)
                     }
                 }
             }
@@ -219,7 +219,7 @@ fun ReplayPage(vm: PaintViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ReFab(
                             icon = if (s.isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
-                            desc = if (s.isPlaying) "暂停" else "播放",
+                            desc = if (s.isPlaying) androidx.compose.ui.res.stringResource(R.string.pause) else androidx.compose.ui.res.stringResource(R.string.play),
                             onTap = { if (s.isPlaying) vm.pauseReplay() else vm.playReplay() },
                             sizeDp = 54.dp,
                         )
@@ -249,7 +249,7 @@ fun ReplayPage(vm: PaintViewModel) {
                             }
                         }
                         Spacer(Modifier.width(10.dp))
-                        ReIconButton(R.drawable.ic_refresh, "从头播放", { vm.seekReplay(0f) }, tint = colors.text)
+                        ReIconButton(R.drawable.ic_refresh, androidx.compose.ui.res.stringResource(R.string.replay_restart), { vm.seekReplay(0f) }, tint = colors.text)
                     }
                 }
             }
@@ -299,7 +299,7 @@ private fun CustomSpeedDialog(
         ) {
             Column {
                 Text(
-                    text = "自定义播放倍速",
+                    text = androidx.compose.ui.res.stringResource(R.string.replay_custom_speed_title),
                     color = colors.text,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -392,10 +392,10 @@ private fun CustomSpeedDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton(text = "取消", onClick = onDismiss)
+                    ReTextButton(text = androidx.compose.ui.res.stringResource(R.string.cancel), onClick = onDismiss)
                     Spacer(Modifier.width(10.dp))
                     ReTextButton(
-                        text = "确定",
+                        text = androidx.compose.ui.res.stringResource(R.string.confirm),
                         primary = true,
                         onClick = {
                             val v = textValue.toFloatOrNull() ?: sliderValue

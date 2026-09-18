@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,13 +50,13 @@ internal fun SamsungStylusConfigDialog(
 ) {
     val colors = Theme.current
     val actionOptions = listOf(
-        "切换画笔与橡皮" to "toggle_eraser",
-        "撤销" to "undo",
-        "重做" to "redo",
-        "吸管取色" to "tool_picker",
-        "切换上一工具" to "toggle_last_tool",
-        "快捷调色盘" to "tool_color",
-        "无操作" to "none",
+        stringResource(R.string.stylus_action_switch_brush_eraser) to "toggle_eraser",
+        stringResource(R.string.stylus_action_undo) to "undo",
+        stringResource(R.string.stylus_action_redo) to "redo",
+        stringResource(R.string.stylus_action_eyedropper) to "tool_picker",
+        stringResource(R.string.stylus_action_prev_tool) to "toggle_last_tool",
+        stringResource(R.string.stylus_action_quick_palette) to "tool_color",
+        stringResource(R.string.stylus_action_none) to "none",
     )
 
     Dialog(onDismissRequest = onDismiss) {
@@ -77,7 +78,7 @@ internal fun SamsungStylusConfigDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "三星 S Pen 专属设置",
+                        text = stringResource(R.string.stylus_samsung_title),
                         color = colors.text,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -92,7 +93,7 @@ internal fun SamsungStylusConfigDialog(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_x),
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.common_close),
                             tint = colors.subText,
                             modifier = Modifier.size(16.dp),
                         )
@@ -101,11 +102,11 @@ internal fun SamsungStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("侧键行为")
+                SettingCategoryHeader(stringResource(R.string.stylus_samsung_side_key))
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     SettingSwitchRow(
-                        title = "按住侧键切换橡皮",
-                        summary = "Samsung Notes 标准语义：落笔前或运笔中按住侧键，该笔画自动变为橡皮擦，抬笔恢复原工具",
+                        title = stringResource(R.string.stylus_samsung_hold_eraser),
+                        summary = stringResource(R.string.stylus_samsung_hold_eraser_desc),
                         checked = vm.samsungSideButtonErase,
                         onCheckedChange = { vm.updateSamsungSideButtonErase(it) },
                     )
@@ -113,11 +114,11 @@ internal fun SamsungStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("侧键动作映射")
+                SettingCategoryHeader(stringResource(R.string.stylus_samsung_key_mapping))
                 GroupedSettingsCard(containerColor = colors.panelHi) {
-                    val singleClickTitle = actionOptions.find { it.second == vm.samsungSingleClickAction }?.first ?: "切换画笔与橡皮"
+                    val singleClickTitle = actionOptions.find { it.second == vm.samsungSingleClickAction }?.first ?: actionOptions[0].first
                     SettingDropdownRow(
-                        title = "侧键单击动作",
+                        title = stringResource(R.string.stylus_samsung_click_action),
                         currentText = singleClickTitle,
                         options = actionOptions.map { it.first },
                         onSelect = { idx ->
@@ -125,9 +126,9 @@ internal fun SamsungStylusConfigDialog(
                         },
                     )
                     SettingsCardDivider()
-                    val doubleClickTitle = actionOptions.find { it.second == vm.samsungDoubleClickAction }?.first ?: "撤销"
+                    val doubleClickTitle = actionOptions.find { it.second == vm.samsungDoubleClickAction }?.first ?: actionOptions[1].first
                     SettingDropdownRow(
-                        title = "侧键双击动作",
+                        title = stringResource(R.string.stylus_samsung_double_click_action),
                         currentText = doubleClickTitle,
                         options = actionOptions.map { it.first },
                         onSelect = { idx ->
@@ -135,9 +136,9 @@ internal fun SamsungStylusConfigDialog(
                         },
                     )
                     SettingsCardDivider()
-                    val longPressTitle = actionOptions.find { it.second == vm.samsungLongPressAction }?.first ?: "吸管取色"
+                    val longPressTitle = actionOptions.find { it.second == vm.samsungLongPressAction }?.first ?: actionOptions[3].first
                     SettingDropdownRow(
-                        title = "侧键长按动作",
+                        title = stringResource(R.string.stylus_samsung_long_press_action),
                         currentText = longPressTitle,
                         options = actionOptions.map { it.first },
                         onSelect = { idx ->
@@ -157,7 +158,7 @@ internal fun SamsungStylusConfigDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "提示：若侧键在绘画中未响应，请前往三星系统设置 -> 高级功能 -> S Pen，关闭“使用画笔按钮打开浮空指令”以允许绘图应用接收按键事件。",
+                        text = stringResource(R.string.stylus_samsung_hint),
                         color = colors.subText,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
@@ -170,7 +171,7 @@ internal fun SamsungStylusConfigDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("完成", onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
+                    ReTextButton(stringResource(R.string.common_done), onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

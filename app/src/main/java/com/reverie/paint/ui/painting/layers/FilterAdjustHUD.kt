@@ -47,10 +47,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
@@ -81,128 +83,129 @@ internal data class FilterParamDef(
     val format: (Float) -> String = {
         if (unit.isNotEmpty()) "${it.roundToInt()}$unit" else "${it.roundToInt()}"
     },
+    @StringRes val nameRes: Int = 0,
 )
 
 internal fun filterParamDefinitions(filterId: Int): List<FilterParamDef> {
     return when (filterId) {
         0 -> listOf(
-            FilterParamDef(0, "色相", -180f..180f, "°", { it.hue }, { st, v -> st.hue = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}°" }),
-            FilterParamDef(1, "饱和度", 0f..2f, "", { it.sat }, { st, v -> st.sat = v }, { String.format(Locale.US, "%.2f", it) }),
-            FilterParamDef(2, "明度", 0f..2f, "", { it.bright }, { st, v -> st.bright = v }, { String.format(Locale.US, "%.2f", it) }),
-            FilterParamDef(3, "对比度", 0f..2f, "", { it.contrast }, { st, v -> st.contrast = v }, { String.format(Locale.US, "%.2f", it) }),
+            FilterParamDef(0, "色相", -180f..180f, "°", { it.hue }, { st, v -> st.hue = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}°" }, R.string.filter_param_hue),
+            FilterParamDef(1, "饱和度", 0f..2f, "", { it.sat }, { st, v -> st.sat = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_sat),
+            FilterParamDef(2, "明度", 0f..2f, "", { it.bright }, { st, v -> st.bright = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_bright),
+            FilterParamDef(3, "对比度", 0f..2f, "", { it.contrast }, { st, v -> st.contrast = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_contrast),
         )
         1 -> listOf(
-            FilterParamDef(0, "青 - 红", -100f..100f, "", { it.cr }, { st, v -> st.cr = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
-            FilterParamDef(1, "洋红 - 绿", -100f..100f, "", { it.mg }, { st, v -> st.mg = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
-            FilterParamDef(2, "黄 - 蓝", -100f..100f, "", { it.yb }, { st, v -> st.yb = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+            FilterParamDef(0, "青 - 红", -100f..100f, "", { it.cr }, { st, v -> st.cr = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }, R.string.filter_param_cr),
+            FilterParamDef(1, "洋红 - 绿", -100f..100f, "", { it.mg }, { st, v -> st.mg = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }, R.string.filter_param_mg),
+            FilterParamDef(2, "黄 - 蓝", -100f..100f, "", { it.yb }, { st, v -> st.yb = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }, R.string.filter_param_yb),
         )
         2 -> listOf(
-            FilterParamDef(0, "模糊半径", 1f..100f, "px", { it.blurRadius }, { st, v -> st.blurRadius = v }),
+            FilterParamDef(0, "模糊半径", 1f..100f, "px", { it.blurRadius }, { st, v -> st.blurRadius = v }, nameRes = R.string.filter_param_blur_radius),
         )
         3 -> listOf(
-            FilterParamDef(0, "模糊角度", 0f..360f, "°", { it.motionAngle }, { st, v -> st.motionAngle = v }),
-            FilterParamDef(1, "模糊距离", 1f..100f, "px", { it.motionDist }, { st, v -> st.motionDist = v }),
+            FilterParamDef(0, "模糊角度", 0f..360f, "°", { it.motionAngle }, { st, v -> st.motionAngle = v }, nameRes = R.string.filter_param_motion_angle),
+            FilterParamDef(1, "模糊距离", 1f..100f, "px", { it.motionDist }, { st, v -> st.motionDist = v }, nameRes = R.string.filter_param_motion_dist),
         )
         4 -> listOf(
-            FilterParamDef(0, "锐化强度", 0.1f..5f, "", { it.sharpenAmt }, { st, v -> st.sharpenAmt = v }, { String.format(Locale.US, "%.1f", it) }),
+            FilterParamDef(0, "锐化强度", 0.1f..5f, "", { it.sharpenAmt }, { st, v -> st.sharpenAmt = v }, { String.format(Locale.US, "%.1f", it) }, R.string.filter_param_sharpen_amt),
         )
         5 -> listOf(
-            FilterParamDef(0, "像素大小", 2f..80f, "px", { it.mosaicSize }, { st, v -> st.mosaicSize = v }),
+            FilterParamDef(0, "像素大小", 2f..80f, "px", { it.mosaicSize }, { st, v -> st.mosaicSize = v }, nameRes = R.string.filter_param_mosaic_size),
         )
         6 -> listOf(
-            FilterParamDef(0, "反相强度", 0f..100f, "%", { it.invertAmt }, { st, v -> st.invertAmt = v }),
+            FilterParamDef(0, "反相强度", 0f..100f, "%", { it.invertAmt }, { st, v -> st.invertAmt = v }, nameRes = R.string.filter_param_invert_amt),
         )
         7 -> listOf(
-            FilterParamDef(0, "提取门限", 0f..255f, "", { it.lineartThresh }, { st, v -> st.lineartThresh = v }),
+            FilterParamDef(0, "提取门限", 0f..255f, "", { it.lineartThresh }, { st, v -> st.lineartThresh = v }, nameRes = R.string.filter_param_lineart_thresh),
         )
         8 -> listOf(
-            FilterParamDef(0, "边缘灵敏度", 0.5f..5f, "", { it.sobelStrength }, { st, v -> st.sobelStrength = v }, { String.format(Locale.US, "%.1f", it) }),
+            FilterParamDef(0, "边缘灵敏度", 0.5f..5f, "", { it.sobelStrength }, { st, v -> st.sobelStrength = v }, { String.format(Locale.US, "%.1f", it) }, R.string.filter_param_sobel_strength),
         )
         9 -> listOf(
-            FilterParamDef(0, "浮雕深度", 0.5f..10f, "", { it.embossDepth }, { st, v -> st.embossDepth = v }, { String.format(Locale.US, "%.1f", it) }),
-            FilterParamDef(1, "投射角度", 0f..360f, "°", { it.embossAngle }, { st, v -> st.embossAngle = v }),
+            FilterParamDef(0, "浮雕深度", 0.5f..10f, "", { it.embossDepth }, { st, v -> st.embossDepth = v }, { String.format(Locale.US, "%.1f", it) }, R.string.filter_param_emboss_depth),
+            FilterParamDef(1, "投射角度", 0f..360f, "°", { it.embossAngle }, { st, v -> st.embossAngle = v }, nameRes = R.string.filter_param_emboss_angle),
         )
         10 -> listOf(
-            FilterParamDef(0, "杂色数量", 1f..100f, "%", { it.noiseAmt }, { st, v -> st.noiseAmt = v }),
+            FilterParamDef(0, "杂色数量", 1f..100f, "%", { it.noiseAmt }, { st, v -> st.noiseAmt = v }, nameRes = R.string.filter_param_noise_amt),
         )
         11 -> listOf(
-            FilterParamDef(0, "色散偏移", 1f..50f, "px", { it.glitchOffset }, { st, v -> st.glitchOffset = v }),
+            FilterParamDef(0, "色散偏移", 1f..50f, "px", { it.glitchOffset }, { st, v -> st.glitchOffset = v }, nameRes = R.string.filter_param_glitch_offset),
         )
         12 -> listOf(
-            FilterParamDef(0, "去色强度", 0f..100f, "%", { it.desaturateAmt }, { st, v -> st.desaturateAmt = v }),
+            FilterParamDef(0, "去色强度", 0f..100f, "%", { it.desaturateAmt }, { st, v -> st.desaturateAmt = v }, nameRes = R.string.filter_param_desaturate_amt),
         )
         14 -> listOf(
-            FilterParamDef(0, "输入黑场", 0f..254f, "", { it.levelBlack }, { st, v -> st.levelBlack = v }),
-            FilterParamDef(1, "输入白场", 1f..255f, "", { it.levelWhite }, { st, v -> st.levelWhite = v }),
-            FilterParamDef(2, "中间调 Gamma", 0.1f..3f, "", { it.levelGamma }, { st, v -> st.levelGamma = v }, { String.format(Locale.US, "%.2f", it) }),
+            FilterParamDef(0, "输入黑场", 0f..254f, "", { it.levelBlack }, { st, v -> st.levelBlack = v }, nameRes = R.string.filter_param_level_black),
+            FilterParamDef(1, "输入白场", 1f..255f, "", { it.levelWhite }, { st, v -> st.levelWhite = v }, nameRes = R.string.filter_param_level_white),
+            FilterParamDef(2, "中间调 Gamma", 0.1f..3f, "", { it.levelGamma }, { st, v -> st.levelGamma = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_level_gamma),
         )
         15 -> listOf(
-            FilterParamDef(0, "色温", -100f..100f, "", { it.tempVal }, { st, v -> st.tempVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
-            FilterParamDef(1, "色调", -100f..100f, "", { it.tintVal }, { st, v -> st.tintVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }),
+            FilterParamDef(0, "色温", -100f..100f, "", { it.tempVal }, { st, v -> st.tempVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }, R.string.filter_param_temp),
+            FilterParamDef(1, "色调", -100f..100f, "", { it.tintVal }, { st, v -> st.tintVal = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}" }, R.string.filter_param_tint),
         )
         16 -> listOf(
-            FilterParamDef(0, "黑白阈值", 1f..255f, "", { it.thresholdVal }, { st, v -> st.thresholdVal = v }),
+            FilterParamDef(0, "黑白阈值", 1f..255f, "", { it.thresholdVal }, { st, v -> st.thresholdVal = v }, nameRes = R.string.filter_param_threshold),
         )
         17 -> listOf(
-            FilterParamDef(0, "分离层数", 2f..32f, "层", { it.posterizeLevels }, { st, v -> st.posterizeLevels = v }),
+            FilterParamDef(0, "分离层数", 2f..32f, "层", { it.posterizeLevels }, { st, v -> st.posterizeLevels = v }, nameRes = R.string.filter_param_posterize_levels),
         )
         18 -> listOf(
-            FilterParamDef(0, "发光强度", 0.1f..3f, "", { it.bloomIntensity }, { st, v -> st.bloomIntensity = v }, { String.format(Locale.US, "%.1f", it) }),
-            FilterParamDef(1, "扩散半径", 1f..60f, "px", { it.bloomRadius }, { st, v -> st.bloomRadius = v }),
-            FilterParamDef(2, "亮度门限", 0f..255f, "", { it.bloomThresh }, { st, v -> st.bloomThresh = v }),
+            FilterParamDef(0, "发光强度", 0.1f..3f, "", { it.bloomIntensity }, { st, v -> st.bloomIntensity = v }, { String.format(Locale.US, "%.1f", it) }, R.string.filter_param_bloom_intensity),
+            FilterParamDef(1, "扩散半径", 1f..60f, "px", { it.bloomRadius }, { st, v -> st.bloomRadius = v }, nameRes = R.string.filter_param_bloom_radius),
+            FilterParamDef(2, "亮度门限", 0f..255f, "", { it.bloomThresh }, { st, v -> st.bloomThresh = v }, nameRes = R.string.filter_param_bloom_thresh),
         )
         19 -> listOf(
-            FilterParamDef(0, "模糊半径", 1f..40f, "px", { it.shadowRadius }, { st, v -> st.shadowRadius = v }),
-            FilterParamDef(1, "投影距离", 0f..50f, "px", { it.shadowDist }, { st, v -> st.shadowDist = v }),
-            FilterParamDef(2, "投影角度", 0f..360f, "°", { it.shadowAngle }, { st, v -> st.shadowAngle = v }),
-            FilterParamDef(3, "不透明度", 0f..1f, "%", { it.shadowOpacity }, { st, v -> st.shadowOpacity = v }, { "${(it * 100).roundToInt()}%" }),
+            FilterParamDef(0, "模糊半径", 1f..40f, "px", { it.shadowRadius }, { st, v -> st.shadowRadius = v }, nameRes = R.string.filter_param_shadow_radius),
+            FilterParamDef(1, "投影距离", 0f..50f, "px", { it.shadowDist }, { st, v -> st.shadowDist = v }, nameRes = R.string.filter_param_shadow_dist),
+            FilterParamDef(2, "投影角度", 0f..360f, "°", { it.shadowAngle }, { st, v -> st.shadowAngle = v }, nameRes = R.string.filter_param_shadow_angle),
+            FilterParamDef(3, "不透明度", 0f..1f, "%", { it.shadowOpacity }, { st, v -> st.shadowOpacity = v }, { "${(it * 100).roundToInt()}%" }, R.string.filter_param_shadow_opacity),
         )
         21 -> listOf(
-            FilterParamDef(0, "写生半径", 1f..8f, "px", { it.oilRadius }, { st, v -> st.oilRadius = v }),
+            FilterParamDef(0, "写生半径", 1f..8f, "px", { it.oilRadius }, { st, v -> st.oilRadius = v }, nameRes = R.string.filter_param_oil_radius),
         )
         22 -> listOf(
-            FilterParamDef(0, "辐射强度", 1f..50f, "", { it.radialBlurAmt }, { st, v -> st.radialBlurAmt = v }),
+            FilterParamDef(0, "辐射强度", 1f..50f, "", { it.radialBlurAmt }, { st, v -> st.radialBlurAmt = v }, nameRes = R.string.filter_param_radial_blur_amt),
         )
         23 -> listOf(
-            FilterParamDef(0, "单元大小", 4f..24f, "px", { it.halftoneDotSize }, { st, v -> st.halftoneDotSize = v }),
+            FilterParamDef(0, "单元大小", 4f..24f, "px", { it.halftoneDotSize }, { st, v -> st.halftoneDotSize = v }, nameRes = R.string.filter_param_halftone_size),
         )
         24 -> listOf(
-            FilterParamDef(0, "曝光值", -3f..3f, "EV", { it.exposureVal }, { st, v -> st.exposureVal = v }, { String.format(Locale.US, "%+.1f EV", it) }),
-            FilterParamDef(1, "伽马校正", 0.2f..3f, "", { it.exposureGamma }, { st, v -> st.exposureGamma = v }, { String.format(Locale.US, "%.2f", it) }),
+            FilterParamDef(0, "曝光值", -3f..3f, "EV", { it.exposureVal }, { st, v -> st.exposureVal = v }, { String.format(Locale.US, "%+.1f EV", it) }, R.string.filter_param_exposure),
+            FilterParamDef(1, "伽马校正", 0.2f..3f, "", { it.exposureGamma }, { st, v -> st.exposureGamma = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_gamma),
         )
         25 -> listOf(
-            FilterParamDef(0, "发光强度", 0.5f..5f, "", { it.edgeGlowStrength }, { st, v -> st.edgeGlowStrength = v }, { String.format(Locale.US, "%.1f", it) }),
-            FilterParamDef(1, "扩散半径", 1f..30f, "px", { it.edgeGlowRadius }, { st, v -> st.edgeGlowRadius = v }),
+            FilterParamDef(0, "发光强度", 0.5f..5f, "", { it.edgeGlowStrength }, { st, v -> st.edgeGlowStrength = v }, { String.format(Locale.US, "%.1f", it) }, R.string.filter_param_edge_glow_strength),
+            FilterParamDef(1, "扩散半径", 1f..30f, "px", { it.edgeGlowRadius }, { st, v -> st.edgeGlowRadius = v }, nameRes = R.string.filter_param_edge_glow_radius),
         )
         26 -> listOf(
-            FilterParamDef(0, "散焦半径", 1f..50f, "px", { it.defocusRadius }, { st, v -> st.defocusRadius = v }),
+            FilterParamDef(0, "散焦半径", 1f..50f, "px", { it.defocusRadius }, { st, v -> st.defocusRadius = v }, nameRes = R.string.filter_param_defocus_radius),
         )
         27 -> listOf(
-            FilterParamDef(0, "暗部提亮", 0f..100f, "%", { it.shadowBoost }, { st, v -> st.shadowBoost = v }),
-            FilterParamDef(1, "高光抑制", 0f..100f, "%", { it.highlightReduce }, { st, v -> st.highlightReduce = v }),
+            FilterParamDef(0, "暗部提亮", 0f..100f, "%", { it.shadowBoost }, { st, v -> st.shadowBoost = v }, nameRes = R.string.filter_param_shadow_boost),
+            FilterParamDef(1, "高光抑制", 0f..100f, "%", { it.highlightReduce }, { st, v -> st.highlightReduce = v }, nameRes = R.string.filter_param_highlight_reduce),
         )
         28 -> listOf(
-            FilterParamDef(0, "自然饱和度", -100f..100f, "%", { it.vibranceAmt }, { st, v -> st.vibranceAmt = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}%" }),
+            FilterParamDef(0, "自然饱和度", -100f..100f, "%", { it.vibranceAmt }, { st, v -> st.vibranceAmt = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}%" }, R.string.filter_param_vibrance),
         )
         29 -> listOf(
-            FilterParamDef(0, "颜色容差", 0f..100f, "%", { it.colorToAlphaTol }, { st, v -> st.colorToAlphaTol = v }),
-            FilterParamDef(1, "羽化过渡", 0f..50f, "", { it.colorToAlphaSmooth }, { st, v -> st.colorToAlphaSmooth = v }),
+            FilterParamDef(0, "颜色容差", 0f..100f, "%", { it.colorToAlphaTol }, { st, v -> st.colorToAlphaTol = v }, nameRes = R.string.filter_param_color_to_alpha_tol),
+            FilterParamDef(1, "羽化过渡", 0f..50f, "", { it.colorToAlphaSmooth }, { st, v -> st.colorToAlphaSmooth = v }, nameRes = R.string.filter_param_color_to_alpha_smooth),
         )
         31 -> listOf(
-            FilterParamDef(0, "波动幅度", 1f..30f, "px", { it.rippleAmp }, { st, v -> st.rippleAmp = v }),
-            FilterParamDef(1, "波浪频率", 1f..50f, "", { it.rippleFreq }, { st, v -> st.rippleFreq = v }),
+            FilterParamDef(0, "波动幅度", 1f..30f, "px", { it.rippleAmp }, { st, v -> st.rippleAmp = v }, nameRes = R.string.filter_param_ripple_amp),
+            FilterParamDef(1, "波浪频率", 1f..50f, "", { it.rippleFreq }, { st, v -> st.rippleFreq = v }, nameRes = R.string.filter_param_ripple_freq),
         )
         32 -> listOf(
-            FilterParamDef(0, "旋转角度", -360f..360f, "°", { it.twirlAngle }, { st, v -> st.twirlAngle = v }),
-            FilterParamDef(1, "作用半径", 20f..400f, "px", { it.twirlRadius }, { st, v -> st.twirlRadius = v }),
+            FilterParamDef(0, "旋转角度", -360f..360f, "°", { it.twirlAngle }, { st, v -> st.twirlAngle = v }, nameRes = R.string.filter_param_twirl_angle),
+            FilterParamDef(1, "作用半径", 20f..400f, "px", { it.twirlRadius }, { st, v -> st.twirlRadius = v }, nameRes = R.string.filter_param_twirl_radius),
         )
         33 -> listOf(
-            FilterParamDef(0, "平滑半径", 1f..15f, "px", { it.surfaceBlurRadius }, { st, v -> st.surfaceBlurRadius = v }),
-            FilterParamDef(1, "边缘阈值", 5f..80f, "", { it.surfaceBlurThresh }, { st, v -> st.surfaceBlurThresh = v }),
+            FilterParamDef(0, "平滑半径", 1f..15f, "px", { it.surfaceBlurRadius }, { st, v -> st.surfaceBlurRadius = v }, nameRes = R.string.filter_param_surface_blur_radius),
+            FilterParamDef(1, "边缘阈值", 5f..80f, "", { it.surfaceBlurThresh }, { st, v -> st.surfaceBlurThresh = v }, nameRes = R.string.filter_param_surface_blur_thresh),
         )
         34 -> listOf(
-            FilterParamDef(0, "扫描线间距", 2f..12f, "px", { it.scanlineSpacing }, { st, v -> st.scanlineSpacing = v }),
-            FilterParamDef(1, "光栅浓度", 0f..100f, "%", { it.scanlineIntensity }, { st, v -> st.scanlineIntensity = v }),
+            FilterParamDef(0, "扫描线间距", 2f..12f, "px", { it.scanlineSpacing }, { st, v -> st.scanlineSpacing = v }, nameRes = R.string.filter_param_scanline_spacing),
+            FilterParamDef(1, "光栅浓度", 0f..100f, "%", { it.scanlineIntensity }, { st, v -> st.scanlineIntensity = v }, nameRes = R.string.filter_param_scanline_intensity),
         )
         else -> emptyList()
     }
@@ -212,12 +215,10 @@ internal fun filterParamDefinitions(filterId: Int): List<FilterParamDef> {
  * 获取当前滤镜当前参数的展示文案与归一化进度 (0f..1f)
  */
 internal fun getMainParamInfo(filterId: Int, st: FilterAdjustState, paramIndex: Int = 0): Pair<String, Float> {
-    if (filterId == 13) return "曲线" to 0.5f
-    if (filterId == 30) return "渐变映射" to 0.5f
-    if (filterId == 20) return (if (st.lumOpacityInvert) "反转透明度" else "默认透明度") to 0.5f
+    if (filterId == 13 || filterId == 30 || filterId == 20) return "" to 0.5f
 
     val defs = filterParamDefinitions(filterId)
-    if (defs.isEmpty()) return "调整中" to 0.5f
+    if (defs.isEmpty()) return "" to 0.5f
     val p = defs.getOrElse(paramIndex) { defs[0] }
     val cur = p.getter(st)
     val span = maxOf(0.001f, p.range.endInclusive - p.range.start)
@@ -264,7 +265,8 @@ internal fun FilterTopPillHUD(
 ) {
     val (valText, progress) = getMainParamInfo(filterId, st, activeParamIndex)
     val pillShape = CircleShape
-    val activeParamName = filterParamDefinitions(filterId).getOrNull(activeParamIndex)?.name
+    val activeParamDef = filterParamDefinitions(filterId).getOrNull(activeParamIndex)
+    val activeParamName = activeParamDef?.let { if (it.nameRes != 0) stringResource(it.nameRes) else it.name }
 
     Box(
         modifier = modifier
@@ -357,12 +359,12 @@ internal fun FilterTopPillHUD(
             ) {
                 Icon(
                     painter = painterResource(if (isHoldingCompare) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                    contentDescription = "按住对比原图",
+                    contentDescription = stringResource(R.string.filter_hold_compare_tip),
                     tint = if (isHoldingCompare) Morandi.accentHi else Morandi.text,
                     modifier = Modifier.size(13.dp),
                 )
                 Text(
-                    text = if (isHoldingCompare) "原图" else "对比",
+                    text = if (isHoldingCompare) stringResource(R.string.filter_compare_original) else stringResource(R.string.filter_compare_diff),
                     color = if (isHoldingCompare) Morandi.accentHi else Morandi.text,
                     fontSize = 11.sp,
                     fontWeight = if (isHoldingCompare) FontWeight.SemiBold else FontWeight.Medium,
@@ -404,7 +406,7 @@ internal fun FilterBottomDock(
     if (editingParamIndex in defs.indices) {
         val editP = defs[editingParamIndex]
         NumericValueInputDialog(
-            label = editP.name,
+            label = if (editP.nameRes != 0) stringResource(editP.nameRes) else editP.name,
             currentValue = editP.getter(st),
             min = editP.range.start,
             max = editP.range.endInclusive,
@@ -479,27 +481,29 @@ internal fun FilterBottomDock(
                 // 重置按钮
                 DockIconPill(
                     iconRes = R.drawable.ic_undo,
-                    label = "重置",
+                    label = stringResource(R.string.reset),
                     onClick = onReset,
                 )
 
                 // 区分单参数直显 vs 多参数/复杂滤镜
                 if (isSingle) {
                     val p = defs[0]
+                    val pName = if (p.nameRes != 0) stringResource(p.nameRes) else p.name
                     DockIconPill(
                         iconRes = R.drawable.ic_sliders,
-                        label = "${p.name} · ${p.format(p.getter(st))}",
+                        label = "$pName · ${p.format(p.getter(st))}",
                         modifier = Modifier.widthIn(min = 84.dp),
                         onClick = { editingParamIndex = 0 },
                     )
                 } else if (hasMore) {
                     val curParam = defs.getOrNull(activeParamIndex)
+                    val curParamName = curParam?.let { if (it.nameRes != 0) stringResource(it.nameRes) else it.name }
                     val label = when {
-                        isExpanded -> "收起"
-                        filterId == 13 -> "曲线"
-                        filterId == 30 -> "渐变"
-                        curParam != null -> "${curParam.name} · ${curParam.format(curParam.getter(st))}"
-                        else -> "参数"
+                        isExpanded -> stringResource(R.string.collapse)
+                        filterId == 13 -> stringResource(R.string.filter_name_curves_short)
+                        filterId == 30 -> stringResource(R.string.filter_name_gradient_mini)
+                        curParamName != null -> "$curParamName · ${curParam.format(curParam.getter(st))}"
+                        else -> stringResource(R.string.filter_params)
                     }
                     DockIconPill(
                         iconRes = R.drawable.ic_sliders,
@@ -515,7 +519,7 @@ internal fun FilterBottomDock(
                 // 放弃 (✕)
                 DockIconPill(
                     iconRes = R.drawable.ic_x,
-                    label = "放弃",
+                    label = stringResource(R.string.common_discard),
                     danger = true,
                     onClick = onCancel,
                 )
@@ -523,7 +527,7 @@ internal fun FilterBottomDock(
                 // 应用 (✔)
                 DockIconPill(
                     iconRes = R.drawable.ic_check,
-                    label = "应用",
+                    label = stringResource(R.string.common_apply),
                     primary = true,
                     onClick = onApply,
                 )

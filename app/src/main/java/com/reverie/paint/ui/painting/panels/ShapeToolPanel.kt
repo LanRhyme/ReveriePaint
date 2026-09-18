@@ -37,21 +37,23 @@ import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import kotlin.math.roundToInt
 
-private val shapeTypeOptions = listOf(
-    ToolDropdownItemData(ShapeType.LINE, R.drawable.ic_minus, "直线"),
-    ToolDropdownItemData(ShapeType.RECT, R.drawable.ic_rect, "矩形"),
-    ToolDropdownItemData(ShapeType.ROUNDED_RECT, R.drawable.ic_rect, "圆角矩形"),
-    ToolDropdownItemData(ShapeType.ELLIPSE, R.drawable.ic_ellipse, "椭圆"),
-    ToolDropdownItemData(ShapeType.REGULAR_POLYGON, R.drawable.ic_triangle, "正多边形"),
-    ToolDropdownItemData(ShapeType.STAR, R.drawable.ic_star, "星形"),
-    ToolDropdownItemData(ShapeType.POLYLINE, R.drawable.ic_line, "折线"),
-    ToolDropdownItemData(ShapeType.POLYGON, R.drawable.ic_polyline, "多边形"),
-    ToolDropdownItemData(ShapeType.BEZIER, R.drawable.ic_copy, "贝塞尔曲线"),
+@Composable
+private fun getShapeTypeOptions(): List<ToolDropdownItemData<ShapeType>> = listOf(
+    ToolDropdownItemData(ShapeType.LINE, R.drawable.ic_minus, androidx.compose.ui.res.stringResource(R.string.shape_type_line)),
+    ToolDropdownItemData(ShapeType.RECT, R.drawable.ic_rect, androidx.compose.ui.res.stringResource(R.string.shape_type_rect)),
+    ToolDropdownItemData(ShapeType.ROUNDED_RECT, R.drawable.ic_rect, androidx.compose.ui.res.stringResource(R.string.shape_type_round_rect)),
+    ToolDropdownItemData(ShapeType.ELLIPSE, R.drawable.ic_ellipse, androidx.compose.ui.res.stringResource(R.string.shape_type_ellipse)),
+    ToolDropdownItemData(ShapeType.REGULAR_POLYGON, R.drawable.ic_triangle, androidx.compose.ui.res.stringResource(R.string.shape_type_regular_poly)),
+    ToolDropdownItemData(ShapeType.STAR, R.drawable.ic_star, androidx.compose.ui.res.stringResource(R.string.shape_type_star)),
+    ToolDropdownItemData(ShapeType.POLYLINE, R.drawable.ic_line, androidx.compose.ui.res.stringResource(R.string.shape_type_polyline)),
+    ToolDropdownItemData(ShapeType.POLYGON, R.drawable.ic_polyline, androidx.compose.ui.res.stringResource(R.string.shape_type_polygon)),
+    ToolDropdownItemData(ShapeType.BEZIER, R.drawable.ic_copy, androidx.compose.ui.res.stringResource(R.string.shape_type_bezier)),
 )
 
-private val shapeFillOptions = listOf(
-    ToolDropdownItemData(ShapeFillMode.STROKE, R.drawable.ic_shape_stroke, "仅描边"),
-    ToolDropdownItemData(ShapeFillMode.FILL, R.drawable.ic_shape_fill, "仅填充"),
+@Composable
+private fun getShapeFillOptions(): List<ToolDropdownItemData<ShapeFillMode>> = listOf(
+    ToolDropdownItemData(ShapeFillMode.STROKE, R.drawable.ic_shape_stroke, androidx.compose.ui.res.stringResource(R.string.shape_style_stroke)),
+    ToolDropdownItemData(ShapeFillMode.FILL, R.drawable.ic_shape_fill, androidx.compose.ui.res.stringResource(R.string.shape_style_fill)),
 )
 
 /**
@@ -74,6 +76,9 @@ fun ShapeToolPanel(
         currentType == ShapeType.REGULAR_POLYGON ||
         currentType == ShapeType.STAR
     val hasProps = hasStrokeSlider || hasShapeSliders
+
+    val shapeTypeOptions = getShapeTypeOptions()
+    val shapeFillOptions = getShapeFillOptions()
 
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Column(
@@ -129,7 +134,7 @@ fun ShapeToolPanel(
                 when (currentType) {
                     ShapeType.RECT, ShapeType.ROUNDED_RECT -> {
                         ToolFloatChip(
-                            label = "等比",
+                            label = androidx.compose.ui.res.stringResource(R.string.shape_keep_aspect),
                             selected = state.keepAspect,
                             onClick = {
                                 val next = !state.keepAspect
@@ -140,7 +145,7 @@ fun ShapeToolPanel(
                     }
                     ShapeType.ELLIPSE -> {
                         ToolFloatChip(
-                            label = "正圆",
+                            label = androidx.compose.ui.res.stringResource(R.string.shape_perfect_circle),
                             selected = state.keepAspect,
                             onClick = {
                                 val next = !state.keepAspect
@@ -151,17 +156,17 @@ fun ShapeToolPanel(
                     }
                     ShapeType.POLYLINE, ShapeType.POLYGON, ShapeType.BEZIER -> {
                         if (state.nodes.isNotEmpty()) {
-                            ToolFloatChip(label = "撤销点", onClick = { vm.undoShapeNode() })
+                            ToolFloatChip(label = androidx.compose.ui.res.stringResource(R.string.selection_undo_point), onClick = { vm.undoShapeNode() })
                         }
                         if (currentType != ShapeType.POLYGON) {
                             ToolFloatChip(
-                                label = "闭合",
+                                label = androidx.compose.ui.res.stringResource(R.string.shape_close),
                                 selected = state.closed,
                                 onClick = { state.closed = !state.closed },
                             )
                         }
                         Text(
-                            "点数 ${state.nodes.size}",
+                            androidx.compose.ui.res.stringResource(R.string.shape_node_count, state.nodes.size),
                             color = Morandi.subText,
                             fontSize = 12.sp,
                         )
@@ -173,7 +178,7 @@ fun ShapeToolPanel(
                 if (hasProps) {
                     ToolActionButton(
                         iconRes = R.drawable.ic_sliders,
-                        label = if (propsOpen) "收起" else "属性",
+                        label = if (propsOpen) androidx.compose.ui.res.stringResource(R.string.selection_collapse) else androidx.compose.ui.res.stringResource(R.string.selection_props),
                         active = propsOpen,
                         onClick = { propsOpen = !propsOpen },
                     )
@@ -183,13 +188,13 @@ fun ShapeToolPanel(
                 if (state.active) {
                     ToolActionButton(
                         iconRes = R.drawable.ic_check,
-                        label = "完成",
+                        label = androidx.compose.ui.res.stringResource(R.string.confirm),
                         primary = true,
                         onClick = { vm.commitActiveShape() },
                     )
                     ToolActionButton(
                         iconRes = R.drawable.ic_x,
-                        label = "取消",
+                        label = androidx.compose.ui.res.stringResource(R.string.cancel),
                         danger = true,
                         onClick = { vm.cancelActiveShape() },
                     )
@@ -211,7 +216,7 @@ fun ShapeToolPanel(
                 ) {
                     if (hasStrokeSlider) {
                         ToolFloatSlider(
-                            label = "粗细",
+                            label = androidx.compose.ui.res.stringResource(R.string.shape_stroke_width),
                             valueText = "${strokeWidth.roundToInt()}px",
                             range = 1f..100f,
                             value = strokeWidth,
@@ -224,7 +229,7 @@ fun ShapeToolPanel(
                     when (currentType) {
                         ShapeType.ROUNDED_RECT -> {
                             ToolFloatSlider(
-                                label = "圆角",
+                                label = androidx.compose.ui.res.stringResource(R.string.shape_corner_radius),
                                 valueText = "${state.cornerRadius.roundToInt()}px",
                                 range = 0f..120f,
                                 value = state.cornerRadius,
@@ -233,7 +238,7 @@ fun ShapeToolPanel(
                         }
                         ShapeType.REGULAR_POLYGON -> {
                             ToolFloatSlider(
-                                label = "边数",
+                                label = androidx.compose.ui.res.stringResource(R.string.shape_polygon_sides),
                                 valueText = "${state.polygonSides}",
                                 range = 3f..16f,
                                 value = state.polygonSides.toFloat(),
@@ -242,14 +247,14 @@ fun ShapeToolPanel(
                         }
                         ShapeType.STAR -> {
                             ToolFloatSlider(
-                                label = "角数",
+                                label = androidx.compose.ui.res.stringResource(R.string.shape_star_points),
                                 valueText = "${state.starPoints}",
                                 range = 3f..12f,
                                 value = state.starPoints.toFloat(),
                                 onValue = { state.starPoints = it.roundToInt() },
                             )
                             ToolFloatSlider(
-                                label = "内径",
+                                label = androidx.compose.ui.res.stringResource(R.string.shape_star_inner_ratio),
                                 valueText = "${(state.starInnerRatio * 100).roundToInt()}%",
                                 range = 0.1f..0.9f,
                                 value = state.starInnerRatio,

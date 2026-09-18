@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,19 +55,19 @@ internal fun OppoStylusConfigDialog(
     val colors = Theme.current
     val context = LocalContext.current
     val actionOptions = listOf(
-        "切换画笔与橡皮" to "toggle_eraser",
-        "撤销" to "undo",
-        "重做" to "redo",
-        "吸管取色" to "tool_picker",
-        "切换上一工具" to "toggle_last_tool",
-        "快捷调色盘" to "tool_color",
-        "无操作" to "none",
+        stringResource(R.string.stylus_action_switch_brush_eraser) to "toggle_eraser",
+        stringResource(R.string.stylus_action_undo) to "undo",
+        stringResource(R.string.stylus_action_redo) to "redo",
+        stringResource(R.string.stylus_action_eyedropper) to "tool_picker",
+        stringResource(R.string.stylus_action_prev_tool) to "toggle_last_tool",
+        stringResource(R.string.stylus_action_quick_palette) to "tool_color",
+        stringResource(R.string.stylus_action_none) to "none",
     )
 
     val modelOptions = listOf(
-        "AUTO" to "自动识别 (${vm.detectedOppoPencilModel.editionName})",
+        "AUTO" to stringResource(R.string.stylus_oppo_auto_model, vm.detectedOppoPencilModel.editionName),
         "PRO" to "OPPO Pencil 2 Pro / OnePlus Stylo 2",
-        "STANDARD" to "标准版手写笔 (无触控条)",
+        "STANDARD" to stringResource(R.string.stylus_oppo_standard_model),
     )
 
     Dialog(onDismissRequest = onDismiss) {
@@ -88,7 +89,7 @@ internal fun OppoStylusConfigDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
-                        text = "OPPO / 一加手写笔专属设置",
+                        text = stringResource(R.string.stylus_oppo_title),
                         color = colors.text,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
@@ -103,7 +104,7 @@ internal fun OppoStylusConfigDialog(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_x),
-                            contentDescription = "关闭",
+                            contentDescription = stringResource(R.string.common_close),
                             tint = colors.subText,
                             modifier = Modifier.size(15.dp),
                         )
@@ -116,11 +117,11 @@ internal fun OppoStylusConfigDialog(
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     val currentModelText = when (vm.oppoPencilModelMode) {
                         "PRO" -> "OPPO Pencil 2 Pro / OnePlus Stylo 2"
-                        "STANDARD" -> "标准版手写笔 (无触控条)"
-                        else -> "自动识别 (${vm.detectedOppoPencilModel.editionName})"
+                        "STANDARD" -> stringResource(R.string.stylus_oppo_standard_model)
+                        else -> stringResource(R.string.stylus_oppo_auto_model, vm.detectedOppoPencilModel.editionName)
                     }
                     SettingDropdownRow(
-                        title = "设备型号",
+                        title = stringResource(R.string.stylus_oppo_model),
                         currentText = currentModelText,
                         options = modelOptions.map { it.second },
                         onSelect = { idx ->
@@ -142,7 +143,7 @@ internal fun OppoStylusConfigDialog(
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = if (vm.oppoPencilModel == OppoPencilModel.PRO) "16384级超高压感" else "4096级压感",
+                                text = if (vm.oppoPencilModel == OppoPencilModel.PRO) stringResource(R.string.stylus_oppo_press_16k) else stringResource(R.string.stylus_oppo_press_4k),
                                 color = colors.accent,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
@@ -160,11 +161,11 @@ internal fun OppoStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("手势与按键映射")
+                SettingCategoryHeader(stringResource(R.string.stylus_gesture_and_keys))
                 GroupedSettingsCard(containerColor = colors.panelHi) {
-                    val currentTitle = actionOptions.find { it.second == vm.oppoDoubleTapAction }?.first ?: "切换画笔与橡皮"
+                    val currentTitle = actionOptions.find { it.second == vm.oppoDoubleTapAction }?.first ?: actionOptions[0].first
                     SettingDropdownRow(
-                        title = "笔身双击动作",
+                        title = stringResource(R.string.stylus_oppo_double_tap),
                         currentText = currentTitle,
                         options = actionOptions.map { it.first },
                         onSelect = { idx ->
@@ -174,14 +175,14 @@ internal fun OppoStylusConfigDialog(
                     if (vm.oppoPencilModel.hasSlideGesture) {
                         SettingsCardDivider()
                         val slideActionOptions = listOf(
-                            "滑动调节画笔粗细" to "adjust_brush_size",
-                            "滑动调节不透明度" to "adjust_opacity",
-                            "撤销与重做" to "undo_redo",
-                            "无操作" to "none",
+                            stringResource(R.string.stylus_slide_brush_size) to "adjust_brush_size",
+                            stringResource(R.string.stylus_slide_opacity) to "adjust_opacity",
+                            stringResource(R.string.stylus_slide_undo_redo) to "undo_redo",
+                            stringResource(R.string.stylus_action_none) to "none",
                         )
-                        val slideTitle = slideActionOptions.find { it.second == vm.oppoSlideAction }?.first ?: "滑动调节画笔粗细"
+                        val slideTitle = slideActionOptions.find { it.second == vm.oppoSlideAction }?.first ?: slideActionOptions[0].first
                         SettingDropdownRow(
-                            title = "笔身触控滑动动作",
+                            title = stringResource(R.string.stylus_oppo_slide),
                             currentText = slideTitle,
                             options = slideActionOptions.map { it.first },
                             onSelect = { idx ->
@@ -191,13 +192,13 @@ internal fun OppoStylusConfigDialog(
                         if (vm.oppoSlideAction != "none") {
                             SettingsCardDivider()
                             val sensitivityOptions = listOf(
-                                "低灵敏度 (防误触)" to "low",
-                                "标准灵敏度 (推荐)" to "normal",
-                                "高灵敏度 (快速响应)" to "high",
+                                stringResource(R.string.stylus_oppo_sens_low) to "low",
+                                stringResource(R.string.stylus_oppo_sens_standard) to "normal",
+                                stringResource(R.string.stylus_oppo_sens_high) to "high",
                             )
-                            val currentSensitivityTitle = sensitivityOptions.find { it.second == vm.oppoSlideSensitivity }?.first ?: "标准灵敏度 (推荐)"
+                            val currentSensitivityTitle = sensitivityOptions.find { it.second == vm.oppoSlideSensitivity }?.first ?: sensitivityOptions[1].first
                             SettingDropdownRow(
-                                title = "滑动灵敏度",
+                                title = stringResource(R.string.stylus_oppo_slide_sens),
                                 currentText = currentSensitivityTitle,
                                 options = sensitivityOptions.map { it.first },
                                 onSelect = { idx ->
@@ -210,35 +211,36 @@ internal fun OppoStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("触感反馈与震动")
+                SettingCategoryHeader(stringResource(R.string.stylus_oppo_haptics))
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     SettingSwitchRow(
-                        title = "笔身书写微震",
-                        summary = "激活手写笔内置超线性微马达，落笔时提供真实沙沙纸感反馈",
+                        title = stringResource(R.string.stylus_oppo_haptics_pen),
+                        summary = stringResource(R.string.stylus_oppo_haptics_pen_desc),
                         checked = vm.oppoInPenHapticsEnabled,
                         onCheckedChange = { vm.updateOppoInPenHapticsEnabled(it) },
                     )
                     SettingsCardDivider()
                     SettingSwitchRow(
-                        title = "手势操作震动反馈",
-                        summary = "双击笔身或滑动触控条调节参数时发出轻微触感提示",
+                        title = stringResource(R.string.stylus_oppo_haptics_gesture),
+                        summary = stringResource(R.string.stylus_oppo_haptics_gesture_desc),
                         checked = vm.stylusHapticsEnabled,
                         onCheckedChange = { vm.updateStylusHapticsEnabled(it) },
                     )
                     if (vm.stylusHapticsEnabled) {
                         SettingsCardDivider()
                         SettingSliderRow(
-                            title = "震动强度",
+                            title = stringResource(R.string.stylus_oppo_haptics_strength),
                             summary = "${(vm.stylusHapticsIntensity * 100).toInt()}%",
                             value = vm.stylusHapticsIntensity,
                             onValueChange = { vm.updateStylusHapticsIntensity(it) },
                         )
                     }
                     SettingsCardDivider()
+                    val openFailedMsg = stringResource(R.string.stylus_oppo_open_failed)
                     SettingNavRow(
                         iconRes = R.drawable.ic_settings,
-                        title = "系统手写笔触感设置",
-                        summary = "直达 ColorOS 系统手写笔触感与书写震动配置页",
+                        title = stringResource(R.string.stylus_oppo_system_settings),
+                        summary = stringResource(R.string.stylus_oppo_system_settings_desc),
                         onClick = {
                             try {
                                 val intent = Intent("com.android.settings.MANUFACTURER_APPLICATION_SETTING_TOUCH_FEEDBACK")
@@ -249,7 +251,7 @@ internal fun OppoStylusConfigDialog(
                                     intent2.setPackage("com.oplus.ipemanager")
                                     context.startActivity(intent2)
                                 } catch (_: Throwable) {
-                                    vm.showActionToast("未能打开系统手写笔设置", R.drawable.ic_help_circle)
+                                    vm.showActionToast(openFailedMsg, R.drawable.ic_help_circle)
                                 }
                             }
                         },
@@ -258,11 +260,11 @@ internal fun OppoStylusConfigDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                SettingCategoryHeader("算法与延迟优化")
+                SettingCategoryHeader(stringResource(R.string.stylus_oppo_latency_title))
                 GroupedSettingsCard(containerColor = colors.panelHi) {
                     SettingSwitchRow(
-                        title = "超低延迟笔迹预测",
-                        summary = "ColorOS 毫秒级算法预测落笔轨迹，极速视觉跟随",
+                        title = stringResource(R.string.stylus_prediction_title),
+                        summary = stringResource(R.string.stylus_oppo_latency_desc),
                         checked = vm.stylusStrokePredictionEnabled,
                         onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                     )
@@ -274,7 +276,7 @@ internal fun OppoStylusConfigDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    ReTextButton("完成", onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
+                    ReTextButton(stringResource(R.string.common_done), onDismiss, textColor = colors.accent, fontWeight = FontWeight.Bold)
                 }
             }
         }

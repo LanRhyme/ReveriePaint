@@ -84,7 +84,7 @@ fun KritaTextToolDialog(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "文本工具 (Krita)",
+                        androidx.compose.ui.res.stringResource(R.string.krita_text_tool_title),
                         color = Morandi.text,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -103,7 +103,7 @@ fun KritaTextToolDialog(
                             .background(textColor)
                             .border(1.dp, Morandi.border, CircleShape)
                     )
-                    Text("当前颜色", color = Morandi.subText, fontSize = 11.sp)
+                    Text(androidx.compose.ui.res.stringResource(R.string.color_current), color = Morandi.subText, fontSize = 11.sp)
                 }
             }
         },
@@ -115,7 +115,7 @@ fun KritaTextToolDialog(
                     onValueChange = { text = it },
                     minLines = 3,
                     maxLines = 6,
-                    placeholder = { Text("在此输入文本内容 (支持多行换行)...", color = Morandi.subText, fontSize = 13.sp) },
+                    placeholder = { Text(androidx.compose.ui.res.stringResource(R.string.typography_dialog_placeholder), color = Morandi.subText, fontSize = 13.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Morandi.accent,
@@ -135,9 +135,9 @@ fun KritaTextToolDialog(
                 ) {
                     TextOptChip("B", isBold, Modifier.weight(1f)) { isBold = !isBold }
                     TextOptChip("I", isItalic, Modifier.weight(1f)) { isItalic = !isItalic }
-                    TextOptChip("左", alignment == TextAlign.Left, Modifier.weight(1f)) { alignment = TextAlign.Left }
-                    TextOptChip("中", alignment == TextAlign.Center, Modifier.weight(1f)) { alignment = TextAlign.Center }
-                    TextOptChip("右", alignment == TextAlign.Right, Modifier.weight(1f)) { alignment = TextAlign.Right }
+                    TextOptChip(androidx.compose.ui.res.stringResource(R.string.typography_align_left), alignment == TextAlign.Left, Modifier.weight(1f)) { alignment = TextAlign.Left }
+                    TextOptChip(androidx.compose.ui.res.stringResource(R.string.typography_align_center), alignment == TextAlign.Center, Modifier.weight(1f)) { alignment = TextAlign.Center }
+                    TextOptChip(androidx.compose.ui.res.stringResource(R.string.typography_align_right), alignment == TextAlign.Right, Modifier.weight(1f)) { alignment = TextAlign.Right }
                 }
 
                 // Font Size Slider
@@ -145,7 +145,7 @@ fun KritaTextToolDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text("字号", color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                    Text(androidx.compose.ui.res.stringResource(R.string.typography_font_size), color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(36.dp))
                     ReSlider(
                         value = ((fontSize - 12f) / 188f).coerceIn(0f, 1f),
                         onValue = { frac -> fontSize = 12f + frac * 188f },
@@ -162,7 +162,7 @@ fun KritaTextToolDialog(
 
                 // Live Preview Card
                 if (text.isNotBlank()) {
-                    Text("效果预览", color = Morandi.subText, fontSize = 11.sp)
+                    Text(androidx.compose.ui.res.stringResource(R.string.preview), color = Morandi.subText, fontSize = 11.sp)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -187,7 +187,7 @@ fun KritaTextToolDialog(
         },
         confirmButton = {
             ReTextButton(
-                text = "确定放置",
+                text = androidx.compose.ui.res.stringResource(R.string.krita_text_place),
                 onClick = {
                     if (text.isNotBlank()) {
                         onConfirm(text, fontSize.toDouble())
@@ -199,7 +199,7 @@ fun KritaTextToolDialog(
         },
         dismissButton = {
             ReTextButton(
-                text = "取消",
+                text = androidx.compose.ui.res.stringResource(R.string.cancel),
                 onClick = onDismiss,
                 textColor = Morandi.subText,
             )

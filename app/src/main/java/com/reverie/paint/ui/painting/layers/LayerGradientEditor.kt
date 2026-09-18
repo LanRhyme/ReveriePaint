@@ -102,6 +102,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -135,59 +136,88 @@ class CustomGradStop(
     var color by mutableStateOf(initialColor)
 }
 
+private data class GradientPresetDef(
+    val nameRes: Int,
+    val stops: List<Pair<Float, Color>>,
+)
+
 private val GRADIENT_PRESETS = listOf(
-    "日落暖金" to listOf(
-        0.0f to Color(0xFF2C0B38),
-        0.35f to Color(0xFFB82E55),
-        0.7f to Color(0xFFE88A35),
-        1.0f to Color(0xFFFFF6A5)
+    GradientPresetDef(
+        R.string.gradient_preset_sunset_gold,
+        listOf(
+            0.0f to Color(0xFF2C0B38),
+            0.35f to Color(0xFFB82E55),
+            0.7f to Color(0xFFE88A35),
+            1.0f to Color(0xFFFFF6A5),
+        ),
     ),
-    "赛博霓虹" to listOf(
-        0.0f to Color(0xFF0F052A),
-        0.4f to Color(0xFF8A148D),
-        0.8f to Color(0xFF00E5FF),
-        1.0f to Color(0xFFFFFFFF)
+    GradientPresetDef(
+        R.string.gradient_preset_cyber_neon,
+        listOf(
+            0.0f to Color(0xFF0F052A),
+            0.4f to Color(0xFF8A148D),
+            0.8f to Color(0xFF00E5FF),
+            1.0f to Color(0xFFFFFFFF),
+        ),
     ),
-    "深海幽蓝" to listOf(
-        0.0f to Color(0xFF061426),
-        0.45f to Color(0xFF0A4F6B),
-        0.8f to Color(0xFF26A69A),
-        1.0f to Color(0xFFE0F7FA)
+    GradientPresetDef(
+        R.string.gradient_preset_deep_sea_blue,
+        listOf(
+            0.0f to Color(0xFF061426),
+            0.45f to Color(0xFF0A4F6B),
+            0.8f to Color(0xFF26A69A),
+            1.0f to Color(0xFFE0F7FA),
+        ),
     ),
-    "复古怀旧" to listOf(
-        0.0f to Color(0xFF2E1C0C),
-        0.4f to Color(0xFF704E2E),
-        0.75f to Color(0xFFC4A47C),
-        1.0f to Color(0xFFFBF4E8)
+    GradientPresetDef(
+        R.string.gradient_preset_vintage,
+        listOf(
+            0.0f to Color(0xFF2E1C0C),
+            0.4f to Color(0xFF704E2E),
+            0.75f to Color(0xFFC4A47C),
+            1.0f to Color(0xFFFBF4E8),
+        ),
     ),
-    "烈焰熔岩" to listOf(
-        0.0f to Color(0xFF100000),
-        0.3f to Color(0xFF800000),
-        0.65f to Color(0xFFFF4500),
-        1.0f to Color(0xFFFFFF80)
+    GradientPresetDef(
+        R.string.gradient_preset_lava,
+        listOf(
+            0.0f to Color(0xFF100000),
+            0.3f to Color(0xFF800000),
+            0.65f to Color(0xFFFF4500),
+            1.0f to Color(0xFFFFFF80),
+        ),
     ),
-    "梦幻粉紫" to listOf(
-        0.0f to Color(0xFF2D1436),
-        0.45f to Color(0xFF8B5E83),
-        0.8f to Color(0xFFE8B4B8),
-        1.0f to Color(0xFFFFF0F5)
+    GradientPresetDef(
+        R.string.gradient_preset_dreamy_purple,
+        listOf(
+            0.0f to Color(0xFF2D1436),
+            0.45f to Color(0xFF8B5E83),
+            0.8f to Color(0xFFE8B4B8),
+            1.0f to Color(0xFFFFF0F5),
+        ),
     ),
-    "森系翠绿" to listOf(
-        0.0f to Color(0xFF0A2218),
-        0.4f to Color(0xFF1B5E3C),
-        0.75f to Color(0xFF7CB342),
-        1.0f to Color(0xFFF1F8E9)
+    GradientPresetDef(
+        R.string.gradient_preset_forest_green,
+        listOf(
+            0.0f to Color(0xFF0A2218),
+            0.4f to Color(0xFF1B5E3C),
+            0.75f to Color(0xFF7CB342),
+            1.0f to Color(0xFFF1F8E9),
+        ),
     ),
-    "黑白胶片" to listOf(
-        0.0f to Color(0xFF000000),
-        0.5f to Color(0xFF808080),
-        1.0f to Color(0xFFFFFFFF)
+    GradientPresetDef(
+        R.string.gradient_preset_bw_film,
+        listOf(
+            0.0f to Color(0xFF000000),
+            0.5f to Color(0xFF808080),
+            1.0f to Color(0xFFFFFFFF),
+        ),
     ),
 )
 
 @Composable
 fun CompactColorPickerDialog(
-    title: String = "选取颜色",
+    title: String = stringResource(R.string.gradient_pick_color),
     initialColor: Color,
     onColorSelected: (Color) -> Unit,
     onDismiss: () -> Unit,
@@ -357,9 +387,9 @@ fun CompactColorPickerDialog(
                     Text(hex, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReTextButton("取消", onDismiss, textColor = Morandi.subText, fontSize = 12.sp)
+                        ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText, fontSize = 12.sp)
                         ReTextButton(
-                            "确定",
+                            stringResource(R.string.common_confirm),
                             {
                                 onColorSelected(currentColor)
                                 onDismiss()
@@ -579,7 +609,7 @@ internal fun CustomGradientEditor(
                     )
                     Column {
                         Text(
-                            text = "色标 ${(activeStop.pos * 100).roundToInt()}%",
+                            text = stringResource(R.string.gradient_stop_pos_format, (activeStop.pos * 100).roundToInt()),
                             color = Morandi.text,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
@@ -587,7 +617,7 @@ internal fun CustomGradientEditor(
                             softWrap = false,
                         )
                         Text(
-                            text = "点击调色",
+                            text = stringResource(R.string.gradient_tap_to_adjust_color),
                             color = Morandi.accent,
                             fontSize = 10.sp,
                             maxLines = 1,
@@ -618,12 +648,12 @@ internal fun CustomGradientEditor(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_flip_h),
-                            contentDescription = "反转渐变",
+                            contentDescription = stringResource(R.string.gradient_reverse_action),
                             tint = if (reverse) Morandi.accentHi else Morandi.subText,
                             modifier = Modifier.size(12.dp),
                         )
                         Text(
-                            text = "反转",
+                            text = stringResource(R.string.gradient_reverse_btn),
                             color = if (reverse) Morandi.accentHi else Morandi.text,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -658,12 +688,12 @@ internal fun CustomGradientEditor(
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_trash),
-                            contentDescription = "删除色标",
+                            contentDescription = stringResource(R.string.gradient_delete_stop),
                             tint = if (canDelete) Color(0xFFE57373) else Morandi.subText.copy(alpha = 0.4f),
                             modifier = Modifier.size(12.dp),
                         )
                         Text(
-                            text = "删除",
+                            text = stringResource(R.string.common_delete),
                             color = if (canDelete) Color(0xFFE57373) else Morandi.subText.copy(alpha = 0.4f),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -676,7 +706,7 @@ internal fun CustomGradientEditor(
 
             if (showColorPicker) {
                 CompactColorPickerDialog(
-                    title = "设置色标颜色",
+                    title = stringResource(R.string.gradient_set_stop_color),
                     initialColor = activeStop.color,
                     onColorSelected = { newCol ->
                         activeStop.color = newCol
@@ -687,7 +717,7 @@ internal fun CustomGradientEditor(
             }
         }
 
-        Text("载入经典预设", color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+        Text(stringResource(R.string.gradient_load_classic_presets), color = Morandi.subText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
 
         // Preset Palettes Grid (compact 2-column layout)
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -696,7 +726,7 @@ internal fun CustomGradientEditor(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    rowPresets.forEach { (name, presetStops) ->
+                    rowPresets.forEach { preset ->
                         Row(
                             modifier = Modifier
                                 .weight(1f)
@@ -704,7 +734,7 @@ internal fun CustomGradientEditor(
                                 .background(Morandi.panelHi)
                                 .noRippleClickable {
                                     stops.clear()
-                                    presetStops.forEachIndexed { i, p ->
+                                    preset.stops.forEachIndexed { i, p ->
                                         stops.add(CustomGradStop(System.currentTimeMillis() + i, p.first, p.second))
                                     }
                                     selectedStopId = stops.first().id
@@ -718,10 +748,10 @@ internal fun CustomGradientEditor(
                                 modifier = Modifier
                                     .size(20.dp, 12.dp)
                                     .clip(RoundedCornerShape(3.dp))
-                                    .background(Brush.horizontalGradient(presetStops.map { it.second }))
+                                    .background(Brush.horizontalGradient(preset.stops.map { it.second }))
                             )
                             Text(
-                                name,
+                                stringResource(preset.nameRes),
                                 color = Morandi.text,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Normal,

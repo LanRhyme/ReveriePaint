@@ -37,6 +37,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.stylus.StylusBrand
 import com.reverie.paint.ui.home.stylus.CompactPressureCurveCard
@@ -63,8 +65,20 @@ internal fun StylusSettingsSubPage(
     val stylusDriver = remember { vm.getOrCreateStylusDriver(context) }
     val detectedDevices = remember { stylusDriver.detectDevices() }
 
-    val cursorModeOptions = listOf("不显示", "绘画时显示", "悬空显示", "绘画和悬空显示")
-    val cursorStyleOptions = listOf("圆形", "十字准星", "点", "无", "系统指针", "圆+十字准星")
+    val cursorModeOptions = listOf(
+        stringResource(R.string.stylus_cursor_mode_none),
+        stringResource(R.string.stylus_cursor_mode_drawing),
+        stringResource(R.string.stylus_cursor_mode_hover),
+        stringResource(R.string.stylus_cursor_mode_both),
+    )
+    val cursorStyleOptions = listOf(
+        stringResource(R.string.stylus_cursor_shape_circle),
+        stringResource(R.string.stylus_cursor_shape_crosshair),
+        stringResource(R.string.stylus_cursor_shape_dot),
+        stringResource(R.string.stylus_cursor_shape_none),
+        stringResource(R.string.stylus_cursor_shape_system),
+        stringResource(R.string.stylus_cursor_shape_circle_crosshair),
+    )
 
     Column(
         modifier = Modifier
@@ -80,55 +94,55 @@ internal fun StylusSettingsSubPage(
                 .padding(horizontal = if (compact) 12.dp else 20.dp, vertical = if (compact) 12.dp else 20.dp),
         ) {
             SettingSubPageHeader(
-                title = "手写笔设置",
-                subtitle = "手写笔硬件级适配、触感音效与高精度压感映射",
+                title = stringResource(R.string.settings_stylus),
+                subtitle = stringResource(R.string.stylus_settings_desc),
                 showBackButton = showBackButton,
                 compact = compact,
                 onBack = onBack,
             )
 
             // 1. 触控与光标设置
-            SettingCategoryTitle("触控与光标")
+            SettingCategoryTitle(stringResource(R.string.stylus_touch_and_cursor))
             SettingGroup {
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Edit,
-                    title = "笔模式",
-                    summary = "开启后禁止手指绘制，单指可平移画布，双指可缩放与旋转画布",
+                    title = stringResource(R.string.settings_pen_mode),
+                    summary = stringResource(R.string.stylus_pen_mode_desc),
                     checked = vm.penOnlyMode,
                     shape = settingGroupShape(0, 5),
                     onCheckedChange = { vm.updatePenOnlyMode(it) },
                 )
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Speed,
-                    title = "超低延迟笔迹预测",
-                    summary = "采用 120Hz/144Hz 毫秒级瞬态前向预测，笔迹即时紧跟笔尖",
+                    title = stringResource(R.string.stylus_prediction_title),
+                    summary = stringResource(R.string.stylus_prediction_desc),
                     checked = vm.stylusStrokePredictionEnabled,
                     shape = settingGroupShape(1, 5),
                     onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                 )
                 SettingDropdownGroupItem(
                     icon = Icons.Rounded.Brush,
-                    title = "画笔光标",
-                    summary = "画笔悬浮或绘制时的光标显示策略",
-                    currentText = cursorModeOptions.getOrElse(vm.brushCursorMode) { "不显示" },
+                    title = stringResource(R.string.stylus_brush_cursor),
+                    summary = stringResource(R.string.stylus_brush_cursor_desc),
+                    currentText = cursorModeOptions.getOrElse(vm.brushCursorMode) { cursorModeOptions[0] },
                     options = cursorModeOptions,
                     shape = settingGroupShape(2, 5),
                     onSelect = { vm.updateBrushCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
                     icon = Icons.Rounded.AutoFixHigh,
-                    title = "橡皮光标",
-                    summary = "橡皮擦悬浮或擦除时的光标显示策略",
-                    currentText = cursorModeOptions.getOrElse(vm.eraserCursorMode) { "绘画和悬空显示" },
+                    title = stringResource(R.string.stylus_eraser_cursor),
+                    summary = stringResource(R.string.stylus_eraser_cursor_desc),
+                    currentText = cursorModeOptions.getOrElse(vm.eraserCursorMode) { cursorModeOptions.last() },
                     options = cursorModeOptions,
                     shape = settingGroupShape(3, 5),
                     onSelect = { vm.updateEraserCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
                     icon = Icons.Rounded.ControlCamera,
-                    title = "光标样式",
-                    summary = "准星形态、单点圆环或系统光标",
-                    currentText = cursorStyleOptions.getOrElse(vm.cursorStyleMode) { "圆形" },
+                    title = stringResource(R.string.stylus_cursor_style),
+                    summary = stringResource(R.string.stylus_cursor_style_desc),
+                    currentText = cursorStyleOptions.getOrElse(vm.cursorStyleMode) { cursorStyleOptions[0] },
                     options = cursorStyleOptions,
                     shape = settingGroupShape(4, 5),
                     onSelect = { vm.updateCursorStyleMode(it) },
@@ -136,13 +150,13 @@ internal fun StylusSettingsSubPage(
             }
 
             // 2. 真实书写音效
-            SettingCategoryTitle("真实书写音效")
+            SettingCategoryTitle(stringResource(R.string.stylus_sound_title))
             SettingGroup {
                 val audioTotal = if (vm.stylusAudioEnabled) 2 else 1
                 SettingSwitchGroupItem(
                     icon = Icons.AutoMirrored.Rounded.VolumeUp,
-                    title = "纸张微摩擦音效",
-                    summary = "落笔与运笔时模拟真实笔尖在纸张上的微摩擦发声，随笔速变化，营造沉浸式触感体验",
+                    title = stringResource(R.string.stylus_sound_paper),
+                    summary = stringResource(R.string.stylus_sound_paper_desc),
                     checked = vm.stylusAudioEnabled,
                     shape = settingGroupShape(0, audioTotal),
                     onCheckedChange = { vm.updateStylusAudioEnabled(it) },
@@ -150,8 +164,8 @@ internal fun StylusSettingsSubPage(
                 if (vm.stylusAudioEnabled) {
                     SettingSliderGroupItem(
                         icon = Icons.AutoMirrored.Rounded.VolumeDown,
-                        title = "音效音量",
-                        summary = "纸张微摩擦声播放音量",
+                        title = stringResource(R.string.stylus_sound_volume),
+                        summary = stringResource(R.string.stylus_sound_volume_desc),
                         valueText = "${(vm.stylusAudioVolume * 100).toInt()}%",
                         sliderFraction = vm.stylusAudioVolume,
                         shape = settingGroupShape(1, audioTotal),
@@ -161,7 +175,7 @@ internal fun StylusSettingsSubPage(
             }
 
             // 3. 全局压力曲线
-            SettingCategoryTitle("全局压力曲线")
+            SettingCategoryTitle(stringResource(R.string.stylus_curve_title))
             SettingGroup {
                 SettingCardBox(shape = settingGroupShape(0, 1)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -173,14 +187,14 @@ internal fun StylusSettingsSubPage(
                             Spacer(Modifier.width(14.dp))
                             Column {
                                 Text(
-                                    text = "压力曲线映射",
+                                    text = stringResource(R.string.stylus_curve_mapping),
                                     color = colors.text,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Medium,
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    text = "手感偏硬时可选用「轻压灵敏」预设或微调控制点",
+                                    text = stringResource(R.string.stylus_curve_mapping_desc),
                                     color = colors.subText,
                                     fontSize = 12.sp,
                                     lineHeight = 16.sp,
@@ -203,7 +217,7 @@ internal fun StylusSettingsSubPage(
             }
 
             // 4. 已适配的手写笔品牌与设备
-            SettingCategoryTitle("已适配的手写笔品牌与设备")
+            SettingCategoryTitle(stringResource(R.string.stylus_brand_devices))
             SettingGroup {
                 detectedDevices.forEachIndexed { index, device ->
                     val shape = settingGroupShape(index, detectedDevices.size)
@@ -211,7 +225,7 @@ internal fun StylusSettingsSubPage(
                         StylusBrand.OPPO_ONEPLUS -> {
                             SettingStylusDeviceRow(
                                 title = device.deviceName,
-                                summary = "笔身手势、触控滑动与原笔迹微震专属配置",
+                                summary = stringResource(R.string.stylus_oppo_features),
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
                                 shape = shape,
@@ -221,7 +235,7 @@ internal fun StylusSettingsSubPage(
                         StylusBrand.SAMSUNG_SPEN -> {
                             SettingStylusDeviceRow(
                                 title = device.deviceName,
-                                summary = "侧键动作映射与触觉微震专属配置",
+                                summary = stringResource(R.string.stylus_samsung_features),
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
                                 shape = shape,
@@ -231,7 +245,7 @@ internal fun StylusSettingsSubPage(
                         StylusBrand.GENERIC -> {
                             SettingStylusDeviceRow(
                                 title = device.deviceName,
-                                summary = "标准 Android 压感与倾角触控协议",
+                                summary = stringResource(R.string.stylus_generic_features),
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
                                 shape = shape,

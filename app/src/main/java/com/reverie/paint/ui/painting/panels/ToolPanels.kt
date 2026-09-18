@@ -23,21 +23,24 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
 
-private val gradientTypeOptions = listOf(
-    ToolDropdownItemData(0, R.drawable.ic_grad_linear, "线性"),
-    ToolDropdownItemData(1, R.drawable.ic_grad_radial, "径向"),
-    ToolDropdownItemData(2, R.drawable.ic_grad_angle, "角度"),
+@Composable
+private fun getGradientTypeOptions(): List<ToolDropdownItemData<Int>> = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_grad_linear, androidx.compose.ui.res.stringResource(R.string.gradient_type_linear)),
+    ToolDropdownItemData(1, R.drawable.ic_grad_radial, androidx.compose.ui.res.stringResource(R.string.gradient_type_radial)),
+    ToolDropdownItemData(2, R.drawable.ic_grad_angle, androidx.compose.ui.res.stringResource(R.string.gradient_type_angle)),
 )
 
-private val gradientRepeatOptions = listOf(
-    ToolDropdownItemData(0, R.drawable.ic_repeat_none, "单次"),
-    ToolDropdownItemData(1, R.drawable.ic_repeat_loop, "重复"),
-    ToolDropdownItemData(2, R.drawable.ic_repeat_mirror, "往返"),
+@Composable
+private fun getGradientRepeatOptions(): List<ToolDropdownItemData<Int>> = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_repeat_none, androidx.compose.ui.res.stringResource(R.string.gradient_repeat_none)),
+    ToolDropdownItemData(1, R.drawable.ic_repeat_loop, androidx.compose.ui.res.stringResource(R.string.gradient_repeat_loop)),
+    ToolDropdownItemData(2, R.drawable.ic_repeat_mirror, androidx.compose.ui.res.stringResource(R.string.gradient_repeat_mirror)),
 )
 
-private val fillSampleOptions = listOf(
-    ToolDropdownItemData(0, R.drawable.ic_rect, "当前图层"),
-    ToolDropdownItemData(1, R.drawable.ic_layers, "全部图层"),
+@Composable
+private fun getFillSampleOptions(): List<ToolDropdownItemData<Int>> = listOf(
+    ToolDropdownItemData(0, R.drawable.ic_rect, androidx.compose.ui.res.stringResource(R.string.selection_current_layer)),
+    ToolDropdownItemData(1, R.drawable.ic_layers, androidx.compose.ui.res.stringResource(R.string.selection_all_layers)),
 )
 
 /** Gradient tool options: type (linear / radial / conical), repeat, reverse */
@@ -52,6 +55,9 @@ fun GradientPanel(
     onReverse: (Boolean) -> Unit = { vm.updateGradientReverse(it) },
     hazeState: HazeState? = null,
 ) {
+    val gradientTypeOptions = getGradientTypeOptions()
+    val gradientRepeatOptions = getGradientRepeatOptions()
+
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -69,7 +75,7 @@ fun GradientPanel(
             )
             ToolActionButton(
                 iconRes = R.drawable.ic_refresh,
-                label = "反向",
+                label = androidx.compose.ui.res.stringResource(R.string.gradient_reverse),
                 active = reverse,
                 onClick = { onReverse(!reverse) },
             )
@@ -94,6 +100,7 @@ fun FillPanel(
     hazeState: HazeState? = null,
 ) {
     var propsOpen by remember { mutableStateOf(false) }
+    val fillSampleOptions = getFillSampleOptions()
 
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -104,13 +111,13 @@ fun FillPanel(
                 ToolBubbleDropdown(
                     items = fillSampleOptions,
                     selected = sampleLayers,
-                    labelOverride = if (sampleLayers == 0) "当前" else "全部",
+                    labelOverride = if (sampleLayers == 0) androidx.compose.ui.res.stringResource(R.string.fill_sample_current_short) else androidx.compose.ui.res.stringResource(R.string.fill_sample_all_short),
                     onSelect = onSampleLayers,
                     active = true,
                 )
                 Box(modifier = Modifier.width(140.dp)) {
                     ToolFloatSlider(
-                        label = "容差",
+                        label = androidx.compose.ui.res.stringResource(R.string.fill_tolerance),
                         valueText = "$tolerance",
                         range = 1f..100f,
                         value = tolerance.toFloat().coerceIn(1f, 100f),
@@ -119,7 +126,7 @@ fun FillPanel(
                 }
                 ToolActionButton(
                     iconRes = R.drawable.ic_sliders,
-                    label = if (propsOpen) "收起" else "属性",
+                    label = if (propsOpen) androidx.compose.ui.res.stringResource(R.string.selection_collapse) else androidx.compose.ui.res.stringResource(R.string.selection_props),
                     active = propsOpen,
                     onClick = { propsOpen = !propsOpen },
                 )
@@ -131,21 +138,21 @@ fun FillPanel(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 ) {
                     ToolFloatSlider(
-                        label = "拓展",
+                        label = androidx.compose.ui.res.stringResource(R.string.fill_expand),
                         valueText = "${expand}px",
                         range = -16f..32f,
                         value = expand.toFloat().coerceIn(-16f, 32f),
                         onValue = { onExpand(it.toInt()) },
                     )
                     ToolFloatSlider(
-                        label = "羽化",
+                        label = androidx.compose.ui.res.stringResource(R.string.fill_feather),
                         valueText = "${feather}px",
                         range = 0f..32f,
                         value = feather.toFloat().coerceIn(0f, 32f),
                         onValue = { onFeather(it.toInt()) },
                     )
                     ToolFloatSlider(
-                        label = "空隙",
+                        label = androidx.compose.ui.res.stringResource(R.string.fill_close_gap),
                         valueText = "${closeGap}px",
                         range = 0f..16f,
                         value = closeGap.toFloat().coerceIn(0f, 16f),

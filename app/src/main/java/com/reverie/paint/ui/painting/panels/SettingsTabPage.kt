@@ -323,13 +323,13 @@ internal fun SettingsTabPage(
                             ) {
                                 Icon(
                                     painter = painterResource(iconRes),
-                                    contentDescription = cat.title,
+                                    contentDescription = stringResource(cat.titleRes),
                                     tint = if (isSel) Morandi.accent else Morandi.subText,
                                     modifier = Modifier.size(20.dp),
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
-                                    cat.title,
+                                    stringResource(cat.titleRes),
                                     color = if (isSel) Morandi.accent else Morandi.subText,
                                     fontSize = 11.sp,
                                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
@@ -364,7 +364,7 @@ internal fun SettingsTabPage(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    def.name,
+                                    if (def.nameRes != null) stringResource(def.nameRes) else def.name,
                                     color = Morandi.text,
                                     fontSize = 12.sp,
                                     modifier = Modifier.weight(1f),
@@ -841,7 +841,7 @@ internal fun SettingsTabPage(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        def.name,
+                        if (def.nameRes != null) stringResource(def.nameRes) else def.name,
                         color = Morandi.accent,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,

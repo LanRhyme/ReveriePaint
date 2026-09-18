@@ -32,9 +32,9 @@ object TypographyEngine {
             else -> Typeface.NORMAL
         }
         val base = when (family) {
-            "衬线体", "衬线" -> Typeface.SERIF
-            "等宽体", "等宽" -> Typeface.MONOSPACE
-            "手写体", "手写", "无衬线体", "黑体" -> Typeface.SANS_SERIF
+            "衬线体", "衬线", "serif" -> Typeface.SERIF
+            "等宽体", "等宽", "monospace" -> Typeface.MONOSPACE
+            "手写体", "手写", "无衬线体", "黑体", "sans-serif", "cursive" -> Typeface.SANS_SERIF
             else -> Typeface.DEFAULT
         }
         return Typeface.create(base, style)

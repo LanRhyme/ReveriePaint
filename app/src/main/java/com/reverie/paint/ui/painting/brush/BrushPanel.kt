@@ -21,6 +21,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
@@ -330,8 +331,9 @@ fun BrushPanel(
                                                     )
                                                     Spacer(Modifier.width(6.dp))
                                                 }
+                                                val catDisplayName = brushCategoryDisplayName(cat)
                                                 Text(
-                                                    text = cat,
+                                                    text = catDisplayName,
                                                     color = if (sel) Morandi.accent else Morandi.subText,
                                                     fontSize = 13.sp,
                                                     maxLines = 1,
@@ -366,10 +368,10 @@ fun BrushPanel(
                                             .padding(horizontal = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text("笔刷库", color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                        Text(stringResource(R.string.brush_library_title), color = Morandi.text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                         Spacer(Modifier.weight(1f))
                                         Text(
-                                            "${filtered.size} 预设",
+                                            stringResource(R.string.brush_presets_count, filtered.size),
                                             color = Morandi.subText,
                                             fontSize = 11.sp,
                                         )
@@ -384,7 +386,7 @@ fun BrushPanel(
                                         ) {
                                             Icon(
                                                 painter = painterResource(if (vm.brushPanelGridView) R.drawable.ic_menu else R.drawable.ic_grid),
-                                                contentDescription = if (vm.brushPanelGridView) "切换为列表视图" else "切换为网格视图",
+                                                contentDescription = stringResource(if (vm.brushPanelGridView) R.string.brush_switch_to_list else R.string.brush_switch_to_grid),
                                                 tint = if (vm.brushPanelGridView) Morandi.accent else Morandi.subText,
                                                 modifier = Modifier.size(16.dp)
                                             )
@@ -418,9 +420,9 @@ fun BrushPanel(
                                                 Spacer(Modifier.height(8.dp))
                                                 Text(
                                                     when (selectedCategory) {
-                                                        "常用" -> "暂无常用笔刷"
-                                                        "最近" -> "暂无最近使用记录"
-                                                        else -> "该分类暂无笔刷"
+                                                        "常用" -> stringResource(R.string.brush_empty_fav_title)
+                                                        "最近" -> stringResource(R.string.brush_empty_recent_title)
+                                                        else -> stringResource(R.string.brush_empty_category_title)
                                                     },
                                                     color = Morandi.subText,
                                                     fontSize = 13.sp,
@@ -428,9 +430,9 @@ fun BrushPanel(
                                                 Spacer(Modifier.height(2.dp))
                                                 Text(
                                                     when (selectedCategory) {
-                                                        "常用" -> "点击笔刷星标即可加入常用"
-                                                        "最近" -> "使用笔刷后将自动记录"
-                                                        else -> "点击下方加号添加笔刷"
+                                                        "常用" -> stringResource(R.string.brush_empty_fav_desc)
+                                                        "最近" -> stringResource(R.string.brush_empty_recent_desc)
+                                                        else -> stringResource(R.string.brush_empty_category_desc)
                                                     },
                                                     color = Morandi.subText.copy(alpha = 0.6f),
                                                     fontSize = 11.sp,
@@ -527,7 +529,7 @@ fun BrushPanel(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = Morandi.text, modifier = Modifier.size(14.dp))
-                                    Text("新建笔刷", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    Text(stringResource(R.string.brush_action_new), color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 }
 
                                 Spacer(Modifier.width(8.dp))
@@ -542,14 +544,14 @@ fun BrushPanel(
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Icon(painterResource(R.drawable.ic_export_tab), contentDescription = null, tint = Morandi.text, modifier = Modifier.size(14.dp))
-                                    Text("导入", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    Text(stringResource(R.string.brush_action_import), color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 }
 
                                 Spacer(Modifier.weight(1f))
 
                                 Icon(
                                     painterResource(R.drawable.ic_folder_plus),
-                                    contentDescription = "新建组",
+                                    contentDescription = stringResource(R.string.brush_action_new_group),
                                     tint = Morandi.icon,
                                     modifier = Modifier.size(18.dp).clickable { showNewGroupDialog = true }
                                 )
@@ -667,11 +669,11 @@ fun BrushPanel(
         val grp = groupPendingDelete!!
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { groupPendingDelete = null },
-            title = { Text("删除自定义分组", color = Morandi.text, fontSize = 15.sp) },
-            text = { Text("确定要删除分类「$grp」吗？组内的笔刷将保留并移至默认分类。", color = Morandi.subText, fontSize = 13.sp) },
+            title = { Text(stringResource(R.string.brush_delete_group_title), color = Morandi.text, fontSize = 15.sp) },
+            text = { Text(stringResource(R.string.brush_delete_group_msg, brushCategoryDisplayName(grp)), color = Morandi.subText, fontSize = 13.sp) },
             confirmButton = {
                 ReTextButton(
-                    "删除",
+                    stringResource(R.string.common_delete),
                     onClick = {
                     vm.deleteBrushGroup(grp)
                     if (selectedCategory == grp) selectedCategory = "全部"
@@ -681,7 +683,7 @@ fun BrushPanel(
                 )
             },
             dismissButton = {
-                ReTextButton("取消", { groupPendingDelete = null }, textColor = Morandi.subText)
+                ReTextButton(stringResource(R.string.common_cancel), { groupPendingDelete = null }, textColor = Morandi.subText)
             },
             containerColor = Morandi.panelHi,
         )
@@ -835,7 +837,7 @@ private fun PresetListRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (isSelected) {
-                Text("使用中 · 点按调属性", color = Morandi.subText, fontSize = 10.sp)
+                Text(stringResource(R.string.brush_in_use_hint), color = Morandi.subText, fontSize = 10.sp)
             }
         }
         // Star button
@@ -848,7 +850,7 @@ private fun PresetListRow(
         ) {
             Icon(
                 painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
-                contentDescription = if (isFav) "取消常用" else "加入常用",
+                contentDescription = stringResource(if (isFav) R.string.brush_fav_remove else R.string.brush_fav_add),
                 tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.35f),
                 modifier = Modifier.size(16.dp)
             )
@@ -869,27 +871,34 @@ private fun CategoryMenuDialog(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val displayCatName = brushCategoryDisplayName(categoryName)
+    val moveUpText = stringResource(R.string.brush_group_move_up)
+    val moveDownText = stringResource(R.string.brush_group_move_down)
+    val renameText = stringResource(R.string.brush_group_rename)
+    val deleteText = stringResource(R.string.brush_group_delete)
+    val builtinTagText = stringResource(R.string.brush_group_builtin_tag)
+
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("分类: $categoryName", color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
+        title = { Text(stringResource(R.string.brush_group_header, displayCatName), color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 val menuItems = mutableListOf<Pair<String, () -> Unit>>()
                 if (canMoveUp) {
-                    menuItems.add("上移分类" to onMoveUp)
+                    menuItems.add(moveUpText to onMoveUp)
                 }
                 if (canMoveDown) {
-                    menuItems.add("下移分类" to onMoveDown)
+                    menuItems.add(moveDownText to onMoveDown)
                 }
                 if (!isBuiltIn) {
-                    menuItems.add("重命名分类" to onRename)
-                    menuItems.add("删除此分类" to onDelete)
+                    menuItems.add(renameText to onRename)
+                    menuItems.add(deleteText to onDelete)
                 } else {
-                    menuItems.add("(内置分类 · 固定名称)" to {})
+                    menuItems.add(builtinTagText to {})
                 }
                 menuItems.forEach { (label, act) ->
-                    val isDelete = label.startsWith("删除")
-                    val isHint = label.startsWith("(")
+                    val isDelete = label == deleteText
+                    val isHint = label == builtinTagText
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -912,7 +921,7 @@ private fun CategoryMenuDialog(
         },
         confirmButton = {},
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -928,10 +937,10 @@ private fun RenameBrushGroupDialog(
     var name by remember { mutableStateOf(initialName) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("重命名分类", color = Morandi.text) },
+        title = { Text(stringResource(R.string.brush_group_rename_title), color = Morandi.text) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("输入新的分类名称", color = Morandi.subText, fontSize = 12.sp)
+                Text(stringResource(R.string.brush_group_rename_hint), color = Morandi.subText, fontSize = 12.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -946,14 +955,14 @@ private fun RenameBrushGroupDialog(
         },
         confirmButton = {
             ReTextButton(
-                "确定",
+                stringResource(R.string.common_confirm),
                 onClick = { onRename(name.trim()) },
                 enabled = name.isNotBlank() && name.trim() != initialName,
                 textColor = Morandi.accent,
             )
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -974,25 +983,35 @@ private fun ReorderBrushMenu(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val favRemoveText = stringResource(R.string.brush_fav_remove)
+    val favAddText = stringResource(R.string.brush_fav_add)
+    val duplicateText = stringResource(R.string.brush_studio_duplicate_brush)
+    val renameText = stringResource(R.string.common_rename)
+    val moveUpText = stringResource(R.string.brush_move_up)
+    val moveDownText = stringResource(R.string.brush_move_down)
+    val moveToGroupText = stringResource(R.string.brush_move_to_group)
+    val deleteBrushText = stringResource(R.string.brush_delete_brush_item)
+
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(presetName, color = Morandi.text, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 val menuItems = mutableListOf(
-                    (if (isFavorite) "取消常用" else "加入常用") to onToggleFavorite,
-                    "复制笔刷" to onDuplicate,
+                    (if (isFavorite) favRemoveText else favAddText) to onToggleFavorite,
+                    duplicateText to onDuplicate,
                 )
                 if (!isBuiltIn) {
-                    menuItems.add("重命名" to onRename)
+                    menuItems.add(renameText to onRename)
                 }
-                menuItems.add("上移" to onUp)
-                menuItems.add("下移" to onDown)
-                menuItems.add("移动到组..." to onMoveGroup)
+                menuItems.add(moveUpText to onUp)
+                menuItems.add(moveDownText to onDown)
+                menuItems.add(moveToGroupText to onMoveGroup)
                 if (!isBuiltIn) {
-                    menuItems.add("删除此笔刷" to onDelete)
+                    menuItems.add(deleteBrushText to onDelete)
                 }
                 menuItems.forEach { (label, act) ->
+                    val isDelete = label == deleteBrushText
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1005,9 +1024,9 @@ private fun ReorderBrushMenu(
                     ) {
                         Text(
                             label,
-                            color = if (label.startsWith("删除")) Color(0xFFC86464) else Morandi.text,
+                            color = if (isDelete) Color(0xFFC86464) else Morandi.text,
                             fontSize = 13.sp,
-                            fontWeight = if (label.startsWith("删除")) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (isDelete) FontWeight.SemiBold else FontWeight.Normal,
                         )
                     }
                 }
@@ -1015,7 +1034,7 @@ private fun ReorderBrushMenu(
         },
         confirmButton = {},
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1029,13 +1048,14 @@ private fun NewBrushPresetDialog(
     onCreate: (String, String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
-    var selectedGroup by remember { mutableStateOf(groups.firstOrNull() ?: "自定义") }
+    val defaultCustomGroupName = stringResource(R.string.brush_studio_custom_brush)
+    var selectedGroup by remember { mutableStateOf(groups.firstOrNull() ?: defaultCustomGroupName) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建笔刷", color = Morandi.text) },
+        title = { Text(stringResource(R.string.brush_new_dialog_title), color = Morandi.text) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("输入笔刷名称", color = Morandi.subText, fontSize = 12.sp)
+                Text(stringResource(R.string.brush_new_dialog_hint), color = Morandi.subText, fontSize = 12.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1046,14 +1066,14 @@ private fun NewBrushPresetDialog(
                         .background(Morandi.panel, RoundedCornerShape(6.dp))
                         .padding(10.dp),
                 )
-                Text("基准模板: Basic-1 (基础笔刷)", color = Morandi.subText.copy(alpha = 0.7f), fontSize = 11.sp)
+                Text(stringResource(R.string.brush_new_base_template), color = Morandi.subText.copy(alpha = 0.7f), fontSize = 11.sp)
             }
         },
         confirmButton = {
-            ReTextButton("创建", { onCreate(name.trim(), selectedGroup) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
+            ReTextButton(stringResource(R.string.common_create), { onCreate(name.trim(), selectedGroup) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1069,10 +1089,10 @@ private fun RenameBrushPresetDialog(
     var name by remember { mutableStateOf(initialName) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("重命名笔刷", color = Morandi.text) },
+        title = { Text(stringResource(R.string.brush_studio_rename_dialog_title), color = Morandi.text) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("输入新名称", color = Morandi.subText, fontSize = 12.sp)
+                Text(stringResource(R.string.brush_studio_rename_dialog_hint), color = Morandi.subText, fontSize = 12.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1086,10 +1106,10 @@ private fun RenameBrushPresetDialog(
             }
         },
         confirmButton = {
-            ReTextButton("保存", { onRename(name.trim()) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
+            ReTextButton(stringResource(R.string.common_save), { onRename(name.trim()) }, enabled = name.isNotBlank(), textColor = Morandi.accent)
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1105,10 +1125,10 @@ private fun NewBrushGroupDialog(
     var name by remember { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建笔刷组", color = Morandi.text) },
+        title = { Text(stringResource(R.string.brush_new_group_title), color = Morandi.text) },
         text = {
             Column {
-                Text("输入组名称", color = Morandi.subText, fontSize = 13.sp)
+                Text(stringResource(R.string.brush_new_group_hint), color = Morandi.subText, fontSize = 13.sp)
                 Spacer(Modifier.height(8.dp))
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
@@ -1121,20 +1141,20 @@ private fun NewBrushGroupDialog(
                         .padding(12.dp),
                 )
                 if (existing.contains(name.trim())) {
-                    Text("组已存在", color = Color(0xFFB05552), fontSize = 11.sp)
+                    Text(stringResource(R.string.brush_group_already_exists), color = Color(0xFFB05552), fontSize = 11.sp)
                 }
             }
         },
         confirmButton = {
             ReTextButton(
-                "创建",
+                stringResource(R.string.common_create),
                 onClick = { onCreate(name.trim()) },
                 enabled = name.isNotBlank() && !existing.contains(name.trim()),
                 textColor = Morandi.accent,
             )
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1150,13 +1170,14 @@ private fun MoveBrushGroupDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("移动到组", color = Morandi.text) },
+        title = { Text(stringResource(R.string.brush_move_to_group_title), color = Morandi.text) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 Text(presetName, color = Morandi.subText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(Modifier.heightIn(max = 280.dp)) {
                     items(groups) { g ->
+                        val groupDisplayName = brushCategoryDisplayName(g)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1164,7 +1185,7 @@ private fun MoveBrushGroupDialog(
                                 .clickable { onMove(g) }
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
                         ) {
-                            Text(g, color = Morandi.text, fontSize = 14.sp)
+                            Text(groupDisplayName, color = Morandi.text, fontSize = 14.sp)
                         }
                     }
                 }
@@ -1172,7 +1193,7 @@ private fun MoveBrushGroupDialog(
         },
         confirmButton = {},
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = Morandi.subText)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
         },
         containerColor = Morandi.panelHi,
     )
@@ -1190,18 +1211,18 @@ fun BrushPropertyPage(
     var showBlendModes by remember { mutableStateOf(false) }
 
     val blendModeList = listOf(
-        "normal" to "正常",
-        "multiply" to "正片叠底",
-        "screen" to "滤色",
-        "overlay" to "叠加",
-        "darken" to "变暗",
-        "lighten" to "变亮",
-        "dodge" to "颜色减淡",
-        "burn" to "颜色加深",
-        "hard_light" to "强光",
-        "soft_light" to "柔光",
-        "difference" to "差值",
-        "exclusion" to "排除",
+        "normal" to stringResource(R.string.blend_normal),
+        "multiply" to stringResource(R.string.blend_multiply),
+        "screen" to stringResource(R.string.blend_screen),
+        "overlay" to stringResource(R.string.blend_overlay),
+        "darken" to stringResource(R.string.blend_darken),
+        "lighten" to stringResource(R.string.blend_lighten),
+        "dodge" to stringResource(R.string.blend_color_dodge),
+        "burn" to stringResource(R.string.blend_color_burn),
+        "hard_light" to stringResource(R.string.blend_hard_light),
+        "soft_light" to stringResource(R.string.blend_soft_light),
+        "difference" to stringResource(R.string.blend_difference),
+        "exclusion" to stringResource(R.string.blend_exclusion),
     )
 
     val scrollState = rememberScrollState(initial = vm.brushPropertyScrollValue)
@@ -1240,13 +1261,13 @@ fun BrushPropertyPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = Morandi.icon,
                     modifier = Modifier.size(18.dp),
                 )
             }
             Text(
-                "笔刷设置",
+                stringResource(R.string.brush_settings_title),
                 color = Morandi.text,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1261,7 +1282,7 @@ fun BrushPropertyPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_sliders),
-                    contentDescription = "工作室",
+                    contentDescription = stringResource(R.string.brush_studio_title),
                     tint = Morandi.accent,
                     modifier = Modifier.size(16.dp),
                 )
@@ -1276,7 +1297,7 @@ fun BrushPropertyPage(
             ) {
                 Icon(
                     painterResource(R.drawable.ic_refresh),
-                    contentDescription = "重置数值",
+                    contentDescription = stringResource(R.string.brush_reset_values),
                     tint = Morandi.subText,
                     modifier = Modifier.size(16.dp),
                 )
@@ -1288,7 +1309,7 @@ fun BrushPropertyPage(
         // Advanced Brush Studio entry button
         Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             ReTextButton(
-                "进入高级笔刷工作室",
+                stringResource(R.string.brush_enter_studio),
                 onOpenStudio,
                 modifier = Modifier.fillMaxWidth(),
                 icon = R.drawable.ic_sliders,
@@ -1316,9 +1337,9 @@ fun BrushPropertyPage(
                 tint = Morandi.accent,
                 modifier = Modifier.size(18.dp),
             )
-            Text("混合模式", color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.brush_blend_mode), color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
             Text(
-                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: "正常",
+                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: stringResource(R.string.blend_normal),
                 color = Morandi.subText,
                 fontSize = 13.sp,
             )
@@ -1365,17 +1386,17 @@ fun BrushPropertyPage(
         }
 
         // Parameter sliders
-        BrushParamReSlider("大小", vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
-        BrushParamReSlider("不透明度", vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
-        BrushParamReSlider("流量", vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
-        BrushParamReSlider("间距", vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
-        BrushParamReSlider("角度", vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
-        BrushParamReSlider("旋转", vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
-        BrushParamReSlider("散布", vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
-        BrushParamReSlider("渐隐", vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
-        BrushParamReSlider("硬度", vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
-        BrushParamReSlider("比例", vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
-        BrushParamReSlider("锐度", vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_size), vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_opacity), vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_flow), vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_spacing), vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_angle), vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_rotation), vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_scatter), vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_fade), vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_softness), vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_ratio), vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
+        BrushParamReSlider(stringResource(R.string.brush_param_sharpness), vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
         
         Spacer(Modifier.height(16.dp))
     }

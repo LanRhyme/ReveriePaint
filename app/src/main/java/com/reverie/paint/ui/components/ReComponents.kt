@@ -54,10 +54,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.R
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
@@ -333,7 +335,7 @@ fun SliderFineTunePopup(
                         ) {
                             Icon(
                                 painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                                contentDescription = "微调减少",
+                                contentDescription = stringResource(R.string.slider_fine_step_down),
                                 tint = colors.text,
                                 modifier = Modifier
                                     .size(14.dp)
@@ -368,7 +370,7 @@ fun SliderFineTunePopup(
                         ) {
                             Icon(
                                 painterResource(com.reverie.paint.R.drawable.ic_chevron),
-                                contentDescription = "微调增加",
+                                contentDescription = stringResource(R.string.slider_fine_step_up),
                                 tint = colors.text,
                                 modifier = Modifier
                                     .size(14.dp)
@@ -392,7 +394,7 @@ fun SliderFineTunePopup(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "常用预设",
+                            text = stringResource(R.string.slider_common_presets),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.subText,
@@ -416,12 +418,12 @@ fun SliderFineTunePopup(
                         ) {
                             Icon(
                                 painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
-                                contentDescription = "保存预设",
+                                contentDescription = stringResource(R.string.slider_save_preset),
                                 tint = colors.accent,
                                 modifier = Modifier.size(11.dp),
                             )
                             Text(
-                                text = "存入当前",
+                                text = stringResource(R.string.slider_save_current),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = colors.accent,
@@ -480,7 +482,7 @@ fun SliderFineTunePopup(
                                         } else {
                                             Icon(
                                                 painter = painterResource(com.reverie.paint.R.drawable.ic_plus),
-                                                contentDescription = "添加预设",
+                                                contentDescription = stringResource(R.string.slider_add_preset),
                                                 tint = colors.subText.copy(alpha = 0.3f),
                                                 modifier = Modifier.size(11.dp),
                                             )
@@ -506,7 +508,7 @@ fun ReVerticalSlider(
     modifier: Modifier = Modifier,
     trackWidth: Int = 26,
     trackHeight: Int = 175,
-    title: String = "数值微调",
+    title: String = stringResource(R.string.slider_fine_tune),
     iconRes: Int = com.reverie.paint.R.drawable.ic_brush,
     valueText: String,
     onStep: ((Boolean) -> Unit)? = null,
@@ -964,7 +966,7 @@ fun RePanel(
                     )
                     ReIconButton(
                         icon = com.reverie.paint.R.drawable.ic_x,
-                        desc = "关闭",
+                        desc = stringResource(R.string.common_close),
                         onTap = onClose,
                     )
                 }

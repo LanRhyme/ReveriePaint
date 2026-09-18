@@ -54,7 +54,7 @@ internal fun PaintViewModel.saveProject(
 ) {
     tickPaintingTimer()
     isBlockingLoading = true
-    blockingLoadingMessage = "正在保存作品..."
+    blockingLoadingMessage = getString(R.string.project_saving_progress)
     runCore(
         after = {
             initialStrokeCount = totalStrokes
@@ -120,14 +120,14 @@ internal fun PaintViewModel.autoSaveProject() {
     if (isAutoSaving || isBlockingLoading) return
     isAutoSaving = true
     tickPaintingTimer()
-    val name = docName.ifBlank { "未命名作品" }
+    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
 
     runCore(
         after = {
             lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
             isAutoSaving = false
             if (autoSaveToastEnabled) {
-                showActionToast("作品已自动保存", R.drawable.ic_save)
+                showActionToast(R.string.toast_project_autosaved, R.drawable.ic_save)
             }
         },
     ) {
@@ -155,7 +155,7 @@ internal fun PaintViewModel.autoSaveProject() {
 }
 
 internal fun PaintViewModel.discardAndExit() {
-    val name = docName.ifBlank { "未命名作品" }
+    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
     // 1. 删除本次会话产生的所有自动保存临时草稿
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     if (autoSaveFile.exists()) {
@@ -224,7 +224,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             isBlockingLoading = false
             startPaintingTimer()
             if (isRecovered) {
-                showActionToast("已恢复到最后一次自动保存的状态", R.drawable.ic_save)
+                showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
             }
             android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified, layers=${layers.size}")
         },
@@ -340,11 +340,13 @@ internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project)
     val baseName = p.name
     val ext = srcFile.extension
 
-    var candidateName = "$baseName 副本"
+    val isZh = LanguageManager.isChinese()
+    val copySuffix = if (isZh) "副本" else "Copy"
+    var candidateName = "$baseName $copySuffix"
     var targetFile = File(parentDir, "$candidateName.$ext")
     var counter = 2
     while (targetFile.exists()) {
-        candidateName = "$baseName 副本 $counter"
+        candidateName = "$baseName $copySuffix $counter"
         targetFile = File(parentDir, "$candidateName.$ext")
         counter++
     }
@@ -352,7 +354,7 @@ internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project)
     try {
         srcFile.copyTo(targetFile, overwrite = false)
         refreshProjects()
-        showActionToast("已创建副本: $candidateName", R.drawable.ic_copy)
+        showActionToast(R.string.toast_project_duplicate_created, R.drawable.ic_copy, candidateName)
     } catch (e: Exception) {
         android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
     }
@@ -839,14 +841,15 @@ internal fun PaintViewModel.generateNextProjectName(): String {
     }
 
     var index = 1
-    val candidate = "未命名作品"
+    val isZh = LanguageManager.isChinese()
+    val candidate = if (isZh) "未命名作品" else "Untitled Artwork"
     if (!existingNames.contains(candidate.lowercase())) {
         return candidate
     }
-    while (existingNames.contains("未命名作品 $index".lowercase())) {
+    while (existingNames.contains("$candidate $index".lowercase())) {
         index++
     }
-    return "未命名作品 $index"
+    return "$candidate $index"
 }
 
 internal fun PaintViewModel.startPainting(
@@ -869,7 +872,7 @@ internal fun PaintViewModel.startPainting(
     stopPaintingTimer()
     currentPage = Page.PAINTING
     isBlockingLoading = true
-    blockingLoadingMessage = "正在创建画布..."
+    blockingLoadingMessage = getString(R.string.project_creating_canvas)
     runCore(
         after = {
             initialStrokeCount = 0
@@ -898,6 +901,12 @@ internal fun PaintViewModel.startPainting(
                 renderW = w
                 renderH = h
                 displayBufferInvalid = true
+                if (!LanguageManager.isChinese()) {
+                    if (ReverieCoreBridge.layerCount() >= 2) {
+                        ReverieCoreBridge.setLayerName(0, "Background")
+                        ReverieCoreBridge.setLayerName(1, "Paint Layer 1")
+                    }
+                }
                 if (initialBitmap != null) {
                     val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(initialBitmap)
                     try {
@@ -930,13 +939,13 @@ internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
     stopPaintingTimer()
     currentPage = Page.REPLAY
     isBlockingLoading = true
-    blockingLoadingMessage = "正在准备回放..."
+    blockingLoadingMessage = getString(R.string.project_preparing_replay)
     var session: ReplaySession? = null
     runCore(
         after = {
             isBlockingLoading = false
             if (session == null) {
-                showActionToast("此作品没有回放数据", R.drawable.ic_clock)
+                showActionToast(R.string.toast_project_no_replay_data, R.drawable.ic_clock)
                 goHome()
                 return@runCore
             }
@@ -1125,7 +1134,7 @@ fun PaintViewModel.importDocuments(
 ) {
     if (uris.isEmpty()) return
     isBlockingLoading = true
-    blockingLoadingMessage = "正在导入作品..."
+    blockingLoadingMessage = getString(R.string.project_importing_progress)
 
     viewModelScope.launch(Dispatchers.IO) {
         val destDir = currentFolder?.let { File(it.filePath) } ?: projectDir()
@@ -1312,8 +1321,9 @@ fun PaintViewModel.importImageUriToNewLayer(
     uri: android.net.Uri,
     context: android.content.Context,
 ) {
-    val fullName = queryFileName(context, uri) ?: "导入图片"
-    val layerName = fullName.substringBeforeLast('.', fullName).take(30).ifBlank { "导入图片" }
+    val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
+    val fullName = queryFileName(context, uri) ?: defaultImportName
+    val layerName = fullName.substringBeforeLast('.', fullName).take(30).ifBlank { defaultImportName }
     viewModelScope.launch(Dispatchers.IO) {
         try {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -1339,7 +1349,7 @@ fun PaintViewModel.importImageUriToNewLayer(
             if (bmp != null) {
                 withContext(Dispatchers.Main) {
                     importImageToNewLayer(bmp, layerName = layerName) {
-                        showActionToast("已插入新图层: $layerName", R.drawable.ic_check)
+                        showActionToast(R.string.toast_project_inserted_layer, R.drawable.ic_check, layerName)
                     }
                 }
             } else {
@@ -1366,7 +1376,7 @@ fun PaintViewModel.handleIncomingUris(
             pendingExternalImageUri = uris[0]
         } else {
             importDocuments(uris, context)
-            showActionToast("已在后台导入至画廊", R.drawable.ic_import)
+            showActionToast(R.string.toast_project_imported_to_gallery, R.drawable.ic_import)
         }
     } else {
         importDocuments(uris, context)

@@ -52,6 +52,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,15 +77,15 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
 
-enum class StudioTab(val title: String, val subtitle: String, val iconRes: Int) {
-    TIP("笔尖形状", "Tip & Mask", R.drawable.ic_pencil),
-    STROKE("笔画动态", "Dynamics", R.drawable.ic_line),
-    COLOR("色彩涂抹", "Color & Smudge", R.drawable.ic_palette),
-    GEOMETRY("几何罗盘", "Geometry", R.drawable.ic_rotate_cw),
-    TEXTURE("材质纹理", "Texture", R.drawable.ic_grid),
-    PRESSURE("压感手感", "Pressure", R.drawable.ic_hand),
-    ENGINE("引擎参数", "Engine & Ops", R.drawable.ic_settings),
-    INFO("笔刷属性", "Properties", R.drawable.ic_info_circle),
+enum class StudioTab(val titleRes: Int, val subtitle: String, val iconRes: Int) {
+    TIP(R.string.brush_studio_tab_tip, "Tip & Mask", R.drawable.ic_pencil),
+    STROKE(R.string.brush_studio_tab_stroke, "Dynamics", R.drawable.ic_line),
+    COLOR(R.string.brush_studio_tab_color, "Color & Smudge", R.drawable.ic_palette),
+    GEOMETRY(R.string.brush_studio_tab_geometry, "Geometry", R.drawable.ic_rotate_cw),
+    TEXTURE(R.string.brush_studio_tab_texture, "Texture", R.drawable.ic_grid),
+    PRESSURE(R.string.brush_studio_tab_pressure, "Pressure", R.drawable.ic_hand),
+    ENGINE(R.string.brush_studio_tab_engine, "Engine & Ops", R.drawable.ic_settings),
+    INFO(R.string.brush_studio_tab_info, "Properties", R.drawable.ic_info_circle),
 }
 
 data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
@@ -192,7 +193,11 @@ fun BrushStudioPage(
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val ok = vm.importBrushFromUri(uri)
-            Toast.makeText(context, if (ok) "笔刷导入成功" else "导入失败，请检查文件格式", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                context,
+                if (ok) context.getString(R.string.brush_studio_toast_imported) else context.getString(R.string.brush_studio_toast_import_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
@@ -201,9 +206,9 @@ fun BrushStudioPage(
         if (uri != null) {
             val res = vm.importCustomBrushTip(uri)
             if (res != null) {
-                Toast.makeText(context, "自定义笔尖导入成功", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.brush_studio_toast_tip_imported), Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, "笔尖导入失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.brush_studio_toast_tip_import_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -224,7 +229,7 @@ fun BrushStudioPage(
         list.add(
             BrushTipItem(
                 filename = "",
-                name = "预设默认笔尖",
+                name = context.getString(R.string.brush_studio_tip_preset_default),
                 isCustom = false,
                 bitmap = preset?.thumbBytes?.let { BrushThumbCache.get(preset.name, it) },
             )
@@ -237,7 +242,7 @@ fun BrushStudioPage(
                 if (name.endsWith(".png", true) || name.endsWith(".jpg", true) || name.endsWith(".gbr", true) || name.endsWith(".gih", true)) {
                     val bmp = BrushTipDecoder.loadTip(context, name)
                     if (bmp != null) {
-                        list.add(BrushTipItem(filename = name, name = "自定义: ${name.substringBeforeLast(".")}", isCustom = true, bitmap = bmp))
+                        list.add(BrushTipItem(filename = name, name = context.getString(R.string.brush_studio_tip_custom_prefix, name.substringBeforeLast(".")), isCustom = true, bitmap = bmp))
                     }
                 }
             }
@@ -287,10 +292,10 @@ fun BrushStudioPage(
                     .padding(horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ReIconButton(R.drawable.ic_arrow_left, "返回画布", onBack, size = 36.dp, tint = textMain)
+                ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.brush_studio_back_canvas), onBack, size = 36.dp, tint = textMain)
 
                 Text(
-                    "笔刷工作台",
+                    stringResource(R.string.brush_studio_workbench),
                     color = textMain,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -306,7 +311,7 @@ fun BrushStudioPage(
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 ) {
                     Text(
-                        preset?.name ?: "自定义笔刷",
+                        preset?.name ?: stringResource(R.string.brush_studio_custom_brush),
                         color = textSub,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
@@ -317,21 +322,21 @@ fun BrushStudioPage(
                 Spacer(Modifier.weight(1f))
 
                 // New Brush action
-                ReIconButton(R.drawable.ic_plus, "新建笔刷", { showNewBrushDialog = true }, tint = textSub, iconSize = 18.dp)
+                ReIconButton(R.drawable.ic_plus, stringResource(R.string.brush_studio_new_brush), { showNewBrushDialog = true }, tint = textSub, iconSize = 18.dp)
 
                 // Duplicate action
-                ReIconButton(R.drawable.ic_copy, "复制笔刷", {
+                ReIconButton(R.drawable.ic_copy, stringResource(R.string.brush_studio_duplicate_brush), {
                     if (vm.brushPresets.any { it.index == presetIndex }) {
                         vm.duplicateBrushPreset(presetIndex)
                     }
                 }, tint = textSub, iconSize = 18.dp)
 
                 // Import action
-                ReIconButton(R.drawable.ic_export_tab, "导入外部笔刷", { importBrushLauncher.launch(arrayOf("*/*")) }, tint = textSub, iconSize = 18.dp)
+                ReIconButton(R.drawable.ic_export_tab, stringResource(R.string.brush_studio_import_brush), { importBrushLauncher.launch(arrayOf("*/*")) }, tint = textSub, iconSize = 18.dp)
 
                 // Overflow Menu
                 Box {
-                    ReIconButton(R.drawable.ic_dots_vertical, "更多操作", { showMenu = true }, tint = textSub, iconSize = 18.dp)
+                    ReIconButton(R.drawable.ic_dots_vertical, stringResource(R.string.brush_studio_more_ops), { showMenu = true }, tint = textSub, iconSize = 18.dp)
 
                     DropdownMenu(
                         expanded = showMenu,
@@ -339,14 +344,14 @@ fun BrushStudioPage(
                         modifier = Modifier.background(panelBg),
                     ) {
                         DropdownMenuItem(
-                            text = { Text("重命名当前笔刷", color = textMain, fontSize = 13.sp) },
+                            text = { Text(stringResource(R.string.brush_studio_rename_brush), color = textMain, fontSize = 13.sp) },
                             onClick = {
                                 showMenu = false
                                 showRenameDialog = true
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("重置当前参数为默认值", color = textMain, fontSize = 13.sp) },
+                            text = { Text(stringResource(R.string.brush_studio_reset_params), color = textMain, fontSize = 13.sp) },
                             onClick = {
                                 showMenu = false
                                 vm.resetBrushParams()
@@ -354,7 +359,7 @@ fun BrushStudioPage(
                         )
                         if (preset?.isBuiltIn != true) {
                             DropdownMenuItem(
-                                text = { Text("删除当前笔刷", color = Color(0xFFC86464), fontSize = 13.sp) },
+                                text = { Text(stringResource(R.string.brush_studio_delete_brush), color = Color(0xFFC86464), fontSize = 13.sp) },
                                 onClick = {
                                     showMenu = false
                                     showDeleteConfirmDialog = true
@@ -410,7 +415,7 @@ fun BrushStudioPage(
                                         modifier = Modifier.size(15.dp),
                                     )
                                     Text(
-                                        tab.title,
+                                        stringResource(tab.titleRes),
                                         color = if (sel) textMain else textSub,
                                         fontSize = 12.sp,
                                         fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
@@ -476,11 +481,11 @@ fun BrushStudioPage(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 Icon(painterResource(R.drawable.ic_trash), contentDescription = null, tint = textSub, modifier = Modifier.size(12.dp))
-                                Text("清空", color = textSub, fontSize = 11.sp)
+                                Text(stringResource(R.string.brush_studio_scratchpad_clear), color = textSub, fontSize = 11.sp)
                             }
                         } else {
                             Text(
-                                "在此随意画线测试手感",
+                                stringResource(R.string.brush_studio_scratchpad_hint),
                                 color = textSub.copy(alpha = 0.5f),
                                 fontSize = 11.sp,
                                 modifier = Modifier.align(Alignment.Center),
@@ -599,7 +604,7 @@ fun BrushStudioPage(
                 onCreate = { name, group ->
                     vm.createNewBrushPreset(name = name, group = group)
                     showNewBrushDialog = false
-                    Toast.makeText(context, "已创建新笔刷", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.brush_studio_toast_created), Toast.LENGTH_SHORT).show()
                 },
                 cardBg = cardBg,
                 textMain = textMain,
@@ -626,21 +631,21 @@ fun BrushStudioPage(
         if (showDeleteConfirmDialog && preset != null) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmDialog = false },
-                title = { Text("确认删除笔刷", color = textMain, fontSize = 15.sp) },
-                text = { Text("确定要删除笔刷 \"${preset.name}\" 吗？此操作无法撤销。", color = textSub, fontSize = 13.sp) },
+                title = { Text(stringResource(R.string.brush_studio_delete_dialog_title), color = textMain, fontSize = 15.sp) },
+                text = { Text(stringResource(R.string.brush_studio_delete_dialog_msg, preset.name), color = textSub, fontSize = 13.sp) },
                 confirmButton = {
                     ReTextButton(
-                        "删除",
+                        stringResource(R.string.common_delete),
                         onClick = {
-                        vm.deleteBrushPreset(presetIndex)
-                        showDeleteConfirmDialog = false
-                        Toast.makeText(context, "笔刷已删除", Toast.LENGTH_SHORT).show()
-                    },
+                            vm.deleteBrushPreset(presetIndex)
+                            showDeleteConfirmDialog = false
+                            Toast.makeText(context, context.getString(R.string.brush_studio_toast_deleted), Toast.LENGTH_SHORT).show()
+                        },
                         textColor = Color(0xFFC86464),
                     )
                 },
                 dismissButton = {
-                    ReTextButton("取消", { showDeleteConfirmDialog = false }, textColor = textSub)
+                    ReTextButton(stringResource(R.string.common_cancel), { showDeleteConfirmDialog = false }, textColor = textSub)
                 },
                 containerColor = cardBg,
             )
@@ -671,7 +676,7 @@ private fun TipTabContent(
     textMain: Color,
     textSub: Color,
 ) {
-    StudioSectionHeader("当前笔尖贴图与选择", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_tip_section_title), textSub)
 
     // Current active tip preview card with floating picker trigger
     val curTipItem = remember(vm.brushTipAsset, allTips) {
@@ -712,7 +717,7 @@ private fun TipTabContent(
 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
-                curTipItem?.name ?: "默认笔尖",
+                curTipItem?.name ?: stringResource(R.string.brush_studio_tip_default),
                 color = textMain,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
@@ -720,7 +725,7 @@ private fun TipTabContent(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (curTipItem?.isCustom == true) "用户自定义贴图" else "Krita 内置贴图",
+                if (curTipItem?.isCustom == true) stringResource(R.string.brush_studio_tip_custom_tag) else stringResource(R.string.brush_studio_tip_builtin_tag),
                 color = textSub,
                 fontSize = 11.sp,
             )
@@ -735,7 +740,7 @@ private fun TipTabContent(
                         .clickable { onOpenTipPicker() }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    Text("浏览笔尖库", color = textMain, fontSize = 11.sp)
+                    Text(stringResource(R.string.brush_studio_tip_browse), color = textMain, fontSize = 11.sp)
                 }
 
                 Box(
@@ -745,14 +750,14 @@ private fun TipTabContent(
                         .clickable { onImportCustomTip() }
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    Text("导入自定义", color = textMain, fontSize = 11.sp)
+                    Text(stringResource(R.string.brush_studio_tip_import_custom), color = textMain, fontSize = 11.sp)
                 }
             }
         }
     }
 
-    StudioSectionHeader("生成式笔尖 (Auto Brush)", textSub)
-    val tipTypes = listOf("圆形笔尖 (Round)", "方形笔尖 (Square)")
+    StudioSectionHeader(stringResource(R.string.brush_studio_tip_auto_brush), textSub)
+    val tipTypes = listOf(stringResource(R.string.brush_studio_tip_round), stringResource(R.string.brush_studio_tip_square))
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -769,11 +774,16 @@ private fun TipTabContent(
         }
     }
 
-    StudioSliderItem("星角数 (Spikes)", vm.brushSpikes.toDouble(), 2.0, 16.0, unit = "角", textMain = textMain, textSub = textSub) { vm.updateBrushSpikes(it.toInt()) }
-    StudioSliderItem("边缘羽化硬度", vm.brushSoftness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSoftness(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_tip_spikes), vm.brushSpikes.toDouble(), 2.0, 16.0, unit = stringResource(R.string.brush_studio_unit_spikes), textMain = textMain, textSub = textSub) { vm.updateBrushSpikes(it.toInt()) }
+    StudioSliderItem(stringResource(R.string.brush_studio_tip_feather_hardness), vm.brushSoftness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSoftness(it) }
 
-    StudioSectionHeader("抗锯齿与翻转", textSub)
-    val aaList = listOf("无抗锯齿", "标准抗锯齿", "强化抗锯齿", "分级采样")
+    StudioSectionHeader(stringResource(R.string.brush_studio_tip_antialias), textSub)
+    val aaList = listOf(
+        stringResource(R.string.brush_studio_tip_aa_none),
+        stringResource(R.string.brush_studio_tip_aa_standard),
+        stringResource(R.string.brush_studio_tip_aa_high),
+        stringResource(R.string.brush_studio_tip_aa_stepped),
+    )
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -790,8 +800,8 @@ private fun TipTabContent(
         }
     }
 
-    StudioSwitchItem("水平随机翻转 (Flip X)", vm.brushRandomFlipX, textMain = textMain) { vm.updateBrushRandomFlipX(it) }
-    StudioSwitchItem("垂直随机翻转 (Flip Y)", vm.brushRandomFlipY, textMain = textMain) { vm.updateBrushRandomFlipY(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_tip_flip_x), vm.brushRandomFlipX, textMain = textMain) { vm.updateBrushRandomFlipX(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_tip_flip_y), vm.brushRandomFlipY, textMain = textMain) { vm.updateBrushRandomFlipY(it) }
 }
 
 // ==========================================
@@ -809,12 +819,17 @@ private fun BrushTipPickerModal(
     textMain: Color,
     textSub: Color,
 ) {
-    var filterCategory by remember { mutableStateOf("全部") } // "全部", "内置", "自定义"
+    var filterCategoryIndex by remember { mutableIntStateOf(0) }
+    val categories = listOf(
+        R.string.brush_studio_tip_filter_all,
+        R.string.brush_studio_tip_filter_builtin,
+        R.string.brush_studio_tip_filter_custom,
+    )
 
-    val displayedTips = remember(filterCategory, allTips) {
-        when (filterCategory) {
-            "内置" -> allTips.filter { !it.isCustom }
-            "自定义" -> allTips.filter { it.isCustom }
+    val displayedTips = remember(filterCategoryIndex, allTips) {
+        when (filterCategoryIndex) {
+            1 -> allTips.filter { !it.isCustom }
+            2 -> allTips.filter { it.isCustom }
             else -> allTips
         }
     }
@@ -848,7 +863,7 @@ private fun BrushTipPickerModal(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            "笔尖贴图库",
+                            stringResource(R.string.brush_studio_tip_library_title),
                             color = textMain,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -858,18 +873,18 @@ private fun BrushTipPickerModal(
 
                         // Category Pills
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf("全部", "内置", "自定义").forEach { cat ->
-                                val sel = filterCategory == cat
+                            categories.forEachIndexed { idx, catRes ->
+                                val sel = filterCategoryIndex == idx
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(if (sel) Color(0xFF2C2C34) else cardBg)
                                         .border(1.dp, if (sel) Color(0xFF70707C) else Color.Transparent, RoundedCornerShape(4.dp))
-                                        .clickable { filterCategory = cat }
+                                        .clickable { filterCategoryIndex = idx }
                                         .padding(horizontal = 8.dp, vertical = 3.dp),
                                 ) {
                                     Text(
-                                        cat,
+                                        stringResource(catRes),
                                         color = if (sel) textMain else textSub,
                                         fontSize = 11.sp,
                                     )
@@ -891,12 +906,12 @@ private fun BrushTipPickerModal(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = textMain, modifier = Modifier.size(13.dp))
-                            Text("导入笔尖", color = textMain, fontSize = 11.sp)
+                            Text(stringResource(R.string.brush_studio_tip_import_btn), color = textMain, fontSize = 11.sp)
                         }
 
                         Spacer(Modifier.width(6.dp))
 
-                        ReIconButton(R.drawable.ic_x, "关闭", onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
+                        ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
                     }
 
                     Spacer(Modifier.height(10.dp))
@@ -946,17 +961,17 @@ private fun BrushTipPickerModal(
 // ==========================================
 @Composable
 private fun StrokeTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color, textMain: Color, textSub: Color) {
-    StudioSectionHeader("间距与散布", textSub)
-    StudioSliderItem("间距 (Spacing)", vm.brushSpacing, 0.01, 2.5, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpacing(it) }
-    StudioSliderItem("散布抖动 (Scatter)", vm.brushScatter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushScatter(it) }
-    StudioSliderItem("防抖平滑度 (Streamline)", vm.brushStreamline, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushStreamline(it) }
-    StudioSliderItem("渐隐淡出 (Fade)", vm.brushFade, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFade(it) }
-    StudioSliderItem("笔尾收尖 (Taper)", vm.brushTaper, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTaper(it) }
+    StudioSectionHeader(stringResource(R.string.brush_studio_dynamics_spacing_scatter), textSub)
+    StudioSliderItem(stringResource(R.string.brush_studio_dynamics_spacing), vm.brushSpacing, 0.01, 2.5, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpacing(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_dynamics_scatter), vm.brushScatter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushScatter(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_dynamics_streamline), vm.brushStreamline, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushStreamline(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_dynamics_fade), vm.brushFade, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFade(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_dynamics_taper), vm.brushTaper, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTaper(it) }
 
-    StudioSectionHeader("喷枪流速模式 (Airbrush)", textSub)
-    StudioSwitchItem("启用喷枪时间流速持续喷涂", vm.brushAirbrush, textMain = textMain) { vm.updateBrushAirbrush(it) }
+    StudioSectionHeader(stringResource(R.string.brush_studio_dynamics_airbrush_mode), textSub)
+    StudioSwitchItem(stringResource(R.string.brush_studio_dynamics_airbrush_enable), vm.brushAirbrush, textMain = textMain) { vm.updateBrushAirbrush(it) }
     if (vm.brushAirbrush) {
-        StudioSliderItem("喷涂流速 (Rate)", vm.brushAirbrushRate, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushAirbrushRate(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_dynamics_airbrush_rate), vm.brushAirbrushRate, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushAirbrushRate(it) }
     }
 }
 
@@ -965,16 +980,16 @@ private fun StrokeTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color
 // ==========================================
 @Composable
 private fun ColorTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color, textMain: Color, textSub: Color) {
-    StudioSectionHeader("色彩随机抖动", textSub)
-    StudioSliderItem("色相抖动 (Hue Jitter)", vm.brushHueJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushHueJitter(it) }
-    StudioSliderItem("饱和度抖动 (Saturation)", vm.brushSatJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSatJitter(it) }
-    StudioSliderItem("明度抖动 (Brightness)", vm.brushValJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushValJitter(it) }
-    StudioSliderItem("次要颜色混合比", vm.brushSecondaryMix, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSecondaryMix(it) }
-    StudioSwitchItem("压感驱动色彩混合", vm.brushPressureColorMix, textMain = textMain) { vm.updateBrushPressureColorMix(it) }
+    StudioSectionHeader(stringResource(R.string.brush_studio_color_jitter_title), textSub)
+    StudioSliderItem(stringResource(R.string.brush_studio_color_hue_jitter), vm.brushHueJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushHueJitter(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_color_sat_jitter), vm.brushSatJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSatJitter(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_color_val_jitter), vm.brushValJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushValJitter(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_color_secondary_mix), vm.brushSecondaryMix, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSecondaryMix(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_color_pressure_mix), vm.brushPressureColorMix, textMain = textMain) { vm.updateBrushPressureColorMix(it) }
 
-    StudioSectionHeader("Krita 混色涂抹动态 (Color Smudge)", textSub)
-    StudioSliderItem("混色比率 (Smudge Rate)", vm.brushSmudgeRate, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSmudgeRate(it) }
-    StudioSliderItem("涂抹延伸长度 (Length)", vm.brushSmudgeLength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSmudgeLength(it) }
+    StudioSectionHeader(stringResource(R.string.brush_studio_color_smudge_title), textSub)
+    StudioSliderItem(stringResource(R.string.brush_studio_color_smudge_rate), vm.brushSmudgeRate, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSmudgeRate(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_color_smudge_length), vm.brushSmudgeLength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSmudgeLength(it) }
 }
 
 // ==========================================
@@ -990,7 +1005,7 @@ private fun GeometryTabContent(
     textMain: Color,
     textSub: Color,
 ) {
-    StudioSectionHeader("圆度与罗盘旋转", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_geo_title), textSub)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1003,9 +1018,9 @@ private fun GeometryTabContent(
                 .background(cardBg)
                 .border(1.dp, borderCol, RoundedCornerShape(8.dp)),
         ) {
-            StudioRadioRow("水平压缩", selected = roundnessDirection == 0, textMain = textMain, textSub = textSub) { onRoundnessDirection(0) }
+            StudioRadioRow(stringResource(R.string.brush_studio_geo_h_compress), selected = roundnessDirection == 0, textMain = textMain, textSub = textSub) { onRoundnessDirection(0) }
             Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.5f)))
-            StudioRadioRow("垂直压缩", selected = roundnessDirection == 1, textMain = textMain, textSub = textSub) { onRoundnessDirection(1) }
+            StudioRadioRow(stringResource(R.string.brush_studio_geo_v_compress), selected = roundnessDirection == 1, textMain = textMain, textSub = textSub) { onRoundnessDirection(1) }
         }
 
         StudioAngleDial(
@@ -1018,11 +1033,11 @@ private fun GeometryTabContent(
         )
     }
 
-    StudioSliderItem("圆度比例 (Aspect Ratio)", vm.brushRatio, 0.05, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushRatio(it) }
-    StudioSliderItem("笔尖基础角度", vm.brushAngle, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushAngle(it) }
-    StudioSliderItem("附加旋转偏角", vm.brushRotation, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushRotation(it) }
-    StudioSliderItem("角度随机抖动 (Jitter)", vm.brushJitterAngle, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushJitterAngle(it) }
-    StudioSwitchItem("沿笔画运动方向自动旋转", vm.brushFollowDirection, textMain = textMain) { vm.updateBrushFollowDirection(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_geo_aspect_ratio), vm.brushRatio, 0.05, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushRatio(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_geo_base_angle), vm.brushAngle, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushAngle(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_geo_offset_angle), vm.brushRotation, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushRotation(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_geo_angle_jitter), vm.brushJitterAngle, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushJitterAngle(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_geo_auto_rotate), vm.brushFollowDirection, textMain = textMain) { vm.updateBrushFollowDirection(it) }
 }
 
 // ==========================================
@@ -1030,11 +1045,16 @@ private fun GeometryTabContent(
 // ==========================================
 @Composable
 private fun TextureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color, textMain: Color, textSub: Color) {
-    StudioSwitchItem("启用纹理材质叠加", vm.brushTextureEnabled, textMain = textMain) { vm.updateBrushTextureEnabled(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_tex_enable), vm.brushTextureEnabled, textMain = textMain) { vm.updateBrushTextureEnabled(it) }
 
     if (vm.brushTextureEnabled) {
-        StudioSectionHeader("纹理混合模式", textSub)
-        val texModes = listOf("multiply" to "正片叠底", "overlay" to "叠加", "screen" to "滤色", "dodge" to "颜色减淡")
+        StudioSectionHeader(stringResource(R.string.brush_studio_tex_blend_mode), textSub)
+        val texModes = listOf(
+            "multiply" to R.string.brush_studio_blend_multiply,
+            "overlay" to R.string.brush_studio_blend_overlay,
+            "screen" to R.string.brush_studio_blend_screen,
+            "dodge" to R.string.brush_studio_blend_dodge_color,
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1042,17 +1062,17 @@ private fun TextureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Colo
                 .background(cardBg)
                 .border(1.dp, borderCol, RoundedCornerShape(8.dp)),
         ) {
-            texModes.forEachIndexed { idx, (id, name) ->
+            texModes.forEachIndexed { idx, (id, nameRes) ->
                 val sel = vm.brushTextureMode == id
-                StudioRadioRow(name = name, selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushTextureMode(id) }
+                StudioRadioRow(name = stringResource(nameRes), selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushTextureMode(id) }
                 if (idx < texModes.size - 1) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.5f)))
                 }
             }
         }
 
-        StudioSliderItem("纹理缩放比 (Scale)", vm.brushTextureScale, 0.2, 4.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureScale(it) }
-        StudioSliderItem("纹理凹凸强度 (Strength)", vm.brushTextureStrength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureStrength(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_tex_scale), vm.brushTextureScale, 0.2, 4.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureScale(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_tex_strength), vm.brushTextureStrength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureStrength(it) }
     }
 }
 
@@ -1061,17 +1081,22 @@ private fun TextureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Colo
 // ==========================================
 @Composable
 private fun PressureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color, textMain: Color, textSub: Color) {
-    StudioSwitchItem("启用压力感应响应", vm.brushPressureEnabled, textMain = textMain) { vm.updateBrushPressureEnabled(it) }
+    StudioSwitchItem(stringResource(R.string.brush_studio_press_enable), vm.brushPressureEnabled, textMain = textMain) { vm.updateBrushPressureEnabled(it) }
 
     if (vm.brushPressureEnabled) {
-        StudioSectionHeader("动态压感感应", textSub)
-        StudioSliderItem("压力影响大小 (Size)", vm.brushPressureSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureSize(it) }
-        StudioSliderItem("压力影响不透明度 (Opacity)", vm.brushPressureOpacity, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureOpacity(it) }
-        StudioSliderItem("压力影响流量 (Flow)", vm.brushPressureFlow, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureFlow(it) }
-        StudioSliderItem("速度感应响应 (Speed)", vm.brushSpeedSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpeedSize(it) }
+        StudioSectionHeader(stringResource(R.string.brush_studio_press_dynamics), textSub)
+        StudioSliderItem(stringResource(R.string.brush_studio_press_size), vm.brushPressureSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureSize(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_press_opacity), vm.brushPressureOpacity, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureOpacity(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_press_flow), vm.brushPressureFlow, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureFlow(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_press_speed), vm.brushSpeedSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpeedSize(it) }
 
-        StudioSectionHeader("压感响应曲线", textSub)
-        val curves = listOf("线性响应 (Linear)", "柔和曲线 (Soft)", "硬朗曲线 (Hard)", "S型精细响应 (S-Curve)")
+        StudioSectionHeader(stringResource(R.string.brush_studio_press_curve), textSub)
+        val curves = listOf(
+            R.string.brush_studio_press_linear,
+            R.string.brush_studio_press_soft,
+            R.string.brush_studio_press_hard,
+            R.string.brush_studio_press_scurve,
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1079,9 +1104,9 @@ private fun PressureTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Col
                 .background(cardBg)
                 .border(1.dp, borderCol, RoundedCornerShape(8.dp)),
         ) {
-            curves.forEachIndexed { idx, name ->
+            curves.forEachIndexed { idx, curveRes ->
                 val sel = vm.brushPressureCurve == idx
-                StudioRadioRow(name = name, selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushPressureCurve(idx) }
+                StudioRadioRow(name = stringResource(curveRes), selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushPressureCurve(idx) }
                 if (idx < curves.size - 1) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.5f)))
                 }
@@ -1106,14 +1131,14 @@ private fun EngineTabContent(
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    StudioSectionHeader("Krita 笔刷引擎 (PaintOp Engine)", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_engine_title), textSub)
     val engines = listOf(
-        "defaultpaintop" to "像素引擎 (Pixel)",
-        "colorsmudge" to "混色涂抹 (Smudge)",
-        "spray" to "喷雾粒子 (Spray)",
-        "sketch" to "素描线条 (Sketch)",
-        "hairy" to "毛发鬃毛 (Hairy)",
-        "roundmarker" to "圆马克笔 (Marker)",
+        "defaultpaintop" to R.string.brush_studio_engine_pixel,
+        "colorsmudge" to R.string.brush_studio_engine_smudge,
+        "spray" to R.string.brush_studio_engine_spray,
+        "sketch" to R.string.brush_studio_engine_sketch,
+        "hairy" to R.string.brush_studio_engine_hairy,
+        "roundmarker" to R.string.brush_studio_engine_marker,
     )
     Column(
         modifier = Modifier
@@ -1122,29 +1147,29 @@ private fun EngineTabContent(
             .background(cardBg)
             .border(1.dp, borderCol, RoundedCornerShape(8.dp)),
     ) {
-        engines.forEachIndexed { idx, (id, name) ->
+        engines.forEachIndexed { idx, (id, nameRes) ->
             val sel = vm.brushPaintOpId == id
-            StudioRadioRow(name = name, selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushPaintOpId(id) }
+            StudioRadioRow(name = stringResource(nameRes), selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushPaintOpId(id) }
             if (idx < engines.size - 1) {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(borderCol.copy(alpha = 0.5f)))
             }
         }
     }
 
-    StudioSectionHeader("混合模式 (Composite Mode)", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_engine_blend_modes), textSub)
     val blendModeList = listOf(
-        "normal" to "正常",
-        "multiply" to "正片叠底",
-        "screen" to "滤色",
-        "overlay" to "叠加",
-        "darken" to "变暗",
-        "lighten" to "变亮",
-        "dodge" to "减淡",
-        "burn" to "加深",
-        "hard_light" to "强光",
-        "soft_light" to "柔光",
-        "difference" to "差值",
-        "exclusion" to "排除",
+        "normal" to R.string.brush_studio_blend_normal,
+        "multiply" to R.string.brush_studio_blend_multiply,
+        "screen" to R.string.brush_studio_blend_screen,
+        "overlay" to R.string.brush_studio_blend_overlay,
+        "darken" to R.string.brush_studio_blend_darken,
+        "lighten" to R.string.brush_studio_blend_lighten,
+        "dodge" to R.string.brush_studio_blend_dodge,
+        "burn" to R.string.brush_studio_blend_burn,
+        "hard_light" to R.string.brush_studio_blend_hard_light,
+        "soft_light" to R.string.brush_studio_blend_soft_light,
+        "difference" to R.string.brush_studio_blend_difference,
+        "exclusion" to R.string.brush_studio_blend_exclusion,
     )
     Column(
         modifier = Modifier
@@ -1157,7 +1182,7 @@ private fun EngineTabContent(
     ) {
         blendModeList.chunked(3).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { (opId, name) ->
+                row.forEach { (opId, nameRes) ->
                     val sel = vm.brushCompositeOp == opId
                     Box(
                         modifier = Modifier
@@ -1170,7 +1195,7 @@ private fun EngineTabContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            name,
+                            stringResource(nameRes),
                             color = if (sel) textMain else textSub,
                             fontSize = 11.sp,
                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
@@ -1184,18 +1209,18 @@ private fun EngineTabContent(
         }
     }
 
-    StudioSliderItem("不透明度 (Opacity)", vm.brushOpacity, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushOpacity(it) }
-    StudioSliderItem("流量 (Flow)", vm.brushFlow, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFlow(it) }
-    StudioSliderItem("边缘锐度 (Sharpness)", vm.brushSharpness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSharpness(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_engine_opacity), vm.brushOpacity, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushOpacity(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_engine_flow), vm.brushFlow, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFlow(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_engine_sharpness), vm.brushSharpness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSharpness(it) }
 
-    StudioSectionHeader("尺寸上下限限制", textSub)
-    StudioSliderItem("最小尺寸限制", vm.brushMinSizeLimit, 1.0, 50.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMinSizeLimit(it) }
-    StudioSliderItem("最大尺寸限制", vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMaxSizeLimit(it) }
+    StudioSectionHeader(stringResource(R.string.brush_studio_engine_limits), textSub)
+    StudioSliderItem(stringResource(R.string.brush_studio_engine_min_size), vm.brushMinSizeLimit, 1.0, 50.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMinSizeLimit(it) }
+    StudioSliderItem(stringResource(R.string.brush_studio_engine_max_size), vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMaxSizeLimit(it) }
 
-    StudioSectionHeader("笔刷管理与预设操作", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_prop_ops), textSub)
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ReTextButton(
-            "复制副本",
+            stringResource(R.string.brush_studio_prop_copy),
             onDuplicate,
             modifier = Modifier.weight(1f),
             textColor = textMain,
@@ -1211,11 +1236,11 @@ private fun EngineTabContent(
                     .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("重命名 (内置固定)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
+                Text(stringResource(R.string.brush_studio_prop_builtin_locked), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         } else {
             ReTextButton(
-                "重命名",
+                stringResource(R.string.brush_studio_prop_rename),
                 onRename,
                 modifier = Modifier.weight(1f),
                 textColor = textMain,
@@ -1226,7 +1251,7 @@ private fun EngineTabContent(
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ReTextButton(
-            "重置参数",
+            stringResource(R.string.brush_studio_prop_reset),
             { vm.resetBrushParams() },
             modifier = Modifier.weight(1f),
             textColor = textMain,
@@ -1242,11 +1267,11 @@ private fun EngineTabContent(
                     .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("内置笔刷 (不可删除)", color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
+                Text(stringResource(R.string.brush_studio_prop_builtin_cannot_delete), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
             }
         } else {
             ReTextButton(
-                "删除此笔刷",
+                stringResource(R.string.brush_studio_prop_delete),
                 onDelete,
                 modifier = Modifier.weight(1f),
                 containerColor = Color(0xFF2C1E1E),
@@ -1271,7 +1296,7 @@ private fun InfoTabContent(
     onRenamePreset: () -> Unit = {},
 ) {
     val isBuiltIn = preset?.isBuiltIn == true
-    StudioSectionHeader("基本信息与作者归属", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_prop_info_title), textSub)
 
     Column(
         modifier = Modifier
@@ -1284,10 +1309,10 @@ private fun InfoTabContent(
     ) {
         // Preset Name
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("笔刷名称", color = textSub, fontSize = 11.sp)
+            Text(stringResource(R.string.brush_studio_prop_name), color = textSub, fontSize = 11.sp)
             if (isBuiltIn) {
                 Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
-                Text("(Krita 内置 · 固定只读)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+                Text(stringResource(R.string.brush_studio_prop_builtin_tag), color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
             }
         }
 
@@ -1300,7 +1325,7 @@ private fun InfoTabContent(
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             ) {
-                Text(preset?.name ?: "内置笔刷", color = textSub, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(preset?.name ?: stringResource(R.string.brush_studio_builtin_brush), color = textSub, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
         } else {
             Row(
@@ -1314,7 +1339,7 @@ private fun InfoTabContent(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    preset?.name ?: "自定义笔刷",
+                    preset?.name ?: stringResource(R.string.brush_studio_custom_brush),
                     color = textMain,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -1322,7 +1347,7 @@ private fun InfoTabContent(
                 )
                 Icon(
                     painterResource(R.drawable.ic_pencil),
-                    contentDescription = "修改名称",
+                    contentDescription = stringResource(R.string.brush_studio_prop_rename_cd),
                     tint = textSub,
                     modifier = Modifier.size(14.dp),
                 )
@@ -1333,13 +1358,13 @@ private fun InfoTabContent(
 
         // Author Field (with lock indicator for built-in and shared/imported brushes)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("笔刷作者", color = textSub, fontSize = 11.sp)
+            Text(stringResource(R.string.brush_studio_prop_author), color = textSub, fontSize = 11.sp)
             if (isBuiltIn) {
                 Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
-                Text("(Krita 内置 · 固定只读)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+                Text(stringResource(R.string.brush_studio_prop_builtin_tag), color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
             } else if (vm.brushIsAuthorLocked) {
                 Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Color(0xFFA0A0A8), modifier = Modifier.size(12.dp))
-                Text("(分享导入 · 只读锁定)", color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
+                Text(stringResource(R.string.brush_studio_prop_shared_tag), color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
             }
         }
 
@@ -1363,7 +1388,7 @@ private fun InfoTabContent(
                     .border(1.dp, borderCol, RoundedCornerShape(6.dp))
                     .padding(10.dp),
             ) {
-                Text(vm.brushAuthor.ifEmpty { "外部创作者 (已分享)" }, color = textSub, fontSize = 13.sp)
+                Text(vm.brushAuthor.ifEmpty { stringResource(R.string.brush_studio_prop_external_author) }, color = textSub, fontSize = 13.sp)
             }
         } else {
             androidx.compose.foundation.text.BasicTextField(
@@ -1385,7 +1410,7 @@ private fun InfoTabContent(
         // Version & Category
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("版本号", color = textSub, fontSize = 11.sp)
+                Text(stringResource(R.string.brush_studio_prop_version), color = textSub, fontSize = 11.sp)
                 Spacer(Modifier.height(4.dp))
                 androidx.compose.foundation.text.BasicTextField(
                     value = vm.brushVersion,
@@ -1402,7 +1427,7 @@ private fun InfoTabContent(
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                Text("所属分组", color = textSub, fontSize = 11.sp)
+                Text(stringResource(R.string.brush_studio_prop_group), color = textSub, fontSize = 11.sp)
                 Spacer(Modifier.height(4.dp))
                 Box(
                     modifier = Modifier
@@ -1410,15 +1435,15 @@ private fun InfoTabContent(
                         .clip(RoundedCornerShape(6.dp))
                         .background(Morandi.panel)
                         .border(1.dp, borderCol, RoundedCornerShape(6.dp))
-                        .padding(8.dp),
                 ) {
-                    Text(preset?.group ?: "默认", color = textMain, fontSize = 13.sp)
+                    val grpName = preset?.group?.let { brushCategoryDisplayName(it) } ?: stringResource(R.string.brush_studio_prop_default_group)
+                    Text(grpName, color = textMain, fontSize = 13.sp)
                 }
             }
         }
     }
 
-    StudioSectionHeader("使用介绍与备注说明", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_prop_desc), textSub)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1441,7 +1466,7 @@ private fun InfoTabContent(
         )
     }
 
-    StudioSectionHeader("技术规范与引擎信息", textSub)
+    StudioSectionHeader(stringResource(R.string.brush_studio_prop_tech_specs), textSub)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1452,15 +1477,15 @@ private fun InfoTabContent(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            Text("绘图引擎", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.brush_studio_prop_draw_engine), color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
             Text(vm.brushPaintOpId, color = textMain, fontSize = 12.sp)
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            Text("笔尖贴图", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            Text(vm.brushTipAsset.ifEmpty { "生成式矢量笔尖" }, color = textMain, fontSize = 12.sp)
+            Text(stringResource(R.string.brush_studio_prop_tip_mask), color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(vm.brushTipAsset.ifEmpty { stringResource(R.string.brush_studio_prop_auto_vector) }, color = textMain, fontSize = 12.sp)
         }
         Row(modifier = Modifier.fillMaxWidth()) {
-            Text("混色模式", color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.brush_studio_prop_smudge_mode), color = textSub, fontSize = 12.sp, modifier = Modifier.weight(1f))
             Text(vm.brushCompositeOp, color = textMain, fontSize = 12.sp)
         }
     }
@@ -1793,15 +1818,16 @@ private fun StudioNewBrushDialog(
     textSub: Color,
     borderCol: Color,
 ) {
+    val defaultGroup = stringResource(R.string.brush_preset_custom_tag)
     var name by remember { mutableStateOf("") }
-    var group by remember { mutableStateOf("自定义") }
+    var group by remember(defaultGroup) { mutableStateOf(defaultGroup) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("新建笔刷", color = textMain, fontSize = 15.sp) },
+        title = { Text(stringResource(R.string.brush_studio_new_dialog_title), color = textMain, fontSize = 15.sp) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("输入新笔刷名称", color = textSub, fontSize = 12.sp)
+                Text(stringResource(R.string.brush_studio_new_dialog_hint), color = textSub, fontSize = 12.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1817,14 +1843,14 @@ private fun StudioNewBrushDialog(
         },
         confirmButton = {
             ReTextButton(
-                "创建",
+                stringResource(R.string.common_create),
                 onClick = { onCreate(name.trim(), group) },
                 enabled = name.isNotBlank(),
                 textColor = if (name.isNotBlank()) textMain else textSub,
             )
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = textSub)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = textSub)
         },
         containerColor = cardBg,
     )
@@ -1844,10 +1870,10 @@ private fun StudioRenameDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("重命名笔刷", color = textMain, fontSize = 15.sp) },
+        title = { Text(stringResource(R.string.brush_studio_rename_dialog_title), color = textMain, fontSize = 15.sp) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("输入新名称", color = textSub, fontSize = 12.sp)
+                Text(stringResource(R.string.brush_studio_rename_dialog_hint), color = textSub, fontSize = 12.sp)
                 androidx.compose.foundation.text.BasicTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1863,14 +1889,14 @@ private fun StudioRenameDialog(
         },
         confirmButton = {
             ReTextButton(
-                "保存",
+                stringResource(R.string.common_save),
                 onClick = { onRename(name.trim()) },
                 enabled = name.isNotBlank(),
                 textColor = if (name.isNotBlank()) textMain else textSub,
             )
         },
         dismissButton = {
-            ReTextButton("取消", onDismiss, textColor = textSub)
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = textSub)
         },
         containerColor = cardBg,
     )

@@ -80,7 +80,7 @@ fun TypographyPanel(
                 // 1. 编辑文字内容按钮
                 ToolActionButton(
                     iconRes = R.drawable.ic_text,
-                    label = "编辑文字",
+                    label = androidx.compose.ui.res.stringResource(R.string.typography_edit_text),
                     onClick = onOpenTextDialog,
                 )
 
@@ -103,17 +103,17 @@ fun TypographyPanel(
 
                 // 3. 对齐方式
                 ToolFloatChip(
-                    label = "左",
+                    label = androidx.compose.ui.res.stringResource(R.string.typography_align_left),
                     selected = cfg.alignment == 0,
                     onClick = { vm.typographyConfig = cfg.copy(alignment = 0) },
                 )
                 ToolFloatChip(
-                    label = "中",
+                    label = androidx.compose.ui.res.stringResource(R.string.typography_align_center),
                     selected = cfg.alignment == 1,
                     onClick = { vm.typographyConfig = cfg.copy(alignment = 1) },
                 )
                 ToolFloatChip(
-                    label = "右",
+                    label = androidx.compose.ui.res.stringResource(R.string.typography_align_right),
                     selected = cfg.alignment == 2,
                     onClick = { vm.typographyConfig = cfg.copy(alignment = 2) },
                 )
@@ -121,7 +121,7 @@ fun TypographyPanel(
                 // 4. 展开详细排版属性
                 ToolActionButton(
                     iconRes = R.drawable.ic_sliders,
-                    label = if (propsOpen) "收起" else "属性",
+                    label = if (propsOpen) androidx.compose.ui.res.stringResource(R.string.typography_collapse) else androidx.compose.ui.res.stringResource(R.string.typography_props),
                     active = propsOpen,
                     onClick = { propsOpen = !propsOpen },
                 )
@@ -129,13 +129,13 @@ fun TypographyPanel(
                 // 5. 完成 (✔) 与 取消 (✕)
                 ToolActionButton(
                     iconRes = R.drawable.ic_check,
-                    label = "完成",
+                    label = androidx.compose.ui.res.stringResource(R.string.confirm),
                     primary = true,
                     onClick = { vm.commitTypographyToCanvas() },
                 )
                 ToolActionButton(
                     iconRes = R.drawable.ic_x,
-                    label = "取消",
+                    label = androidx.compose.ui.res.stringResource(R.string.cancel),
                     danger = true,
                     onClick = { vm.isTypographyEditing = false },
                 )
@@ -159,14 +159,19 @@ fun TypographyPanel(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        listOf("默认" to "系统默认", "衬线" to "衬线体", "等宽" to "等宽体", "手写" to "手写体").forEach { (short, full) ->
-                            val sel = cfg.fontFamilyName == full
+                        listOf(
+                            androidx.compose.ui.res.stringResource(R.string.typography_font_default_short) to "default",
+                            androidx.compose.ui.res.stringResource(R.string.typography_font_serif_short) to "serif",
+                            androidx.compose.ui.res.stringResource(R.string.typography_font_monospace_short) to "monospace",
+                            androidx.compose.ui.res.stringResource(R.string.typography_font_cursive_short) to "cursive",
+                        ).forEach { (short, id) ->
+                            val sel = cfg.fontFamilyName == id || (id == "default" && cfg.fontFamilyName == "系统默认") || (id == "serif" && cfg.fontFamilyName == "衬线体") || (id == "monospace" && cfg.fontFamilyName == "等宽体") || (id == "cursive" && cfg.fontFamilyName == "手写体")
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(if (sel) Morandi.accent else Morandi.border.copy(alpha = 0.35f))
-                                    .clickable { vm.typographyConfig = cfg.copy(fontFamilyName = full) }
+                                    .clickable { vm.typographyConfig = cfg.copy(fontFamilyName = id) }
                                     .padding(vertical = 5.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -177,7 +182,7 @@ fun TypographyPanel(
 
                     // 字号调节
                     ToolFloatSlider(
-                        label = "字号",
+                        label = androidx.compose.ui.res.stringResource(R.string.typography_font_size),
                         valueText = "${cfg.fontSize.roundToInt()}px",
                         range = 12f..240f,
                         value = cfg.fontSize,
@@ -186,7 +191,7 @@ fun TypographyPanel(
 
                     // 字间距调节
                     ToolFloatSlider(
-                        label = "字间距",
+                        label = androidx.compose.ui.res.stringResource(R.string.typography_letter_spacing),
                         valueText = "${cfg.letterSpacingSp.roundToInt()}px",
                         range = -4f..32f,
                         value = cfg.letterSpacingSp,
@@ -195,7 +200,7 @@ fun TypographyPanel(
 
                     // 行距倍数调节
                     ToolFloatSlider(
-                        label = "行距",
+                        label = androidx.compose.ui.res.stringResource(R.string.typography_line_height),
                         valueText = String.format("%.1fx", cfg.lineHeightMultiplier),
                         range = 0.8f..2.5f,
                         value = cfg.lineHeightMultiplier,
@@ -230,7 +235,7 @@ fun TypographyTextDialog(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "编辑文本内容",
+                    androidx.compose.ui.res.stringResource(R.string.typography_dialog_title),
                     color = Morandi.text,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -244,7 +249,7 @@ fun TypographyTextDialog(
                     onValueChange = { text = it },
                     minLines = 3,
                     maxLines = 8,
-                    placeholder = { Text("在此输入文字内容 (支持换行)...", color = Morandi.subText, fontSize = 13.sp) },
+                    placeholder = { Text(androidx.compose.ui.res.stringResource(R.string.typography_dialog_placeholder), color = Morandi.subText, fontSize = 13.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Morandi.accent,
@@ -260,7 +265,7 @@ fun TypographyTextDialog(
         },
         confirmButton = {
             ReTextButton(
-                text = "确定",
+                text = androidx.compose.ui.res.stringResource(R.string.confirm),
                 onClick = {
                     onConfirm(text)
                     onDismiss()
@@ -270,7 +275,7 @@ fun TypographyTextDialog(
         },
         dismissButton = {
             ReTextButton(
-                text = "取消",
+                text = androidx.compose.ui.res.stringResource(R.string.cancel),
                 onClick = onDismiss,
                 textColor = Morandi.subText,
             )

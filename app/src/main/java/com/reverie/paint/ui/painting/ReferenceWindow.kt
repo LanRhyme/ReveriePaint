@@ -43,6 +43,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -264,7 +265,7 @@ fun ReferenceWindow(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "添加图片",
+                            text = stringResource(R.string.reference_add_image),
                             color = Morandi.text,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium
@@ -288,7 +289,7 @@ fun ReferenceWindow(
                     )
                 } else {
                     Text(
-                        text = "画布暂无内容",
+                        text = stringResource(R.string.reference_canvas_empty),
                         color = Morandi.subText,
                         fontSize = 12.sp
                     )
@@ -463,7 +464,7 @@ private fun ReferenceTopBar(
 
         // Left Title
         Text(
-            text = "参考",
+            text = stringResource(R.string.reference_title),
             color = Morandi.text,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
@@ -486,7 +487,7 @@ private fun ReferenceTopBar(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_settings),
-                    contentDescription = "设置",
+                    contentDescription = stringResource(R.string.common_settings),
                     tint = Morandi.icon,
                     modifier = Modifier.size(16.dp)
                 )
@@ -502,7 +503,7 @@ private fun ReferenceTopBar(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_x),
-                    contentDescription = "关闭",
+                    contentDescription = stringResource(R.string.common_close),
                     tint = Morandi.icon,
                     modifier = Modifier.size(16.dp)
                 )
@@ -543,12 +544,12 @@ private fun ReferenceBottomBar(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_image_adjust),
-                    contentDescription = "图片",
+                    contentDescription = stringResource(R.string.reference_tab_image),
                     tint = if (activeTab == 0) Morandi.accent else Morandi.subText,
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
-                    text = "图片",
+                    text = stringResource(R.string.reference_tab_image),
                     color = if (activeTab == 0) Morandi.accent else Morandi.subText,
                     fontSize = 12.sp,
                     fontWeight = if (activeTab == 0) FontWeight.SemiBold else FontWeight.Normal
@@ -566,12 +567,12 @@ private fun ReferenceBottomBar(
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_rect),
-                    contentDescription = "画布",
+                    contentDescription = stringResource(R.string.reference_tab_canvas),
                     tint = if (activeTab == 1) Morandi.accent else Morandi.subText,
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
-                    text = "画布",
+                    text = stringResource(R.string.reference_tab_canvas),
                     color = if (activeTab == 1) Morandi.accent else Morandi.subText,
                     fontSize = 12.sp,
                     fontWeight = if (activeTab == 1) FontWeight.SemiBold else FontWeight.Normal
@@ -873,7 +874,7 @@ private fun ReferenceSettingsPopup(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "去色",
+                        text = stringResource(R.string.reference_grayscale),
                         color = Morandi.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -897,7 +898,7 @@ private fun ReferenceSettingsPopup(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "允许旋转",
+                        text = stringResource(R.string.reference_allow_rotate),
                         color = Morandi.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -924,14 +925,14 @@ private fun ReferenceSettingsPopup(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "水平翻转",
+                        text = stringResource(R.string.reference_flip_h),
                         color = Morandi.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Icon(
                         painter = painterResource(R.drawable.ic_flip_horizontal),
-                        contentDescription = "水平翻转",
+                        contentDescription = stringResource(R.string.reference_flip_h),
                         tint = if (vm.referenceIsFlipped) Morandi.accent else Morandi.text,
                         modifier = Modifier.size(18.dp)
                     )
@@ -955,7 +956,7 @@ private fun ReferenceSettingsPopup(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "添加图片",
+                        text = stringResource(R.string.reference_add_image),
                         color = Morandi.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
@@ -973,7 +974,7 @@ private fun ReferenceSettingsPopup(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "清除图片",
+                        text = stringResource(R.string.reference_clear_image),
                         color = Color(0xFFE55858),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium

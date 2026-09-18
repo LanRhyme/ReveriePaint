@@ -4,6 +4,8 @@
 
 package com.reverie.paint.ui.painting.layers
 
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.model.AdjustmentConfigCodec
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -311,8 +313,50 @@ internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams?
     return p
 }
 
-internal fun filterNameOf(filterId: Int): String {
+internal fun filterNameResOf(filterId: Int): Int {
     return when (filterId) {
+        0 -> R.string.filter_name_hsv
+        1 -> R.string.filter_name_color_balance
+        2 -> R.string.filter_name_gaussian_blur
+        3 -> R.string.filter_name_motion_blur
+        4 -> R.string.filter_name_sharpen
+        5 -> R.string.filter_name_mosaic
+        6 -> R.string.filter_name_invert
+        7 -> R.string.filter_name_lum_to_alpha
+        8 -> R.string.filter_name_sobel
+        9 -> R.string.filter_name_emboss
+        10 -> R.string.filter_name_noise
+        11 -> R.string.filter_name_glitch
+        12 -> R.string.filter_name_desaturate
+        13 -> R.string.filter_name_curves
+        14 -> R.string.filter_name_levels
+        15 -> R.string.filter_name_temp_tint
+        16 -> R.string.filter_name_threshold
+        17 -> R.string.filter_name_posterize
+        18 -> R.string.filter_name_bloom
+        19 -> R.string.filter_name_drop_shadow
+        20 -> R.string.filter_name_lum_to_opacity
+        21 -> R.string.filter_name_oil
+        22 -> R.string.filter_name_radial_blur
+        23 -> R.string.filter_name_halftone
+        24 -> R.string.filter_name_exposure
+        25 -> R.string.filter_name_edge_glow
+        26 -> R.string.filter_name_defocus
+        27 -> R.string.filter_name_shadow_highlight
+        28 -> R.string.filter_name_vibrance
+        29 -> R.string.filter_name_color_to_alpha
+        30 -> R.string.filter_name_gradient_map
+        31 -> R.string.filter_name_ripple
+        32 -> R.string.filter_name_swirl
+        33 -> R.string.filter_name_surface_blur
+        34 -> R.string.filter_name_scanline
+        else -> R.string.filter_name_default
+    }
+}
+
+internal fun filterNameOf(filterId: Int, context: android.content.Context? = null): String {
+    val resId = filterNameResOf(filterId)
+    return context?.getString(resId) ?: when (filterId) {
         0 -> "色相 / 饱和度 / 明度 / 对比度"
         1 -> "色彩平衡"
         2 -> "高斯模糊"
@@ -455,7 +499,7 @@ internal fun FilterParamSelectRow(
                     .background(dotColor)
             )
             Text(
-                text = def.name,
+                text = if (def.nameRes != 0) stringResource(def.nameRes) else def.name,
                 color = textColor,
                 fontSize = 13.sp,
                 fontWeight = fontWeight,
@@ -542,7 +586,7 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("反转线稿色彩 (生成白色线稿)", color = Morandi.text, fontSize = 12.sp)
+                            Text(stringResource(R.string.filter_invert_lineart_label), color = Morandi.text, fontSize = 12.sp)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -554,7 +598,7 @@ internal fun FilterAdjustControls(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    if (st.lineartWhiteLine) "白色" else "黑色",
+                                    if (st.lineartWhiteLine) stringResource(R.string.color_white) else stringResource(R.string.color_black),
                                     color = if (st.lineartWhiteLine) Color.White else Morandi.subText,
                                     fontSize = 11.sp
                                 )
@@ -567,8 +611,12 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("边缘提取模式", color = Morandi.text, fontSize = 12.sp)
-                            val sobelModes = listOf("白底黑线", "黑底彩色", "透明线稿")
+                            Text(stringResource(R.string.filter_edge_extract_mode), color = Morandi.text, fontSize = 12.sp)
+                            val sobelModes = listOf(
+                                stringResource(R.string.sobel_mode_white_bg_black_line),
+                                stringResource(R.string.sobel_mode_black_bg_color),
+                                stringResource(R.string.sobel_mode_transparent_lineart)
+                            )
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -580,7 +628,7 @@ internal fun FilterAdjustControls(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    sobelModes.getOrElse(st.sobelMode) { "白底黑线" },
+                                    sobelModes.getOrElse(st.sobelMode) { sobelModes[0] },
                                     color = Morandi.accent,
                                     fontSize = 11.sp
                                 )
@@ -593,7 +641,7 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("保留原色 (彩色浮雕)", color = Morandi.text, fontSize = 12.sp)
+                            Text(stringResource(R.string.filter_emboss_preserve_color_label), color = Morandi.text, fontSize = 12.sp)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -605,7 +653,7 @@ internal fun FilterAdjustControls(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    if (st.embossPreserveColor) "保留原色" else "经典灰阶",
+                                    if (st.embossPreserveColor) stringResource(R.string.filter_emboss_preserve_color) else stringResource(R.string.filter_emboss_classic_gray),
                                     color = if (st.embossPreserveColor) Color.White else Morandi.subText,
                                     fontSize = 11.sp
                                 )
@@ -618,7 +666,7 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("反转亮度关系 (暗部不透明)", color = Morandi.text, fontSize = 12.sp)
+                            Text(stringResource(R.string.filter_lum_opacity_invert_label), color = Morandi.text, fontSize = 12.sp)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -630,7 +678,7 @@ internal fun FilterAdjustControls(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    if (st.lumOpacityInvert) "反转" else "默认",
+                                    if (st.lumOpacityInvert) stringResource(R.string.filter_lum_opacity_inverted) else stringResource(R.string.filter_lum_opacity_default),
                                     color = if (st.lumOpacityInvert) Color.White else Morandi.subText,
                                     fontSize = 11.sp
                                 )
@@ -643,8 +691,13 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("霓虹色彩模式", color = Morandi.text, fontSize = 12.sp)
-                            val hueNames = listOf("原色增强", "赛博青蓝", "霓虹粉紫", "炫彩金黄")
+                            Text(stringResource(R.string.filter_neon_color_mode), color = Morandi.text, fontSize = 12.sp)
+                            val hueNames = listOf(
+                                stringResource(R.string.neon_mode_enhanced),
+                                stringResource(R.string.neon_mode_cyber),
+                                stringResource(R.string.neon_mode_purple),
+                                stringResource(R.string.neon_mode_gold)
+                            )
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(6.dp))
@@ -656,7 +709,7 @@ internal fun FilterAdjustControls(
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
                                 Text(
-                                    hueNames.getOrElse(st.edgeGlowHue) { "原色增强" },
+                                    hueNames.getOrElse(st.edgeGlowHue) { hueNames[0] },
                                     color = Morandi.accent,
                                     fontSize = 11.sp
                                 )
@@ -669,9 +722,14 @@ internal fun FilterAdjustControls(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("目标抠像色彩", color = Morandi.text, fontSize = 12.sp)
+                            Text(stringResource(R.string.filter_target_keying_color), color = Morandi.text, fontSize = 12.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                listOf("白" to 0xFFFFFF, "黑" to 0x000000, "绿" to 0x00FF00, "蓝" to 0x0000FF).forEach { (lbl, col) ->
+                                listOf(
+                                    stringResource(R.string.color_white_short) to 0xFFFFFF,
+                                    stringResource(R.string.color_black_short) to 0x000000,
+                                    stringResource(R.string.color_green_short) to 0x00FF00,
+                                    stringResource(R.string.color_blue_short) to 0x0000FF
+                                ).forEach { (lbl, col) ->
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
@@ -691,7 +749,7 @@ internal fun FilterAdjustControls(
                     else -> {
                         if (defs.isEmpty()) {
                             Text(
-                                text = "此滤镜已实时应用至图层预览，点击右上角应用按钮确认",
+                                text = stringResource(R.string.filter_live_preview_hint),
                                 color = Morandi.subText,
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(vertical = 12.dp)
