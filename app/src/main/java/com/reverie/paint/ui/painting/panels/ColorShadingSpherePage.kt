@@ -133,67 +133,38 @@ fun ColorShadingSpherePage(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(baseHex, activeShadowHex, activeLightHex, softness) {
-                        detectTapGestures(
-                            onPress = { offset ->
-                                isSamplingSphere = true
-                                onInteractionStart()
+                        awaitEachGesture {
+                            val down = awaitFirstDown().also { it.consume() }
+                            isSamplingSphere = true
+                            onInteractionStart()
+
+                            fun sampleAt(pos: Offset) {
                                 val cx = size.width / 2f
                                 val cy = size.height / 2f
                                 val sphereR = min(size.width, size.height) / 2f - 4.dp.toPx()
-                                val dx = (offset.x - cx) / sphereR
-                                val dy = (offset.y - cy) / sphereR
+                                val dx = (pos.x - cx) / sphereR
+                                val dy = (pos.y - cy) / sphereR
                                 val dist = sqrt(dx * dx + dy * dy)
                                 val (nx, ny) = if (dist > 0.98f) Pair(dx / dist * 0.98f, dy / dist * 0.98f) else Pair(dx, dy)
                                 cursorNormX = nx
                                 cursorNormY = ny
                                 val hex = calculateSphereColorHex(nx, ny, baseHex, activeShadowHex, activeLightHex, softness)
                                 onColorSelected(hex)
-                                tryAwaitRelease()
-                                onInteractionEnd()
-                                isSamplingSphere = false
                             }
-                        )
-                    }
-                    .pointerInput(baseHex, activeShadowHex, activeLightHex, softness) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                isSamplingSphere = true
-                                onInteractionStart()
-                                val cx = size.width / 2f
-                                val cy = size.height / 2f
-                                val sphereR = min(size.width, size.height) / 2f - 4.dp.toPx()
-                                val dx = (offset.x - cx) / sphereR
-                                val dy = (offset.y - cy) / sphereR
-                                val dist = sqrt(dx * dx + dy * dy)
-                                val (nx, ny) = if (dist > 0.98f) Pair(dx / dist * 0.98f, dy / dist * 0.98f) else Pair(dx, dy)
-                                cursorNormX = nx
-                                cursorNormY = ny
-                                val hex = calculateSphereColorHex(nx, ny, baseHex, activeShadowHex, activeLightHex, softness)
-                                onColorSelected(hex)
-                            },
-                            onDragEnd = {
-                                onInteractionEnd()
-                                isSamplingSphere = false
-                            },
-                            onDragCancel = {
-                                onInteractionEnd()
-                                isSamplingSphere = false
-                            },
-                            onDrag = { change, _ ->
+
+                            sampleAt(down.position)
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) break
                                 change.consume()
-                                val cx = size.width / 2f
-                                val cy = size.height / 2f
-                                val sphereR = min(size.width, size.height) / 2f - 4.dp.toPx()
-                                val dx = (change.position.x - cx) / sphereR
-                                val dy = (change.position.y - cy) / sphereR
-                                val dist = sqrt(dx * dx + dy * dy)
-                                val (nx, ny) = if (dist > 0.98f) Pair(dx / dist * 0.98f, dy / dist * 0.98f) else Pair(dx, dy)
-                                cursorNormX = nx
-                                cursorNormY = ny
-                                val hex = calculateSphereColorHex(nx, ny, baseHex, activeShadowHex, activeLightHex, softness)
-                                onColorSelected(hex)
+                                sampleAt(change.position)
                             }
-                        )
+
+                            onInteractionEnd()
+                            isSamplingSphere = false
+                        }
                     }
             ) {
                 val cx = size.width / 2f
@@ -233,12 +204,16 @@ fun ColorShadingSpherePage(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val currentBrushHex = vm.brushColor
+
             // 1. 🌙 Shadow / Ambient Pin
             ColorPinItem(
-                iconType = PinIconType.MOON,
+                iconRes = R.drawable.ic_moon,
                 hexColor = activeShadowHex,
+                isSelected = activeShadowHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = shadowOverrideHex != null,
-                onClick = { editingSlot = 1 },
+                onSelect = { onColorSelected(activeShadowHex) },
+                onEdit = { editingSlot = 1 },
                 onLongClick = {
                     shadowOverrideHex = null
                     Toast.makeText(context, context.getString(R.string.color_sphere_reset_auto), Toast.LENGTH_SHORT).show()
@@ -247,10 +222,12 @@ fun ColorShadingSpherePage(
 
             // 2. 💧 Local / Base Color Pin
             ColorPinItem(
-                iconType = PinIconType.DROP,
+                iconRes = R.drawable.ic_droplet,
                 hexColor = baseHex,
+                isSelected = baseHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = false,
-                onClick = {
+                onSelect = { onColorSelected(baseHex) },
+                onEdit = {
                     vm.updateColorSphereBaseHex(vm.brushColor)
                     Toast.makeText(context, context.getString(R.string.color_sphere_base_updated), Toast.LENGTH_SHORT).show()
                 },
@@ -262,10 +239,12 @@ fun ColorShadingSpherePage(
 
             // 3. ☀️ Key Light Pin
             ColorPinItem(
-                iconType = PinIconType.SUN,
+                iconRes = R.drawable.ic_sun,
                 hexColor = activeLightHex,
+                isSelected = activeLightHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = lightOverrideHex != null,
-                onClick = { editingSlot = 2 },
+                onSelect = { onColorSelected(activeLightHex) },
+                onEdit = { editingSlot = 2 },
                 onLongClick = {
                     lightOverrideHex = null
                     Toast.makeText(context, context.getString(R.string.color_sphere_reset_auto), Toast.LENGTH_SHORT).show()
@@ -357,17 +336,15 @@ fun ColorShadingSpherePage(
     }
 }
 
-private enum class PinIconType {
-    MOON, DROP, SUN
-}
-
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ColorPinItem(
-    iconType: PinIconType,
+    iconRes: Int,
     hexColor: String,
+    isSelected: Boolean,
     isOverridden: Boolean,
-    onClick: () -> Unit,
+    onSelect: () -> Unit,
+    onEdit: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val chipColor = remember(hexColor) {
@@ -381,63 +358,29 @@ private fun ColorPinItem(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
+            .background(if (isSelected) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
             .combinedClickable(
-                onClick = onClick,
+                onClick = onSelect,
                 onLongClick = onLongClick
             )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Icon (Moon / Drop / Sun) - Outline style matching reference UI
-        Canvas(modifier = Modifier.size(16.dp)) {
-            val w = size.width
-            val h = size.height
-            val iconTint = Morandi.subText
-            val strokeStyle = Stroke(1.3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-
-            when (iconType) {
-                PinIconType.MOON -> {
-                    val moonPath = Path().apply {
-                        moveTo(w * 0.5f, h * 0.05f)
-                        cubicTo(w * 0.1f, h * 0.15f, w * 0.05f, h * 0.65f, w * 0.45f, h * 0.95f)
-                        cubicTo(w * 0.2f, h * 0.75f, w * 0.22f, h * 0.25f, w * 0.5f, h * 0.05f)
-                        close()
-                    }
-                    drawPath(moonPath, color = iconTint, style = strokeStyle)
-                }
-                PinIconType.DROP -> {
-                    val dropPath = Path().apply {
-                        moveTo(w * 0.5f, h * 0.05f)
-                        cubicTo(w * 0.15f, h * 0.5f, w * 0.05f, h * 0.72f, w * 0.5f, h * 0.95f)
-                        cubicTo(w * 0.95f, h * 0.72f, w * 0.85f, h * 0.5f, w * 0.5f, h * 0.05f)
-                        close()
-                    }
-                    drawPath(dropPath, color = iconTint, style = strokeStyle)
-                }
-                PinIconType.SUN -> {
-                    val cx = w / 2f
-                    val cy = h / 2f
-                    val r = w * 0.24f
-                    drawCircle(iconTint, radius = r, center = Offset(cx, cy), style = strokeStyle)
-                    val rayLen = w * 0.14f
-                    val rayDist = r + 2.dp.toPx()
-                    for (angle in 0 until 360 step 45) {
-                        val rad = Math.toRadians(angle.toDouble())
-                        val sx = cx + (rayDist * cos(rad)).toFloat()
-                        val sy = cy + (rayDist * sin(rad)).toFloat()
-                        val ex = cx + ((rayDist + rayLen) * cos(rad)).toFloat()
-                        val ey = cy + ((rayDist + rayLen) * sin(rad)).toFloat()
-                        drawLine(
-                            color = iconTint,
-                            start = Offset(sx, sy),
-                            end = Offset(ex, ey),
-                            strokeWidth = 1.3.dp.toPx(),
-                            cap = StrokeCap.Round
-                        )
-                    }
-                }
-            }
+        // Tabler Icon (Moon / Droplet / Sun)
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onEdit),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = if (isSelected) Morandi.accent else Morandi.subText,
+                modifier = Modifier.size(16.dp)
+            )
         }
 
         // Circular color chip
@@ -448,10 +391,11 @@ private fun ColorPinItem(
                 .clip(CircleShape)
                 .background(chipColor)
                 .border(
-                    width = if (isOverridden) 1.5.dp else 0.8.dp,
-                    color = if (isOverridden) Morandi.accent else Color.White.copy(alpha = 0.4f),
+                    width = if (isSelected) 2.dp else if (isOverridden) 1.5.dp else 0.8.dp,
+                    color = if (isSelected) Morandi.accent else if (isOverridden) Morandi.accent else Color.White.copy(alpha = 0.4f),
                     shape = CircleShape
                 )
+                .clickable(onClick = onSelect)
         )
     }
 }

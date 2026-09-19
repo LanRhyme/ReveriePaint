@@ -20,6 +20,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -425,98 +427,69 @@ private fun ColorPanelBottomTabs(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Tab 0: Wheel (◎)
+        // Tab 0: Wheel
         BottomTabButton(
             selected = selectedTab == 0,
             onClick = { onTabSelect(0) }
         ) { tint ->
-            Canvas(modifier = Modifier.size(17.dp)) {
-                drawCircle(tint, radius = size.minDimension / 2f, style = Stroke(2.2.dp.toPx()))
-                drawCircle(tint, radius = size.minDimension / 4.5f, style = Stroke(2.dp.toPx()))
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_tabler_color_wheel),
+                contentDescription = stringResource(R.string.color_tab_wheel),
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
 
-        // Tab 1: Square / Card (□)
+        // Tab 1: Square / Card
         BottomTabButton(
             selected = selectedTab == 1,
             onClick = { onTabSelect(1) }
         ) { tint ->
-            Box(
-                modifier = Modifier
-                    .size(15.dp, 16.dp)
-                    .border(2.dp, tint, RoundedCornerShape(3.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .background(tint, CircleShape)
-                )
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_tabler_color_square),
+                contentDescription = stringResource(R.string.color_tab_square),
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
 
-        // Tab 2: Harmony (3 connected chord nodes)
+        // Tab 2: Harmony
         BottomTabButton(
             selected = selectedTab == 2,
             onClick = { onTabSelect(2) }
         ) { tint ->
-            Canvas(modifier = Modifier.size(17.dp)) {
-                val r = size.minDimension / 2f
-                drawCircle(tint, radius = r, style = Stroke(1.8.dp.toPx()))
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val innerR = r * 0.52f
-                val p1 = Offset(cx, cy - innerR)
-                val p2 = Offset(cx + innerR * 0.866f, cy + innerR * 0.5f)
-                val p3 = Offset(cx - innerR * 0.866f, cy + innerR * 0.5f)
-                val path = Path().apply {
-                    moveTo(p1.x, p1.y)
-                    lineTo(p2.x, p2.y)
-                    lineTo(p3.x, p3.y)
-                    close()
-                }
-                drawPath(path, color = tint.copy(alpha = 0.35f))
-                drawPath(path, color = tint, style = Stroke(1.2.dp.toPx()))
-                drawCircle(tint, radius = 1.8.dp.toPx(), center = p1)
-                drawCircle(tint, radius = 1.8.dp.toPx(), center = p2)
-                drawCircle(tint, radius = 1.8.dp.toPx(), center = p3)
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_tabler_color_harmony),
+                contentDescription = stringResource(R.string.color_tab_harmony),
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
 
-        // Tab 3: Palettes Grid (田)
+        // Tab 3: Palettes Grid
         BottomTabButton(
             selected = selectedTab == 3,
             onClick = { onTabSelect(3) }
         ) { tint ->
-            Canvas(modifier = Modifier.size(17.dp)) {
-                val gap = 2.dp.toPx()
-                val itemW = (size.width - gap * 2) / 3f
-                val itemH = (size.height - gap * 2) / 3f
-                for (i in 0..2) {
-                    for (j in 0..2) {
-                        drawRect(
-                            color = tint,
-                            topLeft = Offset(i * (itemW + gap), j * (itemH + gap)),
-                            size = Size(itemW, itemH)
-                        )
-                    }
-                }
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_grid),
+                contentDescription = stringResource(R.string.color_tab_palette),
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
 
-        // Tab 4: Sliders (三)
+        // Tab 4: Sliders
         BottomTabButton(
             selected = selectedTab == 4,
             onClick = { onTabSelect(4) }
         ) { tint ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(Modifier.size(16.dp, 2.dp).background(tint, RoundedCornerShape(1.dp)))
-                Box(Modifier.size(11.dp, 2.dp).background(tint, RoundedCornerShape(1.dp)))
-                Box(Modifier.size(16.dp, 2.dp).background(tint, RoundedCornerShape(1.dp)))
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_sliders),
+                contentDescription = stringResource(R.string.color_tab_slider),
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
