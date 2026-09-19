@@ -453,17 +453,32 @@ private fun ColorPanelBottomTabs(
             )
         }
 
-        // Tab 2: Harmony
+        // Tab 2: Harmony (3 connected chord nodes)
         BottomTabButton(
             selected = selectedTab == 2,
             onClick = { onTabSelect(2) }
         ) { tint ->
-            Icon(
-                painter = painterResource(R.drawable.ic_tabler_color_harmony),
-                contentDescription = stringResource(R.string.color_tab_harmony),
-                tint = tint,
-                modifier = Modifier.size(18.dp)
-            )
+            Canvas(modifier = Modifier.size(17.dp)) {
+                val r = size.minDimension / 2f
+                drawCircle(tint, radius = r, style = Stroke(1.8.dp.toPx()))
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val innerR = r * 0.52f
+                val p1 = Offset(cx, cy - innerR)
+                val p2 = Offset(cx + innerR * 0.866f, cy + innerR * 0.5f)
+                val p3 = Offset(cx - innerR * 0.866f, cy + innerR * 0.5f)
+                val path = Path().apply {
+                    moveTo(p1.x, p1.y)
+                    lineTo(p2.x, p2.y)
+                    lineTo(p3.x, p3.y)
+                    close()
+                }
+                drawPath(path, color = tint.copy(alpha = 0.35f))
+                drawPath(path, color = tint, style = Stroke(1.2.dp.toPx()))
+                drawCircle(tint, radius = 1.8.dp.toPx(), center = p1)
+                drawCircle(tint, radius = 1.8.dp.toPx(), center = p2)
+                drawCircle(tint, radius = 1.8.dp.toPx(), center = p3)
+            }
         }
 
         // Tab 3: Palettes Grid

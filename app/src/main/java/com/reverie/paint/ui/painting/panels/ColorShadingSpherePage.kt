@@ -73,13 +73,6 @@ fun ColorShadingSpherePage(
         }
     }
 
-    // Sync base color when brushColor changes externally (from palette, eyedropper, other tabs)
-    LaunchedEffect(vm.brushColor) {
-        if (!isSamplingSphere) {
-            vm.updateColorSphereBaseHex(vm.brushColor)
-        }
-    }
-
     val baseHex = if (vm.colorSphereBaseHex.isNotEmpty()) vm.colorSphereBaseHex else vm.brushColor
 
     // 2. Custom color overrides for 🌙 and ☀️
@@ -204,16 +197,12 @@ fun ColorShadingSpherePage(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val currentBrushHex = vm.brushColor
-
             // 1. 🌙 Shadow / Ambient Pin
             ColorPinItem(
                 iconRes = R.drawable.ic_moon,
                 hexColor = activeShadowHex,
-                isSelected = activeShadowHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = shadowOverrideHex != null,
-                onSelect = { onColorSelected(activeShadowHex) },
-                onEdit = { editingSlot = 1 },
+                onClick = { editingSlot = 1 },
                 onLongClick = {
                     shadowOverrideHex = null
                     Toast.makeText(context, context.getString(R.string.color_sphere_reset_auto), Toast.LENGTH_SHORT).show()
@@ -224,10 +213,8 @@ fun ColorShadingSpherePage(
             ColorPinItem(
                 iconRes = R.drawable.ic_droplet,
                 hexColor = baseHex,
-                isSelected = baseHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = false,
-                onSelect = { onColorSelected(baseHex) },
-                onEdit = {
+                onClick = {
                     vm.updateColorSphereBaseHex(vm.brushColor)
                     Toast.makeText(context, context.getString(R.string.color_sphere_base_updated), Toast.LENGTH_SHORT).show()
                 },
@@ -241,10 +228,8 @@ fun ColorShadingSpherePage(
             ColorPinItem(
                 iconRes = R.drawable.ic_sun,
                 hexColor = activeLightHex,
-                isSelected = activeLightHex.equals(currentBrushHex, ignoreCase = true),
                 isOverridden = lightOverrideHex != null,
-                onSelect = { onColorSelected(activeLightHex) },
-                onEdit = { editingSlot = 2 },
+                onClick = { editingSlot = 2 },
                 onLongClick = {
                     lightOverrideHex = null
                     Toast.makeText(context, context.getString(R.string.color_sphere_reset_auto), Toast.LENGTH_SHORT).show()
@@ -341,10 +326,8 @@ fun ColorShadingSpherePage(
 private fun ColorPinItem(
     iconRes: Int,
     hexColor: String,
-    isSelected: Boolean,
     isOverridden: Boolean,
-    onSelect: () -> Unit,
-    onEdit: () -> Unit,
+    onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
     val chipColor = remember(hexColor) {
@@ -358,32 +341,21 @@ private fun ColorPinItem(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
             .combinedClickable(
-                onClick = onSelect,
+                onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(horizontal = 6.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // Tabler Icon (Moon / Droplet / Sun)
-        Box(
-            modifier = Modifier
-                .size(20.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onEdit),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = if (isSelected) Morandi.accent else Morandi.subText,
-                modifier = Modifier.size(16.dp)
-            )
-        }
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = Morandi.subText,
+            modifier = Modifier.size(16.dp)
+        )
 
-        // Circular color chip
         Box(
             modifier = Modifier
                 .size(20.dp)
@@ -391,11 +363,10 @@ private fun ColorPinItem(
                 .clip(CircleShape)
                 .background(chipColor)
                 .border(
-                    width = if (isSelected) 2.dp else if (isOverridden) 1.5.dp else 0.8.dp,
-                    color = if (isSelected) Morandi.accent else if (isOverridden) Morandi.accent else Color.White.copy(alpha = 0.4f),
+                    width = if (isOverridden) 1.5.dp else 0.8.dp,
+                    color = if (isOverridden) Morandi.accent else Color.White.copy(alpha = 0.4f),
                     shape = CircleShape
                 )
-                .clickable(onClick = onSelect)
         )
     }
 }
