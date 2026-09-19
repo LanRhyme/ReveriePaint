@@ -718,6 +718,17 @@
     <string name="color_harmony_save_btn">存入色卡</string>
     <string name="color_harmony_saved_toast">已将配色方案存入 %s</string>
     <string name="color_harmony_no_pal_toast">暂无可用色卡</string>
+    <string name="color_harmony_subtab_wheel">和谐色轮</string>
+    <string name="color_harmony_subtab_sphere">3D光影</string>
+    <string name="color_sphere_shadow">阴影</string>
+    <string name="color_sphere_base">固有色</string>
+    <string name="color_sphere_light">光源</string>
+    <string name="color_sphere_softness">过渡柔和度</string>
+    <string name="color_sphere_reset_auto">已重置为自动冷暖光影</string>
+    <string name="color_sphere_edit_shadow">调节阴影/环境色</string>
+    <string name="color_sphere_edit_light">调节主光源/亮部色</string>
+    <string name="color_sphere_saved_toast">已将光影三色存入 %s</string>
+    <string name="color_sphere_base_updated">已将固有色更新为当前画笔色</string>
     <string name="color_recent_colors">记忆色</string>
     <string name="color_clear">清除</string>
     <string name="color_pal_default_tag">默认</string>

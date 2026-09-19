@@ -98,7 +98,7 @@ fun ColorHarmonyPage(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 1. Harmony Mode Selector Tabs
+        // 0. Sub-tab switcher: [ 谐色轮 ] | [ 3D光影 ]
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -108,151 +108,210 @@ fun ColorHarmonyPage(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            for (mode in ColorHarmonyMode.entries) {
-                val isSel = harmonyMode == mode
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(24.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSel) Morandi.accent else Color.Transparent)
-                        .clickable { vm.updateColorHarmonyMode(mode.name) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = androidx.compose.ui.res.stringResource(mode.labelRes),
-                        color = if (isSel) Color.White else Morandi.subText,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
+            val subTab = vm.colorHarmonySubTab
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (subTab == 0) Morandi.accent else Color.Transparent)
+                    .clickable { vm.updateColorHarmonySubTab(0) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_wheel),
+                    color = if (subTab == 0) Color.White else Morandi.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Normal
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(if (subTab == 1) Morandi.accent else Color.Transparent)
+                    .clickable {
+                        if (subTab != 1) {
+                            vm.updateColorSphereBaseHex(vm.brushColor)
+                        }
+                        vm.updateColorHarmonySubTab(1)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_sphere),
+                    color = if (subTab == 1) Color.White else Morandi.subText,
+                    fontSize = 11.sp,
+                    fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Normal
+                )
             }
         }
 
-        // 2. Harmony Wheel Canvas (205dp)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(190.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            HarmonyWheelCanvas(
-                hues = harmonyHues,
-                activeColorHex = vm.brushColor,
-                harmonyHexColors = harmonyHexColors,
-                sat = sat,
-                valB = valB,
-                onPrimaryHue = { newHue ->
-                    harmonyBaseHue = newHue
-                    vm.updateColorHarmonyBaseHue(newHue)
-                    onHue(newHue)
-                },
-                onSelectSecondary = { secondaryIndex ->
-                    val targetHex = harmonyHexColors.getOrNull(secondaryIndex)
-                    if (targetHex != null) {
-                        vm.updateBrushColor(targetHex)
-                    }
-                },
+        if (vm.colorHarmonySubTab == 1) {
+            ColorShadingSpherePage(
+                vm = vm,
+                onColorSelected = { hex -> vm.updateBrushColor(hex) },
                 onInteractionStart = onInteractionStart,
                 onInteractionEnd = onInteractionEnd
             )
-        }
-
-        // 3. Harmony Chord Swatches Row + "存入色卡" button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Chord Colors Row
+        } else {
+            // 1. Harmony Mode Selector Tabs
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .padding(2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val curHex = vm.brushColor
-                for (hex in harmonyHexColors) {
-                    val isPrimary = hex.equals(curHex, ignoreCase = true)
+                for (mode in ColorHarmonyMode.entries) {
+                    val isSel = harmonyMode == mode
                     Box(
                         modifier = Modifier
-                            .size(26.dp)
+                            .weight(1f)
+                            .height(24.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(android.graphics.Color.parseColor(hex)))
-                            .then(
-                                if (isPrimary) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
-                                else Modifier.border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
-                            )
-                            .clickable {
-                                vm.updateBrushColor(hex)
-                            }
-                    )
+                            .background(if (isSel) Morandi.accent else Color.Transparent)
+                            .clickable { vm.updateColorHarmonyMode(mode.name) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(mode.labelRes),
+                            color = if (isSel) Color.White else Morandi.subText,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
                 }
             }
 
-            // Save Chord to Active Palette Button
+            // 2. Harmony Wheel Canvas (205dp)
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Morandi.panelHi)
-                    .clickable {
-                        val targetPal = vm.defaultPalette
-                        if (targetPal != null) {
-                            harmonyHexColors.forEach { c ->
-                                vm.addColorToPalette(targetPal.id, c)
-                            }
-                            Toast.makeText(context, context.getString(R.string.color_harmony_saved_toast, targetPal.name), Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, context.getString(R.string.color_harmony_no_pal_toast), Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .fillMaxWidth()
+                    .height(190.dp),
                 contentAlignment = Alignment.Center
             ) {
+                HarmonyWheelCanvas(
+                    hues = harmonyHues,
+                    activeColorHex = vm.brushColor,
+                    harmonyHexColors = harmonyHexColors,
+                    sat = sat,
+                    valB = valB,
+                    onPrimaryHue = { newHue ->
+                        harmonyBaseHue = newHue
+                        vm.updateColorHarmonyBaseHue(newHue)
+                        onHue(newHue)
+                    },
+                    onSelectSecondary = { secondaryIndex ->
+                        val targetHex = harmonyHexColors.getOrNull(secondaryIndex)
+                        if (targetHex != null) {
+                            vm.updateBrushColor(targetHex)
+                        }
+                    },
+                    onInteractionStart = onInteractionStart,
+                    onInteractionEnd = onInteractionEnd
+                )
+            }
+
+            // 3. Harmony Chord Swatches Row + "存入色卡" button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Chord Colors Row
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_bookmark_plus),
-                        contentDescription = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn),
-                        tint = Morandi.accent,
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Text(text = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn), color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    val curHex = vm.brushColor
+                    for (hex in harmonyHexColors) {
+                        val isPrimary = hex.equals(curHex, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .size(26.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(android.graphics.Color.parseColor(hex)))
+                                .then(
+                                    if (isPrimary) Modifier.border(2.dp, Color.White, RoundedCornerShape(6.dp))
+                                    else Modifier.border(0.5.dp, Morandi.border, RoundedCornerShape(6.dp))
+                                )
+                                .clickable {
+                                    vm.updateBrushColor(hex)
+                                }
+                        )
+                    }
+                }
+
+                // Save Chord to Active Palette Button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.panelHi)
+                        .clickable {
+                            val targetPal = vm.defaultPalette
+                            if (targetPal != null) {
+                                harmonyHexColors.forEach { c ->
+                                    vm.addColorToPalette(targetPal.id, c)
+                                }
+                                Toast.makeText(context, context.getString(R.string.color_harmony_saved_toast, targetPal.name), Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, context.getString(R.string.color_harmony_no_pal_toast), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_bookmark_plus),
+                            contentDescription = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn),
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(text = androidx.compose.ui.res.stringResource(R.string.color_harmony_save_btn), color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                    }
                 }
             }
-        }
 
-        // 4. Compact Saturation & Brightness Sliders
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            CompactHsvSlider(
-                label = "S",
-                value = sat * 100f,
-                max = 100f,
-                colors = listOf(
-                    Color(hsvModelToRgb(hue, 0f, valB, vm.colorModel)),
-                    Color(hsvModelToRgb(hue, 1f, valB, vm.colorModel))
-                ),
-                onInteractionStart = onInteractionStart,
-                onInteractionEnd = onInteractionEnd,
-                onValueChange = { onSat(it / 100f) },
-                unitSuffix = "%"
-            )
-            CompactHsvSlider(
-                label = "V",
-                value = valB * 100f,
-                max = 100f,
-                colors = listOf(
-                    Color(hsvModelToRgb(hue, sat, 0f, vm.colorModel)),
-                    Color(hsvModelToRgb(hue, sat, 1f, vm.colorModel))
-                ),
-                onInteractionStart = onInteractionStart,
-                onInteractionEnd = onInteractionEnd,
-                onValueChange = { onVal(it / 100f) },
-                unitSuffix = "%"
-            )
+            // 4. Compact Saturation & Brightness Sliders
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                CompactHsvSlider(
+                    label = "S",
+                    value = sat * 100f,
+                    max = 100f,
+                    colors = listOf(
+                        Color(hsvModelToRgb(hue, 0f, valB, vm.colorModel)),
+                        Color(hsvModelToRgb(hue, 1f, valB, vm.colorModel))
+                    ),
+                    onInteractionStart = onInteractionStart,
+                    onInteractionEnd = onInteractionEnd,
+                    onValueChange = { onSat(it / 100f) },
+                    unitSuffix = "%"
+                )
+                CompactHsvSlider(
+                    label = "V",
+                    value = valB * 100f,
+                    max = 100f,
+                    colors = listOf(
+                        Color(hsvModelToRgb(hue, sat, 0f, vm.colorModel)),
+                        Color(hsvModelToRgb(hue, sat, 1f, vm.colorModel))
+                    ),
+                    onInteractionStart = onInteractionStart,
+                    onInteractionEnd = onInteractionEnd,
+                    onValueChange = { onVal(it / 100f) },
+                    unitSuffix = "%"
+                )
+            }
         }
 
         // 5. Bottom Quick Swatches

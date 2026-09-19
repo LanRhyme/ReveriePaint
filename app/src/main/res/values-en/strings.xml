@@ -718,6 +718,17 @@
     <string name="color_harmony_save_btn">Save to Palette</string>
     <string name="color_harmony_saved_toast">Color harmony saved to %s</string>
     <string name="color_harmony_no_pal_toast">No palette available</string>
+    <string name="color_harmony_subtab_wheel">Harmonies</string>
+    <string name="color_harmony_subtab_sphere">3D Shading</string>
+    <string name="color_sphere_shadow">Shadow</string>
+    <string name="color_sphere_base">Base Color</string>
+    <string name="color_sphere_light">Light</string>
+    <string name="color_sphere_softness">Softness</string>
+    <string name="color_sphere_reset_auto">Reset to auto lighting</string>
+    <string name="color_sphere_edit_shadow">Adjust Shadow Color</string>
+    <string name="color_sphere_edit_light">Adjust Key Light Color</string>
+    <string name="color_sphere_saved_toast">Lighting set saved to %s</string>
+    <string name="color_sphere_base_updated">Updated base color to current brush color</string>
     <string name="color_recent_colors">Recent Colors</string>
     <string name="color_clear">Clear</string>
     <string name="color_pal_default_tag">Default</string>

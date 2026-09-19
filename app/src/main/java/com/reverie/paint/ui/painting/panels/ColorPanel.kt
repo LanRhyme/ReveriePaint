@@ -245,7 +245,12 @@ fun ColorPanel(
             // 3. Bottom 5 Navigation Tabs (Wheel, Square, Harmony, Palettes, Sliders)
             ColorPanelBottomTabs(
                 selectedTab = vm.colorPanelTab,
-                onTabSelect = { vm.updateColorPanelTab(it) }
+                onTabSelect = { newTab ->
+                    if (newTab == 2 && vm.colorPanelTab != 2) {
+                        vm.updateColorSphereBaseHex(vm.brushColor)
+                    }
+                    vm.updateColorPanelTab(newTab)
+                }
             )
         }
     }

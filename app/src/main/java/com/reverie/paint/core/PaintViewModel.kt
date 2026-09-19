@@ -1729,6 +1729,7 @@ class PaintViewModel : ViewModel() {
             defaultPaletteId = prefs.getString("defaultPaletteId", "builtin_basic") ?: "builtin_basic"
             colorHarmonyModeName = prefs.getString("colorHarmonyMode", "COMPLEMENTARY") ?: "COMPLEMENTARY"
             colorHarmonyBaseHue = prefs.getFloat("colorHarmonyBaseHue", -1f)
+            colorHarmonySubTab = prefs.getInt("colorHarmonySubTab", 0)
 
             // 笔刷面板持久化恢复
             brushPanelSelectedCategory = prefs.getString("brush_panel_category", "全部") ?: "全部"
@@ -1946,6 +1947,8 @@ class PaintViewModel : ViewModel() {
 
     var colorHarmonyModeName by mutableStateOf("COMPLEMENTARY")
     var colorHarmonyBaseHue by mutableFloatStateOf(-1f)
+    var colorHarmonySubTab by mutableIntStateOf(0)
+    var colorSphereBaseHex by mutableStateOf("")
 
     fun updateColorHarmonyMode(mode: String) {
         colorHarmonyModeName = mode
@@ -1961,6 +1964,18 @@ class PaintViewModel : ViewModel() {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putFloat("colorHarmonyBaseHue", hue).apply()
         }
+    }
+
+    fun updateColorHarmonySubTab(subTab: Int) {
+        colorHarmonySubTab = subTab
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("colorHarmonySubTab", subTab).apply()
+        }
+    }
+
+    fun updateColorSphereBaseHex(hex: String) {
+        colorSphereBaseHex = hex
     }
 
     fun addColorToPalette(paletteId: String, hex: String) {
@@ -2080,6 +2095,9 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorPanelTab(tab: Int) {
         colorPanelTab = tab
+        if (tab == 2) {
+            colorSphereBaseHex = brushColor
+        }
     }
 
     private fun persistRecentColors() {

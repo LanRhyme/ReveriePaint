@@ -1033,6 +1033,9 @@ import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.updateBrushColor(c: String) {
         brushColor = c
+        if (colorPanelTab != 2) {
+            colorSphereBaseHex = c
+        }
         runCore(render = false) { ReverieCoreBridge.setBrushColor(c) }
         if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
