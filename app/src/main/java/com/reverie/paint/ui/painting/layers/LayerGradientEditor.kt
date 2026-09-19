@@ -269,7 +269,6 @@ fun CompactColorPickerDialog(
                             .size(32.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(currentColor)
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                     )
                 }
 
@@ -604,8 +603,7 @@ internal fun CustomGradientEditor(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(RoundedCornerShape(6.dp))
-                            .background(activeStop.color)
-                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(6.dp)),
+                            .background(activeStop.color),
                     )
                     Column {
                         Text(

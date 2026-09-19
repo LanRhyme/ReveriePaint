@@ -250,7 +250,6 @@ fun ToolRail(
                             .size(24.dp)
                             .clip(CircleShape)
                             .background(parseColor(brushColor))
-                            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     )
                 }
                 Spacer(Modifier.height(5.dp))

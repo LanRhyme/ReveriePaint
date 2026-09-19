@@ -477,7 +477,6 @@ fun HexInputDialog(
                             .size(38.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(parsedColor ?: Color.Transparent)
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
                     )
 
                     // Hex Text Field

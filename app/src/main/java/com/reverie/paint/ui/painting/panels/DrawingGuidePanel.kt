@@ -105,7 +105,7 @@ fun DrawingGuidePanel(
                     modifier = Modifier
                         .size(24.dp)
                         .clip(CircleShape)
-                        .background(Morandi.border.copy(alpha = 0.4f))
+                        .background(Morandi.panelHi.copy(alpha = 0.6f))
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -320,8 +320,7 @@ private fun SymmetryChip(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Morandi.accent.copy(alpha = 0.2f) else Morandi.border.copy(alpha = 0.3f))
-            .border(1.dp, if (selected) Morandi.accent else Color.Transparent, RoundedCornerShape(8.dp))
+            .background(if (selected) Morandi.accent.copy(alpha = 0.25f) else Morandi.panelHi.copy(alpha = 0.5f))
             .clickable(onClick = onClick)
             .padding(vertical = 5.dp),
         contentAlignment = Alignment.Center,

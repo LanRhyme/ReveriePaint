@@ -450,7 +450,7 @@ internal fun LayerListView(
             )
         }
 
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+        Spacer(Modifier.height(4.dp))
 
         var listTop by remember { mutableStateOf(0f) }
         // Adaptive height: grows with the layer count, capped at

@@ -892,12 +892,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .rotate(fanBottomAngle)
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color(0xFFEDEDED))
-                                                                    .border(
-                                                                        0.5.dp,
-                                                                        Color.Black.copy(alpha = 0.12f),
-                                                                        RoundedCornerShape(8.dp),
-                                                                    ),
+                                                                    .background(Color(0xFFEDEDED)),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
                                                             if (thumb2 != null) {
@@ -928,12 +923,7 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .rotate(fanMiddleAngle)
                                                                     .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color(0xFFF3F3F3))
-                                                                    .border(
-                                                                        0.5.dp,
-                                                                        Color.Black.copy(alpha = 0.15f),
-                                                                        RoundedCornerShape(8.dp),
-                                                                    ),
+                                                                    .background(Color(0xFFF3F3F3)),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
                                                             if (thumb1 != null) {
@@ -964,16 +954,10 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
-                                                                    .border(
-                                                                        if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
-                                                                        if (isSelectMode &&
-                                                                            isSelected
-                                                                        ) {
-                                                                            colors.accent
-                                                                        } else {
-                                                                            Color.Black.copy(alpha = 0.18f)
-                                                                        },
-                                                                        RoundedCornerShape(8.dp),
+                                                                    .then(
+                                                                        if (isSelectMode && isSelected) {
+                                                                            Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                                                                        } else Modifier
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
@@ -1080,19 +1064,13 @@ fun HomePage(vm: PaintViewModel) {
                                                                 Modifier
                                                                     .fillMaxSize(0.92f)
                                                                     .aspectRatio(rawRatio, matchHeightConstraintsFirst = rawRatio < 1.0f)
-                                                                    .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
+                                                                    .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
-                                                                    .border(
-                                                                        if (isSelectMode && isSelected) 2.5.dp else 0.5.dp,
-                                                                        if (isSelectMode &&
-                                                                            isSelected
-                                                                        ) {
-                                                                            colors.accent
-                                                                        } else {
-                                                                            Color.Black.copy(alpha = 0.12f)
-                                                                        },
-                                                                        RoundedCornerShape(8.dp),
+                                                                    .then(
+                                                                        if (isSelectMode && isSelected) {
+                                                                            Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                                                                        } else Modifier
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {

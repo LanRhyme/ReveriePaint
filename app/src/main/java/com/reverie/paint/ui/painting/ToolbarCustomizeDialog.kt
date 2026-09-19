@@ -203,18 +203,11 @@ fun ToolbarCustomizeDialog(
                         }
                     }
 
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(Morandi.border)
-                    )
-
                     // Quick Actions
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -240,13 +233,6 @@ fun ToolbarCustomizeDialog(
                             fontWeight = FontWeight.Medium
                         )
                     }
-
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(Morandi.border)
-                    )
 
                     // List Container
                     val listState = rememberLazyListState()
@@ -350,12 +336,6 @@ fun ToolbarCustomizeDialog(
                     }
 
                     // Bottom Bar
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(Morandi.border)
-                    )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

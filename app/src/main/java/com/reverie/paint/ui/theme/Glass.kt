@@ -59,22 +59,6 @@ object Glass {
 }
 
 /**
- * 方向性玻璃描边：上缘受光（白 α0.18）渐隐至下缘背光，
- * 替代纯色 border 的塑料感。hairline 1dp。Brush/Stroke 均在组合期预分配。
+ * 方向性玻璃描边（现已升级为无框工作室美学，返回无描边修饰符以避免线框感）
  */
-fun Modifier.glassBorder(shape: Shape): Modifier = composed {
-    val brush = remember {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.14f),
-                Color.White.copy(alpha = 0.02f),
-                Color.Black.copy(alpha = 0.06f),
-            )
-        )
-    }
-    val stroke = with(LocalDensity.current) { remember { Stroke(width = 1.dp.toPx()) } }
-    drawBehind {
-        val outline = shape.createOutline(size, layoutDirection, this)
-        drawOutline(outline, brush = brush, style = stroke)
-    }
-}
+fun Modifier.glassBorder(shape: Shape): Modifier = this

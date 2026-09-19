@@ -376,7 +376,6 @@ private fun ColorPanelHeader(
                             .align(Alignment.BottomEnd)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(android.graphics.Color.parseColor(secondaryColor)))
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                     )
                     // Foreground Color Box (top left)
                     Box(
@@ -385,7 +384,6 @@ private fun ColorPanelHeader(
                             .align(Alignment.TopStart)
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(android.graphics.Color.parseColor(brushColor)))
-                            .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                     )
                 }
 

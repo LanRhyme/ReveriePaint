@@ -624,7 +624,7 @@ fun ReVerticalSlider(
                 val capsuleRadius = (trackWidth / 2).dp
                 val capsuleGrow by animateFloatAsState(if (isDragging) 1.08f else 1f, Motion.springSnap, label = "capsuleGrow")
 
-                // Track Background (Groove style without rigid borders)
+                // Track Background (Groove style using panelHi to match ReSlider)
                 Box(
                     modifier = Modifier
                         .width(trackWidth.dp)
@@ -635,7 +635,7 @@ fun ReVerticalSlider(
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.panel.copy(alpha = 0.55f))
+                        .background(colors.panelHi)
                 ) {
                     // Active progress fill level
                     Box(
@@ -643,7 +643,7 @@ fun ReVerticalSlider(
                             .fillMaxWidth()
                             .fillMaxHeight(localFraction.coerceIn(0f, 1f))
                             .align(Alignment.BottomCenter)
-                            .background(colors.accent.copy(alpha = 0.30f))
+                            .background(colors.accent.copy(alpha = 0.45f))
                     )
                 }
 

@@ -275,7 +275,7 @@ internal fun FiltersPage(
                 modifier = Modifier.weight(1f)
             )
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+        Spacer(Modifier.height(4.dp))
 
         AnimatedContent(
             targetState = selectedCategory,
@@ -293,7 +293,7 @@ internal fun FiltersPage(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .noRippleClickable { selectedCategory = cat }
-                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -327,7 +327,6 @@ internal fun FiltersPage(
                                 modifier = Modifier.size(14.dp)
                             )
                         }
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
                     }
                 }
             } else {
@@ -361,7 +360,6 @@ internal fun FiltersPage(
                                 modifier = Modifier.size(14.dp)
                             )
                         }
-                        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(0.5.dp).background(Morandi.border.copy(alpha = 0.4f)))
                     }
                 }
             }

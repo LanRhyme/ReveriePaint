@@ -421,12 +421,7 @@ internal fun TopIcon(
             Modifier
                 .size(32.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (active) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
-                .border(
-                    width = if (active) 1.dp else 0.dp,
-                    color = if (active) Morandi.accent else Color.Transparent,
-                    shape = RoundedCornerShape(8.dp)
-                )
+                .background(if (active) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
                 .noRippleClickable { if (enabled) onClick() },
         contentAlignment = Alignment.Center,
     ) {

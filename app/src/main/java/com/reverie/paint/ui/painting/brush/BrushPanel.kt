@@ -307,8 +307,10 @@ fun BrushPanel(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(42.dp)
-                                                .background(if (sel) Morandi.panelHi.copy(alpha = opacity) else Color.Transparent)
+                                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                                                .height(38.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
                                                 .combinedClickable(
                                                     onClick = {
                                                         selectedCategory = cat
@@ -710,19 +712,13 @@ private fun PresetGridCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.12f) else Morandi.panelHi.copy(alpha = 0.5f)
-    val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(cellBg)
-            .border(
-                width = if (isSelected) 1.5.dp else 0.dp,
-                color = cellBorderColor,
-                shape = RoundedCornerShape(8.dp)
-            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -735,7 +731,7 @@ private fun PresetGridCard(
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(6.dp))
-                .background(Morandi.panelHi),
+                .background(Morandi.panel.copy(alpha = 0.5f)),
             contentAlignment = Alignment.Center
         ) {
             val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
@@ -780,25 +776,19 @@ private fun PresetListRow(
     onToggleFav: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.10f) else Morandi.panelHi.copy(alpha = 0.5f)
-    val cellBorderColor = if (isSelected) Morandi.accent else Color.Transparent
+    val cellBg = if (isSelected) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(50.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(cellBg)
-            .border(
-                width = if (isSelected) 1.dp else 0.dp,
-                color = cellBorderColor,
-                shape = RoundedCornerShape(10.dp)
-            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
-            .padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)

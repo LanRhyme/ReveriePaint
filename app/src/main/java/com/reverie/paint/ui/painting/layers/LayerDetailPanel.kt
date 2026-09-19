@@ -222,8 +222,7 @@ internal fun LayerDetailPage(
                                 Modifier
                                     .size(28.dp)
                                     .clip(RoundedCornerShape(6.dp))
-                                    .background(Color(currentColor))
-                                    .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
+                                    .background(Color(currentColor)),
                         )
                         Column {
                             Text(stringResource(R.string.layer_bg_color), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -333,8 +332,7 @@ internal fun LayerDetailPage(
                             Modifier
                                 .size(24.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.accent)
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(6.dp)),
+                                .background(Morandi.accent),
                     )
                     Column {
                         Text(stringResource(R.string.layer_fill_color), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
