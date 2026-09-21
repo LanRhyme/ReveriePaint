@@ -6,12 +6,14 @@ package com.reverie.paint
 
 import android.content.Intent
 import android.net.Uri
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.DragEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -49,6 +51,16 @@ class MainActivity : ComponentActivity() {
             act.runOnUiThread {
                 val w = act.window
                 val controller = androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
+                val cutoutMode = if (extendToCutout) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    } else {
+                        android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    }
+                } else {
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                }
+
                 if (enable) {
                     androidx.core.view.WindowCompat
                         .setDecorFitsSystemWindows(w, false)
@@ -60,12 +72,7 @@ class MainActivity : ComponentActivity() {
                         androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                         val lp = w.attributes
-                        lp.layoutInDisplayCutoutMode =
-                            if (extendToCutout) {
-                                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                            } else {
-                                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
-                            }
+                        lp.layoutInDisplayCutoutMode = cutoutMode
                         w.attributes = lp
                     }
                 } else {
@@ -77,11 +84,27 @@ class MainActivity : ComponentActivity() {
                     )
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                         val lp = w.attributes
-                        lp.layoutInDisplayCutoutMode =
-                            android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                        lp.layoutInDisplayCutoutMode = cutoutMode
                         w.attributes = lp
                     }
                 }
+            }
+        }
+
+        fun applySystemBarsTheme(
+            colors: com.reverie.paint.ui.theme.AppColors,
+            isDark: Boolean,
+        ) {
+            val act = activityInstance ?: return
+            act.runOnUiThread {
+                val w = act.window
+                val barColor = colors.bg.toArgb()
+                w.statusBarColor = barColor
+                w.navigationBarColor = barColor
+                w.setBackgroundDrawable(ColorDrawable(barColor))
+                val controller = androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
+                controller.isAppearanceLightStatusBars = !isDark
+                controller.isAppearanceLightNavigationBars = !isDark
             }
         }
 
@@ -132,6 +155,11 @@ class MainActivity : ComponentActivity() {
         setContent {
             val vm: PaintViewModel = viewModel()
             currentViewModel = vm
+            val theme = com.reverie.paint.ui.theme.Theme.current
+            val isDark = vm.isCurrentlyDark()
+            androidx.compose.runtime.LaunchedEffect(theme, isDark) {
+                applySystemBarsTheme(theme, isDark)
+            }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 vm.appContext = applicationContext
                 vm.getOrCreateStylusDriver(applicationContext)

@@ -271,7 +271,6 @@ internal fun PressureCurveDetailDialog(
                 .widthIn(max = 680.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.border, RoundedCornerShape(22.dp))
                 .padding(20.dp),
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {

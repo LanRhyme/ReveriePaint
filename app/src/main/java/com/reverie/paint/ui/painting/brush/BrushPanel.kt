@@ -31,7 +31,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -466,6 +465,7 @@ fun BrushPanel(
                                                         PresetGridCard(
                                                             preset = preset,
                                                             isSelected = isSelected,
+                                                            isModified = vm.isBrushModified(preset.name),
                                                             onClick = {
                                                                 if (isSelected) view = BrushView.Detail(preset.index)
                                                                 else vm.selectBrushPreset(preset.index)
@@ -492,6 +492,7 @@ fun BrushPanel(
                                                             preset = preset,
                                                             isSelected = isSelected,
                                                             isFav = isFav,
+                                                            isModified = vm.isBrushModified(preset.name),
                                                             onClick = {
                                                                 if (isSelected) view = BrushView.Detail(preset.index)
                                                                 else vm.selectBrushPreset(preset.index)
@@ -649,12 +650,17 @@ fun BrushPanel(
         val pIdx = preset?.index ?: -1
         val isBuiltIn = preset?.isBuiltIn == true
         val isFav = vm.isFavoriteBrush(rp)
+        val isModified = vm.isBrushModified(rp)
+        val context = LocalContext.current
         ReorderBrushMenu(
             presetName = rp,
             isBuiltIn = isBuiltIn,
             isFavorite = isFav,
+            isModified = isModified,
             onDismiss = { reorderPresetName = null },
             onToggleFavorite = { vm.toggleFavoriteBrush(rp) },
+            onShare = { vm.shareBrushPreset(context, rp) },
+            onReset = { vm.resetBrushPresetToDefault(rp) },
             onUp = { vm.moveBrushUp(rp) },
             onDown = { vm.moveBrushDown(rp) },
             onMoveGroup = { movePresetName = rp },
@@ -708,6 +714,7 @@ fun BrushPanel(
 private fun PresetGridCard(
     preset: BrushPresetInfo,
     isSelected: Boolean,
+    isModified: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -752,6 +759,16 @@ private fun PresetGridCard(
                         .clip(RoundedCornerShape(6.dp)),
                 )
             }
+            if (isModified) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Morandi.accent)
+                )
+            }
         }
         Spacer(Modifier.height(3.dp))
         Text(
@@ -771,6 +788,7 @@ private fun PresetListRow(
     preset: BrushPresetInfo,
     isSelected: Boolean,
     isFav: Boolean,
+    isModified: Boolean = false,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onToggleFav: () -> Unit,
@@ -791,30 +809,45 @@ private fun PresetListRow(
             .padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
-        if (bmp != null) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = preset.name,
-                modifier = Modifier
-                    .size(38.dp)
-                    .then(
-                        if (isSelected) {
-                            Modifier.graphicsLayer {
-                                scaleX = 1.06f
-                                scaleY = 1.06f
-                            }
-                        } else Modifier
-                    )
-                    .clip(RoundedCornerShape(7.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(Morandi.panelHi)
-            )
+        Box(
+            modifier = Modifier.size(38.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = preset.name,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (isSelected) {
+                                Modifier.graphicsLayer {
+                                    scaleX = 1.06f
+                                    scaleY = 1.06f
+                                }
+                            } else Modifier
+                        )
+                        .clip(RoundedCornerShape(7.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(Morandi.panelHi)
+                )
+            }
+            if (isModified) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(3.dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(Morandi.accent)
+                )
+            }
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -964,8 +997,11 @@ private fun ReorderBrushMenu(
     presetName: String,
     isBuiltIn: Boolean,
     isFavorite: Boolean,
+    isModified: Boolean = false,
     onDismiss: () -> Unit,
     onToggleFavorite: () -> Unit,
+    onShare: () -> Unit,
+    onReset: () -> Unit,
     onUp: () -> Unit,
     onDown: () -> Unit,
     onMoveGroup: () -> Unit,
@@ -976,6 +1012,8 @@ private fun ReorderBrushMenu(
     val favRemoveText = stringResource(R.string.brush_fav_remove)
     val favAddText = stringResource(R.string.brush_fav_add)
     val duplicateText = stringResource(R.string.brush_studio_duplicate_brush)
+    val shareText = stringResource(R.string.brush_share_action)
+    val resetText = stringResource(R.string.brush_reset_action)
     val renameText = stringResource(R.string.common_rename)
     val moveUpText = stringResource(R.string.brush_move_up)
     val moveDownText = stringResource(R.string.brush_move_down)
@@ -990,7 +1028,11 @@ private fun ReorderBrushMenu(
                 val menuItems = mutableListOf(
                     (if (isFavorite) favRemoveText else favAddText) to onToggleFavorite,
                     duplicateText to onDuplicate,
+                    shareText to onShare,
                 )
+                if (isModified) {
+                    menuItems.add(resetText to onReset)
+                }
                 if (!isBuiltIn) {
                     menuItems.add(renameText to onRename)
                 }
@@ -1198,7 +1240,7 @@ fun BrushPropertyPage(
     onOpenStudio: () -> Unit = {},
 ) {
     val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
-    var showBlendModes by remember { mutableStateOf(false) }
+    var showBlendMenu by remember { mutableStateOf(false) }
 
     val blendModeList = listOf(
         "normal" to stringResource(R.string.blend_normal),
@@ -1230,32 +1272,34 @@ fun BrushPropertyPage(
     }
 
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(scrollState),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(scrollState),
     ) {
-        // Header
+        // Top Header
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
-                modifier =
-                    Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .noRippleClickable(onBack),
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .noRippleClickable(onBack),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = stringResource(R.string.common_back),
                     tint = Morandi.icon,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
+
             Text(
                 stringResource(R.string.brush_settings_title),
                 color = Morandi.text,
@@ -1263,10 +1307,33 @@ fun BrushPropertyPage(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
+
+            // Reset preset values action
             Box(
                 modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panelHi)
+                    .noRippleClickable {
+                        if (preset != null) vm.resetBrushPresetToDefault(preset.name)
+                        else vm.resetBrushParams()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_refresh),
+                    contentDescription = stringResource(R.string.brush_reset_values),
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(15.dp),
+                )
+            }
+
+            // Quick Studio entry icon
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.accent.copy(alpha = 0.15f))
                     .noRippleClickable(onOpenStudio),
                 contentAlignment = Alignment.Center,
             ) {
@@ -1274,162 +1341,282 @@ fun BrushPropertyPage(
                     painterResource(R.drawable.ic_sliders),
                     contentDescription = stringResource(R.string.brush_studio_title),
                     tint = Morandi.accent,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .noRippleClickable { vm.resetBrushParams() }
-                    .padding(end = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painterResource(R.drawable.ic_refresh),
-                    contentDescription = stringResource(R.string.brush_reset_values),
-                    tint = Morandi.subText,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(15.dp),
                 )
             }
         }
 
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.2f)))
 
-        // Advanced Brush Studio entry button
-        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
-            ReTextButton(
-                stringResource(R.string.brush_enter_studio),
-                onOpenStudio,
-                modifier = Modifier.fillMaxWidth(),
-                icon = R.drawable.ic_sliders,
-                primary = true,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-
-        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
-
-        // Blend mode row button
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .noRippleClickable { showBlendModes = !showBlendModes }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Icon(
-                painterResource(R.drawable.ic_layerstack),
-                contentDescription = null,
-                tint = Morandi.accent,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(stringResource(R.string.brush_blend_mode), color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Text(
-                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: stringResource(R.string.blend_normal),
-                color = Morandi.subText,
-                fontSize = 13.sp,
-            )
-            Icon(
-                painterResource(R.drawable.ic_chevron),
-                contentDescription = null,
-                tint = Morandi.subText,
-                modifier = Modifier.size(16.dp).rotate(if (showBlendModes) 90f else 0f),
-            )
-        }
-
-        if (showBlendModes) {
-            for ((opId, name) in blendModeList) {
-                val sel = vm.brushCompositeOp == opId
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .noRippleClickable { vm.updateBrushCompositeOp(opId) }
-                            .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else Color.Transparent)
-                            .padding(horizontal = 26.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // Preset Hero Card
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Morandi.panelHi)
+                    .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val bmp = rememberPresetThumb(preset?.name ?: "", preset?.thumbBytes ?: ByteArray(0))
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panel),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        name,
-                        color = if (sel) Morandi.accent else Morandi.text,
-                        fontSize = 13.sp,
-                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    if (sel) {
-                        Icon(
-                            painterResource(R.drawable.ic_check),
-                            contentDescription = null,
-                            tint = Morandi.accent,
-                            modifier = Modifier.size(16.dp),
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = preset?.name,
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                        )
+                    }
+                    if (preset != null && vm.isBrushModified(preset.name)) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(3.dp)
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(Morandi.accent),
                         )
                     }
                 }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = preset?.name ?: stringResource(R.string.brush_studio_custom_brush),
+                        color = Morandi.text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        val grp = preset?.group?.let { brushCategoryDisplayName(it) } ?: "常用"
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Morandi.panel)
+                                .padding(horizontal = 5.dp, vertical = 1.dp),
+                        ) {
+                            Text(grp, color = Morandi.subText, fontSize = 10.sp)
+                        }
+                        if (preset?.isBuiltIn == true) {
+                            Text("Krita", color = Morandi.subText.copy(alpha = 0.7f), fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                // Studio pill button
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.accent.copy(alpha = 0.16f))
+                        .noRippleClickable(onOpenStudio)
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_sliders),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        stringResource(R.string.brush_card_open_studio),
+                        color = Morandi.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
-        } else {
-            Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
+
+            // Card 1: 核心基础
+            BrushSectionCard(title = stringResource(R.string.brush_group_basic)) {
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_size),
+                    value = vm.brushSize,
+                    min = 1.0,
+                    max = 200.0,
+                    unit = ParamUnit.PIXEL,
+                ) { vm.updateBrushSize(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_opacity),
+                    value = vm.brushOpacity,
+                    min = 0.05,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushOpacity(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_flow),
+                    value = vm.brushFlow,
+                    min = 0.05,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushFlow(it) }
+
+                // Blend Mode row with compact selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        stringResource(R.string.brush_blend_mode),
+                        color = Morandi.text,
+                        fontSize = 12.sp,
+                    )
+
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Morandi.panel)
+                                .noRippleClickable { showBlendMenu = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: stringResource(R.string.blend_normal),
+                                color = Morandi.accent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Icon(
+                                painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.subText,
+                                modifier = Modifier.size(12.dp).rotate(90f),
+                            )
+                        }
+
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = showBlendMenu,
+                            onDismissRequest = { showBlendMenu = false },
+                            modifier = Modifier.background(Morandi.panelHi),
+                        ) {
+                            blendModeList.forEach { (opId, name) ->
+                                val sel = vm.brushCompositeOp == opId
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            name,
+                                            color = if (sel) Morandi.accent else Morandi.text,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        vm.updateBrushCompositeOp(opId)
+                                        showBlendMenu = false
+                                    },
+                                    trailingIcon = if (sel) {
+                                        {
+                                            Icon(
+                                                painterResource(R.drawable.ic_check),
+                                                contentDescription = null,
+                                                tint = Morandi.accent,
+                                                modifier = Modifier.size(14.dp),
+                                            )
+                                        }
+                                    } else null,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Card 2: 笔尖几何
+            BrushSectionCard(title = stringResource(R.string.brush_group_geometry)) {
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_spacing),
+                    value = vm.brushSpacing,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushSpacing(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_ratio),
+                    value = vm.brushRatio,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushRatio(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_softness),
+                    value = vm.brushSoftness,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushSoftness(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_angle),
+                    value = vm.brushAngle,
+                    min = 0.0,
+                    max = 360.0,
+                    unit = ParamUnit.DEGREE,
+                ) { vm.updateBrushAngle(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_rotation),
+                    value = vm.brushRotation,
+                    min = 0.0,
+                    max = 360.0,
+                    unit = ParamUnit.DEGREE,
+                ) { vm.updateBrushRotation(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_sharpness),
+                    value = vm.brushSharpness,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushSharpness(it) }
+            }
+
+            // Card 3: 动态表现
+            BrushSectionCard(title = stringResource(R.string.brush_group_dynamics)) {
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_scatter),
+                    value = vm.brushScatter,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushScatter(it) }
+
+                ModernParamSlider(
+                    label = stringResource(R.string.brush_param_fade),
+                    value = vm.brushFade,
+                    min = 0.0,
+                    max = 1.0,
+                    unit = ParamUnit.PERCENT,
+                ) { vm.updateBrushFade(it) }
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
-
-        // Parameter sliders
-        BrushParamReSlider(stringResource(R.string.brush_param_size), vm.brushSize, 1.0, 200.0) { vm.updateBrushSize(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_opacity), vm.brushOpacity, 0.05, 1.0) { vm.updateBrushOpacity(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_flow), vm.brushFlow, 0.05, 1.0) { vm.updateBrushFlow(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_spacing), vm.brushSpacing, 0.0, 1.0) { vm.updateBrushSpacing(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_angle), vm.brushAngle, 0.0, 360.0) { vm.updateBrushAngle(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_rotation), vm.brushRotation, 0.0, 360.0) { vm.updateBrushRotation(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_scatter), vm.brushScatter, 0.0, 1.0) { vm.updateBrushScatter(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_fade), vm.brushFade, 0.0, 1.0) { vm.updateBrushFade(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_softness), vm.brushSoftness, 0.0, 1.0) { vm.updateBrushSoftness(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_ratio), vm.brushRatio, 0.0, 1.0) { vm.updateBrushRatio(it) }
-        BrushParamReSlider(stringResource(R.string.brush_param_sharpness), vm.brushSharpness, 0.0, 1.0) { vm.updateBrushSharpness(it) }
-        
-        Spacer(Modifier.height(16.dp))
     }
-}
-
-
-@Composable
-private fun rememberBytes(bytes: ByteArray): android.graphics.Bitmap? {
-    return androidx.compose.runtime.remember(bytes) {
-        BrushThumbCache.get(bytes.hashCode().toString(), bytes)
-    }
-}
-
-@Composable
-private fun BrushParamReSlider(
-    label: String,
-    value: Double,
-    min: Double,
-    max: Double,
-    onChange: (Double) -> Unit,
-) {
-    val fraction = ((value - min) / (max - min)).toFloat().coerceIn(0f, 1f)
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(label, color = Morandi.text, fontSize = 13.sp)
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = if (max > 100) "${value.toInt()}" else "${(value * 100).toInt()}%",
-                color = Morandi.subText,
-                fontSize = 13.sp,
-            )
-        }
-        ReSlider(
-            value = fraction,
-            onValue = { f ->
-                onChange(f * (max - min) + min)
-            },
-            modifier = Modifier.padding(horizontal = 14.dp)
-        )
-    }
-    Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).height(1.dp).background(Morandi.border.copy(alpha = 0.5f)))
 }
 

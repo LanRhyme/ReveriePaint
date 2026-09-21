@@ -964,6 +964,11 @@
     <string name="brush_studio_rename_brush">重命名当前笔刷</string>
     <string name="brush_studio_reset_params">重置当前参数为默认值</string>
     <string name="brush_studio_delete_brush">删除当前笔刷</string>
+    <string name="brush_share_action">分享与导出笔刷</string>
+    <string name="brush_share_title">分享笔刷: %s</string>
+    <string name="brush_reset_action">恢复默认参数</string>
+    <string name="brush_reset_toast">已恢复「%s」的出厂默认参数</string>
+    <string name="brush_share_failed">笔刷导出失败：%s</string>
     <string name="brush_studio_scratchpad_clear">清空</string>
     <string name="brush_studio_scratchpad_hint">在此随意画线测试手感</string>
     <string name="brush_studio_toast_imported">笔刷导入成功</string>
@@ -1710,4 +1715,18 @@
     <string name="create_no_saved_presets_desc">在自定义尺寸中配置好画幅后，点击保存预设即可在此随时调用</string>
     <string name="create_preset_stat_format">%1$d DPI · %2$d层</string>
     <string name="create_dpi_label">分辨率 (DPI)</string>
+
+    <!-- Brush UI Modernization & Fine Tuning -->
+    <string name="brush_group_basic">核心基础</string>
+    <string name="brush_group_geometry">笔尖几何</string>
+    <string name="brush_group_dynamics">动态表现</string>
+    <string name="brush_group_texture">纹理质感</string>
+    <string name="scratchpad_bg_checker">棋盘格</string>
+    <string name="scratchpad_bg_solid">纯色底</string>
+    <string name="scratchpad_expand">展开试画台</string>
+    <string name="scratchpad_collapse">收起试画台</string>
+    <string name="param_input_title">调整数值</string>
+    <string name="param_input_hint">输入数值</string>
+    <string name="brush_card_reset">重置参数</string>
+    <string name="brush_card_open_studio">高级工坊</string>
 </resources>

@@ -291,7 +291,7 @@ class PaintViewModel : ViewModel() {
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
     // current brush.
-    internal val brushParams: MutableMap<String, BrushParams> = mutableMapOf()
+    internal val brushParams = mutableStateMapOf<String, BrushParams>()
 
     // Display bitmap (managed as front/back double buffer, updated in place via renderToBuffer).
     // Decoupled from Compose state: hardware Canvas draws it directly with 0 recomposition overhead.
@@ -716,9 +716,9 @@ class PaintViewModel : ViewModel() {
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
     var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，单指平移，双指缩放旋转)
-    var brushCursorMode by mutableIntStateOf(0) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
+    var brushCursorMode by mutableIntStateOf(3) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
     var eraserCursorMode by mutableIntStateOf(3)
-    var cursorStyleMode by mutableIntStateOf(0) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
+    var cursorStyleMode by mutableIntStateOf(5) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
     var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形 (已禁用)
     var activeQuickShape by mutableStateOf<QuickShapeResult?>(null)
     var isQuickShapeEditing by mutableStateOf(false)
@@ -1532,6 +1532,7 @@ class PaintViewModel : ViewModel() {
         } else {
             baseTheme
         }
+        com.reverie.paint.MainActivity.applySystemBarsTheme(com.reverie.paint.ui.theme.Theme.current, dark)
     }
 
     fun updateImmersiveMode(enable: Boolean) {
@@ -1675,9 +1676,9 @@ class PaintViewModel : ViewModel() {
             longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
             eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
             eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)
-            brushCursorMode = prefs.getInt("brushCursorMode", 0)
+            brushCursorMode = prefs.getInt("brushCursorMode", 3)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
-            cursorStyleMode = prefs.getInt("cursorStyleMode", 0)
+            cursorStyleMode = prefs.getInt("cursorStyleMode", 5)
             quickShapeEnabled = false
             val savedPreset = prefs.getInt("pressureCurvePreset", 0)
             updatePressureCurvePreset(savedPreset)

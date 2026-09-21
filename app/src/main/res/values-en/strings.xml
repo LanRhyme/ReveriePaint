@@ -964,6 +964,11 @@
     <string name="brush_studio_rename_brush">Rename Current Brush</string>
     <string name="brush_studio_reset_params">Reset Parameters to Defaults</string>
     <string name="brush_studio_delete_brush">Delete Current Brush</string>
+    <string name="brush_share_action">Share &amp; Export Brush</string>
+    <string name="brush_share_title">Share Brush: %s</string>
+    <string name="brush_reset_action">Reset to Defaults</string>
+    <string name="brush_reset_toast">Restored \"%s\" to factory defaults</string>
+    <string name="brush_share_failed">Failed to export brush: %s</string>
     <string name="brush_studio_scratchpad_clear">Clear</string>
     <string name="brush_studio_scratchpad_hint">Draw here to test brush feel</string>
     <string name="brush_studio_toast_imported">Brush imported successfully</string>
@@ -1710,4 +1715,18 @@
     <string name="create_no_saved_presets_desc">Configure your canvas size in Custom and save it as a preset to access anytime</string>
     <string name="create_preset_stat_format">%1$d DPI · %2$d Layers</string>
     <string name="create_dpi_label">Resolution (DPI)</string>
+
+    <!-- Brush UI Modernization & Fine Tuning -->
+    <string name="brush_group_basic">Basic Properties</string>
+    <string name="brush_group_geometry">Tip &amp; Geometry</string>
+    <string name="brush_group_dynamics">Dynamics &amp; Scatter</string>
+    <string name="brush_group_texture">Texture &amp; Pattern</string>
+    <string name="scratchpad_bg_checker">Checkerboard</string>
+    <string name="scratchpad_bg_solid">Solid</string>
+    <string name="scratchpad_expand">Expand Scratchpad</string>
+    <string name="scratchpad_collapse">Collapse Scratchpad</string>
+    <string name="param_input_title">Adjust Value</string>
+    <string name="param_input_hint">Enter value</string>
+    <string name="brush_card_reset">Reset</string>
+    <string name="brush_card_open_studio">Studio</string>
 </resources>

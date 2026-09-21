@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.reverie.paint.R
 import java.io.File
 import java.util.zip.ZipFile
 import org.json.JSONObject
@@ -767,7 +768,11 @@ import kotlinx.coroutines.launch
         brushJitterSize = 0.0
         brushDescription = ""
         brushVersion = "1.0"
-        saveBrushParam()
+        val preset = brushPresets.firstOrNull { it.index == index }
+        if (preset != null) {
+            brushParams.remove(preset.name)
+            persistBrushParams()
+        }
         runCore(render = false) {
             if (index >= 0) {
                 ReverieCoreBridge.loadBrushPreset(index)
@@ -788,6 +793,80 @@ import kotlinx.coroutines.launch
             ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
             ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
             ReverieCoreBridge.setBrushTipAsset("")
+        }
+    }
+
+    /** Check if a brush preset has modified parameters */
+    internal fun PaintViewModel.isBrushModified(name: String): Boolean {
+        return brushParams.containsKey(name)
+    }
+
+    /** Reset a brush preset back to factory default parameters */
+    internal fun PaintViewModel.resetBrushPresetToDefault(presetName: String) {
+        if (!brushParams.containsKey(presetName)) return
+        brushParams.remove(presetName)
+        persistBrushParams()
+
+        val preset = brushPresets.firstOrNull { it.name == presetName }
+        if (preset != null && preset.index == brushPresetIndex) {
+            selectBrushPreset(preset.index)
+        }
+        android.widget.Toast.makeText(
+            appContext,
+            appContext.getString(R.string.brush_reset_toast),
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    /** Share a brush preset (.kpp) via system share sheet */
+    internal fun PaintViewModel.shareBrushPreset(context: android.content.Context, presetName: String): Boolean {
+        return try {
+            val dir = File(appContext.filesDir, "paintoppresets")
+            val srcFile = File(dir, "$presetName.kpp")
+            if (!srcFile.exists()) {
+                try {
+                    if (!dir.exists()) dir.mkdirs()
+                    appContext.assets.open("paintoppresets/$presetName.kpp").use { input ->
+                        srcFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            if (!srcFile.exists()) {
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(R.string.brush_share_failed),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                return false
+            }
+            val exportDir = File(appContext.cacheDir, "export_brushes").apply { if (!exists()) mkdirs() }
+            val exportFile = File(exportDir, "$presetName.kpp")
+            srcFile.copyTo(exportFile, overwrite = true)
+
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                exportFile
+            )
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "application/x-krita-paintoppreset"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.brush_share_title)).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "shareBrushPreset failed", e)
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.brush_share_failed),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            false
         }
     }
 
