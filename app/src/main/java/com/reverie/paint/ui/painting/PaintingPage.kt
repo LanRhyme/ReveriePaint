@@ -1538,12 +1538,24 @@ fun PaintingPage(
                 },
             )
         }
+        val colorPanelDensity = LocalDensity.current
+        val colorPanelBaseStartPx = remember(colorPanelDensity) { with(colorPanelDensity) { 44.dp.roundToPx() } }
+        val colorPanelBaseBottomPx = remember(colorPanelDensity) { with(colorPanelDensity) { (-16).dp.roundToPx() } }
+
         AnimatedVisibility(
             visible = colorPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
             modifier = if (vm.isColorPanelPinned) {
-                Modifier.align(Alignment.BottomStart).zIndex(100f)
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .offset {
+                        IntOffset(
+                            (colorPanelBaseStartPx + vm.colorPanelOffset.x).roundToInt(),
+                            (colorPanelBaseBottomPx + vm.colorPanelOffset.y).roundToInt(),
+                        )
+                    }
+                    .zIndex(100f)
             } else {
                 Modifier.fillMaxSize().zIndex(100f)
             },

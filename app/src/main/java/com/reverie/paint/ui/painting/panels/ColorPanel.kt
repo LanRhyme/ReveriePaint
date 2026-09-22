@@ -76,9 +76,6 @@ fun ColorPanel(
     var valB by remember { mutableFloatStateOf(1f) }
     var isInteracting by remember { mutableStateOf(false) }
 
-    // Floating panel offset for drag-repositioning
-    var panelOffset by remember { mutableStateOf(Offset.Zero) }
-
     val context = LocalContext.current
 
     var lastSelfUpdatedHex by remember { mutableStateOf("") }
@@ -108,27 +105,10 @@ fun ColorPanel(
     val baseBottomOffsetPx = remember(density) { with(density) { (-16).dp.roundToPx() } }
     val panelShape = RoundedCornerShape(16.dp)
 
-    Box(
-        modifier = if (vm.isColorPanelPinned) {
-            modifier.wrapContentSize(Alignment.BottomStart)
-        } else {
-            modifier
-                .fillMaxSize()
-                .background(Color.Transparent)
-                .noRippleClickable(onClose)
-                .systemHoverIcon(context)
-        }
-    ) {
+    val cardContent: @Composable (Modifier) -> Unit = { cardModifier ->
         Column(
-            modifier = Modifier
+            modifier = cardModifier
                 .systemHoverIcon(context)
-                .align(Alignment.BottomStart)
-                .offset {
-                    IntOffset(
-                        (baseStartOffsetPx + panelOffset.x).roundToInt(),
-                        (baseBottomOffsetPx + panelOffset.y).roundToInt(),
-                    )
-                }
                 .width(280.dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
@@ -166,7 +146,7 @@ fun ColorPanel(
                 },
                 onClose = onClose,
                 onSwapColors = { vm.swapColors() },
-                onDragHandle = { dragAmount -> panelOffset += dragAmount },
+                onDragHandle = { dragAmount -> vm.colorPanelOffset += dragAmount },
                 onColorDropStart = onColorDropStart,
                 onColorDropMove = onColorDropMove,
                 onColorDropEnd = onColorDropEnd,
@@ -253,6 +233,29 @@ fun ColorPanel(
                     }
                     vm.updateColorPanelTab(newTab)
                 }
+            )
+        }
+    }
+
+    if (vm.isColorPanelPinned) {
+        cardContent(modifier)
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .noRippleClickable(onClose)
+                .systemHoverIcon(context)
+        ) {
+            cardContent(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .offset {
+                        IntOffset(
+                            (baseStartOffsetPx + vm.colorPanelOffset.x).roundToInt(),
+                            (baseBottomOffsetPx + vm.colorPanelOffset.y).roundToInt(),
+                        )
+                    }
             )
         }
     }
