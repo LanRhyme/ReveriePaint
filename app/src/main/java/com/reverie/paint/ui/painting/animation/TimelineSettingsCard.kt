@@ -57,7 +57,7 @@ import com.reverie.paint.ui.components.ReSectionTitle
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
-import com.reverie.paint.ui.painting.layers.CompactColorPickerDialog
+import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
@@ -310,7 +310,7 @@ internal fun TimelineSettings(
 
         pickingOnionColor?.let { target ->
             val isBackward = target == OnionColorTarget.Backward
-            CompactColorPickerDialog(
+            CompactColorPickerPopup(
                 title = if (isBackward) stringResource(R.string.anim_onion_backward_tint_title) else stringResource(R.string.anim_onion_forward_tint_title),
                 initialColor = Color(
                     if (isBackward) vm.anim.onionColorBackward else vm.anim.onionColorForward,

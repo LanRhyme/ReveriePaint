@@ -215,6 +215,7 @@ private val GRADIENT_PRESETS = listOf(
     ),
 )
 
+@Deprecated("Use CompactColorPickerPopup instead", ReplaceWith("CompactColorPickerPopup(title, initialColor, onColorSelected, onDismiss)"))
 @Composable
 fun CompactColorPickerDialog(
     title: String = stringResource(R.string.gradient_pick_color),
@@ -222,185 +223,12 @@ fun CompactColorPickerDialog(
     onColorSelected: (Color) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val hsv = remember {
-        val arr = FloatArray(3)
-        android.graphics.Color.colorToHSV(
-            android.graphics.Color.argb(
-                (initialColor.alpha * 255).toInt(),
-                (initialColor.red * 255).toInt(),
-                (initialColor.green * 255).toInt(),
-                (initialColor.blue * 255).toInt()
-            ),
-            arr
-        )
-        arr
-    }
-    var hue by remember { mutableFloatStateOf(hsv[0]) }
-    var sat by remember { mutableFloatStateOf(hsv[1]) }
-    var valB by remember { mutableFloatStateOf(hsv[2]) }
-
-    val currentColor = remember(hue, sat, valB) {
-        val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(hue, sat, valB))
-        Color(colorInt)
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .width(300.dp)
-                .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.5f))
-                .clip(RoundedCornerShape(16.dp))
-                .background(Morandi.panel)
-                .glassBorder(RoundedCornerShape(16.dp))
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(title, color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(currentColor)
-                    )
-                }
-
-                // 2D Saturation-Value Canvas
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .pointerInput(hue) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    sat = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    valB = (1f - (offset.y / size.height.toFloat())).coerceIn(0f, 1f)
-                                },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    sat = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    valB = (1f - (change.position.y / size.height.toFloat())).coerceIn(0f, 1f)
-                                }
-                            )
-                        }
-                ) {
-                    val pureHueColor = remember(hue) {
-                        Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, 1f)))
-                    }
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(
-                            Brush.horizontalGradient(listOf(Color.White, pureHueColor))
-                        )
-                    )
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(listOf(Color.Transparent, Color.Black))
-                        )
-                    )
-                    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                        val w = maxWidth
-                        val h = maxHeight
-                        val handleX = w * sat - 8.dp
-                        val handleY = h * (1f - valB) - 8.dp
-                        Box(
-                            modifier = Modifier
-                                .offset(x = handleX, y = handleY)
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .border(2.dp, if (valB > 0.5f && sat < 0.5f) Color.Black else Color.White, CircleShape)
-                        )
-                    }
-                }
-
-                // Hue Spectrum Slider
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color.Red, Color.Yellow, Color.Green,
-                                    Color.Cyan, Color.Blue, Color.Magenta, Color.Red
-                                )
-                            )
-                        )
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    hue = (offset.x / size.width.toFloat()).coerceIn(0f, 1f) * 360f
-                                },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    hue = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f) * 360f
-                                }
-                            )
-                        }
-                )
-
-                // Fast Swatch Palette
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    listOf(
-                        Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFFE53935), Color(0xFFFB8C00),
-                        Color(0xFFFFD600), Color(0xFF43A047), Color(0xFF1E88E5), Color(0xFF8E24AA)
-                    ).forEach { sw ->
-                        Box(
-                            modifier = Modifier
-                                .size(22.dp)
-                                .clip(CircleShape)
-                                .background(sw)
-                                .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape)
-                                .clickable {
-                                    val arr = FloatArray(3)
-                                    android.graphics.Color.colorToHSV(
-                                        android.graphics.Color.argb(255, (sw.red * 255).toInt(), (sw.green * 255).toInt(), (sw.blue * 255).toInt()),
-                                        arr
-                                    )
-                                    hue = arr[0]
-                                    sat = arr[1]
-                                    valB = arr[2]
-                                }
-                        )
-                    }
-                }
-
-                // Hex readout and dialog actions
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val hex = String.format("#%02X%02X%02X", (currentColor.red * 255).toInt(), (currentColor.green * 255).toInt(), (currentColor.blue * 255).toInt())
-                    Text(hex, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText, fontSize = 12.sp)
-                        ReTextButton(
-                            stringResource(R.string.common_confirm),
-                            {
-                                onColorSelected(currentColor)
-                                onDismiss()
-                            },
-                            primary = true,
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
-            }
-        }
-    }
+    com.reverie.paint.ui.painting.panels.CompactColorPickerPopup(
+        title = title,
+        initialColor = initialColor,
+        onColorSelected = onColorSelected,
+        onDismiss = onDismiss,
+    )
 }
 
 internal fun generateGradientLUTFromStops(stops: List<CustomGradStop>, reverse: Boolean): IntArray {
@@ -703,7 +531,7 @@ internal fun CustomGradientEditor(
             }
 
             if (showColorPicker) {
-                CompactColorPickerDialog(
+                com.reverie.paint.ui.painting.panels.CompactColorPickerPopup(
                     title = stringResource(R.string.gradient_set_stop_color),
                     initialColor = activeStop.color,
                     onColorSelected = { newCol ->

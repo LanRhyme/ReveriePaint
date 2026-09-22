@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.layers
 
 import com.reverie.paint.model.AdjustmentConfigCodec
+import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -244,7 +245,7 @@ internal fun LayerDetailPage(
                 }
 
                 if (showBgColorPicker) {
-                    CompactColorPickerDialog(
+                    CompactColorPickerPopup(
                         title = stringResource(R.string.layer_bg_set_dialog_title),
                         initialColor = Color(currentColor),
                         onColorSelected = { col ->
@@ -348,7 +349,7 @@ internal fun LayerDetailPage(
             }
 
             if (showFillColorPicker) {
-                CompactColorPickerDialog(
+                CompactColorPickerPopup(
                     title = stringResource(R.string.layer_fill_select_title),
                     initialColor = Morandi.accent,
                     onColorSelected = { col ->

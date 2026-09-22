@@ -19,10 +19,15 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -866,4 +871,344 @@ fun triangleSvToBarycentric(s: Float, v: Float): Triple<Float, Float, Float> {
     val wB = 1f - vc
     return Triple(wC, wA, wB)
 }
+
+/**
+ * 统一通用轻量级取色弹窗 (CompactColorPickerPopup)，基于 Popup 实现。
+ * 支持传入 Color 或 Hex 字符串，无系统 Dialog 窗口闪烁，支持手势快速采色、色相滑条、快选色板与重置按钮。
+ */
+@Composable
+fun CompactColorPickerPopup(
+    title: String = stringResource(R.string.gradient_pick_color),
+    initialColor: Color = Color.White,
+    onColorSelected: (Color) -> Unit,
+    onDismiss: () -> Unit,
+    onResetToAuto: (() -> Unit)? = null,
+    resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
+    showFastSwatches: Boolean = true,
+) {
+    val hsv = remember(initialColor) {
+        val arr = FloatArray(3)
+        AColor.colorToHSV(
+            AColor.argb(
+                (initialColor.alpha * 255).toInt(),
+                (initialColor.red * 255).toInt(),
+                (initialColor.green * 255).toInt(),
+                (initialColor.blue * 255).toInt()
+            ),
+            arr
+        )
+        arr
+    }
+    var hue by remember(initialColor) { mutableFloatStateOf(hsv[0]) }
+    var sat by remember(initialColor) { mutableFloatStateOf(hsv[1]) }
+    var valB by remember(initialColor) { mutableFloatStateOf(hsv[2]) }
+
+    val currentColor = remember(hue, sat, valB) {
+        val colorInt = AColor.HSVToColor(floatArrayOf(hue, sat, valB))
+        Color(colorInt)
+    }
+    val hexString = remember(currentColor) {
+        String.format(
+            Locale.US,
+            "#%02X%02X%02X",
+            (currentColor.red * 255).toInt(),
+            (currentColor.green * 255).toInt(),
+            (currentColor.blue * 255).toInt()
+        )
+    }
+
+    Popup(
+        alignment = Alignment.Center,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(
+            focusable = true,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+                .noRippleClickable(onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(300.dp)
+                    .noRippleClickable { /* consume click */ }
+                    .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.5f))
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Morandi.panel)
+                    .glassBorder(RoundedCornerShape(16.dp))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Header: Title + Color Preview Swatch + Hex Readout
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = title,
+                            color = Morandi.text,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(currentColor)
+                                    .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            )
+                            Text(
+                                text = hexString,
+                                color = Morandi.subText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // 2D Saturation-Value Canvas
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+                            .pointerInput(hue) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown().also { it.consume() }
+                                    val w = size.width.toFloat()
+                                    val h = size.height.toFloat()
+                                    sat = (down.position.x / w).coerceIn(0f, 1f)
+                                    valB = (1f - (down.position.y / h)).coerceIn(0f, 1f)
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        sat = (change.position.x / w).coerceIn(0f, 1f)
+                                        valB = (1f - (change.position.y / h)).coerceIn(0f, 1f)
+                                        change.consume()
+                                    }
+                                }
+                            }
+                    ) {
+                        val pureHueColor = remember(hue) { hueToPureColor(hue) }
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+
+                            // Layer 1: Horizontal gradient from White to Pure Hue
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.White, pureHueColor),
+                                    startX = 0f,
+                                    endX = w
+                                ),
+                                size = size
+                            )
+
+                            // Layer 2: Vertical gradient from Transparent to Black
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black),
+                                    startY = 0f,
+                                    endY = h
+                                ),
+                                size = size
+                            )
+
+                            // High-contrast Reticle indicator ring at (sat, 1 - valB)
+                            val cursorX = sat * w
+                            val cursorY = (1f - valB) * h
+                            val cursorOffset = Offset(cursorX, cursorY)
+
+                            drawCircle(
+                                color = Color.Black.copy(alpha = 0.55f),
+                                radius = 8.dp.toPx(),
+                                center = cursorOffset,
+                                style = Stroke(1.5.dp.toPx())
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 6.5.dp.toPx(),
+                                center = cursorOffset,
+                                style = Stroke(2.dp.toPx())
+                            )
+                        }
+                    }
+
+                    // Rainbow Hue Slider
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(22.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown().also { it.consume() }
+                                    val w = size.width.toFloat()
+                                    hue = (down.position.x / w).coerceIn(0f, 1f) * 360f
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        hue = (change.position.x / w).coerceIn(0f, 1f) * 360f
+                                        change.consume()
+                                    }
+                                }
+                            }
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    listOf(
+                                        Color.Red, Color.Yellow, Color.Green,
+                                        Color.Cyan, Color.Blue, Color.Magenta, Color.Red
+                                    )
+                                )
+                            )
+                            // Hue indicator line / thumb
+                            val thumbX = (hue / 360f).coerceIn(0f, 1f) * w
+                            drawCircle(
+                                color = Color.Black.copy(alpha = 0.5f),
+                                radius = 7.dp.toPx(),
+                                center = Offset(thumbX, h / 2f),
+                                style = Stroke(1.5.dp.toPx())
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 5.5.dp.toPx(),
+                                center = Offset(thumbX, h / 2f),
+                                style = Stroke(2.dp.toPx())
+                            )
+                        }
+                    }
+
+                    // Fast Swatch Palette (8 convenient standard swatches)
+                    if (showFastSwatches) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf(
+                                Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFFE53935), Color(0xFFFB8C00),
+                                Color(0xFFFFD600), Color(0xFF43A047), Color(0xFF1E88E5), Color(0xFF8E24AA)
+                            ).forEach { sw ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(sw)
+                                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                        .clickable {
+                                            val arr = FloatArray(3)
+                                            AColor.colorToHSV(
+                                                AColor.argb(255, (sw.red * 255).toInt(), (sw.green * 255).toInt(), (sw.blue * 255).toInt()),
+                                                arr
+                                            )
+                                            hue = arr[0]
+                                            sat = arr[1]
+                                            valB = arr[2]
+                                        }
+                                )
+                            }
+                        }
+                    }
+
+                    // Bottom Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onResetToAuto != null) {
+                            ReTextButton(
+                                text = resetToAutoText,
+                                onClick = {
+                                    onResetToAuto()
+                                    onDismiss()
+                                },
+                                textColor = Morandi.subText,
+                                fontSize = 12.sp
+                            )
+                        } else {
+                            Spacer(Modifier.width(1.dp))
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ReTextButton(
+                                text = stringResource(R.string.common_cancel),
+                                onClick = onDismiss,
+                                textColor = Morandi.subText,
+                                fontSize = 12.sp
+                            )
+                            ReTextButton(
+                                text = stringResource(R.string.common_confirm),
+                                onClick = {
+                                    onColorSelected(currentColor)
+                                    onDismiss()
+                                },
+                                primary = true,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Hex 字符串重载版本 */
+@Composable
+fun CompactColorPickerPopup(
+    title: String = stringResource(R.string.gradient_pick_color),
+    initialHex: String,
+    onColorConfirmed: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onResetToAuto: (() -> Unit)? = null,
+    resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
+    showFastSwatches: Boolean = true,
+) {
+    val initialCol = remember(initialHex) {
+        try {
+            Color(AColor.parseColor(initialHex.ifBlank { "#FFFFFF" }))
+        } catch (_: Exception) {
+            Color.White
+        }
+    }
+    CompactColorPickerPopup(
+        title = title,
+        initialColor = initialCol,
+        onColorSelected = { col ->
+            val hex = String.format(
+                Locale.US,
+                "#%02X%02X%02X",
+                (col.red * 255).toInt(),
+                (col.green * 255).toInt(),
+                (col.blue * 255).toInt()
+            )
+            onColorConfirmed(hex)
+        },
+        onDismiss = onDismiss,
+        onResetToAuto = onResetToAuto,
+        resetToAutoText = resetToAutoText,
+        showFastSwatches = showFastSwatches,
+    )
+}
+
 
