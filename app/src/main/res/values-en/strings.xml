@@ -642,6 +642,10 @@
     <string name="settings_quick_slider">Quick Slider</string>
     <string name="settings_quick_slider_flow">Flow</string>
     <string name="settings_quick_slider_opacity">Opacity</string>
+    <string name="settings_layer_row_height">Layer row height</string>
+    <string name="settings_layer_height_compact">Compact</string>
+    <string name="settings_layer_height_standard">Standard</string>
+    <string name="settings_layer_height_spacious">Spacious</string>
     <string name="settings_canvas_rotation">Rotate Canvas</string>
     <string name="settings_magnification_interpolation">Interpolate Zoom</string>
     <string name="settings_pixel_grid">Pixel Grid When Zoomed</string>

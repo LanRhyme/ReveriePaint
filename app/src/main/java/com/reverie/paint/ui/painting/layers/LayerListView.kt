@@ -123,7 +123,6 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val drawerWidth = 132.dp
-private val rowHeight = 48.dp
 
 @Composable
 internal fun LayerListView(
@@ -132,6 +131,7 @@ internal fun LayerListView(
     onOpenFilters: (Int) -> Unit,
     onOpenCreateFilter: () -> Unit = {},
 ) {
+    val rowHeight = vm.layerRowHeightDp.dp
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
     var selectedIndex by remember { mutableStateOf(vm.currentLayerIndex) }

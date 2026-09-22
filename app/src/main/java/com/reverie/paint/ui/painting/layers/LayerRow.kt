@@ -127,7 +127,6 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val drawerWidth = 132.dp
-private val rowHeight = 48.dp
 
 @Composable
 internal fun LayerRow(
@@ -151,6 +150,7 @@ internal fun LayerRow(
     multiSelected: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible

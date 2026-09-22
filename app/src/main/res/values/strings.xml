@@ -642,6 +642,10 @@
     <string name="settings_quick_slider">快捷滑块</string>
     <string name="settings_quick_slider_flow">流量</string>
     <string name="settings_quick_slider_opacity">不透明度</string>
+    <string name="settings_layer_row_height">图层项高度</string>
+    <string name="settings_layer_height_compact">紧凑</string>
+    <string name="settings_layer_height_standard">标准</string>
+    <string name="settings_layer_height_spacious">宽松</string>
     <string name="settings_canvas_rotation">画布可旋转</string>
     <string name="settings_magnification_interpolation">放大插值</string>
     <string name="settings_pixel_grid">放大显示网格线</string>
