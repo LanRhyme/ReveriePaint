@@ -23,7 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -873,8 +876,8 @@ fun triangleSvToBarycentric(s: Float, v: Float): Triple<Float, Float, Float> {
 }
 
 /**
- * 统一通用轻量级取色弹窗 (CompactColorPickerPopup)，基于 Popup 实现。
- * 支持传入 Color 或 Hex 字符串，无系统 Dialog 窗口闪烁，支持手势快速采色、色相滑条、快选色板与重置按钮。
+ * 统一通用轻量级取色浮窗 (CompactColorPickerPopup)，基于 Popup 实现。
+ * 支持传入 Color 或 Hex 字符串，无系统 Dialog 沉重压暗与模态感，呈现 Procreate 风格的浮动 Panel。
  */
 @Composable
 fun CompactColorPickerPopup(
@@ -884,7 +887,7 @@ fun CompactColorPickerPopup(
     onDismiss: () -> Unit,
     onResetToAuto: (() -> Unit)? = null,
     resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
-    showFastSwatches: Boolean = true,
+    showFastSwatches: Boolean = false,
 ) {
     val hsv = remember(initialColor) {
         val arr = FloatArray(3)
@@ -926,27 +929,28 @@ fun CompactColorPickerPopup(
             dismissOnClickOutside = true,
         ),
     ) {
+        // 轻量化透明外围交互层，点击外部轻触即关闭，消除重度模态 Dialog 遮罩感
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.45f))
+                .background(Color.Black.copy(alpha = 0.15f))
                 .noRippleClickable(onDismiss),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(290.dp)
                     .noRippleClickable { /* consume click */ }
-                    .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.5f))
-                    .clip(RoundedCornerShape(16.dp))
+                    .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.45f))
+                    .clip(RoundedCornerShape(18.dp))
                     .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(16.dp))
+                    .glassBorder(RoundedCornerShape(18.dp))
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Header: Title + Color Preview Swatch + Hex Readout
+                    // Header: Title + Color Preview Swatch + Hex Readout + Close Icon
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -964,7 +968,7 @@ fun CompactColorPickerPopup(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(26.dp)
+                                    .size(24.dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(currentColor)
                                     .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
@@ -975,6 +979,21 @@ fun CompactColorPickerPopup(
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
                             )
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(Morandi.panelHi)
+                                    .clickable(onClick = onDismiss),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.common_close),
+                                    tint = Morandi.subText,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
 
@@ -1098,38 +1117,7 @@ fun CompactColorPickerPopup(
                         }
                     }
 
-                    // Fast Swatch Palette (8 convenient standard swatches)
-                    if (showFastSwatches) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            listOf(
-                                Color(0xFF000000), Color(0xFFFFFFFF), Color(0xFFE53935), Color(0xFFFB8C00),
-                                Color(0xFFFFD600), Color(0xFF43A047), Color(0xFF1E88E5), Color(0xFF8E24AA)
-                            ).forEach { sw ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .clip(CircleShape)
-                                        .background(sw)
-                                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                                        .clickable {
-                                            val arr = FloatArray(3)
-                                            AColor.colorToHSV(
-                                                AColor.argb(255, (sw.red * 255).toInt(), (sw.green * 255).toInt(), (sw.blue * 255).toInt()),
-                                                arr
-                                            )
-                                            hue = arr[0]
-                                            sat = arr[1]
-                                            valB = arr[2]
-                                        }
-                                )
-                            }
-                        }
-                    }
-
-                    // Bottom Action Buttons
+                    // Bottom Action Bar: Reset (optional) + Apply / Confirm button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1149,23 +1137,15 @@ fun CompactColorPickerPopup(
                             Spacer(Modifier.width(1.dp))
                         }
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ReTextButton(
-                                text = stringResource(R.string.common_cancel),
-                                onClick = onDismiss,
-                                textColor = Morandi.subText,
-                                fontSize = 12.sp
-                            )
-                            ReTextButton(
-                                text = stringResource(R.string.common_confirm),
-                                onClick = {
-                                    onColorSelected(currentColor)
-                                    onDismiss()
-                                },
-                                primary = true,
-                                fontSize = 12.sp,
-                            )
-                        }
+                        ReTextButton(
+                            text = stringResource(R.string.common_confirm),
+                            onClick = {
+                                onColorSelected(currentColor)
+                                onDismiss()
+                            },
+                            primary = true,
+                            fontSize = 12.sp,
+                        )
                     }
                 }
             }
@@ -1182,7 +1162,7 @@ fun CompactColorPickerPopup(
     onDismiss: () -> Unit,
     onResetToAuto: (() -> Unit)? = null,
     resetToAutoText: String = stringResource(R.string.color_sphere_reset_auto),
-    showFastSwatches: Boolean = true,
+    showFastSwatches: Boolean = false,
 ) {
     val initialCol = remember(initialHex) {
         try {

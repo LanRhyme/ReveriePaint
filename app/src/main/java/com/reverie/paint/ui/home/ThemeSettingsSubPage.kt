@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.parseColor
 
@@ -438,9 +439,10 @@ internal fun ThemeSettingsSubPage(
     }
 
     if (showCustomColorDialog) {
-        CustomColorDialog(
+        CompactColorPickerPopup(
+            title = stringResource(R.string.color_custom),
             initialHex = vm.accentColorHex,
-            onConfirm = { hex ->
+            onColorConfirmed = { hex ->
                 vm.updateAccentColor(hex)
                 showCustomColorDialog = false
             },
@@ -449,9 +451,10 @@ internal fun ThemeSettingsSubPage(
     }
 
     if (showCustomCanvasBgDialog) {
-        CustomColorDialog(
+        CompactColorPickerPopup(
+            title = stringResource(R.string.theme_custom_canvas_bg),
             initialHex = if (vm.canvasBgColorHex == "DEFAULT" || vm.canvasBgColorHex.isBlank()) "#2F3136" else vm.canvasBgColorHex,
-            onConfirm = { hex ->
+            onColorConfirmed = { hex ->
                 vm.updateCanvasBgColor(hex)
                 showCustomCanvasBgDialog = false
             },

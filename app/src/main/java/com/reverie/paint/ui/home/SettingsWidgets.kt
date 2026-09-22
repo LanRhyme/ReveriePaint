@@ -803,142 +803,23 @@ internal fun SettingMasterNavRow(
     }
 }
 
-/** 自定义颜色选取弹窗 */
+/** 自定义颜色选取弹窗 (已废弃，统一使用 CompactColorPickerPopup) */
+@Deprecated(
+    "Use CompactColorPickerPopup instead",
+    ReplaceWith("CompactColorPickerPopup(initialHex = initialHex, onColorConfirmed = onConfirm, onDismiss = onDismiss)")
+)
 @Composable
 internal fun CustomColorDialog(
     initialHex: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = Theme.current
-    var hexInput by remember { mutableStateOf(initialHex.removePrefix("#")) }
-    val parsedPreview = remember(hexInput) {
-        try {
-            parseColor("#$hexInput")
-        } catch (_: Exception) {
-            colors.accent
-        }
-    }
-
-    val extraColors = listOf(
-        "#E06C75", "#E5C07B", "#98C379", "#56B6C2",
-        "#61AFEF", "#C678DD", "#FF6B6B", "#4ECDC4",
-        "#45B7D1", "#F7B731", "#5F27CD", "#00D2D3"
+    com.reverie.paint.ui.painting.panels.CompactColorPickerPopup(
+        title = stringResource(R.string.color_custom),
+        initialHex = initialHex,
+        onColorConfirmed = onConfirm,
+        onDismiss = onDismiss,
     )
-
-    Dialog(onDismissRequest = onDismiss) {
-        Box(
-            modifier = Modifier
-                .width(320.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(colors.panelHi)
-                .padding(20.dp),
-        ) {
-            Column {
-                Text(
-                    text = stringResource(R.string.color_custom),
-                    color = colors.text,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-
-                Spacer(Modifier.height(16.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(parsedPreview),
-                    )
-                    OutlinedTextField(
-                        value = hexInput,
-                        onValueChange = { input ->
-                            val filtered = input.filter { it.isLetterOrDigit() }.take(6).uppercase()
-                            hexInput = filtered
-                        },
-                        prefix = { Text("#", color = colors.subText) },
-                        singleLine = true,
-                        placeholder = { Text("5A6E8A", color = colors.subText.copy(alpha = 0.5f)) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = colors.text,
-                            unfocusedTextColor = colors.text,
-                            focusedBorderColor = colors.accent,
-                            unfocusedBorderColor = colors.border,
-                            cursorColor = colors.accent,
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = {
-                            if (hexInput.length == 6) {
-                                onConfirm("#$hexInput")
-                            }
-                        }),
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                Spacer(Modifier.height(16.dp))
-                Text(stringResource(R.string.color_palette_quick_pick), color = colors.subText, fontSize = 12.sp)
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    extraColors.take(6).forEach { hex ->
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(parseColor(hex))
-                                .clickable {
-                                    hexInput = hex.removePrefix("#")
-                                },
-                        )
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    extraColors.takeLast(6).forEach { hex ->
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(parseColor(hex))
-                                .clickable {
-                                    hexInput = hex.removePrefix("#")
-                                },
-                        )
-                    }
-                }
-
-                Spacer(Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = colors.subText)
-                    Spacer(Modifier.width(8.dp))
-                    ReTextButton(
-                        stringResource(R.string.common_confirm),
-                        onClick = {
-                            val hex = if (hexInput.length == 6) "#$hexInput" else initialHex
-                            onConfirm(hex)
-                        },
-                        textColor = colors.accent,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-        }
-    }
 }
 
 // =========================================================================
