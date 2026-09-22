@@ -44,13 +44,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
@@ -883,6 +888,7 @@ fun triangleSvToBarycentric(s: Float, v: Float): Triple<Float, Float, Float> {
 fun CompactColorPickerPopup(
     title: String = stringResource(R.string.gradient_pick_color),
     initialColor: Color = Color.White,
+    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
     onColorSelected: (Color) -> Unit,
     onDismiss: () -> Unit,
     onResetToAuto: (() -> Unit)? = null,
@@ -920,42 +926,120 @@ fun CompactColorPickerPopup(
         )
     }
 
+    var isVisible by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        isVisible = true
+    }
+
+    val dismissWithAnimation: () -> Unit = {
+        if (isVisible) {
+            isVisible = false
+            coroutineScope.launch {
+                kotlinx.coroutines.delay(160)
+                onDismiss()
+            }
+        }
+    }
+
     Popup(
-        alignment = Alignment.Center,
-        onDismissRequest = onDismiss,
+        alignment = Alignment.TopStart,
+        onDismissRequest = dismissWithAnimation,
         properties = PopupProperties(
             focusable = true,
             dismissOnBackPress = true,
-            dismissOnClickOutside = true,
+            dismissOnClickOutside = false,
         ),
     ) {
-        // 轻量化透明外围交互层，点击外部轻触即关闭，消除重度模态 Dialog 遮罩感
-        Box(
+        // 轻量化完全透明外围交互层，无遮罩变灰，点击外部轻触即触发丝滑退出动画
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.15f))
-                .noRippleClickable(onDismiss),
-            contentAlignment = Alignment.Center,
+                .background(Color.Transparent)
+                .noRippleClickable(dismissWithAnimation),
         ) {
+            val density = LocalDensity.current
+            val screenW = maxWidth
+            val screenH = maxHeight
+
+            val popupW = 290.dp
+            val estimatedH = 290.dp // 面板预估高
+            val margin = 12.dp
+
+            val offset = remember(anchorBounds, screenW, screenH) {
+                if (anchorBounds != null) {
+                    with(density) {
+                        val anchorLeftDp = anchorBounds.left.toDp()
+                        val anchorRightDp = anchorBounds.right.toDp()
+                        val anchorTopDp = anchorBounds.top.toDp()
+                        val anchorBottomDp = anchorBounds.bottom.toDp()
+                        val anchorCenterXDp = (anchorLeftDp + anchorRightDp) / 2f
+
+                        // 水平方向：居中对齐锚点，并防止超出屏幕边缘
+                        val idealX = anchorCenterXDp - popupW / 2f
+                        val clampedX = idealX.coerceIn(margin, (screenW - popupW - margin).coerceAtLeast(margin))
+
+                        // 垂直方向：优先放置在锚点下方；若下方空间不足且上方空间更大，则放置在上方
+                        val spaceBelow = screenH - anchorBottomDp
+                        val spaceAbove = anchorTopDp
+                        val idealY = if (spaceBelow >= estimatedH + margin || spaceBelow >= spaceAbove) {
+                            (anchorBottomDp + 8.dp).coerceIn(margin, (screenH - estimatedH - margin).coerceAtLeast(margin))
+                        } else {
+                            (anchorTopDp - estimatedH - 8.dp).coerceIn(margin, (screenH - estimatedH - margin).coerceAtLeast(margin))
+                        }
+
+                        androidx.compose.ui.unit.DpOffset(clampedX, idealY)
+                    }
+                } else {
+                    // 无锚点时居中
+                    val cx = ((screenW - popupW) / 2f).coerceAtLeast(margin)
+                    val cy = ((screenH - estimatedH) / 2f).coerceAtLeast(margin)
+                    androidx.compose.ui.unit.DpOffset(cx, cy)
+                }
+            }
+
             Box(
                 modifier = Modifier
-                    .width(290.dp)
-                    .noRippleClickable { /* consume click */ }
-                    .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.45f))
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(18.dp))
+                    .fillMaxSize(),
+                contentAlignment = Alignment.TopStart
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = isVisible,
+                    modifier = Modifier.offset(x = offset.x, y = offset.y),
+                    enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(150)) +
+                            androidx.compose.animation.scaleIn(
+                                initialScale = 0.88f,
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                )
+                            ),
+                    exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) +
+                            androidx.compose.animation.scaleOut(
+                                targetScale = 0.88f,
+                                animationSpec = androidx.compose.animation.core.tween(120)
+                            )
                 ) {
-                    // Header: Title + Color Preview Swatch + Hex Readout + Close Icon
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Box(
+                        modifier = Modifier
+                            .width(popupW)
+                            .noRippleClickable { /* consume click */ }
+                            .shadow(24.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.45f))
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Morandi.panel)
+                            .glassBorder(RoundedCornerShape(18.dp))
                     ) {
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Header: Title + Color Preview Swatch + Hex Readout + Close Icon
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                         Text(
                             text = title,
                             color = Morandi.text,
@@ -984,7 +1068,7 @@ fun CompactColorPickerPopup(
                                     .size(26.dp)
                                     .clip(CircleShape)
                                     .background(Morandi.panelHi)
-                                    .clickable(onClick = onDismiss),
+                                    .clickable(onClick = dismissWithAnimation),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -1128,7 +1212,7 @@ fun CompactColorPickerPopup(
                                 text = resetToAutoText,
                                 onClick = {
                                     onResetToAuto()
-                                    onDismiss()
+                                    dismissWithAnimation()
                                 },
                                 textColor = Morandi.subText,
                                 fontSize = 12.sp
@@ -1141,7 +1225,7 @@ fun CompactColorPickerPopup(
                             text = stringResource(R.string.common_confirm),
                             onClick = {
                                 onColorSelected(currentColor)
-                                onDismiss()
+                                dismissWithAnimation()
                             },
                             primary = true,
                             fontSize = 12.sp,
@@ -1152,12 +1236,15 @@ fun CompactColorPickerPopup(
         }
     }
 }
+}
+}
 
 /** Hex 字符串重载版本 */
 @Composable
 fun CompactColorPickerPopup(
     title: String = stringResource(R.string.gradient_pick_color),
     initialHex: String,
+    anchorBounds: androidx.compose.ui.geometry.Rect? = null,
     onColorConfirmed: (String) -> Unit,
     onDismiss: () -> Unit,
     onResetToAuto: (() -> Unit)? = null,
@@ -1174,6 +1261,7 @@ fun CompactColorPickerPopup(
     CompactColorPickerPopup(
         title = title,
         initialColor = initialCol,
+        anchorBounds = anchorBounds,
         onColorSelected = { col ->
             val hex = String.format(
                 Locale.US,

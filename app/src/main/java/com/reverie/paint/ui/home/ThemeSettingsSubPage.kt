@@ -52,6 +52,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
@@ -67,7 +70,9 @@ internal fun ThemeSettingsSubPage(
 ) {
     val colors = Theme.current
     var showCustomColorDialog by remember { mutableStateOf(false) }
+    var customColorAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var showCustomCanvasBgDialog by remember { mutableStateOf(false) }
+    var customCanvasBgAnchorBounds by remember { mutableStateOf<Rect?>(null) }
 
     val presetSwatches = listOf(
         "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
@@ -216,6 +221,9 @@ internal fun ThemeSettingsSubPage(
                                 Box(
                                     modifier = Modifier
                                         .size(38.dp)
+                                        .onGloballyPositioned { coordinates ->
+                                            customColorAnchorBounds = coordinates.boundsInRoot()
+                                        }
                                         .clip(CircleShape)
                                         .background(currentCustomColor)
                                         .then(
@@ -342,6 +350,9 @@ internal fun ThemeSettingsSubPage(
                                 Box(
                                     modifier = Modifier
                                         .size(38.dp)
+                                        .onGloballyPositioned { coordinates ->
+                                            customCanvasBgAnchorBounds = coordinates.boundsInRoot()
+                                        }
                                         .clip(CircleShape)
                                         .background(currentCustomColor)
                                         .then(
@@ -442,6 +453,7 @@ internal fun ThemeSettingsSubPage(
         CompactColorPickerPopup(
             title = stringResource(R.string.color_custom),
             initialHex = vm.accentColorHex,
+            anchorBounds = customColorAnchorBounds,
             onColorConfirmed = { hex ->
                 vm.updateAccentColor(hex)
                 showCustomColorDialog = false
@@ -454,6 +466,7 @@ internal fun ThemeSettingsSubPage(
         CompactColorPickerPopup(
             title = stringResource(R.string.theme_custom_canvas_bg),
             initialHex = if (vm.canvasBgColorHex == "DEFAULT" || vm.canvasBgColorHex.isBlank()) "#2F3136" else vm.canvasBgColorHex,
+            anchorBounds = customCanvasBgAnchorBounds,
             onColorConfirmed = { hex ->
                 vm.updateCanvasBgColor(hex)
                 showCustomCanvasBgDialog = false
