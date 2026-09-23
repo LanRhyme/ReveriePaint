@@ -499,14 +499,10 @@ class CanvasTouchView(context: Context) : View(context) {
         super.onAttachedToWindow()
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_STYLUS)
-                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_TOUCHSCREEN)
-            } catch (_: Throwable) {}
-        }
+        applyHighRefreshRateAndUnbuffered()
         val maxFps = if (Build.VERSION.SDK_INT >= 30) {
-            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+            val d = try { display } catch (_: Throwable) { null }
+            d?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
         } else 144f
         if (oplusPredictor == null) {
             try {
@@ -530,11 +526,63 @@ class CanvasTouchView(context: Context) : View(context) {
                 androidMotionPredictor = android.view.MotionPredictor(context)
             } catch (_: Throwable) {}
         }
-        if (Build.VERSION.SDK_INT >= 30) {
+    }
+
+    fun applyHighRefreshRateAndUnbuffered() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_STYLUS)
+                requestUnbufferedDispatch(android.view.InputDevice.SOURCE_TOUCHSCREEN)
+            } catch (_: Throwable) {}
+        }
+        val maxFps = if (Build.VERSION.SDK_INT >= 30) {
+            val d = try { display } catch (_: Throwable) { null }
+            d?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+        } else 144f
+        oplusPredictor?.let { p ->
+            try {
+                if (p.isValid) p.setRefreshRate(maxFps)
+            } catch (_: Throwable) {}
+        }
+        if (Build.VERSION.SDK_INT >= 34) {
             try {
                 val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
-                method.invoke(this, maxFps, 0)
+                method.invoke(this, maxFps, 1) // 1 = Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
             } catch (_: Throwable) {}
+        }
+    }
+
+    fun checkAndRestoreHighRefreshRate() {
+        val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try { display } catch (_: Throwable) { null }
+        } else {
+            @Suppress("DEPRECATION")
+            (context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager)?.defaultDisplay
+        }
+        val modes = d?.supportedModes ?: return
+        val maxFps = modes.maxOfOrNull { it.refreshRate } ?: return
+        val curFps = d.refreshRate
+        if (maxFps > 60f && curFps < maxFps - 5f) {
+            (context as? android.app.Activity)?.let { act ->
+                com.reverie.paint.MainActivity.applyHighRefreshRate(act)
+            }
+            applyHighRefreshRateAndUnbuffered()
+        }
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus) {
+            applyHighRefreshRateAndUnbuffered()
+            checkAndRestoreHighRefreshRate()
+        }
+    }
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        if (isVisible) {
+            applyHighRefreshRateAndUnbuffered()
+            checkAndRestoreHighRefreshRate()
         }
     }
 
@@ -1019,6 +1067,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 try {
                     requestUnbufferedDispatch(event)
                 } catch (_: Throwable) {}
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    try {
+                        requestUnbufferedDispatch(android.view.InputDevice.SOURCE_STYLUS)
+                        requestUnbufferedDispatch(android.view.InputDevice.SOURCE_TOUCHSCREEN)
+                    } catch (_: Throwable) {}
+                }
+                checkAndRestoreHighRefreshRate()
             }
         }
         val pointerCount = event.pointerCount

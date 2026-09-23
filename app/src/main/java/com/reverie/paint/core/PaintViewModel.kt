@@ -2724,11 +2724,7 @@ class PaintViewModel : ViewModel() {
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
-                tv.postInvalidateOnAnimation()
-            } else {
-                tv.postInvalidate()
-            }
+            tv.postInvalidate()
         } else {
             mainHandler.post {
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()

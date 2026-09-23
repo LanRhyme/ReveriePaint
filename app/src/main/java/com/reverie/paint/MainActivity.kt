@@ -110,16 +110,16 @@ class MainActivity : ComponentActivity() {
 
         /**
          * Lock window display mode to the panel's maximum supported refresh rate (144Hz / 120Hz).
-         * Prevents system VRR from aggressively throttling drawing down to 60Hz.
+         * Prevents system VRR and floating-window video playback from aggressively throttling drawing down to 60Hz.
          */
         fun applyHighRefreshRate(activity: android.app.Activity) {
-            val window = activity.window
+            val window = activity.window ?: return
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                 val display = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    activity.display
+                    try { activity.display } catch (_: Throwable) { null }
                 } else {
                     @Suppress("DEPRECATION")
-                    activity.windowManager.defaultDisplay
+                    activity.windowManager?.defaultDisplay
                 }
                 val modes = display?.supportedModes ?: emptyArray()
                 val maxFpsMode = modes.maxByOrNull { it.refreshRate }
@@ -127,7 +127,15 @@ class MainActivity : ComponentActivity() {
                     val lp = window.attributes
                     lp.preferredDisplayModeId = maxFpsMode.modeId
                     lp.preferredRefreshRate = maxFpsMode.refreshRate
+                    if (android.os.Build.VERSION.SDK_INT >= 34) {
+                        try {
+                            lp.setFrameRateBoostOnTouchEnabled(true)
+                        } catch (_: Throwable) {}
+                    }
                     window.attributes = lp
+                    try {
+                        window.decorView.requestLayout()
+                    } catch (_: Throwable) {}
                 }
             }
         }
@@ -312,6 +320,21 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyHighRefreshRate(this)
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyHighRefreshRate(this)
+            com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+        }
+    }
+
+    override fun onMultiWindowModeChanged(isInMultiWindowMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
+        applyHighRefreshRate(this)
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
     }
 
     override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
