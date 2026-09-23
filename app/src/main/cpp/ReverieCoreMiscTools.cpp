@@ -185,6 +185,10 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
             if (m_selection) {
                 p.setSelection(m_selection);
             }
+            // Alpha-locked layer keeps its silhouette: only the colour
+            // channels follow the warp (same flags the stroke path uses)
+            p.setChannelFlags(t.layer && t.layer->alphaLocked() ? t.layer->channelLockFlags()
+                                                                : QBitArray());
             p.bitBlt(area.topLeft(), t.dst, area);
             p.end();
             t.device->setDirty(area);
@@ -240,6 +244,7 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         seen.append(dev);
         LiquifyTarget t;
         t.device = dev;
+        t.layer = dynamic_cast<KisPaintLayer *>(m_layers[idx].node);
         t.txn = new KisTransaction(kundo2_i18n("Liquify"), dev, nullptr, -1, nullptr);
         m_liquifyTargets.append(t);
     }

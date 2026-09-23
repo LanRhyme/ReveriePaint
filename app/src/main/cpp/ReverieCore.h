@@ -794,6 +794,9 @@ private:
         class KisLiquifyTransformWorker *worker = nullptr;
         KisTransaction *txn = nullptr;
         QRect bounds;
+        // Owning paint layer (null for masks/projections): supplies the
+        // alpha-lock channel flags for the writeback
+        class KisPaintLayer *layer = nullptr;
     };
     QVector<LiquifyTarget> m_liquifyTargets;
     bool m_liquifyTxnActive = false;   // a bracketed drag session is open
