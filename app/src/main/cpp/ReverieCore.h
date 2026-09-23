@@ -399,6 +399,23 @@ public:
      *  while the pointer moves). */
     QVector<quint32> previewLassoOverlay(const QVector<QPoint> &points, int vw, int vh) const;
 
+    // Stored Selections (选区历史与存储槽位)
+    struct StoredSelection {
+        QString id;
+        QString name;
+        KisSelectionSP selection;
+    };
+    int saveCurrentSelection(const QString &name = QString());
+    bool loadStoredSelection(int index, int mode = 0);
+    bool deleteStoredSelection(int index);
+    bool updateStoredSelection(int index);
+    bool renameStoredSelection(int index, const QString &name);
+    int storedSelectionCount() const;
+    QString storedSelectionName(int index) const;
+    QString storedSelectionId(int index) const;
+    QVector<quint32> storedSelectionThumbnail(int index, int thumbW, int thumbH) const;
+    void clearStoredSelections();
+
     // Tool mode: the complete Krita tool set. Brush-family modes drive the
     // stroke composite (eraser -> erase even with a plain brush preset);
     // the others are dispatched from Kotlin/Compose with their own logic.
@@ -586,6 +603,8 @@ public:
     // brush_definition lookups (bestMatch by filename) can resolve them.
     // Must be called before loadBrushPreset. Returns the count loaded.
     int loadBrushResources(const QString &dirPath);
+    bool loadSingleBrushResource(const QString &baseName);
+    void ensureBrushForPreset(const QString &kppPath);
     bool loadBrushPreset(int index);
     int brushPresetCount() const;
     QVector<double> brushPresetDefaults(int index);
@@ -632,6 +651,7 @@ public:
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
     bool loadRevp(const QString &path);
+    static bool loadKraTree(const QByteArray &maindocBytes, KisImageSP image, KoStore *store, const QString &docName, bool *bgVisible);
     bool loadPsd(const QString &path);
     bool saveKra(const QString &path);
 
@@ -739,6 +759,7 @@ private:
     int m_currentLayer = 0;
     KisSelectionSP m_selection;     // optional active selection
     SelMode m_selectionMode = SelReplace;
+    QVector<StoredSelection> m_storedSelections; // 已存储的选区列表
     // ---- Solo mode state (render-filter only, never mutates layers) ----
     // The soloed node and its keep set are tracked by node pointer, so layer
     // add/remove/move (which rebuild m_layers) can never invalidate them
@@ -796,6 +817,7 @@ private:
     KisPaintOpPresetSP m_brushPreset;
     KisResourcesInterfaceSP m_brushResources;
     QHash<QString, KisBrushSP> m_loadedBrushes;
+    QString m_brushDir;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true

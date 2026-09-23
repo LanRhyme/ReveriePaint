@@ -32,7 +32,9 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness4
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.Layers
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.rounded.Opacity
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Wallpaper
@@ -73,10 +75,21 @@ internal fun ThemeSettingsSubPage(
     var customColorAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var showCustomCanvasBgDialog by remember { mutableStateOf(false) }
     var customCanvasBgAnchorBounds by remember { mutableStateOf<Rect?>(null) }
+    var showCustomSelectionMaskColorDialog by remember { mutableStateOf(false) }
+    var customSelectionMaskColorAnchorBounds by remember { mutableStateOf<Rect?>(null) }
 
     val presetSwatches = listOf(
         "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
         "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
+    )
+
+    val selectionMaskPresetSwatches = listOf(
+        "#141416",
+        "#1A355A",
+        "#8A2024",
+        "#3A5A52",
+        "#4A285A",
+        "#6A4020",
     )
 
     val canvasPresetSwatches = listOf(
@@ -410,15 +423,134 @@ internal fun ThemeSettingsSubPage(
                     summary = stringResource(R.string.theme_ui_scale_desc),
                     valueText = "${(vm.paintingUiScale * 100).toInt()}%",
                     sliderFraction = ((vm.paintingUiScale - 0.75f) / (1.35f - 0.75f)).coerceIn(0f, 1f),
-                    shape = settingGroupShape(0, 1),
+                    shape = settingGroupShape(0, 2),
                     onValueChange = { fraction ->
                         val newScale = 0.75f + fraction * (1.35f - 0.75f)
                         vm.updatePaintingUiScale(newScale)
                     },
                 )
+
+                SettingSliderGroupItem(
+                    icon = Icons.Rounded.Height,
+                    title = stringResource(R.string.theme_quick_slider_height_title),
+                    summary = stringResource(R.string.theme_quick_slider_height_desc),
+                    valueText = "${vm.quickSliderHeightDp} dp",
+                    sliderFraction = ((vm.quickSliderHeightDp - 100f) / (260f - 100f)).coerceIn(0f, 1f),
+                    shape = settingGroupShape(1, 2),
+                    onValueChange = { fraction ->
+                        val newHeight = (100f + fraction * 160f).roundToInt()
+                        vm.updateQuickSliderHeight(newHeight)
+                    },
+                )
             }
 
-            // Section 6: 显示与效果
+            // Section 6: 选区显示
+            SettingCategoryTitle(stringResource(R.string.theme_category_selection_mask))
+            SettingGroup {
+                SettingCardBox(shape = settingGroupShape(0, 2)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            SettingIcon(icon = R.drawable.ic_select, tint = colors.icon)
+                            Spacer(Modifier.width(14.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.theme_selection_mask_color_title),
+                                    color = colors.text,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.theme_selection_mask_color_desc),
+                                    color = colors.subText,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            items(selectionMaskPresetSwatches) { hex ->
+                                val swatchColor = parseColor(hex)
+                                val isSelected = vm.selectionMaskColorHex.equals(hex, ignoreCase = true)
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(swatchColor)
+                                        .then(
+                                            if (isSelected) Modifier.border(2.5.dp, colors.accent, CircleShape) else Modifier
+                                        )
+                                        .clickable { vm.updateSelectionMaskColor(hex) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (isSelected) {
+                                        val checkTint = if (swatchColor.red * 0.299 + swatchColor.green * 0.587 + swatchColor.blue * 0.114 > 0.6) Color.Black else Color.White
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_check),
+                                            contentDescription = null,
+                                            tint = checkTint,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Custom selection mask color button
+                            item {
+                                val isCustomSelected = selectionMaskPresetSwatches.none { it.equals(vm.selectionMaskColorHex, ignoreCase = true) }
+                                val currentCustomColor = if (isCustomSelected) parseColor(vm.selectionMaskColorHex) else colors.panelHi
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .onGloballyPositioned { coordinates ->
+                                            customSelectionMaskColorAnchorBounds = coordinates.boundsInRoot()
+                                        }
+                                        .clip(CircleShape)
+                                        .background(currentCustomColor)
+                                        .then(
+                                            if (isCustomSelected) Modifier.border(2.5.dp, colors.accent, CircleShape) else Modifier
+                                        )
+                                        .clickable { showCustomSelectionMaskColorDialog = true },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    val iconTint = if (isCustomSelected) {
+                                        if (currentCustomColor.red * 0.299 + currentCustomColor.green * 0.587 + currentCustomColor.blue * 0.114 > 0.6) Color.Black else Color.White
+                                    } else colors.icon
+                                    Icon(
+                                        painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
+                                        contentDescription = stringResource(R.string.theme_selection_custom_color_title),
+                                        tint = iconTint,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingSliderGroupItem(
+                    icon = Icons.Rounded.Opacity,
+                    title = stringResource(R.string.theme_selection_mask_opacity_title),
+                    summary = stringResource(R.string.theme_selection_mask_opacity_desc),
+                    valueText = "${(vm.selectionMaskOpacity * 100).roundToInt()}%",
+                    sliderFraction = ((vm.selectionMaskOpacity - 0.10f) / (0.90f - 0.10f)).coerceIn(0f, 1f),
+                    shape = settingGroupShape(1, 2),
+                    onValueChange = { fraction ->
+                        val newOpacity = (0.10f + fraction * 0.80f).coerceIn(0.10f, 0.90f)
+                        vm.updateSelectionMaskOpacity(newOpacity)
+                    },
+                )
+            }
+
+            // Section 7: 显示与效果
             SettingCategoryTitle(stringResource(R.string.theme_category_effects))
             SettingGroup {
                 val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -472,6 +604,19 @@ internal fun ThemeSettingsSubPage(
                 showCustomCanvasBgDialog = false
             },
             onDismiss = { showCustomCanvasBgDialog = false },
+        )
+    }
+
+    if (showCustomSelectionMaskColorDialog) {
+        CompactColorPickerPopup(
+            title = stringResource(R.string.theme_selection_custom_color_title),
+            initialHex = vm.selectionMaskColorHex,
+            anchorBounds = customSelectionMaskColorAnchorBounds,
+            onColorConfirmed = { hex ->
+                vm.updateSelectionMaskColor(hex)
+                showCustomSelectionMaskColorDialog = false
+            },
+            onDismiss = { showCustomSelectionMaskColorDialog = false },
         )
     }
 }

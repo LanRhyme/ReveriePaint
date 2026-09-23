@@ -368,6 +368,16 @@
     <string name="toast_project_no_replay_data">No replay data for this artwork</string>
     <string name="toast_project_inserted_layer">Inserted new layer: %s</string>
     <string name="toast_project_imported_to_gallery">Imported to gallery in background</string>
+    <string name="toast_project_export_failed">Failed to export %s</string>
+    <string name="toast_project_gallery_create_failed">Failed to create media library entry</string>
+    <string name="toast_project_gallery_save_failed">Failed to save to gallery: %s</string>
+    <string name="toast_project_import_single_success">Imported successfully: %s</string>
+    <string name="toast_project_import_multiple_success">Imported %d artworks successfully</string>
+    <string name="toast_project_import_unsupported">Import failed: Unsupported file format</string>
+    <string name="toast_project_decode_image_failed">Failed to decode image data</string>
+    <string name="toast_project_import_image_failed">Failed to import image: %s</string>
+    <string name="project_default_import_name">Imported Artwork</string>
+    <string name="project_default_import_image_name">Imported Image</string>
 
     <!-- Tool Action Toasts -->
     <string name="toast_undo">Undo</string>
@@ -642,6 +652,10 @@
     <string name="settings_quick_slider">Quick Slider</string>
     <string name="settings_quick_slider_flow">Flow</string>
     <string name="settings_quick_slider_opacity">Opacity</string>
+    <string name="settings_quick_slider_height">Slider Length</string>
+    <string name="settings_quick_slider_height_compact">Compact</string>
+    <string name="settings_quick_slider_height_standard">Standard</string>
+    <string name="settings_quick_slider_height_long">Extended</string>
     <string name="settings_layer_row_height">Layer row height</string>
     <string name="settings_layer_height_compact">Compact</string>
     <string name="settings_layer_height_standard">Standard</string>
@@ -1420,6 +1434,8 @@
     <string name="theme_category_ui_scale">Interface Scale</string>
     <string name="theme_ui_scale_title">Overall Painting UI Scale</string>
     <string name="theme_ui_scale_desc">Scale toolbars, top bar, and floating panels around the canvas</string>
+    <string name="theme_quick_slider_height_title">Side Slider Panel Length</string>
+    <string name="theme_quick_slider_height_desc">Adjust the length of brush size and opacity sliders in the bottom-left panel</string>
     <string name="theme_category_effects">Display &amp; Effects</string>
     <string name="theme_blur_title">Background Frosted Glass Effect</string>
     <string name="theme_blur_desc">Enable translucent background Gaussian blur for all panels and toolbars</string>
@@ -1733,4 +1749,37 @@
     <string name="param_input_hint">Enter value</string>
     <string name="brush_card_reset">Reset</string>
     <string name="brush_card_open_studio">Studio</string>
+
+    <!-- Stored Selections / Selection History -->
+    <string name="selection_history_title">Selection History</string>
+    <string name="selection_save_current">Save Selection</string>
+    <string name="selection_empty_history">No Saved Selections</string>
+    <string name="selection_empty_history_hint">Tap \"+\" above to store the active selection as a slot</string>
+    <string name="selection_op_replace">Load &amp; Replace</string>
+    <string name="selection_op_add">Add to Selection (+)</string>
+    <string name="selection_op_subtract">Subtract from Selection (-)</string>
+    <string name="selection_op_intersect">Intersect with Selection (∩)</string>
+    <string name="selection_op_overwrite">Overwrite with Current</string>
+    <string name="selection_op_rename">Rename</string>
+    <string name="selection_toast_saved">Selection saved</string>
+    <string name="selection_toast_loaded">Selection loaded</string>
+    <string name="selection_toast_added">Added to active selection</string>
+    <string name="selection_toast_subtracted">Subtracted from active selection</string>
+    <string name="selection_toast_intersected">Intersected with active selection</string>
+    <string name="selection_toast_updated">Selection slot updated</string>
+    <string name="selection_toast_deleted">Selection deleted</string>
+    <string name="selection_rename_title">Rename Selection</string>
+    <string name="selection_rename_hint">Enter selection name</string>
+    <string name="selection_count_label">%d selections</string>
+    <string name="selection_bottom_action_save">Save Selection</string>
+
+    <!-- Theme Selection Mask Settings -->
+    <string name="theme_category_selection_mask">Selection Display</string>
+    <string name="theme_selection_mask_color_title">Mask Color</string>
+    <string name="theme_selection_mask_color_desc">Adjust tint color for unselected areas of the active selection</string>
+    <string name="theme_selection_mask_opacity_title">Mask Opacity</string>
+    <string name="theme_selection_mask_opacity_desc">Adjust transparency of the selection mask overlay</string>
+    <string name="theme_selection_custom_color_title">Custom Mask Color</string>
 </resources>
+
+

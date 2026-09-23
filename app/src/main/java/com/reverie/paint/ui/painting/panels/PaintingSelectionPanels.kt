@@ -379,6 +379,14 @@ internal fun SelectionFloatPanel(
                     },
                 )
 
+                // 存储选区 / 选区历史
+                SelectionActionItem(
+                    iconRes = R.drawable.ic_bookmark_plus,
+                    label = stringResource(R.string.selection_bottom_action_save),
+                    active = vm.savedSelectionsPopupOpen,
+                    onClick = { vm.savedSelectionsPopupOpen = !vm.savedSelectionsPopupOpen },
+                )
+
                 // 取消按钮
                 SelectionActionItem(
                     iconRes = R.drawable.ic_trash,

@@ -9,6 +9,14 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include <QXmlStreamReader>
+#include <QXmlStreamWriter>
+#include <QDomDocument>
+#include <QDomElement>
+#include <QStack>
+#include <kis_store_paintdevice_writer.h>
+#include <kis_group_layer.h>
+#include <kis_paint_layer.h>
+#include <QUuid>
 
 void ReverieCore::setAuthorProfile(const QString &jsonStr)
 {
@@ -134,7 +142,20 @@ bool ReverieCore::exportPsd(const QString &path)
 
     // 3. Image resources section
     PSDImageResourceSection resourceSection;
-    if (!resourceSection.write(file)) {
+    {
+        RESN_INFO_1005 *resInfo = new RESN_INFO_1005;
+        const qreal xRes = image->xRes() > 0 ? (image->xRes() * 72.0) : 72.0;
+        const qreal yRes = image->yRes() > 0 ? (image->yRes() * 72.0) : 72.0;
+        resInfo->hRes = xRes;
+        resInfo->vRes = yRes;
+        PSDResourceBlock *block = new PSDResourceBlock;
+        block->identifier = PSDImageResourceSection::RESN_INFO;
+        block->resource = resInfo;
+        resourceSection.resources[PSDImageResourceSection::RESN_INFO] = block;
+    }
+    const bool resourceOk = resourceSection.write(file);
+    delete resourceSection.resources.take(PSDImageResourceSection::RESN_INFO);
+    if (!resourceOk) {
         return false;
     }
 
@@ -199,7 +220,8 @@ bool writeRevpStore(const QString &path,
                     const QVector<QPair<int, QImage>> &layerImages,
                     const QVector<RevpKeyframe> &keyframeImages,
                     const QMap<QString, QByteArray> &assets,
-                    const QByteArray &recordingBlob)
+                    const QByteArray &recordingBlob,
+                    const QVector<QPair<QString, QByteArray>> &storedSelectionFiles)
 {
     const QString tmpPath = path + ".tmp";
     QScopedPointer<KoStore> store(KoStore::createStore(tmpPath, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
@@ -278,6 +300,14 @@ bool writeRevpStore(const QString &path,
     for (auto it = assets.constBegin(); it != assets.constEnd(); ++it) {
         if (store->open("assets/" + it.key())) {
             store->write(it.value());
+            store->close();
+        }
+    }
+
+    // 5.5 Stored Selection masks (选区历史与存储槽位)
+    for (const auto &pair : storedSelectionFiles) {
+        if (store->open(pair.first)) {
+            store->write(pair.second);
             store->close();
         }
     }
@@ -478,7 +508,35 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         meta["assets"] = assetNames;
     }
 
-    return writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, m_revAssets, recordingBlob);
+    QVector<QPair<QString, QByteArray>> storedSelFiles;
+    if (!m_storedSelections.isEmpty()) {
+        QJsonArray selArr;
+        for (int i = 0; i < m_storedSelections.size(); ++i) {
+            const StoredSelection &item = m_storedSelections[i];
+            const QString fileName = QString("selections/selection_%1.png").arg(i, 3, 10, QChar('0'));
+            QJsonObject sObj;
+            sObj["id"] = item.id;
+            sObj["name"] = item.name;
+            sObj["file"] = fileName;
+            selArr.append(sObj);
+
+            if (item.selection) {
+                const QVector<quint8> mask = readSelectionMaskBytes(image, item.selection);
+                QImage mImg(image->width(), image->height(), QImage::Format_Grayscale8);
+                for (int y = 0; y < image->height(); ++y) {
+                    memcpy(mImg.scanLine(y), mask.constData() + size_t(y) * image->width(), image->width());
+                }
+                QByteArray pngBytes;
+                QBuffer mBuf(&pngBytes);
+                mBuf.open(QIODevice::WriteOnly);
+                mImg.save(&mBuf, "PNG");
+                storedSelFiles.append(qMakePair(fileName, pngBytes));
+            }
+        }
+        meta["storedSelections"] = selArr;
+    }
+
+    return writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, m_revAssets, recordingBlob, storedSelFiles);
 }
 
 bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJson, const QByteArray &recordingBlob)
@@ -651,8 +709,36 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
     }
     const QMap<QString, QByteArray> assetsCopy = m_revAssets;
 
+    QVector<QPair<QString, QByteArray>> storedSelFiles;
+    if (!m_storedSelections.isEmpty()) {
+        QJsonArray selArr;
+        for (int i = 0; i < m_storedSelections.size(); ++i) {
+            const StoredSelection &item = m_storedSelections[i];
+            const QString fileName = QString("selections/selection_%1.png").arg(i, 3, 10, QChar('0'));
+            QJsonObject sObj;
+            sObj["id"] = item.id;
+            sObj["name"] = item.name;
+            sObj["file"] = fileName;
+            selArr.append(sObj);
+
+            if (item.selection) {
+                const QVector<quint8> mask = readSelectionMaskBytes(image, item.selection);
+                QImage mImg(image->width(), image->height(), QImage::Format_Grayscale8);
+                for (int y = 0; y < image->height(); ++y) {
+                    memcpy(mImg.scanLine(y), mask.constData() + size_t(y) * image->width(), image->width());
+                }
+                QByteArray pngBytes;
+                QBuffer mBuf(&pngBytes);
+                mBuf.open(QIODevice::WriteOnly);
+                mImg.save(&mBuf, "PNG");
+                storedSelFiles.append(qMakePair(fileName, pngBytes));
+            }
+        }
+        meta["storedSelections"] = selArr;
+    }
+
     s_savingRevpAsync.store(true);
-    std::thread([path, meta, xml, comp, layerImages, kfDevices, docW, docH, assetsCopy, recordingBlob]() {
+    std::thread([path, meta, xml, comp, layerImages, kfDevices, docW, docH, assetsCopy, recordingBlob, storedSelFiles]() {
         QVector<RevpKeyframe> keyframeImages;
         for (const auto &kfd : kfDevices) {
             RevpKeyframe kf;
@@ -663,7 +749,7 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
                 keyframeImages.append(kf);
             }
         }
-        const bool ok = writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, assetsCopy, recordingBlob);
+        const bool ok = writeRevpStore(path, meta, xml, comp, layerImages, keyframeImages, assetsCopy, recordingBlob, storedSelFiles);
         s_savingRevpAsync.store(false);
         qDebug() << "saveRevpAsync finished, result=" << ok << "path=" << path;
     }).detach();
@@ -692,6 +778,183 @@ static QByteArray readAllStoreBytes(KoStore *store)
     return data;
 }
 
+static void paintDeviceFromPng(KisPaintDeviceSP dev, const QByteArray &pngBytes)
+{
+    if (!dev || pngBytes.isEmpty()) return;
+    QImage img;
+    if (!img.loadFromData(pngBytes, "PNG")) return;
+    dev->clear();
+    dev->convertFromQImage(img, nullptr);
+    dev->setDirty();
+}
+
+static bool loadLayerDataFromStore(KoStore *store, KisPaintDeviceSP dev, const QString &docName, const QString &filename, int index)
+{
+    if (!store || !dev) return false;
+
+    QStringList candidates;
+    if (!docName.isEmpty() && !filename.isEmpty()) {
+        candidates << QString("%1/layers/%2").arg(docName, filename);
+        candidates << QString("%1/layers/%2.png").arg(docName, filename);
+    }
+    if (!filename.isEmpty()) {
+        candidates << QString("layers/%1").arg(filename);
+        candidates << QString("layers/%1.png").arg(filename);
+        candidates << filename;
+        candidates << QString("%1.png").arg(filename);
+    }
+    candidates << QString("layer_%1.png").arg(index, 3, 10, QChar('0'));
+    candidates << QString("layer%1.png").arg(index);
+
+    const QStringList dirList = store->directoryList();
+    for (const QString &d : dirList) {
+        if (!d.isEmpty() && d != docName && !filename.isEmpty()) {
+            candidates << QString("%1/layers/%2").arg(d, filename);
+            candidates << QString("%1/layers/%2.png").arg(d, filename);
+        }
+    }
+
+    for (const QString &cand : candidates) {
+        if (store->open(cand)) {
+            QByteArray data = readAllStoreBytes(store);
+            store->close();
+            if (data.isEmpty()) {
+                continue;
+            }
+            if (data.size() >= 8 && memcmp(data.constData(), "\x89PNG\r\n\x1a\n", 8) == 0) {
+                paintDeviceFromPng(dev, data);
+            } else {
+                QBuffer buf(&data);
+                buf.open(QIODevice::ReadOnly);
+                if (dev->read(&buf)) {
+                    dev->setDirty();
+                } else {
+                    qWarning() << "loadLayerDataFromStore: dev->read failed for" << cand;
+                    continue;
+                }
+            }
+
+            // Check if defaultpixel exists
+            if (store->open(cand + ".defaultpixel")) {
+                const int pxSize = dev->colorSpace()->pixelSize();
+                QByteArray dp = readAllStoreBytes(store);
+                store->close();
+                if (dp.size() == pxSize) {
+                    KoColor defColor(reinterpret_cast<const quint8*>(dp.constData()), dev->colorSpace());
+                    dev->setDefaultPixel(defColor);
+                }
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool loadKraNodesDom(const QDomElement &parentElem,
+                            KisImageSP image,
+                            KisNodeSP parentNode,
+                            KoStore *store,
+                            const QString &docName,
+                            int &layerIndexCounter,
+                            bool *bgVisible)
+{
+    if (parentElem.isNull() || !image || !parentNode || !store) return false;
+
+    QVector<QDomElement> layerElements;
+    for (QDomElement child = parentElem.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
+        const QString tag = child.tagName().toLower();
+        if (tag == "layer" || tag == "mask") {
+            layerElements.append(child);
+        }
+    }
+
+    const KoColorSpace *cs = image->colorSpace();
+    bool any = false;
+
+    // Bottom-to-top traversal: in maindoc.xml, layers are listed top-to-bottom.
+    // Iterating in reverse adds bottom-most layers first into parentNode.
+    for (int i = layerElements.size() - 1; i >= 0; --i) {
+        const QDomElement &el = layerElements[i];
+        const QString nodeType = el.attribute("nodetype", el.attribute("layertype", "paintlayer")).toLower();
+        QString name = el.attribute("name");
+        if (name.isEmpty()) {
+            name = (nodeType == "grouplayer") ? QStringLiteral("图层组") : QStringLiteral("图层");
+        }
+        const int opacity = qBound(0, el.attribute("opacity", "255").toInt(), 255);
+        KisNodeSP node;
+        const bool isGroup = (nodeType == "grouplayer");
+
+        if (isGroup) {
+            node = new KisGroupLayer(image, name, opacity, cs);
+        } else {
+            KisPaintLayerSP pl = new KisPaintLayer(image, name, opacity, cs);
+            const QString fn = el.attribute("filename");
+            loadLayerDataFromStore(store, pl->paintDevice(), docName, fn, layerIndexCounter++);
+            node = pl;
+        }
+
+        if (node) {
+            const bool visible = el.attribute("visible", "1") != "0";
+            node->setVisible(visible);
+            node->setOpacity(quint8(opacity));
+            node->setUserLocked(el.attribute("locked", "0") == "1");
+            const int colorLabel = el.attribute("colorlabel", el.attribute("color_label", "0")).toInt();
+            node->setColorLabelIndex(colorLabel);
+            node->setX(el.attribute("x", "0").toInt());
+            node->setY(el.attribute("y", "0").toInt());
+
+            if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
+                const bool inheritAlpha = (el.attribute("inherit-alpha", "0") == "1") ||
+                                          (el.attribute("inherit_alpha", "0") == "1");
+                l->disableAlphaChannel(inheritAlpha);
+                const QString op = el.attribute("compositeop").trimmed();
+                if (!op.isEmpty()) {
+                    l->setCompositeOpId(op);
+                }
+                if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(l)) {
+                    const bool lockAlpha = (el.attribute("lockalpha", "0") == "1") ||
+                                           (el.attribute("alpha_locked", "0") == "1");
+                    pl->setAlphaLocked(lockAlpha);
+                }
+            }
+
+            if (bgVisible && (el.attribute("background") == "1" || name == "背景" || name == "Background")) {
+                *bgVisible = visible;
+            }
+
+            image->addNode(node, parentNode);
+            any = true;
+
+            if (isGroup) {
+                QDomElement subLayers = el.firstChildElement("layers");
+                if (subLayers.isNull()) subLayers = el.firstChildElement("LAYERS");
+                if (!subLayers.isNull()) {
+                    loadKraNodesDom(subLayers, image, node, store, docName, layerIndexCounter, bgVisible);
+                }
+            }
+        }
+    }
+    return any;
+}
+
+bool ReverieCore::loadKraTree(const QByteArray &maindocBytes, KisImageSP image, KoStore *store, const QString &docName, bool *bgVisible)
+{
+    if (maindocBytes.isEmpty() || !image || !store) return false;
+    QDomDocument doc;
+    if (!doc.setContent(maindocBytes)) return false;
+    QDomElement rootElem = doc.documentElement();
+    QDomElement imgElem = rootElem.firstChildElement("IMAGE");
+    if (imgElem.isNull()) imgElem = rootElem.firstChildElement("image");
+    if (imgElem.isNull()) imgElem = rootElem;
+
+    QDomElement layersElem = imgElem.firstChildElement("layers");
+    if (layersElem.isNull()) layersElem = imgElem.firstChildElement("LAYERS");
+    if (layersElem.isNull()) return false;
+
+    int counter = 0;
+    return loadKraNodesDom(layersElem, image, image->rootLayer(), store, docName, counter, bgVisible);
+}
+
 bool ReverieCore::loadRevp(const QString &path)
 {
     qWarning() << "ReverieCore::loadRevp START:" << path;
@@ -717,37 +980,53 @@ bool ReverieCore::loadRevp(const QString &path)
     QImage kraMergedImg;
     int kraW = 0;
     int kraH = 0;
+    QByteArray kraMaindocBytes;
+    QString kraDocName = QStringLiteral("Artwork");
     if (metaData.isEmpty()) {
-        bool hasMerged = store->open("mergedimage.png");
-        if (!hasMerged) {
-            hasMerged = store->open("preview.png");
-        }
-        if (hasMerged) {
-            QByteArray imgData = readAllStoreBytes(store.data());
+        if (store->open("maindoc.xml")) {
+            kraMaindocBytes = readAllStoreBytes(store.data());
             store->close();
-            if (!imgData.isEmpty() && kraMergedImg.loadFromData(imgData, "PNG")) {
-                kraW = kraMergedImg.width();
-                kraH = kraMergedImg.height();
-                if (store->open("maindoc.xml")) {
-                    QByteArray xmlData = readAllStoreBytes(store.data());
-                    store->close();
-                    QXmlStreamReader xml(xmlData);
-                    while (!xml.atEnd() && !xml.hasError()) {
-                        xml.readNext();
-                        if (xml.isStartElement() && xml.name() == QLatin1String("IMAGE")) {
-                            auto attrs = xml.attributes();
-                            if (attrs.hasAttribute("width")) kraW = attrs.value("width").toInt();
-                            if (attrs.hasAttribute("height")) kraH = attrs.value("height").toInt();
-                            break;
+            if (!kraMaindocBytes.isEmpty()) {
+                QDomDocument doc;
+                if (doc.setContent(kraMaindocBytes)) {
+                    QDomElement rootElem = doc.documentElement();
+                    QDomElement imgElem = rootElem.firstChildElement("IMAGE");
+                    if (imgElem.isNull()) imgElem = rootElem.firstChildElement("image");
+                    if (!imgElem.isNull()) {
+                        kraW = imgElem.attribute("width").toInt();
+                        kraH = imgElem.attribute("height").toInt();
+                        if (imgElem.hasAttribute("name") && !imgElem.attribute("name").isEmpty()) {
+                            kraDocName = imgElem.attribute("name");
                         }
                     }
                 }
-                if (kraW > 0 && kraH > 0) {
-                    isKraFallback = true;
+            }
+        }
+        if (kraW <= 0 || kraH <= 0) {
+            bool hasMerged = store->open("mergedimage.png");
+            if (!hasMerged) {
+                hasMerged = store->open("preview.png");
+            }
+            if (hasMerged) {
+                QByteArray imgData = readAllStoreBytes(store.data());
+                store->close();
+                if (!imgData.isEmpty() && kraMergedImg.loadFromData(imgData, "PNG")) {
+                    kraW = kraMergedImg.width();
+                    kraH = kraMergedImg.height();
+                }
+            }
+        } else {
+            if (store->open("mergedimage.png")) {
+                QByteArray imgData = readAllStoreBytes(store.data());
+                store->close();
+                if (!imgData.isEmpty()) {
+                    kraMergedImg.loadFromData(imgData, "PNG");
                 }
             }
         }
-        if (!isKraFallback) {
+        if (kraW > 0 && kraH > 0) {
+            isKraFallback = true;
+        } else {
             qWarning() << "ReverieCore::loadRevp metaData is empty and no fallback image found";
             return false;
         }
@@ -824,7 +1103,14 @@ bool ReverieCore::loadRevp(const QString &path)
         }
     }
 
-    if (isKraFallback) {
+    if (!treeLoaded && !kraMaindocBytes.isEmpty()) {
+        treeLoaded = loadKraTree(kraMaindocBytes, image, store.data(), kraDocName, &treeBgVisible);
+        if (treeLoaded) {
+            bgLayerVisible = treeBgVisible;
+        }
+    }
+
+    if (isKraFallback && !treeLoaded) {
         KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
         KoColor white(QColor(Qt::white), cs);
         bg->original()->fill(QRect(0, 0, w, h), white);
@@ -835,8 +1121,10 @@ bool ReverieCore::loadRevp(const QString &path)
         bgLayerVisible = true;
 
         KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("画作"), 255, cs);
-        paint->original()->convertFromQImage(kraMergedImg, 0);
-        paint->original()->setDirty();
+        if (!kraMergedImg.isNull()) {
+            paint->original()->convertFromQImage(kraMergedImg, 0);
+            paint->original()->setDirty();
+        }
         image->addNode(paint, image->rootLayer());
     } else if (!treeLoaded) {
     if (layersArray.isEmpty()) {
@@ -1015,6 +1303,38 @@ bool ReverieCore::loadRevp(const QString &path)
         }
     }
 
+    // ---- 存储选区还原: selections/selection_*.png -> m_storedSelections ----
+    m_storedSelections.clear();
+    if (!isKraFallback && meta.contains("storedSelections")) {
+        const QJsonArray selArr = meta["storedSelections"].toArray();
+        for (int i = 0; i < selArr.size(); ++i) {
+            const QJsonObject sObj = selArr[i].toObject();
+            const QString sId = sObj["id"].toString();
+            const QString sName = sObj["name"].toString();
+            const QString sFile = sObj["file"].toString();
+            if (sFile.isEmpty() || !store->open(sFile)) continue;
+            const QByteArray pData = readAllStoreBytes(store.data());
+            store->close();
+            if (pData.isEmpty()) continue;
+            QImage img;
+            if (img.loadFromData(pData, "PNG")) {
+                img = img.convertToFormat(QImage::Format_Grayscale8);
+                QVector<quint8> mask(size_t(w) * h, 0);
+                const int copyW = qMin(w, img.width());
+                const int copyH = qMin(h, img.height());
+                for (int y = 0; y < copyH; ++y) {
+                    memcpy(mask.data() + size_t(y) * w, img.constScanLine(y), copyW);
+                }
+                KisSelectionSP sel = selectionFromMask(image, mask);
+                StoredSelection item;
+                item.id = sId.isEmpty() ? QUuid::createUuid().toString(QUuid::WithoutBraces) : sId;
+                item.name = sName.isEmpty() ? QStringLiteral("选区 %1").arg(i + 1) : sName;
+                item.selection = sel;
+                m_storedSelections.append(item);
+            }
+        }
+    }
+
     recompositeProjection();
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
@@ -1053,6 +1373,8 @@ bool ReverieCore::loadPsd(const QString &path)
     PSDImageResourceSection resourceSection;
     if (!resourceSection.read(file)) {
         qWarning() << "ReverieCore::loadPsd failed reading resource section:" << resourceSection.error;
+        qDeleteAll(resourceSection.resources);
+        resourceSection.resources.clear();
         return false;
     }
 
@@ -1080,12 +1402,28 @@ bool ReverieCore::loadPsd(const QString &path)
 
     const KoColorSpace *cs = KoColorSpaceRegistry::instance()->rgb8();
     if (!cs) {
+        qDeleteAll(resourceSection.resources);
+        resourceSection.resources.clear();
         return false;
     }
 
     KisImageSP image = new KisImage(m_undoStore, w, h, cs, QStringLiteral("Untitled"));
     image->setUndoStore(m_undoStore);
-    image->setResolution(72.0, 72.0);
+
+    // Read resolution from resourceSection if present
+    double xRes = 1.0;
+    double yRes = 1.0;
+    if (resourceSection.resources.contains(PSDImageResourceSection::RESN_INFO)) {
+        RESN_INFO_1005 *resInfo = dynamic_cast<RESN_INFO_1005*>(resourceSection.resources[PSDImageResourceSection::RESN_INFO]->resource);
+        if (resInfo && resInfo->hRes > 0 && resInfo->vRes > 0) {
+            xRes = static_cast<qreal>(resInfo->hRes) / 72.0;
+            yRes = static_cast<qreal>(resInfo->vRes) / 72.0;
+        }
+    }
+    image->setResolution(xRes, yRes);
+
+    qDeleteAll(resourceSection.resources);
+    resourceSection.resources.clear();
 
     // ReveriePaint standard white background layer at index 0
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
@@ -1100,14 +1438,57 @@ bool ReverieCore::loadPsd(const QString &path)
     const bool hasLayerSection = layerSection.read(file);
 
     int loadedLayersCount = 0;
+    QStack<KisGroupLayerSP> groupStack;
+    groupStack.push(image->rootLayer());
+    KisNodeSP lastAddedLayer;
+
     if (hasLayerSection && !layerSection.layers.isEmpty()) {
         for (int i = 0; i < layerSection.layers.size(); ++i) {
             PSDLayerRecord *rec = layerSection.layers[i];
             if (!rec) continue;
 
-            // Skip folder/section dividers
+            // Handle folder/section dividers (lsct block)
             if (rec->infoBlocks.keys.contains("lsct") &&
                 rec->infoBlocks.sectionDividerType != psd_other) {
+
+                if (rec->infoBlocks.sectionDividerType == psd_bounding_divider && !groupStack.isEmpty()) {
+                    KisGroupLayerSP groupLayer = new KisGroupLayer(image, QStringLiteral("temp"), 255, cs);
+                    image->addNode(groupLayer, groupStack.top());
+                    groupStack.push(groupLayer);
+                    lastAddedLayer = groupLayer;
+                }
+                else if ((rec->infoBlocks.sectionDividerType == psd_open_folder ||
+                          rec->infoBlocks.sectionDividerType == psd_closed_folder) &&
+                         (groupStack.size() > 1 || (lastAddedLayer && !groupStack.isEmpty()))) {
+                    KisGroupLayerSP groupLayer;
+                    if (groupStack.size() <= 1) {
+                        groupLayer = new KisGroupLayer(image, QStringLiteral("temp"), 255, cs);
+                        image->addNode(groupLayer, groupStack.top());
+                        image->moveNode(lastAddedLayer, groupLayer, KisNodeSP());
+                    } else {
+                        groupLayer = groupStack.pop();
+                    }
+
+                    QString name = rec->layerName.trimmed();
+                    if (name.isEmpty() || name == QStringLiteral("UNINITIALIZED")) {
+                        name = QStringLiteral("图层组");
+                    }
+                    groupLayer->setName(name);
+                    groupLayer->setVisible(rec->visible);
+                    groupLayer->setOpacity(rec->opacity);
+                    groupLayer->setColorLabelIndex(rec->labelColor);
+
+                    QString compositeOp = psd_blendmode_to_composite_op(rec->infoBlocks.sectionDividerBlendMode);
+                    if (compositeOp == COMPOSITE_PASS_THROUGH) {
+                        compositeOp = COMPOSITE_OVER;
+                        groupLayer->setPassThroughMode(true);
+                    }
+                    if (!compositeOp.isEmpty()) {
+                        groupLayer->setCompositeOpId(compositeOp);
+                    }
+                    lastAddedLayer = groupLayer;
+                    loadedLayersCount++;
+                }
                 continue;
             }
 
@@ -1127,7 +1508,9 @@ bool ReverieCore::loadPsd(const QString &path)
                 layer->setVisible(rec->visible);
                 layer->disableAlphaChannel(rec->clipping > 0);
                 layer->setAlphaLocked(rec->transparencyProtected);
-                image->addNode(layer, image->rootLayer());
+                layer->setColorLabelIndex(rec->labelColor);
+                image->addNode(layer, groupStack.isEmpty() ? image->rootLayer() : groupStack.top());
+                lastAddedLayer = layer;
                 loadedLayersCount++;
             }
         }
@@ -1161,6 +1544,98 @@ bool ReverieCore::loadPsd(const QString &path)
     return true;
 }
 
+static void writeKraNodesXml(QXmlStreamWriter &xml,
+                             KisNodeSP parentNode,
+                             const QString &docName,
+                             KoStore *store,
+                             int &layerCounter,
+                             KisImageSP image)
+{
+    if (!parentNode) return;
+
+    for (KisNodeSP node = parentNode->lastChild(); node; node = node->prevSibling()) {
+        KisLayer *layer = dynamic_cast<KisLayer *>(node.data());
+        if (!layer) continue;
+
+        const bool isGroup = dynamic_cast<KisGroupLayer *>(layer) != nullptr;
+        const QString name = layer->name();
+        const int opacityVal = layer->opacity();
+        QString blend = layer->compositeOpId().trimmed();
+        if (blend.isEmpty()) blend = QStringLiteral("normal");
+
+        const QString visibleStr = layer->visible() ? QStringLiteral("1") : QStringLiteral("0");
+        const QString lockedStr = layer->userLocked() ? QStringLiteral("1") : QStringLiteral("0");
+        const QString inheritAlphaStr = layer->alphaChannelDisabled() ? QStringLiteral("1") : QStringLiteral("0");
+
+        if (isGroup) {
+            xml.writeStartElement(QStringLiteral("layer"));
+            xml.writeAttribute(QStringLiteral("name"), name);
+            xml.writeAttribute(QStringLiteral("opacity"), QString::number(opacityVal));
+            xml.writeAttribute(QStringLiteral("compositeop"), blend);
+            xml.writeAttribute(QStringLiteral("visible"), visibleStr);
+            xml.writeAttribute(QStringLiteral("locked"), lockedStr);
+            xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("colormodelname"), QStringLiteral("RGBA"));
+            xml.writeAttribute(QStringLiteral("channelformat"), QStringLiteral("U8"));
+            xml.writeAttribute(QStringLiteral("nodetype"), QStringLiteral("grouplayer"));
+            xml.writeAttribute(QStringLiteral("x"), QString::number(layer->x()));
+            xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
+
+            xml.writeStartElement(QStringLiteral("layers"));
+            writeKraNodesXml(xml, node, docName, store, layerCounter, image);
+            xml.writeEndElement(); // layers
+
+            xml.writeEndElement(); // layer
+        } else if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(layer)) {
+            const QString layerFileName = QString("layer%1").arg(layerCounter++);
+            const QString alphaLockedStr = pl->alphaLocked() ? QStringLiteral("1") : QStringLiteral("0");
+
+            xml.writeStartElement(QStringLiteral("layer"));
+            xml.writeAttribute(QStringLiteral("name"), name);
+            xml.writeAttribute(QStringLiteral("opacity"), QString::number(opacityVal));
+            xml.writeAttribute(QStringLiteral("compositeop"), blend);
+            xml.writeAttribute(QStringLiteral("visible"), visibleStr);
+            xml.writeAttribute(QStringLiteral("locked"), lockedStr);
+            xml.writeAttribute(QStringLiteral("lockalpha"), alphaLockedStr);
+            xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("filename"), layerFileName);
+            xml.writeAttribute(QStringLiteral("colormodelname"), QStringLiteral("RGBA"));
+            xml.writeAttribute(QStringLiteral("channelformat"), QStringLiteral("U8"));
+            xml.writeAttribute(QStringLiteral("nodetype"), QStringLiteral("paintlayer"));
+            xml.writeAttribute(QStringLiteral("x"), QString::number(layer->x()));
+            xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
+            xml.writeEndElement(); // layer
+
+            // Write Krita tile data to <docName>/layers/<layerFileName>
+            const QString tileLoc = QString("%1/layers/%2").arg(docName, layerFileName);
+            if (store->open(tileLoc)) {
+                KisStorePaintDeviceWriter writer(store);
+                pl->paintDevice()->write(writer);
+                store->close();
+            }
+            if (store->open(tileLoc + ".defaultpixel")) {
+                const int pxSize = pl->paintDevice()->colorSpace()->pixelSize();
+                store->write(reinterpret_cast<const char*>(pl->paintDevice()->defaultPixel().data()), pxSize);
+                store->close();
+            }
+        } else {
+            xml.writeStartElement(QStringLiteral("layer"));
+            xml.writeAttribute(QStringLiteral("name"), name);
+            xml.writeAttribute(QStringLiteral("opacity"), QString::number(opacityVal));
+            xml.writeAttribute(QStringLiteral("compositeop"), blend);
+            xml.writeAttribute(QStringLiteral("visible"), visibleStr);
+            xml.writeAttribute(QStringLiteral("locked"), lockedStr);
+            xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("colormodelname"), QStringLiteral("RGBA"));
+            xml.writeAttribute(QStringLiteral("channelformat"), QStringLiteral("U8"));
+            xml.writeAttribute(QStringLiteral("nodetype"), QStringLiteral("paintlayer"));
+            xml.writeAttribute(QStringLiteral("x"), QString::number(layer->x()));
+            xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
+            xml.writeEndElement();
+        }
+    }
+}
+
 bool ReverieCore::saveKra(const QString &path)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -1179,78 +1654,42 @@ bool ReverieCore::saveKra(const QString &path)
         store->close();
     }
 
+    const QString docName = image->objectName().isEmpty() ? QStringLiteral("Artwork") : image->objectName();
+
     // 2. maindoc.xml - standard Krita XML specification with layer hierarchies, inherit-alpha & blend modes
-    QString xml = QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                                 "<!DOCTYPE DOC PUBLIC '-//KDE//DTD create 1.2//EN' 'http://www.calligra.org/DTD/kra-1.2.dtd'>\n"
-                                 "<DOC xmlns=\"http://www.calligra.org/DTD/kra\" syntaxVersion=\"2\" editor=\"Krita\" mime=\"application/x-krita\">\n"
-                                 " <IMAGE name=\"%1\" width=\"%2\" height=\"%3\" mime=\"application/x-krita\" description=\"\" x-res=\"72\" y-res=\"72\">\n"
-                                 "  <layers>\n")
-                      .arg(image->objectName().isEmpty() ? QStringLiteral("Artwork") : image->objectName())
-                      .arg(image->width())
-                      .arg(image->height());
+    QByteArray maindocBytes;
+    {
+        QXmlStreamWriter xml(&maindocBytes);
+        xml.setAutoFormatting(true);
+        xml.writeStartDocument(QStringLiteral("1.0"), true);
+        xml.writeDTD(QStringLiteral("<!DOCTYPE DOC PUBLIC '-//KDE//DTD create 1.2//EN' 'http://www.calligra.org/DTD/kra-1.2.dtd'>"));
+        xml.writeStartElement(QStringLiteral("DOC"));
+        xml.writeAttribute(QStringLiteral("xmlns"), QStringLiteral("http://www.calligra.org/DTD/kra"));
+        xml.writeAttribute(QStringLiteral("syntaxVersion"), QStringLiteral("2"));
+        xml.writeAttribute(QStringLiteral("editor"), QStringLiteral("Krita"));
+        xml.writeAttribute(QStringLiteral("mime"), QStringLiteral("application/x-krita"));
 
-    for (int i = 0; i < m_layers.size(); ++i) {
-        const LayerEntry &e = m_layers[i];
-        const int opacityVal = qBound(0, int(layerOpacity(i) * 255.0 + 0.5), 255);
-        QString blend = layerBlendMode(i).trimmed();
-        if (blend.isEmpty()) blend = QStringLiteral("normal");
+        xml.writeStartElement(QStringLiteral("IMAGE"));
+        xml.writeAttribute(QStringLiteral("name"), docName);
+        xml.writeAttribute(QStringLiteral("width"), QString::number(image->width()));
+        xml.writeAttribute(QStringLiteral("height"), QString::number(image->height()));
+        xml.writeAttribute(QStringLiteral("mime"), QStringLiteral("application/x-krita"));
+        xml.writeAttribute(QStringLiteral("description"), QString());
+        xml.writeAttribute(QStringLiteral("x-res"), QStringLiteral("72"));
+        xml.writeAttribute(QStringLiteral("y-res"), QStringLiteral("72"));
 
-        // Convert blend modes to standard Krita composite op IDs
-        if (blend == QStringLiteral("正片叠底") || blend.compare("multiply", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("multiply");
-        } else if (blend == QStringLiteral("正常") || blend.compare("normal", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("normal");
-        } else if (blend == QStringLiteral("滤色") || blend.compare("screen", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("screen");
-        } else if (blend == QStringLiteral("叠加") || blend.compare("overlay", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("overlay");
-        } else if (blend == QStringLiteral("变暗") || blend.compare("darken", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("darken");
-        } else if (blend == QStringLiteral("变亮") || blend.compare("lighten", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("lighten");
-        } else if (blend == QStringLiteral("颜色减淡") || blend == QStringLiteral("dodge") || blend.compare("color_dodge", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("color_dodge");
-        } else if (blend == QStringLiteral("颜色加深") || blend == QStringLiteral("burn") || blend.compare("color_burn", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("color_burn");
-        } else if (blend == QStringLiteral("线性减淡") || blend == QStringLiteral("增加") || blend.compare("linear_dodge", Qt::CaseInsensitive) == 0 || blend.compare("add", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("linear_dodge");
-        } else if (blend == QStringLiteral("线性加深") || blend.compare("linear_burn", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("linear_burn");
-        } else if (blend == QStringLiteral("强光") || blend.compare("hard_light", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("hard_light");
-        } else if (blend == QStringLiteral("柔光") || blend.compare("soft_light", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("soft_light");
-        } else if (blend == QStringLiteral("差值") || blend.compare("difference", Qt::CaseInsensitive) == 0) {
-            blend = QStringLiteral("difference");
-        }
+        xml.writeStartElement(QStringLiteral("layers"));
+        int layerCounter = 0;
+        writeKraNodesXml(xml, image->rootLayer(), docName, store.data(), layerCounter, image);
+        xml.writeEndElement(); // layers
 
-        // Inherit alpha (剪贴蒙版 / 继承透明度)
-        const QString inheritAlphaStr = e.clipped ? QStringLiteral("1") : QStringLiteral("0");
-        const QString visibleStr = e.visible ? QStringLiteral("1") : QStringLiteral("0");
-        const QString lockedStr = (e.locked || e.background) ? QStringLiteral("1") : QStringLiteral("0");
-        const QString alphaLockedStr = (e.alphaLocked || e.background) ? QStringLiteral("1") : QStringLiteral("0");
-        const QString layerFileNameKra = QString("layer%1").arg(i);
-
-        QString safeName = e.name;
-        safeName.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
-
-        xml += QStringLiteral("   <layer name=\"%1\" opacity=\"%2\" compositeop=\"%3\" visible=\"%4\" locked=\"%5\" lockalpha=\"%6\" inherit-alpha=\"%7\" filename=\"%8\" colormodelname=\"RGBA\" channelformat=\"U8\" nodetype=\"paintlayer\" x=\"0\" y=\"0\" />\n")
-                   .arg(safeName)
-                   .arg(opacityVal)
-                   .arg(blend)
-                   .arg(visibleStr)
-                   .arg(lockedStr)
-                   .arg(alphaLockedStr)
-                   .arg(inheritAlphaStr)
-                   .arg(layerFileNameKra);
+        xml.writeEndElement(); // IMAGE
+        xml.writeEndElement(); // DOC
+        xml.writeEndDocument();
     }
 
-    xml += QStringLiteral("  </layers>\n"
-                          " </IMAGE>\n"
-                          "</DOC>\n");
-
     if (store->open("maindoc.xml")) {
-        store->write(xml.toUtf8());
+        store->write(maindocBytes);
         store->close();
     }
 
@@ -1463,7 +1902,7 @@ bool ReverieCore::loadPng(const QString &path)
 
 bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride)
 {
-    if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0) {
+    if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0 || dstStride < w * 4) {
         return false;
     }
     if (m_layers[index].nodeType == NodeTypeAdjustment) {
@@ -1492,11 +1931,15 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     out.fill(Qt::transparent);
 
     if (!ext.isEmpty()) {
-        const QImage thumb = dev->createThumbnail(w, h, Qt::KeepAspectRatio, KisThumbnailBoundsMode::Coarse);
-        if (!thumb.isNull()) {
-            QPainter p(&out);
-            p.drawImage(QPointF((w - thumb.width()) / 2.0, (h - thumb.height()) / 2.0), thumb);
-            p.end();
+        try {
+            const QImage thumb = dev->createThumbnail(w, h, Qt::KeepAspectRatio, KisThumbnailBoundsMode::Coarse);
+            if (!thumb.isNull()) {
+                QPainter p(&out);
+                p.drawImage(QPointF((w - thumb.width()) / 2.0, (h - thumb.height()) / 2.0), thumb);
+                p.end();
+            }
+        } catch (...) {
+            // Fallback to transparent thumbnail if creation throws
         }
     }
     cache.img = out;

@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -333,6 +334,11 @@ fun ReferenceWindow(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             ReferenceTopBar(
+                isFlipped = vm.referenceIsFlipped,
+                onFlipHorizontal = {
+                    vm.referenceIsFlipped = !vm.referenceIsFlipped
+                    vm.persistReferenceState()
+                },
                 onDrag = { dx, dy ->
                     vm.referenceWindowX += dx
                     vm.referenceWindowY += dy
@@ -433,6 +439,8 @@ fun ReferenceWindow(
 
 @Composable
 private fun ReferenceTopBar(
+    isFlipped: Boolean,
+    onFlipHorizontal: () -> Unit,
     onDrag: (Float, Float) -> Unit,
     onToggleSettings: () -> Unit,
     onClose: () -> Unit,
@@ -462,51 +470,74 @@ private fun ReferenceTopBar(
                 .background(Morandi.subText.copy(alpha = 0.5f))
         )
 
-        // Left Title
-        Text(
-            text = stringResource(R.string.reference_title),
-            color = Morandi.text,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.align(Alignment.CenterStart)
-        )
-
-        // Right Action Icons
         Row(
-            modifier = Modifier.align(Alignment.CenterEnd),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Settings Gear Icon
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onToggleSettings),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_settings),
-                    contentDescription = stringResource(R.string.common_settings),
-                    tint = Morandi.icon,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
+            // Left Title
+            Text(
+                text = stringResource(R.string.reference_title),
+                color = Morandi.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
 
-            // Close (X) Icon
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center
+            // Right Action Icons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_x),
-                    contentDescription = stringResource(R.string.common_close),
-                    tint = Morandi.icon,
-                    modifier = Modifier.size(16.dp)
-                )
+                // Flip Horizontal Button
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onFlipHorizontal),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_flip_horizontal),
+                        contentDescription = stringResource(R.string.reference_flip_h),
+                        tint = if (isFlipped) Morandi.accent else Morandi.icon,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Settings Gear Icon
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onToggleSettings),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_settings),
+                        contentDescription = stringResource(R.string.common_settings),
+                        tint = Morandi.icon,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Close (X) Icon
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_x),
+                        contentDescription = stringResource(R.string.common_close),
+                        tint = Morandi.icon,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }

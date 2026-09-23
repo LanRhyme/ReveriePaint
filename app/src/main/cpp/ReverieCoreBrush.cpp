@@ -11,6 +11,8 @@
 
 #include <QRegularExpression>
 #include <algorithm>
+#include <QtEndian>
+#include <zlib.h>
 
 float ReverieCore::brushPressureFraction(float pressure)
 {
@@ -129,59 +131,123 @@ int ReverieCore::loadBrushPresetsFromDir(const QString &dirPath)
     return m_presets.size();
 }
 
+bool ReverieCore::loadSingleBrushResource(const QString &baseName)
+{
+    if (baseName.isEmpty() || m_brushDir.isEmpty()) {
+        return false;
+    }
+    if (m_loadedBrushes.contains(baseName)) {
+        return true;
+    }
+    QDir dir(m_brushDir);
+    const QString fullPath = dir.filePath(baseName);
+    if (!QFile::exists(fullPath)) {
+        return false;
+    }
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
+    KoResource *res = nullptr;
+    if (baseName.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive)) {
+        res = new KisGbrBrush(baseName);
+    } else if (baseName.endsWith(QLatin1String(".gih"), Qt::CaseInsensitive)) {
+        res = new KisImagePipeBrush(baseName);
+    } else if (baseName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)) {
+        res = new KisPngBrush(baseName);
+    } else if (baseName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
+        res = new KisSvgBrush(baseName);
+    }
+    if (!res) return false;
+
+    QFile f(fullPath);
+    if (f.open(QIODevice::ReadOnly)) {
+        if (res->loadFromDevice(&f, m_brushResources)) {
+            KisLocalStrokeResources *lr =
+                dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
+            if (lr) {
+                lr->addResource(KoResourceSP(res));
+                KisBrush *b = dynamic_cast<KisBrush *>(res);
+                if (b) {
+                    m_loadedBrushes.insert(baseName, KisBrushSP(b));
+                }
+                f.close();
+                return true;
+            }
+        }
+        delete res;
+        f.close();
+    } else {
+        delete res;
+    }
+    return false;
+}
+
+void ReverieCore::ensureBrushForPreset(const QString &kppPath)
+{
+    if (m_brushDir.isEmpty() || kppPath.isEmpty()) return;
+    QFile f(kppPath);
+    if (!f.open(QIODevice::ReadOnly)) return;
+    const QByteArray data = f.readAll();
+    f.close();
+
+    // Check PNG signature
+    if (data.size() < 8 || memcmp(data.constData(), "\x89PNG\r\n\x1a\n", 8) != 0) return;
+
+    // Scan PNG chunks for zTXt chunk with keyword "preset"
+    int idx = 8;
+    while (idx + 12 <= data.size()) {
+        const quint32 length = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(data.constData() + idx));
+        const char *type = data.constData() + idx + 4;
+        if (memcmp(type, "zTXt", 4) == 0 && idx + 8 + int(length) <= data.size()) {
+            const char *chunkData = data.constData() + idx + 8;
+            int nullPos = 0;
+            while (nullPos < int(length) && chunkData[nullPos] != 0) {
+                ++nullPos;
+            }
+            if (nullPos < int(length) - 2 && memcmp(chunkData, "preset", 6) == 0) {
+                const uchar *zStream = reinterpret_cast<const uchar*>(chunkData + nullPos + 2);
+                uLongf zLen = length - (nullPos + 2);
+                uLongf destLen = 1024 * 1024; // 1MB max uncompressed XML
+                QByteArray decomp;
+                decomp.resize(destLen);
+                if (uncompress(reinterpret_cast<Bytef*>(decomp.data()), &destLen, zStream, zLen) == Z_OK) {
+                    decomp.resize(destLen);
+                    static const QRegularExpression re(QStringLiteral("([\\w\\-\\._ ]+\\.(?:gbr|gih|png|svg))"), QRegularExpression::CaseInsensitiveOption);
+                    auto it = re.globalMatch(QString::fromUtf8(decomp));
+                    while (it.hasNext()) {
+                        const QString file = it.next().captured(1).trimmed();
+                        loadSingleBrushResource(file);
+                    }
+                }
+            }
+            break;
+        }
+        idx += 12 + length;
+    }
+}
+
 int ReverieCore::loadBrushResources(const QString &dirPath)
 {
-    // The shared resources interface: presets resolve their brush_definition
-    // filename through it, so the loaded brush files must live here. It is
-    // created once and reused by every loadBrushPreset call.
+    m_brushDir = dirPath;
     if (!m_brushResources) {
         m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
     }
     QDir dir(dirPath);
+    // Upfront only load lightweight brush files (< 1MB) and exclude .gih (which load on demand)
     const QStringList files = dir.entryList(
-        QStringList() << QStringLiteral("*.gbr") << QStringLiteral("*.gih")
-                      << QStringLiteral("*.png") << QStringLiteral("*.svg"),
+        QStringList() << QStringLiteral("*.gbr") << QStringLiteral("*.png") << QStringLiteral("*.svg"),
         QDir::Files, QDir::Name);
     int loaded = 0;
     for (const QString &base : files) {
-        const QString fullPath = dir.filePath(base);
-        KoResource *res = nullptr;
-        if (base.endsWith(QLatin1String(".gbr"))) {
-            res = new KisGbrBrush(base);
-        } else if (base.endsWith(QLatin1String(".gih"))) {
-            res = new KisImagePipeBrush(base);
-        } else if (base.endsWith(QLatin1String(".png"))) {
-            res = new KisPngBrush(base);
-        } else if (base.endsWith(QLatin1String(".svg"))) {
-            res = new KisSvgBrush(base);
-        }
-        if (!res) {
+        if (m_loadedBrushes.contains(base)) {
+            ++loaded;
             continue;
         }
-        QFile f(fullPath);
-        if (f.open(QIODevice::ReadOnly)) {
-            // The resource's filename() is the bare file name (matching the
-            // filename attribute in presets' brush_definition), so we load
-            // from the full path manually instead of KoResource::load().
-            if (res->loadFromDevice(&f, m_brushResources)) {
-                KisLocalStrokeResources *lr =
-                    dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
-                if (lr) {
-                    lr->addResource(KoResourceSP(res));
-                    KisBrush *b = dynamic_cast<KisBrush *>(res);
-                    if (b) {
-                        m_loadedBrushes.insert(base, KisBrushSP(b));
-                    }
-                    ++loaded;
-                } else {
-                    delete res;
-                }
-            } else {
-                delete res;
-            }
-            f.close();
-        } else {
-            delete res;
+        const QString fullPath = dir.filePath(base);
+        QFileInfo fi(fullPath);
+        if (fi.size() > 1024 * 1024) continue; // Skip large brushes; load on demand
+        if (loadSingleBrushResource(base)) {
+            ++loaded;
         }
     }
     RPC_LOG("RPC loadBrushResources dir=%s loaded=%d", dirPath.toUtf8().constData(), loaded);
@@ -198,6 +264,7 @@ bool ReverieCore::loadBrushPreset(int index)
         m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
     }
     const QString path = m_presets[index].second;
+    ensureBrushForPreset(path);
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         return false;
@@ -469,6 +536,10 @@ bool ReverieCore::setBrushTipAsset(const QString &assetName)
         return false;
     }
     KisBrushSP brush = m_loadedBrushes.value(assetName);
+    if (!brush) {
+        loadSingleBrushResource(assetName);
+        brush = m_loadedBrushes.value(assetName);
+    }
     if (!brush) {
         for (auto it = m_loadedBrushes.begin(); it != m_loadedBrushes.end(); ++it) {
             if (it.key().compare(assetName, Qt::CaseInsensitive) == 0 ||

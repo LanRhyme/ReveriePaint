@@ -87,11 +87,13 @@ void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int c
             }
             above = KisNodeSP(e.node);
             parent = above->parent();
-            return;
+            if (parent) {
+                return;
+            }
         }
     }
     above = KisNodeSP();
-    parent = KisNodeSP(image->rootLayer());
+    parent = image ? KisNodeSP(image->rootLayer()) : KisNodeSP();
 }
 int ReverieCore::addLayer(const QString &name)
 {
@@ -103,7 +105,21 @@ int ReverieCore::addLayer(const QString &name)
         cancelTransformPreview();
     }
     const KoColorSpace *cs = image->colorSpace();
-    const QString layerName = name.isEmpty() ? defaultPaintLayerName(m_layers) : name;
+    QString layerName = name.isEmpty() ? defaultPaintLayerName(m_layers) : name;
+
+    // Ensure unique name to prevent duplicate layer name crashes in UI
+    QSet<QString> existingNames;
+    for (const LayerEntry &l : m_layers) {
+        existingNames.insert(l.name);
+    }
+    if (existingNames.contains(layerName)) {
+        int n = 2;
+        while (existingNames.contains(layerName + QStringLiteral(" ") + QString::number(n))) {
+            n++;
+        }
+        layerName = layerName + QStringLiteral(" ") + QString::number(n);
+    }
+
     KisPaintLayerSP newLayer = new KisPaintLayer(image, layerName, 255, cs);
     if (!newLayer) {
         return -1;
@@ -113,6 +129,13 @@ int ReverieCore::addLayer(const QString &name)
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!parent) {
+        parent = KisNodeSP(image->rootLayer());
+    }
+    if (!parent) {
+        return -1;
+    }
+
     // Krita-native undo: push a layer-add command through the undo adapter.
     // KUndo2Stack::push executes redo() (which performs the addNode).
     pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
@@ -133,7 +156,18 @@ int ReverieCore::addGroupLayer(const QString &name)
     if (!image) {
         return -1;
     }
-    const QString groupName = name.isEmpty() ? QStringLiteral("图层组") : name;
+    QString groupName = name.isEmpty() ? QStringLiteral("图层组") : name;
+    QSet<QString> existingGroupNames;
+    for (const LayerEntry &l : m_layers) {
+        existingGroupNames.insert(l.name);
+    }
+    if (existingGroupNames.contains(groupName)) {
+        int n = 2;
+        while (existingGroupNames.contains(groupName + QStringLiteral(" ") + QString::number(n))) {
+            n++;
+        }
+        groupName = groupName + QStringLiteral(" ") + QString::number(n);
+    }
     KisGroupLayerSP group = new KisGroupLayer(image, groupName, 255, image->colorSpace());
     if (!group) {
         return -1;
@@ -141,6 +175,12 @@ int ReverieCore::addGroupLayer(const QString &name)
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!parent) {
+        parent = KisNodeSP(image->rootLayer());
+    }
+    if (!parent) {
+        return -1;
+    }
     pushUndoCommand(new KisImageLayerAddCommand(image, group, parent, above));
     recompositeProjection();
     syncLayersFromImage();
@@ -175,10 +215,27 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         default: finalName = QString("图层 %1").arg(count); break;
         }
     }
+    QSet<QString> existingTypeNames;
+    for (const LayerEntry &l : m_layers) {
+        existingTypeNames.insert(l.name);
+    }
+    if (existingTypeNames.contains(finalName)) {
+        int n = 2;
+        while (existingTypeNames.contains(finalName + QStringLiteral(" ") + QString::number(n))) {
+            n++;
+        }
+        finalName = finalName + QStringLiteral(" ") + QString::number(n);
+    }
 
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!parent) {
+        parent = KisNodeSP(image->rootLayer());
+    }
+    if (!parent) {
+        return false;
+    }
 
     KisNodeSP newNode;
     if (type == LayerTypeGroup) {

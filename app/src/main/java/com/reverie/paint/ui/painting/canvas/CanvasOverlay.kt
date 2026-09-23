@@ -1084,7 +1084,7 @@ internal fun CanvasOverlay(
                         image = selBmp,
                         topLeft = Offset(-bmp.width / 2f, -bmp.height / 2f),
                         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
-                            Color(0x77141416)
+                            parseColor(vm.selectionMaskColorHex).copy(alpha = vm.selectionMaskOpacity)
                         )
                     )
                 }

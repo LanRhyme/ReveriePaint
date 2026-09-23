@@ -16,13 +16,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -179,6 +183,78 @@ internal fun SettingsTabPage(
                                     color = if (isOpacity) Morandi.text else Morandi.subText,
                                     fontSize = 12.sp,
                                 )
+                            }
+                        }
+                    }
+
+                    // 快捷滑块长度: 分段卡片式控件
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_quick_slider_height),
+                                color = Morandi.text,
+                                fontSize = 13.sp,
+                            )
+                            Text(
+                                text = "${vm.quickSliderHeightDp} dp",
+                                color = Morandi.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Morandi.panelHi)
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            listOf(
+                                130 to R.string.settings_quick_slider_height_compact,
+                                175 to R.string.settings_quick_slider_height_standard,
+                                220 to R.string.settings_quick_slider_height_long,
+                            ).forEach { (h, strRes) ->
+                                val selected = vm.quickSliderHeightDp == h
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (selected) Morandi.accent else Color.Transparent)
+                                        .clickable { vm.updateQuickSliderHeight(h) },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                    ) {
+                                        Text(
+                                            text = stringResource(strRes),
+                                            color = if (selected) Color.White else Morandi.subText,
+                                            fontSize = 12.sp,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1,
+                                        )
+                                        Text(
+                                            text = "${h}dp",
+                                            color = if (selected) Color.White.copy(alpha = 0.8f) else Morandi.subText.copy(alpha = 0.65f),
+                                            fontSize = 10.sp,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -810,33 +886,79 @@ internal fun SettingsTabPage(
                                 .background(Morandi.panel)
                                 .padding(horizontal = 8.dp, vertical = 2.dp),
                         ) {
-                            Text("${(vm.strokeStabilizer * 100).toInt()}%", color = Morandi.subText, fontSize = 12.sp)
+                            Text("${(vm.strokeStabilizer * 100).roundToInt()}%", color = Morandi.subText, fontSize = 12.sp)
                         }
                     }
 
                     Spacer(Modifier.height(6.dp))
 
                     // Interactive Stabilizer Slider
-                    Box(
+                    BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(24.dp)
                             .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val w = size.width.toFloat()
+                                    if (w <= 0f) return@awaitEachGesture
+
+                                    val thumbRadiusPx = 8.dp.toPx()
+                                    val usableWidthPx = (w - thumbRadiusPx * 2).coerceAtLeast(1f)
+                                    val touchSlop = viewConfiguration.touchSlop
+                                    var isDragging = false
+                                    var isScrollingVertically = false
+
+                                    fun updateFromX(x: Float) {
+                                        val frac = ((x - thumbRadiusPx) / usableWidthPx).coerceIn(0f, 1f)
                                         vm.updateStrokeStabilizer(frac)
-                                    },
-                                )
-                            }
-                            .pointerInput(Unit) {
-                                detectDragGestures { change, _ ->
-                                    val frac = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                    vm.updateStrokeStabilizer(frac)
+                                    }
+
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull() ?: break
+                                        if (!change.pressed) {
+                                            if (!isScrollingVertically && !isDragging) {
+                                                updateFromX(change.position.x)
+                                            }
+                                            break
+                                        }
+
+                                        if (isScrollingVertically) break
+
+                                        val dx = change.position.x - down.position.x
+                                        val dy = change.position.y - down.position.y
+                                        val absDx = kotlin.math.abs(dx)
+                                        val absDy = kotlin.math.abs(dy)
+
+                                        if (!isDragging) {
+                                            if (absDy > touchSlop && absDy > absDx) {
+                                                isScrollingVertically = true
+                                                break
+                                            } else if (absDx > touchSlop && absDx >= absDy) {
+                                                isDragging = true
+                                            }
+                                        }
+
+                                        if (isDragging) {
+                                            change.consume()
+                                            updateFromX(change.position.x)
+                                        }
+                                    }
                                 }
                             },
                         contentAlignment = Alignment.CenterStart,
                     ) {
+                        val trackWidth = maxWidth
+                        val thumbSize = 16.dp
+                        val maxTravel = (trackWidth - thumbSize).coerceAtLeast(0.dp)
+                        val thumbOffset = maxTravel * vm.strokeStabilizer.coerceIn(0f, 1f)
+                        val activeTrackWidth = if (vm.strokeStabilizer <= 0f) {
+                            0.dp
+                        } else {
+                            (thumbOffset + thumbSize / 2).coerceAtMost(trackWidth)
+                        }
+
                         // Track
                         Box(
                             modifier = Modifier
@@ -846,18 +968,20 @@ internal fun SettingsTabPage(
                                 .background(Morandi.panel),
                         )
                         // Active Track
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(vm.strokeStabilizer.coerceIn(0.01f, 1f))
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(Morandi.accent),
-                        )
+                        if (activeTrackWidth > 0.dp) {
+                            Box(
+                                modifier = Modifier
+                                    .width(activeTrackWidth)
+                                    .height(4.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(Morandi.accent),
+                            )
+                        }
                         // Thumb
                         Box(
                             modifier = Modifier
-                                .padding(start = ((260 - 16) * vm.strokeStabilizer).dp)
-                                .size(16.dp)
+                                .padding(start = thumbOffset)
+                                .size(thumbSize)
                                 .clip(CircleShape)
                                 .background(Morandi.text)
                                 .border(2.dp, Morandi.panelHi, CircleShape),

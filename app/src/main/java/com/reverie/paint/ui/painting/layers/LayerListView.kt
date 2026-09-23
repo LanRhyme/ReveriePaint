@@ -188,7 +188,8 @@ internal fun LayerListView(
             }
             // C++ walk(root, 0) gives root children depth=0, so top-level
             // siblings match parentDepth -1
-            buildList { collectBlock(0, n, -1, this) }
+            val res = buildList { collectBlock(0, n, -1, this) }
+            if (res.isEmpty() && n > 0) vm.layers.reversed() else res
         }
 
     // Freeze the dragged order on release so the row does not first animate
@@ -235,6 +236,7 @@ internal fun LayerListView(
     var columnTop by remember { mutableStateOf(0f) }
 
     fun updateDragPos(fingerY: Float) {
+        if (displayList.isEmpty()) return
         dragFingerY = fingerY
         // Math-mapped target: rows are fixed-height, so the insert index is
         // (fingerY - listTop) / rowHeight, ROUNDED to the nearest row boundary
@@ -246,7 +248,7 @@ internal fun LayerListView(
         // finger at the row center snapped the placeholder a full row lower -
         // the "offset by a bit" feel when dragging). (x+0.4999).toInt() keeps
         // the placeholder centered on the finger's row.
-        var target = (rowPos + 0.4999f).toInt().coerceIn(0, displayList.size - 1)
+        var target = (rowPos + 0.4999f).toInt().coerceIn(0, (displayList.size - 1).coerceAtLeast(0))
         // Background protection: never below the background row (index 0)
         val bgVisual = displayList.indexOfFirst { it.index == 0 }
         if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
@@ -322,6 +324,7 @@ internal fun LayerListView(
     }
 
     var showNewLayerMenu by remember { mutableStateOf(false) }
+    var lastLayerOpTime by remember { mutableLongStateOf(0L) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         val haptic = LocalHapticFeedback.current
@@ -338,12 +341,24 @@ internal fun LayerListView(
             TopIcon(
                 resId = R.drawable.ic_plus,
                 desc = stringResource(R.string.layer_add_paint_layer),
-                onClick = { vm.addLayer() },
+                onClick = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastLayerOpTime > 350L) {
+                        lastLayerOpTime = now
+                        vm.addLayer()
+                    }
+                },
             )
             TopIcon(
                 resId = R.drawable.ic_folder,
                 desc = stringResource(R.string.layer_add_group),
-                onClick = { vm.addGroupLayer() },
+                onClick = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastLayerOpTime > 350L) {
+                        lastLayerOpTime = now
+                        vm.addGroupLayer()
+                    }
+                },
             )
             Box {
                 TopIcon(
@@ -369,7 +384,11 @@ internal fun LayerListView(
                         },
                         onClick = {
                             showNewLayerMenu = false
-                            vm.addFillLayer()
+                            val now = System.currentTimeMillis()
+                            if (now - lastLayerOpTime > 350L) {
+                                lastLayerOpTime = now
+                                vm.addFillLayer()
+                            }
                         },
                     )
                     DropdownMenuItem(
@@ -398,8 +417,12 @@ internal fun LayerListView(
                             )
                         },
                         onClick = {
-                            vm.stampVisibleLayers()
                             showNewLayerMenu = false
+                            val now = System.currentTimeMillis()
+                            if (now - lastLayerOpTime > 350L) {
+                                lastLayerOpTime = now
+                                vm.stampVisibleLayers()
+                            }
                         },
                     )
                 }
@@ -410,7 +433,9 @@ internal fun LayerListView(
                 desc = stringResource(R.string.layer_op_merge_down),
                 enabled = selectedIndex > 0 && !isBg && !isFilter,
                 onClick = {
-                    if (selectedIndex > 0 && !isBg && !isFilter) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastLayerOpTime > 350L && selectedIndex > 0 && !isBg && !isFilter) {
+                        lastLayerOpTime = now
                         vm.mergeDown(selectedIndex)
                     }
                 },
@@ -484,9 +509,11 @@ internal fun LayerListView(
                                     val dist = kotlin.math.abs(p1.position.y - p2.position.y)
 
                                     if (pinchStartDist == 0f) {
+                                        if (displayList.isEmpty()) continue
                                         pinchStartDist = dist
-                                        pinchRow1 = ((p1.position.y) / rowPx).toInt().coerceIn(0, displayList.size - 1)
-                                        pinchRow2 = ((p2.position.y) / rowPx).toInt().coerceIn(0, displayList.size - 1)
+                                        val maxIdx = (displayList.size - 1).coerceAtLeast(0)
+                                        pinchRow1 = ((p1.position.y) / rowPx).toInt().coerceIn(0, maxIdx)
+                                        pinchRow2 = ((p2.position.y) / rowPx).toInt().coerceIn(0, maxIdx)
                                     } else if (!pinchTriggered && (now - lastMergeTime > 1200L) && (pinchStartDist - dist > 48.dp.toPx())) {
                                         val topVisual = minOf(pinchRow1, pinchRow2)
                                         val bottomVisual = maxOf(pinchRow1, pinchRow2)
@@ -546,11 +573,9 @@ internal fun LayerListView(
                             }
                         },
             ) {
-                // Key by a STABLE identity (depth+name): indices change after a
-                // native move lands, so an index-keyed list makes animateItem
-                // play a phantom swap animation even when the visible order is
-                // already correct
-                items(displayList, key = { "${it.depth}:${it.name}" }) { layer ->
+                // Key by a unique combination of depth, name, and index to ensure
+                // stability while preventing duplicate key crashes even with duplicate names
+                items(displayList, key = { "${it.depth}:${it.name}:${it.index}" }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,

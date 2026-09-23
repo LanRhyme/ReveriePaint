@@ -857,6 +857,10 @@ fun PaintingPage(
                             Column {
                                 SelectionMenuItem(stringResource(R.string.selection_select_layer)) { vm.selectAllAction() }
                                 SelectionMenuItem(stringResource(R.string.selection_invert)) { vm.invertSelectionAction() }
+                                SelectionMenuItem(stringResource(R.string.selection_history_title)) {
+                                    selectionMenuOpen = false
+                                    vm.savedSelectionsPopupOpen = true
+                                }
                                 SelectionMenuItem(stringResource(R.string.selection_clear), danger = true) { vm.clearSelectionAction() }
                                 Box(
                                     Modifier
@@ -1267,6 +1271,25 @@ fun PaintingPage(
                     selectionPanelOffsetX += dx
                     selectionPanelOffsetY += dy
                 },
+            )
+        }
+
+        // ---- Saved Selections Popup (选区历史悬浮面板) ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = vm.savedSelectionsPopupOpen,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .offset { IntOffset(selectionPanelOffsetX.roundToInt(), selectionPanelOffsetY.roundToInt()) }
+                .padding(end = 24.dp, bottom = 80.dp)
+                .zIndex(65f),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(200)) +
+                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(200)) { it / 3 },
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150)) +
+                androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(150)) { it / 3 },
+        ) {
+            SavedSelectionsPopup(
+                vm = vm,
+                onDismiss = { vm.savedSelectionsPopupOpen = false },
             )
         }
 

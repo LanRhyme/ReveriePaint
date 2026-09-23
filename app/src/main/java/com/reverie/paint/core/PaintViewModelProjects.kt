@@ -247,6 +247,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 renderH = coreH
                 displayBufferInvalid = true
                 ReverieCoreBridge.setBrushColor(brushColor)
+                refreshSavedSelections()
                 // Chain the project's own recording so new strokes extend the
                 // existing history instead of replaying on top of a baked
                 // static image (snapshot = the recording's initial document).
@@ -725,7 +726,7 @@ internal fun PaintViewModel.exportDocument(
             if (ok && targetFile.exists() && targetFile.length() > 0) {
                 onSuccess(targetFile)
             } else {
-                onError("导出 $format 失败")
+                onError(getString(R.string.toast_project_export_failed, format))
             }
         }
     }
@@ -786,10 +787,10 @@ internal fun PaintViewModel.exportImageToGallery(
                     tempFile.delete()
                     onSuccess(uri)
                 } else {
-                    onError("无法创建媒体库文件")
+                    onError(getString(R.string.toast_project_gallery_create_failed))
                 }
             } catch (e: Exception) {
-                onError("保存至相册失败: ${e.message}")
+                onError(getString(R.string.toast_project_gallery_save_failed, e.message ?: ""))
             }
         },
         onError = onError,
@@ -901,6 +902,7 @@ internal fun PaintViewModel.startPainting(
                 renderW = w
                 renderH = h
                 displayBufferInvalid = true
+                mainHandler.post { savedSelections.clear() }
                 if (!LanguageManager.isChinese()) {
                     if (ReverieCoreBridge.layerCount() >= 2) {
                         ReverieCoreBridge.setLayerName(0, "Background")
@@ -1143,7 +1145,8 @@ fun PaintViewModel.importDocuments(
 
         for (uri in uris) {
             try {
-                val originalName = queryFileName(context, uri) ?: "导入作品_${System.currentTimeMillis() % 10000}"
+                val defaultName = getString(R.string.project_default_import_name)
+                val originalName = queryFileName(context, uri) ?: "${defaultName}_${System.currentTimeMillis() % 10000}"
                 val ext = originalName.substringAfterLast('.', "").lowercase()
                 val baseName = originalName.substringBeforeLast('.', originalName)
 
@@ -1160,7 +1163,7 @@ fun PaintViewModel.importDocuments(
                 }
 
                 // Deduplicate project name in destDir
-                var candidateName = baseName.ifBlank { "导入作品" }
+                var candidateName = baseName.ifBlank { defaultName }
                 var targetFile = File(destDir, "$candidateName.revp")
                 var counter = 1
                 while (targetFile.exists()) {
@@ -1187,13 +1190,15 @@ fun PaintViewModel.importDocuments(
                         val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
                         if (bmp != null) {
                             val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
-                            pngTemp.outputStream().use { out ->
-                                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            try {
+                                pngTemp.outputStream().use { out ->
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                }
+                                bmp.recycle()
+                                convertViaCore(pngTemp, targetFile, candidateName, format = "png")
+                            } finally {
+                                pngTemp.delete()
                             }
-                            bmp.recycle()
-                            val ok = convertViaCore(pngTemp, targetFile, candidateName, format = "png")
-                            pngTemp.delete()
-                            ok
                         } else {
                             false
                         }
@@ -1202,13 +1207,15 @@ fun PaintViewModel.importDocuments(
                         val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
                         if (bmp != null) {
                             val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
-                            pngTemp.outputStream().use { out ->
-                                bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            try {
+                                pngTemp.outputStream().use { out ->
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                }
+                                bmp.recycle()
+                                convertViaCore(pngTemp, targetFile, candidateName, format = "png")
+                            } finally {
+                                pngTemp.delete()
                             }
-                            bmp.recycle()
-                            val ok = convertViaCore(pngTemp, targetFile, candidateName, format = "png")
-                            pngTemp.delete()
-                            ok
                         } else {
                             false
                         }
@@ -1230,10 +1237,14 @@ fun PaintViewModel.importDocuments(
             isBlockingLoading = false
             refreshProjects()
             if (successCount > 0) {
-                val msg = if (successCount == 1) "已成功导入: $lastImportedName" else "已成功导入 $successCount 个作品"
+                val msg = if (successCount == 1) {
+                    getString(R.string.toast_project_import_single_success, lastImportedName)
+                } else {
+                    getString(R.string.toast_project_import_multiple_success, successCount)
+                }
                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
             } else {
-                android.widget.Toast.makeText(context, "导入失败: 未能识别的文件格式", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, getString(R.string.toast_project_import_unsupported), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1321,7 +1332,7 @@ fun PaintViewModel.importImageUriToNewLayer(
     uri: android.net.Uri,
     context: android.content.Context,
 ) {
-    val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
+    val defaultImportName = getString(R.string.project_default_import_image_name)
     val fullName = queryFileName(context, uri) ?: defaultImportName
     val layerName = fullName.substringBeforeLast('.', fullName).take(30).ifBlank { defaultImportName }
     viewModelScope.launch(Dispatchers.IO) {
@@ -1354,13 +1365,13 @@ fun PaintViewModel.importImageUriToNewLayer(
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, "无法解码图片数据", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(context, getString(R.string.toast_project_decode_image_failed), android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
             android.util.Log.e("RP_IMPORT", "importImageUriToNewLayer failed", e)
             withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(context, "导入图片失败: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, getString(R.string.toast_project_import_image_failed, e.localizedMessage ?: ""), android.widget.Toast.LENGTH_SHORT).show()
             }
         }
     }

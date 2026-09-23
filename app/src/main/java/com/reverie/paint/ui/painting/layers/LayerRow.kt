@@ -442,11 +442,13 @@ internal fun LayerRowContent(
                 }
             } else {
                 vm.thumbFor(layer.index, layer.name)?.let { thumb ->
-                    Image(
-                        bitmap = thumb.asImageBitmap(),
-                        contentDescription = stringResource(R.string.layer_thumbnail),
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    if (!thumb.isRecycled) {
+                        Image(
+                            bitmap = thumb.asImageBitmap(),
+                            contentDescription = stringResource(R.string.layer_thumbnail),
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }

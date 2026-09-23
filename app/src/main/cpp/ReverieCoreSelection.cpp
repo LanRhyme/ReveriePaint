@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <QUuid>
 
 bool ReverieCore::selectionFromLayer(int index)
 {
@@ -337,11 +338,175 @@ QVector<quint32> ReverieCore::previewLassoOverlay(const QVector<QPoint> &points,
     return out;
 }
 
-
-
 // ---------------------------------------------------------------------------
-// Painting
+// Stored Selections (选区历史与存储槽位实现)
 // ---------------------------------------------------------------------------
+
+int ReverieCore::saveCurrentSelection(const QString &name)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || !hasSelection()) {
+        return -1;
+    }
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    if (!ps) {
+        return -1;
+    }
+
+    KisSelectionSP copySel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    copySel->pixelSelection()->makeCloneFrom(ps, image->bounds());
+
+    StoredSelection item;
+    item.id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    item.name = name.trimmed().isEmpty() ? QStringLiteral("选区 %1").arg(m_storedSelections.size() + 1) : name.trimmed();
+    item.selection = copySel;
+    m_storedSelections.append(item);
+    return m_storedSelections.size() - 1;
+}
+
+bool ReverieCore::loadStoredSelection(int index, int mode)
+{
+    KisImageSP image = m_document;
+    if (!image || index < 0 || index >= m_storedSelections.size()) {
+        return false;
+    }
+    KisSelectionSP src = m_storedSelections[index].selection;
+    if (!src || !src->pixelSelection()) {
+        return false;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    const KisSelectionSP oldSel = m_selection;
+    const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
+
+    if (mode == SelReplace || !m_selection) {
+        KisSelectionSP newSel = new KisSelection(
+            new KisSelectionDefaultBounds(image->projection()),
+            toQShared(new KisImageResolutionProxy(image)));
+        newSel->pixelSelection()->makeCloneFrom(src->pixelSelection(), image->bounds());
+        setSelection(newSel);
+        pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
+    } else {
+        const QVector<quint8> existing = readSelectionMaskBytes(image, m_selection);
+        const QVector<quint8> added = readSelectionMaskBytes(image, src);
+        const QVector<quint8> combined = combineSelectionMasks(existing, added, mode);
+        KisSelectionSP newSel = selectionFromMask(image, combined);
+        setSelection(newSel);
+        pushUndoCommand(new ReverieSelectionCommand(this, oldSel, oldMask, iw, ih, m_selection));
+    }
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::deleteStoredSelection(int index)
+{
+    if (index < 0 || index >= m_storedSelections.size()) {
+        return false;
+    }
+    m_storedSelections.removeAt(index);
+    return true;
+}
+
+bool ReverieCore::updateStoredSelection(int index)
+{
+    KisImageSP image = m_document;
+    if (!image || !m_selection || !hasSelection() || index < 0 || index >= m_storedSelections.size()) {
+        return false;
+    }
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    if (!ps) {
+        return false;
+    }
+
+    KisSelectionSP copySel = new KisSelection(
+        new KisSelectionDefaultBounds(image->projection()),
+        toQShared(new KisImageResolutionProxy(image)));
+    copySel->pixelSelection()->makeCloneFrom(ps, image->bounds());
+    m_storedSelections[index].selection = copySel;
+    return true;
+}
+
+bool ReverieCore::renameStoredSelection(int index, const QString &name)
+{
+    if (index < 0 || index >= m_storedSelections.size() || name.trimmed().isEmpty()) {
+        return false;
+    }
+    m_storedSelections[index].name = name.trimmed();
+    return true;
+}
+
+int ReverieCore::storedSelectionCount() const
+{
+    return m_storedSelections.size();
+}
+
+QString ReverieCore::storedSelectionName(int index) const
+{
+    return (index >= 0 && index < m_storedSelections.size()) ? m_storedSelections[index].name : QString();
+}
+
+QString ReverieCore::storedSelectionId(int index) const
+{
+    return (index >= 0 && index < m_storedSelections.size()) ? m_storedSelections[index].id : QString();
+}
+
+void ReverieCore::clearStoredSelections()
+{
+    m_storedSelections.clear();
+}
+
+QVector<quint32> ReverieCore::storedSelectionThumbnail(int index, int thumbW, int thumbH) const
+{
+    if (index < 0 || index >= m_storedSelections.size() || !m_document) {
+        return {};
+    }
+    KisSelectionSP sel = m_storedSelections[index].selection;
+    if (!sel || !sel->pixelSelection()) {
+        return {};
+    }
+    KisPixelSelectionSP ps = sel->pixelSelection();
+    const int iw = m_document->width();
+    const int ih = m_document->height();
+    thumbW = qBound(16, thumbW, 256);
+    thumbH = qBound(16, thumbH, 256);
+
+    QVector<quint32> out(size_t(thumbW) * thumbH, 0);
+    const double stepY = double(ih) / thumbH;
+    const double stepX = double(iw) / thumbW;
+
+    QVector<quint8> chunk;
+    int chunkBase = -1;
+    const int chunkH = 256;
+
+    for (int y = 0; y < thumbH; ++y) {
+        const int srcY = qMin(ih - 1, int(y * stepY));
+        const int b = srcY / chunkH;
+        if (b != chunkBase) {
+            chunkBase = b;
+            chunk.resize(size_t(iw) * chunkH);
+            const int ty = b * chunkH;
+            const int h = qMin(chunkH, ih - ty);
+            ps->readBytes(chunk.data(), 0, ty, iw, h);
+        }
+        const int rowOff = (srcY - chunkBase * chunkH) * iw;
+        const size_t dstOff = size_t(y) * thumbW;
+        for (int x = 0; x < thumbW; ++x) {
+            const int srcX = qMin(iw - 1, int(x * stepX));
+            const quint8 val = chunk[size_t(rowOff) + srcX];
+            bool check = ((x / 6) ^ (y / 6)) & 1;
+            quint32 bg = check ? 0xFF2A2D32 : 0xFF222428;
+            if (val > 127) {
+                out[dstOff + x] = 0xFFD8D2C6;
+            } else {
+                out[dstOff + x] = bg;
+            }
+        }
+    }
+    return out;
+}
+
 
 KisPaintDeviceSP ReverieCore::currentPaintDevice()
 {

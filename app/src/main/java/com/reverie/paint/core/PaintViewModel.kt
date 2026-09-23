@@ -693,6 +693,9 @@ class PaintViewModel : ViewModel() {
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
+    var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面左下角快捷滑块长度 (100 - 260 dp, 默认 175)
+    var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
+    var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 
     /** 左侧工具条滑块面板的实时高度 (px), 由 ToolRail 测量写入; 时间轴"展开至同高"对齐用 */
     var railSliderPanelHeightPx by mutableFloatStateOf(0f)
@@ -860,6 +863,10 @@ class PaintViewModel : ViewModel() {
     var selectionFeatherRadius by mutableIntStateOf(0)
     var selectionCloseGap by mutableIntStateOf(4) // 闭合空隙 (0..16 px)
     var selectionExpand by mutableIntStateOf(0) // 拓展 (-16..32 px)
+
+    // 存储选区 / 选区历史
+    val savedSelections = androidx.compose.runtime.mutableStateListOf<SavedSelectionUiItem>()
+    var savedSelectionsPopupOpen by mutableStateOf(false)
 
     var pickerSampleLayers by mutableIntStateOf(1) // 0: 当前图层, 1: 全部图层
 
@@ -1459,6 +1466,40 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateQuickSliderHeight(height: Int) {
+        quickSliderHeightDp = height.coerceIn(100, 260)
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("quickSliderHeightDp", quickSliderHeightDp)
+                .apply()
+        }
+    }
+
+    fun updateSelectionMaskColor(hex: String) {
+        selectionMaskColorHex = hex
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("selection_mask_color", hex)
+                .apply()
+        }
+    }
+
+    fun updateSelectionMaskOpacity(opacity: Float) {
+        selectionMaskOpacity = opacity.coerceIn(0.10f, 0.90f)
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("selection_mask_opacity", selectionMaskOpacity)
+                .apply()
+        }
+    }
+
+
     var canvasBgColorHex by mutableStateOf("DEFAULT")
 
     fun updateCanvasBgColor(hex: String) {
@@ -1656,6 +1697,9 @@ class PaintViewModel : ViewModel() {
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             layerRowHeightDp = prefs.getInt("layerRowHeightDp", 52).coerceIn(40, 80)
+            quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
+            selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
+            selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
             val savedAccent = prefs.getString("accentColor", "#5A6E8A") ?: "#5A6E8A"

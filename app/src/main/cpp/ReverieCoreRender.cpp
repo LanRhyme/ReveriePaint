@@ -796,12 +796,17 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                         KisPaintDeviceSP tempTarget = pl ? pl->temporaryTarget() : nullptr;
                         if (tempTarget) {
                             KisPainter tempPainter(scratch);
-                            tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
-                            QString compOp = QStringLiteral("normal");
-                            if (m_brushPreset && m_brushPreset->settings()) {
-                                compOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
+                            if (pl) {
+                                pl->setupTemporaryPainter(&tempPainter);
+                            } else {
+                                tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
                             }
-                            tempPainter.setCompositeOpId(compOp);
+                            if (m_toolMode == ToolEraser) {
+                                tempPainter.setCompositeOpId(QStringLiteral("erase"));
+                            }
+                            if (m_selection) {
+                                tempPainter.setSelection(m_selection);
+                            }
                             tempPainter.bitBlt(r.topLeft(), tempTarget, r);
                             tempPainter.end();
                         }

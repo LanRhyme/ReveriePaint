@@ -102,8 +102,6 @@ void ReverieCore::touchStrokeEnd()
     if (pl && pl->hasTemporaryTarget()) {
         KisPaintDeviceSP tempTarget = pl->temporaryTarget();
         const QRect ext = tempTarget->exactBounds();
-        pl->setTemporaryTarget(nullptr);
-        pl->setTemporaryChannelFlags(QBitArray());
         if (!ext.isEmpty()) {
             if (m_document && m_undoCaptureEnabled) {
                 delete m_strokeTxn;
@@ -111,15 +109,10 @@ void ReverieCore::touchStrokeEnd()
                 m_strokeTxnActive = true;
             }
             KisPainter gc(pl->paintDevice());
-            gc.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
-            QString compOp = QStringLiteral("normal");
-            if (m_brushPreset && m_brushPreset->settings()) {
-                compOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
-            }
+            pl->setupTemporaryPainter(&gc);
             if (m_toolMode == ToolEraser) {
-                compOp = QStringLiteral("erase");
+                gc.setCompositeOpId(QStringLiteral("erase"));
             }
-            gc.setCompositeOpId(compOp);
             if (m_selection) {
                 gc.setSelection(m_selection);
             }
@@ -130,6 +123,8 @@ void ReverieCore::touchStrokeEnd()
             markRegionDirty(ext);
             bumpLayerThumbGen(pl);
         }
+        pl->setTemporaryTarget(nullptr);
+        pl->setTemporaryChannelFlags(QBitArray());
         tempTarget->clear();
     }
 
@@ -311,10 +306,10 @@ bool ReverieCore::flushStrokeBatch()
     // Non-incremental brushes (like experimentbrush / Shape_fill, sketch, curve)
     // must paint onto an indirect temporary target to avoid COMPOSITE_COPY
     // erasing/mosaic-clipping the existing layer pixels behind the stroke!
-    // NOTE: Erasing MUST always paint directly on the layer's device, because erasing
-    // removes pixels from the underlying layer directly. Painting "erase" onto an empty
-    // indirect target does nothing.
-    const bool needsIndirect = !erasing && m_brushPreset && m_brushPreset->settings() &&
+    // In erasing mode, the non-incremental brush paints its opaque/anti-aliased
+    // dab onto the temporary target, which is then composited onto the layer
+    // with COMPOSITE_ERASE (effectiveOp).
+    const bool needsIndirect = m_brushPreset && m_brushPreset->settings() &&
         !m_brushPreset->settings()->paintIncremental();
 
     KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())

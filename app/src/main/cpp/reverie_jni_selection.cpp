@@ -230,4 +230,93 @@ Java_com_reverie_paint_core_ReverieCoreBridge_clearSelection(JNIEnv *, jobject)
 {
     core()->clearSelection();
 }
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_saveCurrentSelection(JNIEnv *env, jobject, jstring name)
+{
+    QString n;
+    if (name) {
+        const char *utf = env->GetStringUTFChars(name, nullptr);
+        if (utf) {
+            n = QString::fromUtf8(utf);
+            env->ReleaseStringUTFChars(name, utf);
+        }
+    }
+    return core()->saveCurrentSelection(n);
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadStoredSelection(JNIEnv *, jobject, jint index, jint mode)
+{
+    return core()->loadStoredSelection(index, mode);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_deleteStoredSelection(JNIEnv *, jobject, jint index)
+{
+    return core()->deleteStoredSelection(index);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_updateStoredSelection(JNIEnv *, jobject, jint index)
+{
+    return core()->updateStoredSelection(index);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renameStoredSelection(JNIEnv *env, jobject, jint index, jstring name)
+{
+    QString n;
+    if (name) {
+        const char *utf = env->GetStringUTFChars(name, nullptr);
+        if (utf) {
+            n = QString::fromUtf8(utf);
+            env->ReleaseStringUTFChars(name, utf);
+        }
+    }
+    return core()->renameStoredSelection(index, n);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_storedSelectionCount(JNIEnv *, jobject)
+{
+    return core()->storedSelectionCount();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_storedSelectionName(JNIEnv *env, jobject, jint index)
+{
+    const QString n = core()->storedSelectionName(index);
+    return env->NewStringUTF(n.toUtf8().constData());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_storedSelectionId(JNIEnv *env, jobject, jint index)
+{
+    const QString id = core()->storedSelectionId(index);
+    return env->NewStringUTF(id.toUtf8().constData());
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_storedSelectionThumbnail(JNIEnv *env, jobject, jint index, jint w, jint h)
+{
+    const QVector<quint32> px = core()->storedSelectionThumbnail(index, w, h);
+    if (px.isEmpty()) {
+        return nullptr;
+    }
+    jintArray arr = env->NewIntArray(px.size());
+    if (!arr) {
+        return nullptr;
+    }
+    env->SetIntArrayRegion(arr, 0, px.size(), reinterpret_cast<const jint *>(px.constData()));
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_clearStoredSelections(JNIEnv *, jobject)
+{
+    core()->clearStoredSelections();
+}
+
+}
+

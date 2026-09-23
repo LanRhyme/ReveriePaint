@@ -41,12 +41,22 @@ internal fun PaintViewModel.thumbFor(
 ): Bitmap? {
     val idxName = layerThumbIndexName[layerIndex]
     if (idxName != null && idxName == layerName) {
-        return layerThumbStates[layerIndex]
+        val b = layerThumbStates[layerIndex]
+        if (b != null && !b.isRecycled) return b
     }
-    return layerThumbByName[layerName]
+    val b = layerThumbByName[layerName]
+    return if (b != null && !b.isRecycled) b else null
+}
+
+internal fun PaintViewModel.clearLayerThumbs() {
+    layerThumbStates.clear()
+    layerThumbIndexName.clear()
+    layerThumbByName.clear()
 }
 
 private var thumbRefreshJob: Job? = null
+@Volatile
+private var isRefreshingThumbs = false
 
 /** Thumbnail refresh debounce: thumbs are only visible in the layer panel,
  *  which is never open while actively painting, so we skip refreshes when
@@ -77,21 +87,30 @@ internal fun PaintViewModel.refreshLayerThumbs(force: Boolean = false) {
 }
 
 private fun PaintViewModel.doRefreshLayerThumbs() {
-    val n = ReverieCoreBridge.layerCount()
-    if (n <= 0) return
-    runCore(after = {}) {
-        for (i in 0 until n) {
-            val existing = layerThumbStates[i]?.takeIf { !it.isRecycled && it.width == 56 && it.height == 56 }
-            val bmp = existing ?: Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
-            if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
-                val idx = i
-                val name = ReverieCoreBridge.layerName(idx)
-                mainHandler.post {
-                    layerThumbStates[idx] = bmp
-                    layerThumbIndexName[idx] = name
-                    layerThumbByName[name] = bmp
+    if (isRefreshingThumbs) return
+    isRefreshingThumbs = true
+    runCore(render = false, after = { isRefreshingThumbs = false }) {
+        try {
+            val n = ReverieCoreBridge.layerCount()
+            if (n <= 0) return@runCore
+            for (i in 0 until n) {
+                // Rule 3 (Double-buffering): always allocate an independent back-buffer Bitmap (12KB)
+                // so the background engine thread never writes into a Bitmap actively drawn by UI/GPU
+                val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
+                if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
+                    val idx = i
+                    val name = ReverieCoreBridge.layerName(idx)
+                    mainHandler.post {
+                        layerThumbStates[idx] = bmp
+                        layerThumbIndexName[idx] = name
+                        layerThumbByName[name] = bmp
+                    }
+                } else {
+                    bmp.recycle()
                 }
             }
+        } catch (t: Throwable) {
+            android.util.Log.e("PaintViewModel", "doRefreshLayerThumbs error", t)
         }
     }
 }

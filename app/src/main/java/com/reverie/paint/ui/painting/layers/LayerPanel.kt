@@ -198,10 +198,6 @@ fun LayerPanel(
     }
     var renameRequest by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        vm.refreshLayerThumbs(force = true)
-    }
-
     val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
 

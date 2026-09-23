@@ -343,7 +343,7 @@ private fun BrushSizeGroup(
         onFraction = { frac -> onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * frac.toDouble()), false) },
         onRelease = { frac -> onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * frac.toDouble()), true) },
         trackWidth = 26,
-        trackHeight = 175,
+        trackHeight = vm.quickSliderHeightDp,
         valueText = formattedValue,
         onStep = { increase ->
             val step = when {
@@ -396,7 +396,7 @@ private fun OpacityGroup(
         onFraction = { frac -> onOpacity(frac.toDouble(), false) },
         onRelease = { frac -> onOpacity(frac.toDouble(), true) },
         trackWidth = 26,
-        trackHeight = 175,
+        trackHeight = vm.quickSliderHeightDp,
         valueText = formattedValue,
         onStep = { increase ->
             val step = 0.01
@@ -442,7 +442,7 @@ private fun FlowGroup(
         onFraction = { frac -> onFlow(frac.toDouble(), false) },
         onRelease = { frac -> onFlow(frac.toDouble(), true) },
         trackWidth = 26,
-        trackHeight = 175,
+        trackHeight = vm.quickSliderHeightDp,
         valueText = formattedValue,
         onStep = { increase ->
             val step = 0.01

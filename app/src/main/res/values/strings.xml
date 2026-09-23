@@ -368,6 +368,16 @@
     <string name="toast_project_no_replay_data">此作品没有回放数据</string>
     <string name="toast_project_inserted_layer">已插入新图层: %s</string>
     <string name="toast_project_imported_to_gallery">已在后台导入至画廊</string>
+    <string name="toast_project_export_failed">导出 %s 失败</string>
+    <string name="toast_project_gallery_create_failed">无法创建媒体库文件</string>
+    <string name="toast_project_gallery_save_failed">保存至相册失败: %s</string>
+    <string name="toast_project_import_single_success">已成功导入: %s</string>
+    <string name="toast_project_import_multiple_success">已成功导入 %d 个作品</string>
+    <string name="toast_project_import_unsupported">导入失败: 未能识别的文件格式</string>
+    <string name="toast_project_decode_image_failed">无法解码图片数据</string>
+    <string name="toast_project_import_image_failed">导入图片失败: %s</string>
+    <string name="project_default_import_name">导入作品</string>
+    <string name="project_default_import_image_name">导入图片</string>
 
     <!-- Tool Action Toasts -->
     <string name="toast_undo">撤销</string>
@@ -642,6 +652,10 @@
     <string name="settings_quick_slider">快捷滑块</string>
     <string name="settings_quick_slider_flow">流量</string>
     <string name="settings_quick_slider_opacity">不透明度</string>
+    <string name="settings_quick_slider_height">滑块长度</string>
+    <string name="settings_quick_slider_height_compact">紧凑</string>
+    <string name="settings_quick_slider_height_standard">标准</string>
+    <string name="settings_quick_slider_height_long">加长</string>
     <string name="settings_layer_row_height">图层项高度</string>
     <string name="settings_layer_height_compact">紧凑</string>
     <string name="settings_layer_height_standard">标准</string>
@@ -1420,6 +1434,8 @@
     <string name="theme_category_ui_scale">界面尺寸</string>
     <string name="theme_ui_scale_title">绘画界面整体大小</string>
     <string name="theme_ui_scale_desc">缩放画布四周的工具栏、顶栏及各浮动面板</string>
+    <string name="theme_quick_slider_height_title">侧边滑块面板长度</string>
+    <string name="theme_quick_slider_height_desc">调整绘画界面左下角笔刷大小与不透明度滑块的长度</string>
     <string name="theme_category_effects">显示与效果</string>
     <string name="theme_blur_title">背景毛玻璃效果</string>
     <string name="theme_blur_desc">为所有面板与工具栏启用半透明背景高斯模糊</string>
@@ -1733,4 +1749,37 @@
     <string name="param_input_hint">输入数值</string>
     <string name="brush_card_reset">重置参数</string>
     <string name="brush_card_open_studio">高级工坊</string>
+
+    <!-- Stored Selections / Selection History -->
+    <string name="selection_history_title">选区历史</string>
+    <string name="selection_save_current">存储当前选区</string>
+    <string name="selection_empty_history">暂无存储的选区</string>
+    <string name="selection_empty_history_hint">点击右上角「+」可将当前选区存为槽位</string>
+    <string name="selection_op_replace">载入替换</string>
+    <string name="selection_op_add">追加选区 (+)</string>
+    <string name="selection_op_subtract">减去选区 (-)</string>
+    <string name="selection_op_intersect">选区相交 (∩)</string>
+    <string name="selection_op_overwrite">覆盖为当前选区</string>
+    <string name="selection_op_rename">重命名</string>
+    <string name="selection_toast_saved">选区已存储</string>
+    <string name="selection_toast_loaded">已载入选区</string>
+    <string name="selection_toast_added">已追加到当前选区</string>
+    <string name="selection_toast_subtracted">已从当前选区中减去</string>
+    <string name="selection_toast_intersected">已提取重叠相交选区</string>
+    <string name="selection_toast_updated">选区已覆盖更新</string>
+    <string name="selection_toast_deleted">选区已删除</string>
+    <string name="selection_rename_title">重命名选区</string>
+    <string name="selection_rename_hint">输入选区名称</string>
+    <string name="selection_count_label">%d 个选区</string>
+    <string name="selection_bottom_action_save">存储选区</string>
+
+    <!-- Theme Selection Mask Settings -->
+    <string name="theme_category_selection_mask">选区显示</string>
+    <string name="theme_selection_mask_color_title">选区蒙版颜色</string>
+    <string name="theme_selection_mask_color_desc">调整画布活动选区未选区域的遮罩色彩</string>
+    <string name="theme_selection_mask_opacity_title">选区蒙版不透明度</string>
+    <string name="theme_selection_mask_opacity_desc">调整活动选区遮罩层的透明度深度</string>
+    <string name="theme_selection_custom_color_title">自定义选区蒙版颜色</string>
 </resources>
+
+

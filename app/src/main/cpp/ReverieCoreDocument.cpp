@@ -37,6 +37,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     m_undoStore = nullptr;
     m_macroDepth = 0;
     m_selection = KisSelectionSP();
+    m_storedSelections.clear();
 
     // Reset the display pipeline: a new document (possibly same size as the
     // previous one) must not inherit stale display pixels or skip the first

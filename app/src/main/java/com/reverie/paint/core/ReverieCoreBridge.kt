@@ -1029,4 +1029,17 @@ object ReverieCoreBridge {
     external fun smoothSelection(radius: Int)
 
     external fun clearSelection()
+
+    // 存储选区 (选区历史与存储槽位)
+    external fun saveCurrentSelection(name: String? = null): Int
+    external fun loadStoredSelection(index: Int, mode: Int = 0): Boolean
+    external fun deleteStoredSelection(index: Int): Boolean
+    external fun updateStoredSelection(index: Int): Boolean
+    external fun renameStoredSelection(index: Int, name: String): Boolean
+    external fun storedSelectionCount(): Int
+    external fun storedSelectionName(index: Int): String
+    external fun storedSelectionId(index: Int): String
+    external fun storedSelectionThumbnail(index: Int, w: Int, h: Int): IntArray?
+    external fun clearStoredSelections()
 }
+

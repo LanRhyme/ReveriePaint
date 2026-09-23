@@ -191,12 +191,7 @@ fun BrushStudioPage(
     // SAF Import Launcher for brush preset (.kpp, .bundle, .gbr, .png)
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val ok = vm.importBrushFromUri(uri)
-            Toast.makeText(
-                context,
-                if (ok) context.getString(R.string.brush_studio_toast_imported) else context.getString(R.string.brush_studio_toast_import_failed),
-                Toast.LENGTH_SHORT,
-            ).show()
+            vm.importBrushFromUri(uri)
         }
     }
 

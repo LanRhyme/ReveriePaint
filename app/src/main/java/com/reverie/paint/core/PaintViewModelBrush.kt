@@ -28,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
     internal fun PaintViewModel.prefs() =
         appContext.getSharedPreferences("brush_groups", android.content.Context.MODE_PRIVATE)
@@ -904,7 +905,7 @@ import kotlinx.coroutines.launch
         }
 
         val saved = if (preset != null) brushParams[preset.name] else null
-        val effectiveCompOp = if (isEraserPreset) {
+        val effectiveCompOp = if (isEraserPreset || currentToolId == "eraser") {
             "erase"
         } else {
             val savedOp = saved?.compositeOp
@@ -1282,83 +1283,208 @@ import kotlinx.coroutines.launch
     }
 
     /** 导入外部笔刷文件 (.kpp, .bundle, .gbr, .png) */
-    internal fun PaintViewModel.importBrushFromUri(uri: android.net.Uri): Boolean {
-        return try {
-            val resolver = appContext.contentResolver
-            val filename = runCatching {
-                resolver.query(uri, null, null, null, null)?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
-                }
-            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "import_${System.currentTimeMillis()}"
+    internal fun PaintViewModel.importBrushFromUri(
+        uri: android.net.Uri,
+        onComplete: ((Boolean) -> Unit)? = null
+    ): Boolean {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ok = try {
+                val resolver = appContext.contentResolver
+                val filename = runCatching {
+                    resolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                    }
+                }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "import_${System.currentTimeMillis()}"
 
-            val dir = File(appContext.filesDir, "paintoppresets")
-            if (!dir.exists()) dir.mkdirs()
-
-            if (filename.endsWith(".kpp", ignoreCase = true)) {
-                val target = File(dir, filename)
-                resolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-                val presetName = filename.substringBeforeLast(".")
-                brushParams[presetName] = BrushParams(
-                    author = "外部创作者 (分享)",
-                    isAuthorLocked = true,
-                    description = "导入自外部创作者分享的笔刷预设",
-                )
-                persistBrushParams()
-                userBrushGroups = userBrushGroups + (presetName to "导入")
-                if (!customBrushGroups.contains("导入")) {
-                    customBrushGroups = customBrushGroups + "导入"
-                }
-                saveBrushGroups()
-                reloadBrushPresets(selectName = presetName)
-                true
-            } else if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".abr", true)) {
+                val presetDir = File(appContext.filesDir, "paintoppresets")
+                if (!presetDir.exists()) presetDir.mkdirs()
                 val brushDir = File(appContext.filesDir, "brushes")
                 if (!brushDir.exists()) brushDir.mkdirs()
-                val target = File(brushDir, filename)
-                resolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-                val presetName = filename.substringBeforeLast(".")
-                createNewBrushPreset(name = presetName, group = "导入", tipAsset = filename)
-                brushParams[presetName] = brushParams[presetName]?.copy(
-                    author = "外部创作者 (分享)",
-                    isAuthorLocked = true,
-                ) ?: BrushParams(author = "外部创作者 (分享)", isAuthorLocked = true)
-                persistBrushParams()
-                true
-            } else if (filename.endsWith(".bundle", true) || filename.endsWith(".zip", true)) {
-                resolver.openInputStream(uri)?.use { input ->
-                    val tempZip = File(appContext.cacheDir, "bundle_temp.zip")
-                    tempZip.outputStream().use { input.copyTo(it) }
-                    val zip = ZipFile(tempZip)
-                    for (entry in zip.entries()) {
-                        if (entry.name.contains("paintoppresets/") && entry.name.endsWith(".kpp")) {
-                            val name = entry.name.substringAfterLast("/")
-                            val out = File(dir, name)
-                            zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
-                        } else if (entry.name.contains("brushes/")) {
-                            val brushDir = File(appContext.filesDir, "brushes")
-                            if (!brushDir.exists()) brushDir.mkdirs()
-                            val name = entry.name.substringAfterLast("/")
-                            val out = File(brushDir, name)
-                            zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
-                        }
+
+                if (filename.endsWith(".kpp", ignoreCase = true)) {
+                    val target = File(presetDir, filename)
+                    resolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
                     }
-                    zip.close()
-                    tempZip.delete()
+                    val presetName = filename.substringBeforeLast(".")
+                    brushParams[presetName] = BrushParams(
+                        author = "外部创作者 (分享)",
+                        isAuthorLocked = true,
+                        description = "导入自外部创作者分享的笔刷预设",
+                    )
+                    persistBrushParams()
+                    userBrushGroups = userBrushGroups + (presetName to "导入")
+                    if (!customBrushGroups.contains("导入")) {
+                        customBrushGroups = customBrushGroups + "导入"
+                    }
+                    saveBrushGroups()
+                    withContext(Dispatchers.Main) {
+                        brushPanelSelectedCategory = "导入"
+                        reloadBrushPresets(selectName = presetName)
+                    }
+                    true
+                } else if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".abr", true)) {
+                    val target = File(brushDir, filename)
+                    resolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    val presetName = filename.substringBeforeLast(".")
+                    withContext(Dispatchers.Main) {
+                        createNewBrushPreset(name = presetName, group = "导入", tipAsset = filename)
+                        brushParams[presetName] = brushParams[presetName]?.copy(
+                            author = "外部创作者 (分享)",
+                            isAuthorLocked = true,
+                        ) ?: BrushParams(author = "外部创作者 (分享)", isAuthorLocked = true)
+                        persistBrushParams()
+                        brushPanelSelectedCategory = "导入"
+                    }
+                    true
+                } else if (filename.endsWith(".bundle", true) || filename.endsWith(".zip", true)) {
+                    val tempZip = File.createTempFile("bundle_temp_", ".zip", appContext.cacheDir)
+                    val presetToTagMap = mutableMapOf<String, String>()
+                    val discoveredTags = mutableSetOf<String>()
+                    val importedPresets = mutableListOf<String>()
+
+                    val defaultGroupName = filename.substringBeforeLast(".")
+                        .removeSuffix(".bundle")
+                        .removeSuffix(".zip")
+                        .trim()
+                        .ifBlank { "导入" }
+
+                    try {
+                        resolver.openInputStream(uri)?.use { input ->
+                            tempZip.outputStream().use { output -> input.copyTo(output) }
+                        }
+
+                        ZipFile(tempZip).use { zip ->
+                            // 1. Check for META-INF/manifest.xml or *.tag files to extract tags
+                            val manifestEntry = zip.getEntry("META-INF/manifest.xml")
+                            if (manifestEntry != null) {
+                                runCatching {
+                                    val parser = android.util.Xml.newPullParser()
+                                    parser.setInput(zip.getInputStream(manifestEntry), "UTF-8")
+                                    var eventType = parser.eventType
+                                    var currentPath: String? = null
+                                    while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                                        if (eventType == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                                            val tag = parser.name.substringAfterLast(":")
+                                            if (tag.equals("file-entry", ignoreCase = true)) {
+                                                currentPath = parser.getAttributeValue(null, "full-path")
+                                                    ?: parser.getAttributeValue("http://openoffice.org/2001/manifest", "full-path")
+                                            } else if (tag.equals("tag", ignoreCase = true) && currentPath != null) {
+                                                val tagText = parser.nextText()?.trim()
+                                                if (!tagText.isNullOrBlank()) {
+                                                    val presetName = currentPath.substringAfterLast("/").substringBeforeLast(".")
+                                                    if (presetName.isNotBlank()) {
+                                                        presetToTagMap[presetName] = tagText
+                                                        discoveredTags.add(tagText)
+                                                    }
+                                                }
+                                            }
+                                        } else if (eventType == org.xmlpull.v1.XmlPullParser.END_TAG) {
+                                            val tag = parser.name.substringAfterLast(":")
+                                            if (tag.equals("file-entry", ignoreCase = true)) {
+                                                currentPath = null
+                                            }
+                                        }
+                                        eventType = parser.next()
+                                    }
+                                }
+                            }
+
+                            // 2. Also check any *.tag files in the zip
+                            for (entry in zip.entries()) {
+                                if (entry.name.endsWith(".tag", ignoreCase = true)) {
+                                    runCatching {
+                                        val content = zip.getInputStream(entry).bufferedReader().readText()
+                                        var tagName = ""
+                                        for (line in content.lines()) {
+                                            val trimmed = line.trim()
+                                            if (trimmed.startsWith("Name[zh_CN]=", ignoreCase = true)) {
+                                                tagName = trimmed.substringAfter("=").trim()
+                                                break
+                                            } else if (trimmed.startsWith("Name=", ignoreCase = true) && tagName.isEmpty()) {
+                                                tagName = trimmed.substringAfter("=").trim()
+                                            }
+                                        }
+                                        if (tagName.isNotBlank()) {
+                                            discoveredTags.add(tagName)
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 3. Extract presets (.kpp) and brushes
+                            for (entry in zip.entries()) {
+                                val entryName = entry.name
+                                if (entryName.contains("paintoppresets/") && entryName.endsWith(".kpp", ignoreCase = true)) {
+                                    val kppName = entryName.substringAfterLast("/")
+                                    val out = File(presetDir, kppName)
+                                    zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
+                                    val presetBaseName = kppName.substringBeforeLast(".")
+                                    importedPresets.add(presetBaseName)
+                                } else if (entryName.contains("brushes/")) {
+                                    val brushName = entryName.substringAfterLast("/")
+                                    if (brushName.isNotBlank() && !entry.isDirectory) {
+                                        val out = File(brushDir, brushName)
+                                        zip.getInputStream(entry).use { inS -> out.outputStream().use { inS.copyTo(it) } }
+                                    }
+                                }
+                            }
+                        }
+                    } finally {
+                        tempZip.delete()
+                    }
+
+                    if (importedPresets.isNotEmpty()) {
+                        var newCustomGroups = customBrushGroups
+                        var newUserGroups = userBrushGroups
+                        var targetGroup = defaultGroupName
+
+                        for (preset in importedPresets) {
+                            val tag = presetToTagMap[preset] ?: defaultGroupName
+                            if (!newCustomGroups.contains(tag)) {
+                                newCustomGroups = newCustomGroups + tag
+                            }
+                            newUserGroups = newUserGroups + (preset to tag)
+                            targetGroup = tag
+                        }
+
+                        customBrushGroups = newCustomGroups
+                        userBrushGroups = newUserGroups
+                        saveBrushGroups()
+
+                        withContext(Dispatchers.Main) {
+                            brushPanelSelectedCategory = targetGroup
+                            reloadBrushPresets(selectName = importedPresets.firstOrNull())
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
                 }
-                reloadBrushPresets()
-                true
-            } else {
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "importBrushFromUri failed", e)
                 false
             }
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "importBrushFromUri failed", e)
-            false
+
+            withContext(Dispatchers.Main) {
+                if (onComplete != null) {
+                    onComplete(ok)
+                } else {
+                    android.widget.Toast.makeText(
+                        appContext,
+                        if (ok) appContext.getString(R.string.brush_studio_toast_imported)
+                        else appContext.getString(R.string.brush_studio_toast_import_failed),
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
         }
+        return true
     }
 
     /** 重命名笔刷 (内置笔刷固定禁止重命名) */

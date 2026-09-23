@@ -504,19 +504,28 @@ internal fun PaintViewModel.applyTool(toolId: String) {
                 }
             } else {
                 // Force refresh Krita param for this specific tool even if it's the same index
-                val saved =
-                    brushParams[brushPresets.firstOrNull { it.index == state.presetIndex }?.name]
+                val curPreset = brushPresets.firstOrNull { it.index == state.presetIndex }
+                val isCurEraser = isEraserTool || (curPreset?.group == "橡皮擦" || curPreset?.name?.startsWith("a)") == true || curPreset?.name?.contains("Eraser", ignoreCase = true) == true)
+                val saved = brushParams[curPreset?.name]
+                val savedOp = saved?.compositeOp
+                val effectiveOp = if (isCurEraser) "erase" else if (savedOp.isNullOrBlank() || savedOp == "erase") "normal" else savedOp
+                brushCompositeOp = effectiveOp
                 if (saved != null) {
                     brushSize = saved.size
                     brushOpacity = saved.opacity
                     brushFlow = saved.flow
                     runCore(render = false) {
+                        ReverieCoreBridge.setBrushCompositeOp(effectiveOp)
                         ReverieCoreBridge.setBrushSize(saved.size)
                         ReverieCoreBridge.setBrushOpacity(saved.opacity)
                         ReverieCoreBridge.setBrushFlow(saved.flow)
                         ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
                         ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
                         ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
+                    }
+                } else {
+                    runCore(render = false) {
+                        ReverieCoreBridge.setBrushCompositeOp(effectiveOp)
                     }
                 }
                 applyToolParamMemoryOverlay()
@@ -1921,4 +1930,109 @@ internal fun PaintViewModel.undoShapeNode() {
         showActionToast(R.string.toast_undo_vertex, R.drawable.ic_undo)
     }
 }
+
+// ============================================================================
+// Stored Selections (选区历史与存储槽位管理)
+// ============================================================================
+
+data class SavedSelectionUiItem(
+    val id: String,
+    val name: String,
+    val thumbnail: android.graphics.Bitmap? = null,
+)
+
+internal fun PaintViewModel.refreshSavedSelections() {
+    runCore(render = false) {
+        val count = ReverieCoreBridge.storedSelectionCount()
+        val list = ArrayList<SavedSelectionUiItem>(count)
+        for (i in 0 until count) {
+            val id = ReverieCoreBridge.storedSelectionId(i)
+            val name = ReverieCoreBridge.storedSelectionName(i)
+            val px = ReverieCoreBridge.storedSelectionThumbnail(i, 64, 64)
+            var bmp: android.graphics.Bitmap? = null
+            if (px != null && px.isNotEmpty()) {
+                bmp = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888)
+                bmp.setPixels(px, 0, 64, 0, 0, 64, 64)
+            }
+            list.add(SavedSelectionUiItem(id = id, name = name, thumbnail = bmp))
+        }
+        mainHandler.post {
+            savedSelections.clear()
+            savedSelections.addAll(list)
+        }
+    }
+}
+
+internal fun PaintViewModel.saveCurrentSelectionAction(customName: String? = null) {
+    if (!hasSelection) {
+        showActionToast(R.string.toast_selection_required, R.drawable.ic_lasso)
+        return
+    }
+    runCore(render = false, after = {
+        showActionToast(R.string.selection_toast_saved, R.drawable.ic_check)
+    }) {
+        val idx = ReverieCoreBridge.saveCurrentSelection(customName)
+        if (idx >= 0) {
+            refreshSavedSelections()
+        }
+    }
+}
+
+internal fun PaintViewModel.loadStoredSelectionAction(index: Int, mode: Int = 0) {
+    var ov: android.graphics.Bitmap? = null
+    var ok = false
+    runCore(render = true, after = {
+        if (ok) {
+            hasSelection = true
+            selectionOverlayBitmap = ov
+            val msgRes = when (mode) {
+                1 -> R.string.selection_toast_added
+                2 -> R.string.selection_toast_subtracted
+                3 -> R.string.selection_toast_intersected
+                else -> R.string.selection_toast_loaded
+            }
+            showActionToast(msgRes, R.drawable.ic_check)
+        }
+    }) {
+        ok = ReverieCoreBridge.loadStoredSelection(index, mode)
+        if (ok) {
+            ov = buildSelectionOverlayLocked()
+            refreshDisplay()
+        }
+    }
+}
+
+internal fun PaintViewModel.deleteStoredSelectionAction(index: Int) {
+    runCore(render = false, after = {
+        showActionToast(R.string.selection_toast_deleted, R.drawable.ic_trash)
+    }) {
+        if (ReverieCoreBridge.deleteStoredSelection(index)) {
+            refreshSavedSelections()
+        }
+    }
+}
+
+internal fun PaintViewModel.updateStoredSelectionAction(index: Int) {
+    if (!hasSelection) {
+        showActionToast(R.string.toast_selection_required, R.drawable.ic_lasso)
+        return
+    }
+    runCore(render = false, after = {
+        showActionToast(R.string.selection_toast_updated, R.drawable.ic_check)
+    }) {
+        if (ReverieCoreBridge.updateStoredSelection(index)) {
+            refreshSavedSelections()
+        }
+    }
+}
+
+internal fun PaintViewModel.renameStoredSelectionAction(index: Int, newName: String) {
+    if (newName.isBlank()) return
+    runCore(render = false) {
+        if (ReverieCoreBridge.renameStoredSelection(index, newName.trim())) {
+            refreshSavedSelections()
+        }
+    }
+}
+
 

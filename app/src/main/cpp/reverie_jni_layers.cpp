@@ -393,12 +393,20 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderLayerThumb(JNIEnv *env, jobj
     if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
         return JNI_FALSE;
     }
+    if (info.width <= 0 || info.height <= 0 || info.stride < (info.width * 4)) {
+        return JNI_FALSE;
+    }
     void *pixels = nullptr;
     if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
         return JNI_FALSE;
     }
-    const bool ok =
-        core()->renderLayerThumb(index, info.width, info.height, pixels, info.stride);
+    bool ok = false;
+    try {
+        ok = core()->renderLayerThumb(index, info.width, info.height, pixels, info.stride);
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, "ReverieCore", "renderLayerThumb threw exception for layer %d", (int)index);
+        ok = false;
+    }
     AndroidBitmap_unlockPixels(env, bitmap);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
