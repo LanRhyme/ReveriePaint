@@ -367,9 +367,16 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             t.src->makeCloneFrom(t.device, bounds);
             t.dst = new KisPaintDevice(t.device->colorSpace());
             delete t.worker;
-            // pixelPrecision 16: quarter the polygon count vs 8 with no
-            // visible quality difference for smooth liquify warps
-            t.worker = new KisLiquifyTransformWorker(bounds, nullptr, 16);
+            // pixelPrecision is the grid cell size: the warp is piecewise
+            // linear WITHIN a cell, so the gaussian bump must be resolved by
+            // several cells or its curvature degenerates into flat facets -
+            // visible as jagged/stair-stepped edges on the warped content.
+            // A fixed 16 resolved a 20px brush with barely one cell. Scale
+            // the grid with the brush instead (~8 cells across the radius),
+            // clamped so tiny brushes stay affordable and huge brushes keep
+            // the coarse grid the throttling budget was tuned for.
+            const int precision = qBound<int>(4, qRound(size / 8.0), 16);
+            t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
         }
     }
