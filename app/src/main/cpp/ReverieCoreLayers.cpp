@@ -355,6 +355,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     p.setSelection(m_selection);
     p.bitBlt(selBounds.topLeft(), srcDev, selBounds);
     p.end();
+    dstDev->setDirty(selBounds);
 
     if (cut) {
         KisTransaction *cutTxn = new KisTransaction(kundo2_i18n("Cut Selection"), srcDev, nullptr, -1, nullptr);
@@ -369,6 +370,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
     pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
 
+    image->waitForDone();
     recompositeProjection();
     syncLayersFromImage();
 

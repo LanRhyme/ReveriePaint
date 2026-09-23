@@ -630,6 +630,8 @@
     <string name="reference_album_max_hint">Maximum 50 reference images allowed</string>
     <string name="reference_album_system_picker">System Files</string>
     <string name="reference_album_empty">No photos found in album</string>
+    <string name="reference_album_selected_strip">Selected (%1$d)</string>
+    <string name="reference_album_clear_all">Clear</string>
     <string name="canvas_toast_stamp_success">Stamped visible layers to new layer</string>
     <string name="canvas_info_created_time">Created</string>
     <string name="canvas_info_canvas_size">Canvas Size</string>

@@ -1963,19 +1963,29 @@ class CanvasTouchView(context: Context) : View(context) {
                     } else {
                         val handles = tfHandles(state)
                         val currentScale = canvasZoom * canvasFitScale
-                        val hitThresholdDoc = (32f * density) / maxOf(0.01f, currentScale)
-                        var best = -1
-                        var bestD = hitThresholdDoc
-                        for (i in handles.indices) {
-                            val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
-                            if (d < bestD) {
-                                bestD = d
-                                best = i
-                            }
-                        }
+                        val baseThresholdDoc = (18f * density) / maxOf(0.01f, currentScale)
+
                         if (state.mode == TransformMode.PERSPECTIVE) {
+                            var best = -1
+                            var bestD = baseThresholdDoc
+                            for (i in handles.indices) {
+                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                                if (d < bestD) {
+                                    bestD = d
+                                    best = i
+                                }
+                            }
                             state.handle = if (best in 0..3) best else 8
                         } else if (state.mode == TransformMode.DISTORT) {
+                            var best = -1
+                            var bestD = baseThresholdDoc
+                            for (i in handles.indices) {
+                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                                if (d < bestD) {
+                                    bestD = d
+                                    best = i
+                                }
+                            }
                             state.handle = if (best in 0..15) best else 99
                         } else {
                             val c = state.bounds.center
@@ -1986,12 +1996,34 @@ class CanvasTouchView(context: Context) : View(context) {
                             val sinR = sin(rad).toFloat()
                             val ux = (dx * cosR - dy * sinR) / state.scaleX
                             val uy = (dx * sinR + dy * cosR) / state.scaleY
-                            val inBox =
-                                ux >= -state.bounds.width / 2f &&
-                                ux <= state.bounds.width / 2f &&
-                                uy >= -state.bounds.height / 2f &&
-                                uy <= state.bounds.height / 2f
-                            state.handle = if (best >= 0) best else if (inBox) 8 else 9
+
+                            val halfW = state.bounds.width / 2f
+                            val halfH = state.bounds.height / 2f
+                            val inBox = ux >= -halfW && ux <= halfW && uy >= -halfH && uy <= halfH
+
+                            val maxHandleRadius = minOf(halfW, halfH) * 0.4f
+                            val hitThresholdDoc = minOf(baseThresholdDoc, maxOf(1f, maxHandleRadius))
+
+                            var best = -1
+                            var bestD = hitThresholdDoc
+                            for (i in handles.indices) {
+                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                                if (d < bestD) {
+                                    bestD = d
+                                    best = i
+                                }
+                            }
+
+                            // 框内核心平移区保护：落点在矩形中央安全区优先判定为平移，杜绝误触缩放手柄
+                            val inInnerSafetyZone = inBox && halfW > 0f && halfH > 0f &&
+                                (abs(ux) < halfW * 0.65f && abs(uy) < halfH * 0.65f)
+
+                            state.handle = when {
+                                inInnerSafetyZone -> 8
+                                best >= 0 -> best
+                                inBox -> 8
+                                else -> 9
+                            }
                         }
                     }
                     state.dragStart = docPos

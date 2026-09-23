@@ -630,6 +630,8 @@
     <string name="reference_album_max_hint">最多选择 50 张参考图</string>
     <string name="reference_album_system_picker">系统文件</string>
     <string name="reference_album_empty">相册暂无图片</string>
+    <string name="reference_album_selected_strip">已选参考 (%1$d)</string>
+    <string name="reference_album_clear_all">清空已选</string>
     <string name="canvas_toast_stamp_success">已盖印可见图层至新图层</string>
     <string name="canvas_info_created_time">创建时间</string>
     <string name="canvas_info_canvas_size">画布尺寸</string>

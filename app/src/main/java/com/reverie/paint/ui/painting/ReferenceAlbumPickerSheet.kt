@@ -17,9 +17,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,6 +92,17 @@ fun ReferenceAlbumPickerSheet(
 
     var albumPhotos by remember { mutableStateOf<List<AlbumPhoto>>(emptyList()) }
     var isLoadingPhotos by remember { mutableStateOf(false) }
+
+    val displayedAlbumPhotos = remember(albumPhotos, selectedUris.toList()) {
+        if (selectedUris.isEmpty() || albumPhotos.isEmpty()) {
+            albumPhotos
+        } else {
+            val selectedSet = selectedUris.toSet()
+            val (selected, unselected) = albumPhotos.partition { it.uri in selectedSet }
+            val sortedSelected = selectedUris.mapNotNull { u -> selected.find { it.uri == u } }
+            sortedSelected + unselected
+        }
+    }
 
     // Fallback system file picker
     val systemPickerLauncher = rememberLauncherForActivityResult(
@@ -244,6 +257,79 @@ fun ReferenceAlbumPickerSheet(
                         )
                     }
                 } else {
+                    if (selectedUris.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 2.dp, vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.reference_album_selected_strip, selectedUris.size),
+                                    color = Morandi.accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = stringResource(R.string.reference_album_clear_all),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { selectedUris.clear() }
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(selectedUris.toList(), key = { it.toString() }) { uri ->
+                                    Box(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF141518))
+                                            .border(
+                                                width = 1.5.dp,
+                                                color = Morandi.accent,
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                    ) {
+                                        AlbumThumbnailItem(
+                                            uri = uri,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(2.dp)
+                                                .size(18.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xD9E04E4E))
+                                                .clickable { selectedUris.remove(uri) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_x),
+                                                contentDescription = stringResource(R.string.common_delete),
+                                                tint = Color.White,
+                                                modifier = Modifier.size(11.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 82.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -288,8 +374,8 @@ fun ReferenceAlbumPickerSheet(
                             }
                         }
 
-                        // Album Media Items
-                        items(albumPhotos, key = { it.id }) { photo ->
+                        // Album Media Items (已选照片置顶排序)
+                        items(displayedAlbumPhotos, key = { it.id }) { photo ->
                             val isSelected = selectedUris.contains(photo.uri)
                             val selectionIndex = if (isSelected) selectedUris.indexOf(photo.uri) + 1 else 0
 

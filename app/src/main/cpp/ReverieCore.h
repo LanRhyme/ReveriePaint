@@ -776,6 +776,7 @@ private:
     // selected set to startTransformPreview). m_previewTransaction stays for
     // the single-layer path.
     QVector<KisTransaction *> m_previewTransactions;
+    QVector<KisPaintDeviceSP> m_previewDevices;
 
     // Brush state
     qreal m_brushSize = 20.0;

@@ -1053,6 +1053,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
                 return@runCore
             }
             syncLayersFromNative()
+            selectedLayerIndices = emptySet()
             selectionMask = null
             hasSelection = false
             selectionOverlayBitmap = null

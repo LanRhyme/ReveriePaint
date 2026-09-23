@@ -93,15 +93,24 @@ bool ReverieCore::applyPerspectiveTransform(
         KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
         tmp->setDefaultBounds(new KisDefaultBounds(image));
         tmp->prepareClone(src);
-        tmp->makeCloneFromRough(src, src->extent());
+        QRect srcBounds = src->exactBounds();
+        if (srcBounds.isEmpty() || !srcBounds.isValid()) srcBounds = src->extent();
+        if (srcBounds.isEmpty() || !srcBounds.isValid()) srcBounds = QRect(0, 0, image->width(), image->height());
+        tmp->makeCloneFromRough(src, srcBounds);
 
         KisPerspectiveTransformWorker worker(tmp, tf, false, 0);
         worker.setForceSubPixelTranslation(true);
         worker.run(KisPerspectiveTransformWorker::Bilinear);
 
         KisPainter painter(device);
-        QRect mergeRect = tmp->extent();
-        painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+        QRect mergeRect = tmp->exactBounds();
+        if (mergeRect.isEmpty() || !mergeRect.isValid()) mergeRect = tmp->extent();
+        if (!mergeRect.isEmpty() && mergeRect.isValid()) {
+            painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+            device->setDirty(mergeRect);
+        } else {
+            device->setDirty(QRect(0, 0, image->width(), image->height()));
+        }
         painter.end();
     }
 
@@ -169,7 +178,10 @@ bool ReverieCore::applyWarpMeshTransform(
         KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
         tmp->setDefaultBounds(new KisDefaultBounds(image));
         tmp->prepareClone(src);
-        tmp->makeCloneFromRough(src, src->extent());
+        QRect srcBounds = src->exactBounds();
+        if (srcBounds.isEmpty() || !srcBounds.isValid()) srcBounds = src->extent();
+        if (srcBounds.isEmpty() || !srcBounds.isValid()) srcBounds = QRect(0, 0, image->width(), image->height());
+        tmp->makeCloneFromRough(src, srcBounds);
 
         worker.run(tmp, device);
     }
@@ -390,7 +402,14 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
 
             KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
             tmp->prepareClone(src);
-            tmp->makeCloneFromRough(src, src->extent());
+            QRect srcBounds = src->exactBounds();
+            if (srcBounds.isEmpty() || !srcBounds.isValid()) {
+                srcBounds = src->extent();
+            }
+            if (srcBounds.isEmpty() || !srcBounds.isValid()) {
+                srcBounds = canvasRect;
+            }
+            tmp->makeCloneFromRough(src, srcBounds);
 
             KisTransformWorker worker(tmp,
                                       xscale, yscale,
@@ -402,8 +421,16 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
             worker.run();
 
             KisPainter painter(device);
-            QRect mergeRect = tmp->extent();
-            painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+            QRect mergeRect = tmp->exactBounds();
+            if (mergeRect.isEmpty() || !mergeRect.isValid()) {
+                mergeRect = tmp->extent();
+            }
+            if (!mergeRect.isEmpty() && mergeRect.isValid()) {
+                painter.bitBlt(mergeRect.topLeft(), tmp, mergeRect);
+                device->setDirty(mergeRect);
+            } else {
+                device->setDirty(canvasRect);
+            }
             painter.end();
         }
         device->setDirty();
@@ -465,6 +492,7 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     if (devices.isEmpty()) return false;
 
     m_previewTempDevice = new KisPaintDevice(image->colorSpace());
+    m_previewDevices = devices;
     const bool activeSel = hasSelection();
 
     for (KisPaintDeviceSP device : devices) {
@@ -534,10 +562,27 @@ void ReverieCore::cancelTransformPreview()
         m_previewTransaction = nullptr;
     }
     m_previewTempDevice = nullptr;
+
+    KisImageSP image = m_document;
+    const QRect fullRect = image ? QRect(0, 0, image->width(), image->height()) : QRect();
+    for (KisPaintDeviceSP dev : m_previewDevices) {
+        if (dev) {
+            if (!fullRect.isEmpty()) {
+                dev->setDirty(fullRect);
+            } else {
+                dev->setDirty();
+            }
+        }
+    }
+    m_previewDevices.clear();
     
     KisPaintDeviceSP device = currentPaintDevice();
     if (device) {
-        device->setDirty();
+        if (!fullRect.isEmpty()) {
+            device->setDirty(fullRect);
+        } else {
+            device->setDirty();
+        }
     }
     recompositeProjection();
     markDirty();
