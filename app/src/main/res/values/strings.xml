@@ -1306,6 +1306,7 @@
     <string name="stylus_curve_mapping_desc">手感偏硬时可选用「轻压灵敏」预设或微调控制点</string>
     <string name="stylus_brand_devices">已适配的手写笔品牌与设备</string>
     <string name="stylus_oppo_features">笔身手势、触控滑动与原笔迹微震专属配置</string>
+    <string name="stylus_huawei_features">笔身双击、侧键动作映射与星闪/蓝牙压感适配</string>
     <string name="stylus_samsung_features">侧键动作映射与触觉微震专属配置</string>
     <string name="stylus_generic_features">标准 Android 压感与倾角触控协议</string>
     <string name="stylus_cursor_mode_none">不显示</string>
@@ -1369,6 +1370,28 @@
     <string name="stylus_samsung_double_click_action">侧键双击动作</string>
     <string name="stylus_samsung_long_press_action">侧键长按动作</string>
     <string name="stylus_samsung_hint">提示：若侧键在绘画中未响应，请前往三星系统设置 -> 高级功能 -> S Pen，关闭“使用画笔按钮打开浮空指令”以允许绘图应用接收按键事件</string>
+
+    <!-- HUAWEI M-Pencil -->
+    <string name="stylus_huawei_title">HUAWEI M-Pencil 专属设置</string>
+    <string name="stylus_huawei_model">手写笔硬件型号</string>
+    <string name="stylus_huawei_auto_model">自动匹配 (%s)</string>
+    <string name="stylus_huawei_model_gen3">HUAWEI M-Pencil 第三代 (星闪版)</string>
+    <string name="stylus_huawei_model_gen2">HUAWEI M-Pencil 第二代</string>
+    <string name="stylus_huawei_model_gen1">HUAWEI M-Pencil / M-Pen 第一代</string>
+    <string name="stylus_huawei_press_16k">16384级星闪超高压感</string>
+    <string name="stylus_huawei_press_4k">4096级标准压感</string>
+    <string name="stylus_huawei_double_tap">笔身双击手势</string>
+    <string name="stylus_huawei_double_tap_action">双击响应动作</string>
+    <string name="stylus_huawei_side_key">物理侧键行为</string>
+    <string name="stylus_huawei_hold_eraser">按住侧键临时变橡皮</string>
+    <string name="stylus_huawei_hold_eraser_desc">按住侧键下笔即为橡皮擦，松开侧键自动切回原工具</string>
+    <string name="stylus_huawei_key_mapping">侧键动作映射</string>
+    <string name="stylus_huawei_click_action">侧键单击动作</string>
+    <string name="stylus_huawei_long_press_action">侧键长按动作</string>
+    <string name="stylus_huawei_haptics">触觉反馈</string>
+    <string name="stylus_huawei_haptics_title">手势触发微震反馈</string>
+    <string name="stylus_huawei_haptics_desc">双击或按键触发快捷功能时提供瞬态微触反馈</string>
+    <string name="stylus_huawei_hint">提示：若笔身双击无响应，请在系统设置 -> 辅助功能 -> 手写笔 -> 双击中开启双击手势支持</string>
     <string name="stylus_action_switch_brush_eraser">切换画笔与橡皮</string>
     <string name="stylus_action_undo">撤销</string>
     <string name="stylus_action_redo">重做</string>

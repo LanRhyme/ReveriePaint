@@ -828,6 +828,23 @@ class PaintViewModel : ViewModel() {
     var samsungDoubleClickAction by mutableStateOf("undo")
     var samsungLongPressAction by mutableStateOf("tool_picker")
 
+    // HUAWEI M-Pencil 适配参数
+    var huaweiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "GEN3_NEARLINK", "GEN2", "GEN1"
+    val detectedHuaweiPencilModel: com.reverie.paint.core.stylus.HuaweiPencilModel
+        get() = stylusDriver?.detectHuaweiPencilModel() ?: com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
+    val huaweiPencilModel: com.reverie.paint.core.stylus.HuaweiPencilModel
+        get() = when (huaweiPencilModelMode) {
+            "GEN3_NEARLINK" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN3_NEARLINK
+            "GEN2" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
+            "GEN1" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN1
+            else -> detectedHuaweiPencilModel
+        }
+    var huaweiDoubleTapAction by mutableStateOf("toggle_eraser")
+    var huaweiSingleClickAction by mutableStateOf("none")
+    var huaweiLongPressAction by mutableStateOf("tool_color")
+    var huaweiSideButtonErase by mutableStateOf(true)
+    var huaweiHapticsEnabled by mutableStateOf(true)
+
     // 触控预测与输入延迟优化
     var motionPredictorEnabled by mutableStateOf(true)
 
@@ -1425,6 +1442,54 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateHuaweiPencilModelMode(mode: String) {
+        huaweiPencilModelMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("huaweiPencilModelMode", mode).apply()
+        }
+    }
+
+    fun updateHuaweiDoubleTapAction(actionId: String) {
+        huaweiDoubleTapAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("huaweiDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateHuaweiSingleClickAction(actionId: String) {
+        huaweiSingleClickAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("huaweiSingleClickAction", actionId).apply()
+        }
+    }
+
+    fun updateHuaweiLongPressAction(actionId: String) {
+        huaweiLongPressAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("huaweiLongPressAction", actionId).apply()
+        }
+    }
+
+    fun updateHuaweiSideButtonErase(enabled: Boolean) {
+        huaweiSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("huaweiSideButtonErase", enabled).apply()
+        }
+    }
+
+    fun updateHuaweiHapticsEnabled(enabled: Boolean) {
+        huaweiHapticsEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("huaweiHapticsEnabled", enabled).apply()
+        }
+    }
+
     fun executeStylusAction(action: com.reverie.paint.core.stylus.StylusAction) {
         if (action == com.reverie.paint.core.stylus.StylusAction.NONE) return
         executeShortcutAction(action.actionId)
@@ -1804,6 +1869,12 @@ class PaintViewModel : ViewModel() {
             samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"
             samsungDoubleClickAction = prefs.getString("samsungDoubleClickAction", "undo") ?: "undo"
             samsungLongPressAction = prefs.getString("samsungLongPressAction", "tool_picker") ?: "tool_picker"
+            huaweiPencilModelMode = prefs.getString("huaweiPencilModelMode", "AUTO") ?: "AUTO"
+            huaweiDoubleTapAction = prefs.getString("huaweiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            huaweiSingleClickAction = prefs.getString("huaweiSingleClickAction", "none") ?: "none"
+            huaweiLongPressAction = prefs.getString("huaweiLongPressAction", "tool_color") ?: "tool_color"
+            huaweiSideButtonErase = prefs.getBoolean("huaweiSideButtonErase", true)
+            huaweiHapticsEnabled = prefs.getBoolean("huaweiHapticsEnabled", true)
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)

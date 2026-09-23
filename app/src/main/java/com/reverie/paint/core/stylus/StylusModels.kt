@@ -6,6 +6,7 @@ package com.reverie.paint.core.stylus
 
 enum class StylusBrand(val displayName: String, val subtitle: String) {
     OPPO_ONEPLUS("OPPO Pencil / 一加智能手写笔", "适配笔身双击、书写震动、拟真发声与低延迟笔迹预测"),
+    HUAWEI_MPENCIL("HUAWEI M-Pencil", "适配笔身双击、星闪低延迟、物理侧键映射与触感联动"),
     SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空指令与触觉反馈"),
     GENERIC("通用触控手写笔", "标准 Android 压感、倾角检测与防误触"),
 }
@@ -95,6 +96,50 @@ enum class OppoSlideAction(val title: String, val actionId: String) {
     companion object {
         fun fromActionId(id: String): OppoSlideAction {
             return entries.firstOrNull { it.actionId.equals(id, ignoreCase = true) } ?: ADJUST_BRUSH_SIZE
+        }
+    }
+}
+
+enum class HuaweiPencilModel(
+    val displayName: String,
+    val editionName: String,
+    val maxPressure: Int,
+    val isNearLink: Boolean,
+    val hasDoubleTap: Boolean,
+    val desc: String,
+) {
+    GEN3_NEARLINK(
+        displayName = "HUAWEI M-Pencil (第三代星闪版)",
+        editionName = "第三代 (星闪)",
+        maxPressure = 16384,
+        isNearLink = true,
+        hasDoubleTap = true,
+        desc = "星闪 NearLink 无线传输 · 16384级超万级压感 · 笔身双击手势 · 极速采样与微秒级时延",
+    ),
+    GEN2(
+        displayName = "HUAWEI M-Pencil (第二代)",
+        editionName = "第二代",
+        maxPressure = 4096,
+        isNearLink = false,
+        hasDoubleTap = true,
+        desc = "蓝牙无线通信 · 4096级高精度压感 · 360°隐形触控双击 · 磁吸无线快充",
+    ),
+    GEN1(
+        displayName = "HUAWEI M-Pencil / M-Pen (第一代)",
+        editionName = "第一代",
+        maxPressure = 4096,
+        isNearLink = false,
+        hasDoubleTap = false,
+        desc = "4096级标准压感 · 物理侧键 · 基础手写与触控适配",
+    );
+
+    companion object {
+        fun fromKey(key: String): HuaweiPencilModel {
+            return when {
+                key.contains("GEN3", ignoreCase = true) || key.contains("NEARLINK", ignoreCase = true) -> GEN3_NEARLINK
+                key.contains("GEN1", ignoreCase = true) -> GEN1
+                else -> GEN2
+            }
         }
     }
 }

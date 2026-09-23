@@ -1306,6 +1306,7 @@
     <string name="stylus_curve_mapping_desc">Choose soft presets or adjust curve control points for personalized tactile response</string>
     <string name="stylus_brand_devices">Adapted Stylus Hardware</string>
     <string name="stylus_oppo_features">Body gestures, touch slide &amp; realistic haptic vibration config</string>
+    <string name="stylus_huawei_features">Body double-tap, side button mappings &amp; NearLink/Bluetooth pressure</string>
     <string name="stylus_samsung_features">Side button mappings &amp; haptic feedback config</string>
     <string name="stylus_generic_features">Standard Android pressure and tilt protocol</string>
     <string name="stylus_cursor_mode_none">Hidden</string>
@@ -1369,6 +1370,28 @@
     <string name="stylus_samsung_double_click_action">Double Click Action</string>
     <string name="stylus_samsung_long_press_action">Long Press Action</string>
     <string name="stylus_samsung_hint">Tip: If side button does not respond, open Samsung Settings -> Advanced Features -> S Pen and disable Air Command button trigger</string>
+
+    <!-- HUAWEI M-Pencil -->
+    <string name="stylus_huawei_title">HUAWEI M-Pencil Settings</string>
+    <string name="stylus_huawei_model">Stylus Hardware Model</string>
+    <string name="stylus_huawei_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_huawei_model_gen3">HUAWEI M-Pencil (3rd Gen NearLink)</string>
+    <string name="stylus_huawei_model_gen2">HUAWEI M-Pencil (2nd Gen)</string>
+    <string name="stylus_huawei_model_gen1">HUAWEI M-Pencil / M-Pen (1st Gen)</string>
+    <string name="stylus_huawei_press_16k">16,384 Levels NearLink Pressure</string>
+    <string name="stylus_huawei_press_4k">4,096 Levels Pressure</string>
+    <string name="stylus_huawei_double_tap">Barrel Double-Tap Gesture</string>
+    <string name="stylus_huawei_double_tap_action">Double-Tap Action</string>
+    <string name="stylus_huawei_side_key">Physical Side Button</string>
+    <string name="stylus_huawei_hold_eraser">Hold Side Button to Erase</string>
+    <string name="stylus_huawei_hold_eraser_desc">Holding the side button while touching turns stroke into temporary eraser</string>
+    <string name="stylus_huawei_key_mapping">Side Button Action Mappings</string>
+    <string name="stylus_huawei_click_action">Single-Click Action</string>
+    <string name="stylus_huawei_long_press_action">Long-Press Action</string>
+    <string name="stylus_huawei_haptics">Haptic Feedback</string>
+    <string name="stylus_huawei_haptics_title">Haptic Vibration on Gesture</string>
+    <string name="stylus_huawei_haptics_desc">Provide transient tactile vibration when double-tap or button action fires</string>
+    <string name="stylus_huawei_hint">Note: If double-tap does not respond, ensure double-tap gesture is enabled in System Settings -> Accessibility features -> Stylus</string>
     <string name="stylus_action_switch_brush_eraser">Switch Brush/Eraser</string>
     <string name="stylus_action_undo">Undo</string>
     <string name="stylus_action_redo">Redo</string>

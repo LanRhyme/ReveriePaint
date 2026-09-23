@@ -22,6 +22,7 @@ class StylusDriver(
 
     val adapters: List<StylusBrandAdapter> = listOf(
         OppoStylusAdapter(),
+        HuaweiStylusAdapter(),
         SamsungStylusAdapter(),
         GenericStylusAdapter(),
     )
@@ -56,6 +57,10 @@ class StylusDriver(
 
     fun detectOppoPencilModel(): OppoPencilModel {
         return getAdapter<OppoStylusAdapter>()?.detectModel(context) ?: OppoPencilModel.STANDARD
+    }
+
+    fun detectHuaweiPencilModel(): HuaweiPencilModel {
+        return getAdapter<HuaweiStylusAdapter>()?.detectModel(context) ?: HuaweiPencilModel.GEN2
     }
 
     /**
@@ -121,7 +126,13 @@ class StylusDriver(
      * Hot-path safe: two bitmask reads, no allocation.
      */
     fun isSideButtonEraseActive(event: MotionEvent): Boolean {
-        if (!vm.samsungSideButtonErase) return false
+        val detected = detectDevices().firstOrNull()
+        val eraseAllowed = when (detected?.brand) {
+            StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSideButtonErase
+            StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase
+            else -> vm.huaweiSideButtonErase || vm.samsungSideButtonErase
+        }
+        if (!eraseAllowed) return false
         val btn = event.buttonState
         return (btn and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
                 (btn and MotionEvent.BUTTON_SECONDARY) != 0
@@ -143,6 +154,7 @@ class StylusDriver(
         val detected = detectDevices().firstOrNull()
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
+            StylusBrand.HUAWEI_MPENCIL -> vm.huaweiDoubleTapAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
@@ -159,6 +171,7 @@ class StylusDriver(
         val detected = detectDevices().firstOrNull()
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
+            StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSingleClickAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
