@@ -85,6 +85,7 @@ fun ReferenceWindow(
 ) {
     val density = LocalDensity.current
     var showSettingsPopup by remember { mutableStateOf(false) }
+    var showAlbumPicker by remember { mutableStateOf(false) }
 
     // Multi-image selection launcher
     val importImagesLauncher = rememberLauncherForActivityResult(
@@ -261,7 +262,7 @@ fun ReferenceWindow(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(Morandi.panelHi)
-                            .clickable { importImagesLauncher.launch("image/*") }
+                            .clickable { showAlbumPicker = true }
                             .padding(horizontal = 24.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -334,11 +335,14 @@ fun ReferenceWindow(
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
             ReferenceTopBar(
+                activeTab = vm.referenceActiveTab,
+                hasImages = vm.referenceImages.isNotEmpty(),
                 isFlipped = vm.referenceIsFlipped,
                 onFlipHorizontal = {
                     vm.referenceIsFlipped = !vm.referenceIsFlipped
                     vm.persistReferenceState()
                 },
+                onOpenAlbum = { showAlbumPicker = true },
                 onDrag = { dx, dy ->
                     vm.referenceWindowX += dx
                     vm.referenceWindowY += dy
@@ -366,7 +370,7 @@ fun ReferenceWindow(
                     vm.referenceActiveTab = tab
                     vm.persistReferenceState()
                     if (tab == 0 && vm.referenceImages.isEmpty()) {
-                        importImagesLauncher.launch("image/*")
+                        showAlbumPicker = true
                     }
                 },
                 onResizeDrag = { dx, dy ->
@@ -426,11 +430,23 @@ fun ReferenceWindow(
                 onAddImage = {
                     showSettingsPopup = false
                     vm.referenceActiveTab = 0
-                    importImagesLauncher.launch("image/*")
+                    showAlbumPicker = true
                 },
                 onClearImage = {
                     showSettingsPopup = false
                     vm.clearReferenceImage()
+                }
+            )
+        }
+
+        // 7. In-App Album Picker (Directly select & deselect reference photos)
+        if (showAlbumPicker) {
+            ReferenceAlbumPickerSheet(
+                vm = vm,
+                onDismiss = { showAlbumPicker = false },
+                onConfirm = { selectedUris ->
+                    showAlbumPicker = false
+                    vm.applyReferenceAlbumSelection(selectedUris)
                 }
             )
         }
@@ -439,8 +455,11 @@ fun ReferenceWindow(
 
 @Composable
 private fun ReferenceTopBar(
+    activeTab: Int,
+    hasImages: Boolean,
     isFlipped: Boolean,
     onFlipHorizontal: () -> Unit,
+    onOpenAlbum: () -> Unit,
     onDrag: (Float, Float) -> Unit,
     onToggleSettings: () -> Unit,
     onClose: () -> Unit,
@@ -491,6 +510,24 @@ private fun ReferenceTopBar(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Album Icon Button (Only on Image Tab)
+                if (activeTab == 0) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onOpenAlbum),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_image),
+                            contentDescription = stringResource(R.string.reference_album_title),
+                            tint = if (hasImages) Morandi.accent else Morandi.icon,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
                 // Flip Horizontal Button
                 Box(
                     modifier = Modifier

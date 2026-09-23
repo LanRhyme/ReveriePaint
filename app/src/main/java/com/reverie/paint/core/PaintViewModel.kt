@@ -28,11 +28,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 import kotlin.math.roundToInt
+
+/** Max reference images allowed in reference window and album picker */
+const val MAX_REFERENCE_IMAGES = 50
 
 /** Max stroke samples buffered between render-thread drains. Sized for a
  *  240Hz stylus under heavy multi-frame stalls with generous headroom (256 samples);
@@ -428,6 +432,7 @@ class PaintViewModel : ViewModel() {
     // Reference Tool Window State (常态固定显示参考窗口)
     var referenceWindowOpen by mutableStateOf(false)
     var referenceImages by mutableStateOf<List<Bitmap>>(emptyList())
+    var referenceAlbumSelectedUris by mutableStateOf<List<android.net.Uri>>(emptyList())
     var referenceIsGrayscale by mutableStateOf(false)
     var referenceAllowRotation by mutableStateOf(true)
     var referenceIsFlipped by mutableStateOf(false)
@@ -505,8 +510,16 @@ class PaintViewModel : ViewModel() {
                         bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
                     }
                 }
+                val urisJson = JSONArray().apply {
+                    for (u in referenceAlbumSelectedUris) {
+                        put(u.toString())
+                    }
+                }.toString()
                 appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                    .edit().putInt("ref_images_count", currentImgs.size).apply()
+                    .edit()
+                    .putInt("ref_images_count", currentImgs.size)
+                    .putString("ref_album_selected_uris", urisJson)
+                    .apply()
             } catch (e: Exception) {
                 android.util.Log.e("ReveriePaint", "Failed to persist reference images", e)
             }
@@ -517,11 +530,22 @@ class PaintViewModel : ViewModel() {
         if (!::appContext.isInitialized) return
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                val urisJson = prefs.getString("ref_album_selected_uris", null)
+                val restoredUris = mutableListOf<android.net.Uri>()
+                if (!urisJson.isNullOrEmpty()) {
+                    try {
+                        val arr = JSONArray(urisJson)
+                        for (i in 0 until arr.length()) {
+                            restoredUris.add(android.net.Uri.parse(arr.getString(i)))
+                        }
+                    } catch (_: Throwable) {}
+                }
+
                 val dir = java.io.File(appContext.filesDir, "ref_images")
-                val count = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                    .getInt("ref_images_count", 0)
+                val count = prefs.getInt("ref_images_count", 0)
+                val list = mutableListOf<Bitmap>()
                 if (dir.exists() && count > 0) {
-                    val list = mutableListOf<Bitmap>()
                     for (i in 0 until count) {
                         val file = java.io.File(dir, "ref_$i.png")
                         if (file.exists()) {
@@ -529,10 +553,13 @@ class PaintViewModel : ViewModel() {
                             if (bmp != null) list.add(bmp)
                         }
                     }
+                }
+                viewModelScope.launch(Dispatchers.Main) {
+                    if (restoredUris.isNotEmpty()) {
+                        referenceAlbumSelectedUris = restoredUris
+                    }
                     if (list.isNotEmpty()) {
-                        viewModelScope.launch(Dispatchers.Main) {
-                            referenceImages = list
-                        }
+                        referenceImages = list
                     }
                 }
             } catch (e: Exception) {
@@ -619,6 +646,54 @@ class PaintViewModel : ViewModel() {
         }.getOrNull()
     }
 
+    suspend fun loadBitmapsFromUris(uris: List<android.net.Uri>): List<Bitmap> = withContext(Dispatchers.IO) {
+        val loaded = mutableListOf<Bitmap>()
+        val maxDim = 2048
+        for (uri in uris.take(MAX_REFERENCE_IMAGES)) {
+            try {
+                val bmp = if (uri.scheme == "http" || uri.scheme == "https") {
+                    val conn = java.net.URL(uri.toString()).openConnection()
+                    conn.connectTimeout = 10000
+                    conn.readTimeout = 15000
+                    conn.getInputStream()?.use { s ->
+                        android.graphics.BitmapFactory.decodeStream(s)
+                    }
+                } else {
+                    decodeSampledBitmapFromUri(uri, maxDim)
+                }
+                if (bmp != null) {
+                    loaded.add(bmp)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "Failed to load reference image $uri", e)
+            }
+        }
+        loaded
+    }
+
+    fun applyReferenceAlbumSelection(selectedUris: List<android.net.Uri>) {
+        val trimmed = selectedUris.distinct().take(MAX_REFERENCE_IMAGES)
+        referenceAlbumSelectedUris = trimmed
+        if (trimmed.isEmpty()) {
+            clearReferenceImage()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val loaded = loadBitmapsFromUris(trimmed)
+            viewModelScope.launch(Dispatchers.Main) {
+                val wasEmpty = referenceImages.isEmpty()
+                referenceImages = loaded
+                referenceActiveTab = 0
+                referenceWindowOpen = true
+                if (wasEmpty) {
+                    resetReferenceTransform()
+                }
+                persistReferenceImages()
+                persistReferenceState()
+            }
+        }
+    }
+
     fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
         if (!::appContext.isInitialized || uris.isEmpty()) return
         if (isImportingMedia) {
@@ -628,7 +703,7 @@ class PaintViewModel : ViewModel() {
         isImportingMedia = true
         viewModelScope.launch(Dispatchers.IO) {
             val newBitmaps = mutableListOf<Bitmap>()
-            val maxAllowed = 12
+            val maxAllowed = MAX_REFERENCE_IMAGES
             val maxDim = 2048
             for (uri in uris.take(maxAllowed)) {
                 try {
@@ -654,6 +729,7 @@ class PaintViewModel : ViewModel() {
                 if (newBitmaps.isNotEmpty()) {
                     val combined = referenceImages + newBitmaps
                     referenceImages = combined.takeLast(maxAllowed)
+                    referenceAlbumSelectedUris = (referenceAlbumSelectedUris + uris).distinct().take(maxAllowed)
                     referenceActiveTab = 0
                     referenceWindowOpen = true
                     resetReferenceTransform()
@@ -671,6 +747,7 @@ class PaintViewModel : ViewModel() {
 
     fun clearReferenceImage() {
         referenceImages = emptyList()
+        referenceAlbumSelectedUris = emptyList()
         resetReferenceTransform()
         persistReferenceImages()
         persistReferenceState()

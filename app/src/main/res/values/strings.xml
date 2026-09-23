@@ -623,6 +623,13 @@
     <string name="reference_grayscale">去色</string>
     <string name="reference_allow_rotate">允许旋转</string>
     <string name="reference_flip_h">水平翻转</string>
+    <string name="reference_album_title">相册</string>
+    <string name="reference_album_selected_count">已选 %1$d/50</string>
+    <string name="reference_album_permission_needed">需要相册读取权限以选择参考图</string>
+    <string name="reference_album_grant_permission">授权访问相册</string>
+    <string name="reference_album_max_hint">最多选择 50 张参考图</string>
+    <string name="reference_album_system_picker">系统文件</string>
+    <string name="reference_album_empty">相册暂无图片</string>
     <string name="canvas_toast_stamp_success">已盖印可见图层至新图层</string>
     <string name="canvas_info_created_time">创建时间</string>
     <string name="canvas_info_canvas_size">画布尺寸</string>
