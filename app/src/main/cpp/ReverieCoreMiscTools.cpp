@@ -125,6 +125,9 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
 // every worker (grid ops are content-independent), and the whole gesture is
 // committed as ONE composite undo command.
 //
+// SELECTION: the writeback is constrained by the active selection, so an
+// existing selection freezes everything outside it (see liquifyApplyLocked).
+//
 // PERFORMANCE: run() clears dst and fast-copies the ENTIRE complement of the
 // strokes sub-grid. The worker is therefore constructed over a LOCAL rect
 // around the brush (src clone is local too), rebased when the brush wanders
@@ -161,15 +164,27 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     }
     const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
     QRect dirtyUnion;
+    // An active selection is a freeze mask: the grid warp itself still runs
+    // over the whole worker bounds (pixels may be pulled IN from outside,
+    // like Krita's transform tool), but only selected pixels are written
+    // back - the same KisPainter-level constraint every other paint path
+    // here uses. The exact rect additionally keeps the writeback (and the
+    // recomposite it triggers) off untouched areas.
+    QRect clipRect(0, 0, m_document->width(), m_document->height());
+    if (m_selection) {
+        clipRect &= m_selection->selectedExactRect();
+    }
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (!t.worker) continue;
         t.dst->clear();
         t.worker->run(t.src, t.dst);
-        const QRect area = deltaRect.intersected(t.bounds)
-                               .intersected(QRect(0, 0, m_document->width(), m_document->height()));
+        const QRect area = deltaRect.intersected(t.bounds).intersected(clipRect);
         if (!area.isEmpty()) {
             KisPainter p(t.device);
             p.setCompositeOpId(COMPOSITE_COPY);
+            if (m_selection) {
+                p.setSelection(m_selection);
+            }
             p.bitBlt(area.topLeft(), t.dst, area);
             p.end();
             t.device->setDirty(area);
