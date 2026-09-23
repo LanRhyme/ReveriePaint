@@ -634,7 +634,8 @@ fun PaintingPage(
                 liquifyStrength = liquifyStrength,
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
-                overlayPanelsOpen = brushPanelOpen || layerPanelOpen ||
+                overlayPanelsOpen = (brushPanelOpen && !vm.isBrushPanelPinned) ||
+                    (layerPanelOpen && !vm.isLayerPanelPinned) ||
                     (colorPanelOpen && !vm.isColorPanelPinned) || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
                 filterSessionActive = (filterController != null),
@@ -770,6 +771,9 @@ fun PaintingPage(
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
+                brushPanelOpen && !vm.isBrushPanelPinned -> brushPanelOpen = false
+                layerPanelOpen && !vm.isLayerPanelPinned -> layerPanelOpen = false
+                colorPanelOpen && !vm.isColorPanelPinned -> colorPanelOpen = false
                 brushPanelOpen -> brushPanelOpen = false
                 layerPanelOpen -> layerPanelOpen = false
                 colorPanelOpen -> colorPanelOpen = false
@@ -821,16 +825,16 @@ fun PaintingPage(
                     },
                     onLayers = {
                         layerPanelOpen = true
-                        brushPanelOpen = false
+                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!vm.isColorPanelPinned) colorPanelOpen = false
                         settingsPanelOpen = false
-                        colorPanelOpen = false
                         moreToolsOpen = false
                     },
                     onSettings = {
                         settingsPanelOpen = true
-                        layerPanelOpen = false
-                        brushPanelOpen = false
-                        colorPanelOpen = false
+                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
+                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!vm.isColorPanelPinned) colorPanelOpen = false
                         moreToolsOpen = false
                         drawingGuidePanelOpen = false
                     },
@@ -915,9 +919,9 @@ fun PaintingPage(
                     },
                     moreToolsOpen = moreToolsOpen,
                     onToggleMoreTools = {
-                        brushPanelOpen = false
-                        colorPanelOpen = false
-                        layerPanelOpen = false
+                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!vm.isColorPanelPinned) colorPanelOpen = false
+                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
                         settingsPanelOpen = false
                         moreToolsOpen = !moreToolsOpen
                     },
@@ -929,15 +933,15 @@ fun PaintingPage(
                     brushColor = vm.brushColor,
                     onOpenBrush = {
                         brushPanelOpen = true
-                        colorPanelOpen = false
-                        layerPanelOpen = false
+                        if (!vm.isColorPanelPinned) colorPanelOpen = false
+                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
                         settingsPanelOpen = false
                         moreToolsOpen = false
                     },
                     onOpenColor = {
                         colorPanelOpen = true
-                        brushPanelOpen = false
-                        layerPanelOpen = false
+                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
                         settingsPanelOpen = false
                         moreToolsOpen = false
                     },
@@ -1507,11 +1511,26 @@ fun PaintingPage(
         )
 
         // ---- Popup panels (topmost, must stay above timeline panel zIndex 20f) ----
+        val brushPanelDensity = LocalDensity.current
+        val brushPanelBaseStartPx = remember(brushPanelDensity) { with(brushPanelDensity) { 48.dp.roundToPx() } }
+
         AnimatedVisibility(
             visible = brushPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = Modifier.fillMaxSize().zIndex(100f),
+            modifier = if (vm.isBrushPanelPinned) {
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .offset {
+                        IntOffset(
+                            (brushPanelBaseStartPx + vm.brushPanelOffset.x).roundToInt(),
+                            vm.brushPanelOffset.y.roundToInt(),
+                        )
+                    }
+                    .zIndex(100f)
+            } else {
+                Modifier.fillMaxSize().zIndex(100f)
+            },
         ) {
             BrushPanel(
                 vm = vm,
@@ -1520,11 +1539,28 @@ fun PaintingPage(
                 hazeState = hazeState,
             )
         }
+
+        val layerPanelDensity = LocalDensity.current
+        val layerPanelBaseEndPx = remember(layerPanelDensity) { with(layerPanelDensity) { (-8).dp.roundToPx() } }
+        val layerPanelBaseTopPx = remember(layerPanelDensity) { with(layerPanelDensity) { 44.dp.roundToPx() } }
+
         AnimatedVisibility(
             visible = layerPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = Modifier.fillMaxSize().zIndex(100f),
+            modifier = if (vm.isLayerPanelPinned) {
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset {
+                        IntOffset(
+                            (layerPanelBaseEndPx + vm.layerPanelOffset.x).roundToInt(),
+                            (layerPanelBaseTopPx + vm.layerPanelOffset.y).roundToInt(),
+                        )
+                    }
+                    .zIndex(100f)
+            } else {
+                Modifier.fillMaxSize().zIndex(100f)
+            },
         ) {
             LayerPanel(
                 vm = vm,

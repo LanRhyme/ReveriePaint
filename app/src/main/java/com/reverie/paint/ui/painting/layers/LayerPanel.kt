@@ -117,6 +117,10 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.mutableStateListOf
+import android.widget.Toast
+import com.reverie.paint.ui.components.DragPillHandle
+import com.reverie.paint.ui.components.PanelCloseButton
+import com.reverie.paint.ui.components.PinButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
@@ -200,31 +204,17 @@ fun LayerPanel(
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
+    val density = LocalDensity.current
+    val baseEndOffsetPx = remember(density) { with(density) { (-8).dp.roundToPx() } }
+    val baseTopOffsetPx = remember(density) { with(density) { 44.dp.roundToPx() } }
 
     val isFilterAdjust = view is LayerView.FilterAdjust
 
-    Box(
-        modifier =
-            if (isFilterAdjust) {
-                // Filter-adjust mode must not intercept ANY touch: the
-                // full-screen transparent box used to carry .systemHoverIcon,
-                // which made it the top pointer-input target and swallowed
-                // canvas pinch/pan/two-finger-undo on CanvasTouchView.
-                modifier.fillMaxSize().background(Color.Transparent)
-            } else {
-                modifier
-                    .fillMaxSize()
-                    .background(Color.Transparent)
-                    .noRippleClickable(onClose)
-                    .systemHoverIcon(context)
-            },
-    ) {
+    val cardContent: @Composable (Modifier) -> Unit = { cardModifier ->
         Column(
             modifier =
-                Modifier
+                cardModifier
                     .systemHoverIcon(context)
-                    .align(Alignment.TopEnd)
-                    .padding(top = 44.dp, end = 8.dp)
                     .width(300.dp)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
@@ -246,6 +236,38 @@ fun LayerPanel(
                         onClick = {},
                     ),
         ) {
+            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
+            ) {
+                DragPillHandle(
+                    onDrag = { dragAmount -> vm.layerPanelOffset += dragAmount },
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PinButton(
+                        isPinned = vm.isLayerPanelPinned,
+                        onClick = {
+                            vm.isLayerPanelPinned = !vm.isLayerPanelPinned
+                            Toast.makeText(
+                                context,
+                                if (vm.isLayerPanelPinned) context.getString(R.string.layer_pin_hint) else context.getString(R.string.layer_unpin_hint),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                    if (vm.isLayerPanelPinned) {
+                        PanelCloseButton(onClose = onClose)
+                    }
+                }
+            }
+
             AnimatedContent(
                 targetState = view,
                 transitionSpec = {
@@ -383,6 +405,34 @@ fun LayerPanel(
                     }
                 }
             }
+        }
+    }
+
+    if (vm.isLayerPanelPinned) {
+        cardContent(modifier)
+    } else {
+        Box(
+            modifier =
+                if (isFilterAdjust) {
+                    modifier.fillMaxSize().background(Color.Transparent)
+                } else {
+                    modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent)
+                        .noRippleClickable(onClose)
+                        .systemHoverIcon(context)
+                },
+        ) {
+            cardContent(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset {
+                        IntOffset(
+                            (baseEndOffsetPx + vm.layerPanelOffset.x).roundToInt(),
+                            (baseTopOffsetPx + vm.layerPanelOffset.y).roundToInt(),
+                        )
+                    }
+            )
         }
     }
 

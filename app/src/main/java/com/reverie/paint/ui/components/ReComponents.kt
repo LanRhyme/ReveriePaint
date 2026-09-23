@@ -62,6 +62,10 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import com.reverie.paint.ui.theme.Morandi
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.window.Popup
@@ -1204,6 +1208,90 @@ fun ReMenuItem(
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
             maxLines = 1
+        )
+    }
+}
+
+// ---------- Pin Button & Drag Handle for Floating Companion Panels ----------
+
+@Composable
+fun PinButton(
+    isPinned: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Theme.current
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (isPinned) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(12.dp)) {
+            val tint = if (isPinned) colors.accent else colors.subText
+            val path = Path().apply {
+                moveTo(size.width * 0.3f, 0f)
+                lineTo(size.width * 0.7f, 0f)
+                lineTo(size.width * 0.6f, size.height * 0.45f)
+                lineTo(size.width * 0.85f, size.height * 0.55f)
+                lineTo(size.width * 0.55f, size.height * 0.55f)
+                lineTo(size.width * 0.5f, size.height)
+                lineTo(size.width * 0.45f, size.height * 0.55f)
+                lineTo(size.width * 0.15f, size.height * 0.55f)
+                lineTo(size.width * 0.4f, size.height * 0.45f)
+                close()
+            }
+            drawPath(path, color = tint)
+        }
+    }
+}
+
+@Composable
+fun DragPillHandle(
+    onDrag: (Offset) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Theme.current
+    Box(
+        modifier = modifier
+            .size(60.dp, 16.dp)
+            .pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    onDrag(dragAmount)
+                }
+            },
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp, 3.5.dp)
+                .clip(CircleShape)
+                .background(colors.subText.copy(alpha = 0.45f))
+        )
+    }
+}
+
+@Composable
+fun PanelCloseButton(
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Theme.current
+    Box(
+        modifier = modifier
+            .size(22.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClose),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "✕",
+            color = colors.subText,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }

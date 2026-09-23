@@ -714,6 +714,10 @@
     <!-- Painting: Color System -->
     <string name="color_pin_hint">Color panel pinned for continuous drawing</string>
     <string name="color_unpin_hint">Color panel unpinned</string>
+    <string name="brush_pin_hint">Brush panel pinned for continuous drawing</string>
+    <string name="brush_unpin_hint">Brush panel unpinned</string>
+    <string name="layer_pin_hint">Layer panel pinned for continuous drawing</string>
+    <string name="layer_unpin_hint">Layer panel unpinned</string>
     <string name="color_tab_wheel">Wheel</string>
     <string name="color_tab_square">Square</string>
     <string name="color_tab_harmony">Harmony</string>

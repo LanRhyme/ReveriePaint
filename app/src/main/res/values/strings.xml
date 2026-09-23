@@ -714,6 +714,10 @@
     <!-- Painting: Color System -->
     <string name="color_pin_hint">已钉住颜色面板，可在画布上自由绘制</string>
     <string name="color_unpin_hint">已取消钉住</string>
+    <string name="brush_pin_hint">已钉住画笔面板，可在画布上自由绘制</string>
+    <string name="brush_unpin_hint">已取消钉住</string>
+    <string name="layer_pin_hint">已钉住图层面板，可在画布上自由绘制</string>
+    <string name="layer_unpin_hint">已取消钉住</string>
     <string name="color_tab_wheel">色轮</string>
     <string name="color_tab_square">方块</string>
     <string name="color_tab_harmony">和谐</string>

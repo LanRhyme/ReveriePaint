@@ -74,6 +74,13 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.components.DragPillHandle
+import com.reverie.paint.ui.components.PanelCloseButton
+import com.reverie.paint.ui.components.PinButton
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -240,18 +247,13 @@ fun BrushPanel(
     }
 
     val panelShape = RoundedCornerShape(12.dp)
+    val density = LocalDensity.current
+    val baseStartOffsetPx = remember(density) { with(density) { 48.dp.roundToPx() } }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .systemHoverIcon(context)
-            .noRippleClickable(onClose),
-    ) {
-        Box(
-            modifier = Modifier
+    val cardContent: @Composable (Modifier) -> Unit = { cardModifier ->
+        Column(
+            modifier = cardModifier
                 .systemHoverIcon(context)
-                .padding(start = 48.dp)
-                .align(Alignment.CenterStart)
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
@@ -267,10 +269,47 @@ fun BrushPanel(
                     }
                 )
                 .glassBorder(panelShape)
-                .clickable(enabled = false) {}
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
         ) {
-            AnimatedContent(
-                targetState = view,
+            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
+            ) {
+                DragPillHandle(
+                    onDrag = { dragAmount -> vm.brushPanelOffset += dragAmount },
+                    modifier = Modifier.align(Alignment.Center)
+                )
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    PinButton(
+                        isPinned = vm.isBrushPanelPinned,
+                        onClick = {
+                            vm.isBrushPanelPinned = !vm.isBrushPanelPinned
+                            Toast.makeText(
+                                context,
+                                if (vm.isBrushPanelPinned) context.getString(R.string.brush_pin_hint) else context.getString(R.string.brush_unpin_hint),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                    if (vm.isBrushPanelPinned) {
+                        PanelCloseButton(onClose = onClose)
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                AnimatedContent(
+                    targetState = view,
                 transitionSpec = {
                     if (targetState is BrushView.Detail && initialState is BrushView.List) {
                         (slideInHorizontally { it } + fadeIn(tween(180)))
@@ -575,6 +614,30 @@ fun BrushPanel(
                     }
                 }
             }
+        }
+    }
+}
+
+    if (vm.isBrushPanelPinned) {
+        cardContent(modifier)
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .noRippleClickable(onClose)
+                .systemHoverIcon(context),
+        ) {
+            cardContent(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .offset {
+                        IntOffset(
+                            (baseStartOffsetPx + vm.brushPanelOffset.x).roundToInt(),
+                            vm.brushPanelOffset.y.roundToInt(),
+                        )
+                    }
+            )
         }
     }
 

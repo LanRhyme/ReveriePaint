@@ -43,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.ui.components.DragPillHandle
+import com.reverie.paint.ui.components.PanelCloseButton
+import com.reverie.paint.ui.components.PinButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
@@ -281,25 +284,10 @@ private fun ColorPanelHeader(
         contentAlignment = Alignment.Center
     ) {
         // Drag Handle Pill (supports dragging to move panel freely)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .size(60.dp, 16.dp)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        onDragHandle(dragAmount)
-                    }
-                },
-            contentAlignment = Alignment.TopCenter
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp, 3.5.dp)
-                    .clip(CircleShape)
-                    .background(Morandi.subText.copy(alpha = 0.45f))
-            )
-        }
+        DragPillHandle(
+            onDrag = onDragHandle,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
 
         Row(
             modifier = Modifier
@@ -327,32 +315,10 @@ private fun ColorPanelHeader(
                 )
 
                 // Pin toggle icon button
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(RoundedCornerShape(5.dp))
-                        .background(if (isPinned) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                        .clickable(onClick = onTogglePin),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Canvas(modifier = Modifier.size(12.dp)) {
-                        val tint = if (isPinned) Morandi.accent else Morandi.subText
-                        // Pin icon geometry
-                        val path = Path().apply {
-                            moveTo(size.width * 0.3f, 0f)
-                            lineTo(size.width * 0.7f, 0f)
-                            lineTo(size.width * 0.6f, size.height * 0.45f)
-                            lineTo(size.width * 0.85f, size.height * 0.55f)
-                            lineTo(size.width * 0.55f, size.height * 0.55f)
-                            lineTo(size.width * 0.5f, size.height)
-                            lineTo(size.width * 0.45f, size.height * 0.55f)
-                            lineTo(size.width * 0.15f, size.height * 0.55f)
-                            lineTo(size.width * 0.4f, size.height * 0.45f)
-                            close()
-                        }
-                        drawPath(path, color = tint)
-                    }
-                }
+                PinButton(
+                    isPinned = isPinned,
+                    onClick = onTogglePin,
+                )
             }
 
             // Right controls: Foreground / Background Colors Swap Box & Optional Close Button when Pinned
@@ -391,20 +357,7 @@ private fun ColorPanelHeader(
                 }
 
                 if (isPinned) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onClose),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "✕",
-                            color = Morandi.subText,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    PanelCloseButton(onClose = onClose)
                 }
             }
         }

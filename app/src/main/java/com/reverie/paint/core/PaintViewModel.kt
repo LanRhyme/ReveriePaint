@@ -2083,6 +2083,18 @@ class PaintViewModel : ViewModel() {
     /** Drag offset for pinned floating companion color panel */
     var colorPanelOffset by mutableStateOf(androidx.compose.ui.geometry.Offset.Zero)
 
+    /** Whether brush panel is pinned as a floating companion window without blocking canvas interaction */
+    var isBrushPanelPinned by mutableStateOf(false)
+
+    /** Drag offset for pinned floating companion brush panel */
+    var brushPanelOffset by mutableStateOf(androidx.compose.ui.geometry.Offset.Zero)
+
+    /** Whether layer panel is pinned as a floating companion window without blocking canvas interaction */
+    var isLayerPanelPinned by mutableStateOf(false)
+
+    /** Drag offset for pinned floating companion layer panel */
+    var layerPanelOffset by mutableStateOf(androidx.compose.ui.geometry.Offset.Zero)
+
     var colorHarmonyModeName by mutableStateOf("COMPLEMENTARY")
     var colorHarmonyBaseHue by mutableFloatStateOf(-1f)
     var colorHarmonySubTab by mutableIntStateOf(0)
