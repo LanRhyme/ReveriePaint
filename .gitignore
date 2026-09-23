@@ -16,3 +16,4 @@ app/src/main/jniLibsNativeEmpty/
 # 工作区数据与本地回收站
 .workbuddy/
 .Trash-*/
+*.apk

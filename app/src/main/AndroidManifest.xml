@@ -17,6 +17,11 @@
         <package android:name="com.oplus.ocs" />
         <package android:name="com.oplus.ipemanager" />
         <package android:name="net.huanci.hsjpro" />
+        <package android:name="com.huawei.stylus" />
+        <package android:name="com.huawei.stylus.penengine" />
+        <package android:name="com.huawei.stylus.floatmenu" />
+        <package android:name="com.huawei.penengine" />
+        <package android:name="com.huawei.penkit" />
     </queries>
 
     <application
@@ -91,6 +96,20 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <receiver
+            android:name=".core.stylus.HuaweiStylusReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.huawei.stylus.action.BUTTON_DOUBLE_PRESSED" />
+                <action android:name="com.huawei.stylus.action.DOUBLE_CLICK" />
+                <action android:name="com.huawei.android.stylus.action.BUTTON_DOUBLE_PRESSED" />
+                <action android:name="com.huawei.stylus.action.DOUBLE_TAP" />
+                <action android:name="com.huawei.intent.action.STYLUS_BUTTON_CLICK" />
+                <action android:name="huawei.intent.action.STYLUS_BUTTON_CLICK" />
+                <action android:name="com.huawei.stylus.action.BUTTON_CLICK" />
+                <action android:name="com.huawei.stylus.action.BUTTON_PRESSED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

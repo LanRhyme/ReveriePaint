@@ -1393,6 +1393,7 @@
     <string name="stylus_huawei_haptics_desc">Provide transient tactile vibration when double-tap or button action fires</string>
     <string name="stylus_huawei_hint">Note: If double-tap does not respond, ensure double-tap gesture is enabled in System Settings -> Accessibility features -> Stylus</string>
     <string name="stylus_action_switch_brush_eraser">Switch Brush/Eraser</string>
+    <string name="stylus_action_follow_system">Follow System</string>
     <string name="stylus_action_undo">Undo</string>
     <string name="stylus_action_redo">Redo</string>
     <string name="stylus_action_eyedropper">Eyedropper</string>

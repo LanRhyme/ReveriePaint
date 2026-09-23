@@ -33,6 +33,22 @@ interface StylusBrandAdapter {
     fun unregister(context: Context) {}
 
     /**
+     * Lifecycle: dispatched when host activity window focus changes.
+     * Crucial for brands (like HUAWEI M-Pencil) that enforce window focus binding for gesture broadcasts.
+     */
+    fun onWindowFocusChanged(activity: android.app.Activity, hasFocus: Boolean) {}
+
+    /**
+     * Lifecycle: dispatched on host activity onResume.
+     */
+    fun onActivityResume(activity: android.app.Activity) {}
+
+    /**
+     * Lifecycle: dispatched on host activity onPause.
+     */
+    fun onActivityPause(activity: android.app.Activity) {}
+
+    /**
      * Synchronize settings mirror when settings are modified.
      */
     fun syncSettings(vm: PaintViewModel, feedbackManager: StylusFeedbackManager) {}

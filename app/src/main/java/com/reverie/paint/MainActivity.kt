@@ -321,6 +321,20 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         applyHighRefreshRate(this)
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+        val vm = currentViewModel
+        if (vm != null) {
+            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
+            driver.onActivityResume(this)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val vm = currentViewModel
+        if (vm != null) {
+            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
+            driver.onActivityPause(this)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -328,6 +342,11 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) {
             applyHighRefreshRate(this)
             com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+        }
+        val vm = currentViewModel
+        if (vm != null) {
+            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
+            driver.onWindowFocusChanged(this, hasFocus)
         }
     }
 
@@ -337,6 +356,8 @@ class MainActivity : ComponentActivity() {
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
     }
 
+    private var lastGenericMotionButtonState: Int = 0
+
     override fun dispatchGenericMotionEvent(ev: android.view.MotionEvent): Boolean {
         val vm = currentViewModel
         if (vm != null) {
@@ -344,6 +365,14 @@ class MainActivity : ComponentActivity() {
             if (driver.onGenericMotionEvent(ev)) {
                 return true
             }
+            val btn = ev.buttonState
+            if (btn != 0 || lastGenericMotionButtonState != 0) {
+                lastGenericMotionButtonState = btn
+                if (driver.onStylusMotionEvent(ev)) {
+                    return true
+                }
+            }
+            lastGenericMotionButtonState = btn
         }
 
         val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView

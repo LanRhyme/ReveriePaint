@@ -55,6 +55,18 @@ class StylusDriver(
         adapters.forEach { it.syncSettings(vm, feedbackManager) }
     }
 
+    fun onWindowFocusChanged(activity: android.app.Activity, hasFocus: Boolean) {
+        adapters.forEach { it.onWindowFocusChanged(activity, hasFocus) }
+    }
+
+    fun onActivityResume(activity: android.app.Activity) {
+        adapters.forEach { it.onActivityResume(activity) }
+    }
+
+    fun onActivityPause(activity: android.app.Activity) {
+        adapters.forEach { it.onActivityPause(activity) }
+    }
+
     fun detectOppoPencilModel(): OppoPencilModel {
         return getAdapter<OppoStylusAdapter>()?.detectModel(context) ?: OppoPencilModel.STANDARD
     }
@@ -152,9 +164,11 @@ class StylusDriver(
 
     fun handleDoubleTap(): Boolean {
         val detected = detectDevices().firstOrNull()
+        if (detected?.brand == StylusBrand.HUAWEI_MPENCIL) {
+            return getAdapter<HuaweiStylusAdapter>()?.handleDoubleTap(vm, feedbackManager) ?: false
+        }
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
-            StylusBrand.HUAWEI_MPENCIL -> vm.huaweiDoubleTapAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
@@ -169,9 +183,11 @@ class StylusDriver(
 
     fun handleSingleClick(): Boolean {
         val detected = detectDevices().firstOrNull()
+        if (detected?.brand == StylusBrand.HUAWEI_MPENCIL) {
+            return getAdapter<HuaweiStylusAdapter>()?.handleSingleClick(vm, feedbackManager) ?: false
+        }
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
-            StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSingleClickAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false

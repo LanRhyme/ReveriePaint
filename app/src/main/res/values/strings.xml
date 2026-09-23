@@ -1393,6 +1393,7 @@
     <string name="stylus_huawei_haptics_desc">双击或按键触发快捷功能时提供瞬态微触反馈</string>
     <string name="stylus_huawei_hint">提示：若笔身双击无响应，请在系统设置 -> 辅助功能 -> 手写笔 -> 双击中开启双击手势支持</string>
     <string name="stylus_action_switch_brush_eraser">切换画笔与橡皮</string>
+    <string name="stylus_action_follow_system">跟随系统设置</string>
     <string name="stylus_action_undo">撤销</string>
     <string name="stylus_action_redo">重做</string>
     <string name="stylus_action_eyedropper">吸管取色</string>
