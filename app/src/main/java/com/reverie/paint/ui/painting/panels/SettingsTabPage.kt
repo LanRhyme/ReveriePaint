@@ -187,76 +187,30 @@ internal fun SettingsTabPage(
                         }
                     }
 
-                    // 快捷滑块长度: 分段卡片式控件
-                    Column(
+                    // 面板固定与自由平移 (画笔与图层面板)
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                             Text(
-                                text = stringResource(R.string.settings_quick_slider_height),
+                                text = stringResource(R.string.settings_panel_pinning_title),
                                 color = Morandi.text,
                                 fontSize = 13.sp,
                             )
                             Text(
-                                text = "${vm.quickSliderHeightDp} dp",
-                                color = Morandi.accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
+                                text = stringResource(R.string.settings_panel_pinning_desc),
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Morandi.panelHi)
-                                .padding(3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            listOf(
-                                130 to R.string.settings_quick_slider_height_compact,
-                                175 to R.string.settings_quick_slider_height_standard,
-                                220 to R.string.settings_quick_slider_height_long,
-                            ).forEach { (h, strRes) ->
-                                val selected = vm.quickSliderHeightDp == h
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (selected) Morandi.accent else Color.Transparent)
-                                        .clickable { vm.updateQuickSliderHeight(h) },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                    ) {
-                                        Text(
-                                            text = stringResource(strRes),
-                                            color = if (selected) Color.White else Morandi.subText,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                            maxLines = 1,
-                                        )
-                                        Text(
-                                            text = "${h}dp",
-                                            color = if (selected) Color.White.copy(alpha = 0.8f) else Morandi.subText.copy(alpha = 0.65f),
-                                            fontSize = 10.sp,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                        ReSwitch(
+                            checked = vm.panelPinningEnabled,
+                            onChecked = { vm.updatePanelPinningEnabled(it) },
+                        )
                     }
 
                     // 图层项高度: 分段卡片式控件 (避免单行挤压)

@@ -267,6 +267,9 @@ fun PaintingPage(
                     targetFilterLayers = vm.editTargetLayers()
                     filterCategoryHint = cmd.removePrefix("open_filter:")
                     layerPanelOpen = true
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                        vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                    }
                 }
             }
         }
@@ -634,8 +637,8 @@ fun PaintingPage(
                 liquifyStrength = liquifyStrength,
                 liquifyMode = liquifyMode,
                 liquifyBrushSize = liquifyBrushSize,
-                overlayPanelsOpen = (brushPanelOpen && !vm.isBrushPanelPinned) ||
-                    (layerPanelOpen && !vm.isLayerPanelPinned) ||
+                overlayPanelsOpen = (brushPanelOpen && !(vm.panelPinningEnabled && vm.isBrushPanelPinned)) ||
+                    (layerPanelOpen && !(vm.panelPinningEnabled && vm.isLayerPanelPinned)) ||
                     (colorPanelOpen && !vm.isColorPanelPinned) || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
                 filterSessionActive = (filterController != null),
@@ -771,11 +774,25 @@ fun PaintingPage(
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
-                brushPanelOpen && !vm.isBrushPanelPinned -> brushPanelOpen = false
-                layerPanelOpen && !vm.isLayerPanelPinned -> layerPanelOpen = false
+                brushPanelOpen && !(vm.panelPinningEnabled && vm.isBrushPanelPinned) -> {
+                    brushPanelOpen = false
+                    vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
+                layerPanelOpen && !(vm.panelPinningEnabled && vm.isLayerPanelPinned) -> {
+                    layerPanelOpen = false
+                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
                 colorPanelOpen && !vm.isColorPanelPinned -> colorPanelOpen = false
-                brushPanelOpen -> brushPanelOpen = false
-                layerPanelOpen -> layerPanelOpen = false
+                brushPanelOpen -> {
+                    brushPanelOpen = false
+                    vm.isBrushPanelPinned = false
+                    vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
+                layerPanelOpen -> {
+                    layerPanelOpen = false
+                    vm.isLayerPanelPinned = false
+                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
                 colorPanelOpen -> colorPanelOpen = false
                 settingsPanelOpen -> settingsPanelOpen = false
                 moreToolsOpen -> moreToolsOpen = false
@@ -825,15 +842,27 @@ fun PaintingPage(
                     },
                     onLayers = {
                         layerPanelOpen = true
-                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                            vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
+                        if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                            brushPanelOpen = false
+                            vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         if (!vm.isColorPanelPinned) colorPanelOpen = false
                         settingsPanelOpen = false
                         moreToolsOpen = false
                     },
                     onSettings = {
                         settingsPanelOpen = true
-                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
-                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                            layerPanelOpen = false
+                            vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
+                        if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                            brushPanelOpen = false
+                            vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         if (!vm.isColorPanelPinned) colorPanelOpen = false
                         moreToolsOpen = false
                         drawingGuidePanelOpen = false
@@ -919,9 +948,15 @@ fun PaintingPage(
                     },
                     moreToolsOpen = moreToolsOpen,
                     onToggleMoreTools = {
-                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                            brushPanelOpen = false
+                            vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         if (!vm.isColorPanelPinned) colorPanelOpen = false
-                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                            layerPanelOpen = false
+                            vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         settingsPanelOpen = false
                         moreToolsOpen = !moreToolsOpen
                     },
@@ -933,15 +968,27 @@ fun PaintingPage(
                     brushColor = vm.brushColor,
                     onOpenBrush = {
                         brushPanelOpen = true
+                        if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                            vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         if (!vm.isColorPanelPinned) colorPanelOpen = false
-                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                            layerPanelOpen = false
+                            vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         settingsPanelOpen = false
                         moreToolsOpen = false
                     },
                     onOpenColor = {
                         colorPanelOpen = true
-                        if (!vm.isBrushPanelPinned) brushPanelOpen = false
-                        if (!vm.isLayerPanelPinned) layerPanelOpen = false
+                        if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                            brushPanelOpen = false
+                            vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
+                        if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                            layerPanelOpen = false
+                            vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        }
                         settingsPanelOpen = false
                         moreToolsOpen = false
                     },
@@ -1518,7 +1565,7 @@ fun PaintingPage(
             visible = brushPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
-            modifier = if (vm.isBrushPanelPinned) {
+            modifier = if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
                 Modifier
                     .align(Alignment.CenterStart)
                     .offset {
@@ -1534,7 +1581,11 @@ fun PaintingPage(
         ) {
             BrushPanel(
                 vm = vm,
-                onClose = { brushPanelOpen = false },
+                onClose = {
+                    brushPanelOpen = false
+                    vm.isBrushPanelPinned = false
+                    vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
             )
@@ -1548,7 +1599,7 @@ fun PaintingPage(
             visible = layerPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
             exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
-            modifier = if (vm.isLayerPanelPinned) {
+            modifier = if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
                 Modifier
                     .align(Alignment.TopEnd)
                     .offset {
@@ -1567,6 +1618,8 @@ fun PaintingPage(
                 onClose = {
                     layerPanelOpen = false
                     targetFilterLayers = null
+                    vm.isLayerPanelPinned = false
+                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
                 },
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
@@ -1575,6 +1628,8 @@ fun PaintingPage(
                 onStartFilterSession = { session ->
                     layerPanelOpen = false
                     targetFilterLayers = null
+                    vm.isLayerPanelPinned = false
+                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
                     activeFilterSession = session
                 },
             )
@@ -1594,6 +1649,9 @@ fun PaintingPage(
                     settingsPanelOpen = false
                     targetFilterLayers = targetIndices
                     layerPanelOpen = true
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                        vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                    }
                 },
             )
         }
@@ -1680,6 +1738,9 @@ fun PaintingPage(
                 },
                 onOpenBrush = {
                     brushPanelOpen = true
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                        vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                    }
                     moreToolsOpen = false
                 },
                 onClose = { moreToolsOpen = false },

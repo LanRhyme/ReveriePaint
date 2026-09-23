@@ -275,34 +275,39 @@ fun BrushPanel(
                     onClick = {}
                 )
         ) {
-            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-            ) {
-                DragPillHandle(
-                    onDrag = { dragAmount -> vm.brushPanelOffset += dragAmount },
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right (only when enabled)
+            if (vm.panelPinningEnabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
                 ) {
-                    PinButton(
-                        isPinned = vm.isBrushPanelPinned,
-                        onClick = {
-                            vm.isBrushPanelPinned = !vm.isBrushPanelPinned
-                            Toast.makeText(
-                                context,
-                                if (vm.isBrushPanelPinned) context.getString(R.string.brush_pin_hint) else context.getString(R.string.brush_unpin_hint),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                    DragPillHandle(
+                        onDrag = { dragAmount -> vm.brushPanelOffset += dragAmount },
+                        modifier = Modifier.align(Alignment.Center)
                     )
-                    if (vm.isBrushPanelPinned) {
-                        PanelCloseButton(onClose = onClose)
+                    Row(
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        PinButton(
+                            isPinned = vm.isBrushPanelPinned,
+                            onClick = {
+                                vm.isBrushPanelPinned = !vm.isBrushPanelPinned
+                                if (!vm.isBrushPanelPinned) {
+                                    vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (vm.isBrushPanelPinned) context.getString(R.string.brush_pin_hint) else context.getString(R.string.brush_unpin_hint),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                        if (vm.isBrushPanelPinned) {
+                            PanelCloseButton(onClose = onClose)
+                        }
                     }
                 }
             }
@@ -618,7 +623,7 @@ fun BrushPanel(
     }
 }
 
-    if (vm.isBrushPanelPinned) {
+    if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
         cardContent(modifier)
     } else {
         Box(
@@ -628,13 +633,15 @@ fun BrushPanel(
                 .noRippleClickable(onClose)
                 .systemHoverIcon(context),
         ) {
+            val offsetX = if (vm.panelPinningEnabled) vm.brushPanelOffset.x else 0f
+            val offsetY = if (vm.panelPinningEnabled) vm.brushPanelOffset.y else 0f
             cardContent(
                 Modifier
                     .align(Alignment.CenterStart)
                     .offset {
                         IntOffset(
-                            (baseStartOffsetPx + vm.brushPanelOffset.x).roundToInt(),
-                            vm.brushPanelOffset.y.roundToInt(),
+                            (baseStartOffsetPx + offsetX).roundToInt(),
+                            offsetY.roundToInt(),
                         )
                     }
             )

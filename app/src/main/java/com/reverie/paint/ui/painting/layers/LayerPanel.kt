@@ -236,34 +236,39 @@ fun LayerPanel(
                         onClick = {},
                     ),
         ) {
-            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-            ) {
-                DragPillHandle(
-                    onDrag = { dragAmount -> vm.layerPanelOffset += dragAmount },
-                    modifier = Modifier.align(Alignment.Center)
-                )
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            // Header Bar: Drag Handle Pill in center, Pin Button & Close Button on right (only when enabled)
+            if (vm.panelPinningEnabled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
                 ) {
-                    PinButton(
-                        isPinned = vm.isLayerPanelPinned,
-                        onClick = {
-                            vm.isLayerPanelPinned = !vm.isLayerPanelPinned
-                            Toast.makeText(
-                                context,
-                                if (vm.isLayerPanelPinned) context.getString(R.string.layer_pin_hint) else context.getString(R.string.layer_unpin_hint),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                    DragPillHandle(
+                        onDrag = { dragAmount -> vm.layerPanelOffset += dragAmount },
+                        modifier = Modifier.align(Alignment.Center)
                     )
-                    if (vm.isLayerPanelPinned) {
-                        PanelCloseButton(onClose = onClose)
+                    Row(
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        PinButton(
+                            isPinned = vm.isLayerPanelPinned,
+                            onClick = {
+                                vm.isLayerPanelPinned = !vm.isLayerPanelPinned
+                                if (!vm.isLayerPanelPinned) {
+                                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                                }
+                                Toast.makeText(
+                                    context,
+                                    if (vm.isLayerPanelPinned) context.getString(R.string.layer_pin_hint) else context.getString(R.string.layer_unpin_hint),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                        if (vm.isLayerPanelPinned) {
+                            PanelCloseButton(onClose = onClose)
+                        }
                     }
                 }
             }
@@ -408,7 +413,7 @@ fun LayerPanel(
         }
     }
 
-    if (vm.isLayerPanelPinned) {
+    if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
         cardContent(modifier)
     } else {
         Box(
@@ -423,13 +428,15 @@ fun LayerPanel(
                         .systemHoverIcon(context)
                 },
         ) {
+            val offsetX = if (vm.panelPinningEnabled) vm.layerPanelOffset.x else 0f
+            val offsetY = if (vm.panelPinningEnabled) vm.layerPanelOffset.y else 0f
             cardContent(
                 Modifier
                     .align(Alignment.TopEnd)
                     .offset {
                         IntOffset(
-                            (baseEndOffsetPx + vm.layerPanelOffset.x).roundToInt(),
-                            (baseTopOffsetPx + vm.layerPanelOffset.y).roundToInt(),
+                            (baseEndOffsetPx + offsetX).roundToInt(),
+                            (baseTopOffsetPx + offsetY).roundToInt(),
                         )
                     }
             )

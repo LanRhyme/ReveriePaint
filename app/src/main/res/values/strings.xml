@@ -667,6 +667,8 @@
     <string name="settings_layer_height_compact">紧凑</string>
     <string name="settings_layer_height_standard">标准</string>
     <string name="settings_layer_height_spacious">宽松</string>
+    <string name="settings_panel_pinning_title">面板固定与自由平移</string>
+    <string name="settings_panel_pinning_desc">允许固定图层与画笔面板并在画布上拖动平移</string>
     <string name="settings_canvas_rotation">画布可旋转</string>
     <string name="settings_magnification_interpolation">放大插值</string>
     <string name="settings_pixel_grid">放大显示网格线</string>

@@ -1775,6 +1775,7 @@ class PaintViewModel : ViewModel() {
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
             layerRowHeightDp = prefs.getInt("layerRowHeightDp", 52).coerceIn(40, 80)
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
+            panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
             selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
@@ -2094,6 +2095,23 @@ class PaintViewModel : ViewModel() {
 
     /** Drag offset for pinned floating companion layer panel */
     var layerPanelOffset by mutableStateOf(androidx.compose.ui.geometry.Offset.Zero)
+
+    /** Whether panel pinning & dragging controls are enabled for layer & brush panels (off by default) */
+    var panelPinningEnabled by mutableStateOf(false)
+
+    fun updatePanelPinningEnabled(enabled: Boolean) {
+        panelPinningEnabled = enabled
+        if (!enabled) {
+            isBrushPanelPinned = false
+            brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+            isLayerPanelPinned = false
+            layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+        }
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("panelPinningEnabled", enabled).apply()
+        }
+    }
 
     var colorHarmonyModeName by mutableStateOf("COMPLEMENTARY")
     var colorHarmonyBaseHue by mutableFloatStateOf(-1f)
