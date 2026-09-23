@@ -210,6 +210,10 @@ bool ReverieCore::mergeDown(int index)
         KisPainter painter(dst);
         painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
         painter.setCompositeOpId(e.node->compositeOpId());
+        KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+        if (layer && !layer->channelFlags().isEmpty()) {
+            painter.setChannelFlags(layer->channelFlags());
+        }
         painter.bitBlt(ext.x(), ext.y(), src, ext.x(), ext.y(), ext.width(), ext.height());
         dst->setDirty(ext);
     }

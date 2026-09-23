@@ -579,6 +579,10 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
             KisPainter painter(out);
             painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
             painter.setCompositeOpId(e.node->compositeOpId());
+            KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+            if (layer && !layer->channelFlags().isEmpty()) {
+                painter.setChannelFlags(layer->channelFlags());
+            }
             painter.bitBlt(0, 0, tmp, 0, 0, full.width(), full.height());
             painter.end();
             i = j;
@@ -595,6 +599,10 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
                     } else {
                         painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
                         painter.setCompositeOpId(e.node->compositeOpId());
+                        KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+                        if (layer && !layer->channelFlags().isEmpty()) {
+                            painter.setChannelFlags(layer->channelFlags());
+                        }
                     }
                     painter.bitBlt(0, 0, dev, 0, 0, full.width(), full.height());
                     painter.end();
@@ -638,6 +646,10 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             KisPainter painter(out);
             painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
             painter.setCompositeOpId(e.node->compositeOpId());
+            KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+            if (layer && !layer->channelFlags().isEmpty()) {
+                painter.setChannelFlags(layer->channelFlags());
+            }
             painter.bitBlt(r.topLeft(), tmp, r);
             painter.end();
             i = j;
@@ -775,6 +787,10 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     KisPainter painter(out);
                     painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
                     painter.setCompositeOpId(e.node->compositeOpId());
+                    KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+                    if (layer && !layer->channelFlags().isEmpty()) {
+                        painter.setChannelFlags(layer->channelFlags());
+                    }
                     painter.bitBlt(r.topLeft(), dev, r);
                     painter.end();
                 } else {
@@ -814,6 +830,10 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     KisPainter painter(out);
                     painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
                     painter.setCompositeOpId(e.node->compositeOpId());
+                    KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+                    if (layer && !layer->channelFlags().isEmpty()) {
+                        painter.setChannelFlags(layer->channelFlags());
+                    }
                     painter.bitBlt(r.topLeft(), scratch, r);
                     painter.end();
                 }

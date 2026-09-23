@@ -159,10 +159,13 @@ void ReverieCore::touchStrokeEnd()
     // Propagate final dirty region to the layer device once upon stroke completion
     KisPaintDeviceSP endDev = pl ? pl->paintDevice() : currentPaintDevice();
     if (endDev && m_document) {
-        const QRect totalDirty = m_accumulatedStrokeBounds.toAlignedRect().intersected(
+        const int margin = qMax(int(m_brushSize * 2.0), 32) + 16;
+        const QRect totalDirty = m_accumulatedStrokeBounds.toAlignedRect().adjusted(
+            -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
         if (!totalDirty.isEmpty()) {
             endDev->setDirty(totalDirty);
+            markRegionDirty(totalDirty);
         }
     }
 
