@@ -5,10 +5,12 @@
 package com.reverie.paint.ui.painting.layers
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -26,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -64,34 +67,31 @@ fun LayerDragOverlay(
     val groupSettle = vm.isLayerDragGroupSettle
     val density = LocalDensity.current
 
-    val settleAnimX = remember { Animatable(0f) }
-    val settleAnimY = remember { Animatable(0f) }
+    val initialPos = remember(activeDrag) {
+        Offset(
+            activeDrag.startX - activeDrag.grabOffsetX,
+            activeDrag.startY - activeDrag.grabOffsetY,
+        )
+    }
+    val settleAnim = remember(activeDrag) { Animatable(initialPos, androidx.compose.ui.geometry.Offset.VectorConverter) }
+    var isSettleRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(settling, vm.layerDragSettleTo, vm.layerDragSettleFrom) {
         if (settling && vm.layerDragSettleTo != null && vm.layerDragSettleFrom != null) {
             val from = vm.layerDragSettleFrom!!
             val to = vm.layerDragSettleTo!!
-            settleAnimX.snapTo(from.x)
-            settleAnimY.snapTo(from.y)
-            val jobX = launch {
-                settleAnimX.animateTo(
-                    to.x,
-                    spring(dampingRatio = 0.82f, stiffness = 480f),
-                )
-            }
-            val jobY = launch {
-                settleAnimY.animateTo(
-                    to.y,
-                    spring(dampingRatio = 0.82f, stiffness = 480f),
-                )
-            }
-            jobX.join()
-            jobY.join()
+            settleAnim.snapTo(from)
+            isSettleRunning = true
+            settleAnim.animateTo(
+                to,
+                spring(dampingRatio = 0.82f, stiffness = 480f),
+            )
             vm.activeLayerDrag = null
             vm.isLayerDragSettling = false
             vm.layerDragSettleTo = null
             vm.layerDragSettleFrom = null
             vm.isLayerDragGroupSettle = false
+            isSettleRunning = false
         }
     }
 
@@ -154,9 +154,15 @@ fun LayerDragOverlay(
         Box(
             modifier = Modifier
                 .offset {
-                    val x = if (settling) settleAnimX.value else vm.layerDragFingerX - activeDrag.grabOffsetX
-                    val y = if (settling) settleAnimY.value else vm.layerDragFingerY - activeDrag.grabOffsetY
-                    IntOffset(x.roundToInt(), y.roundToInt())
+                    val pos = when {
+                        isSettleRunning -> settleAnim.value
+                        settling && vm.layerDragSettleFrom != null -> vm.layerDragSettleFrom!!
+                        else -> Offset(
+                            vm.layerDragFingerX - activeDrag.grabOffsetX,
+                            vm.layerDragFingerY - activeDrag.grabOffsetY,
+                        )
+                    }
+                    IntOffset(pos.x.roundToInt(), pos.y.roundToInt())
                 }
                 .width(cardWidthDp)
                 .height(cardHeightDp)

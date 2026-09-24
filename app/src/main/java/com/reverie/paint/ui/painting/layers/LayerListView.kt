@@ -290,9 +290,19 @@ internal fun LayerListView(
 
         val grabOffsetX = vm.activeLayerDrag?.grabOffsetX ?: 0f
         val grabOffsetY = vm.activeLayerDrag?.grabOffsetY ?: 0f
+        val currentFingerX = when {
+            dragFingerX != 0f -> dragFingerX
+            vm.layerDragFingerX != 0f -> vm.layerDragFingerX
+            else -> vm.activeLayerDrag?.startX ?: listLeft
+        }
+        val currentFingerY = when {
+            dragFingerY != 0f -> dragFingerY
+            vm.layerDragFingerY != 0f -> vm.layerDragFingerY
+            else -> vm.activeLayerDrag?.startY ?: listTop
+        }
         val settleFromOffset = Offset(
-            x = dragFingerX - grabOffsetX,
-            y = dragFingerY - grabOffsetY,
+            x = currentFingerX - grabOffsetX,
+            y = currentFingerY - grabOffsetY,
         )
 
         var groupDrop = false
@@ -378,16 +388,18 @@ internal fun LayerListView(
             } else {
                 rowBounds[from]?.first ?: listTop
             }
+            val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
             vm.layerDragSettleFrom = settleFromOffset
-            vm.layerDragSettleTo = Offset(listLeft, targetY.toFloat())
+            vm.layerDragSettleTo = Offset(settleTargetX, targetY.toFloat())
             vm.isLayerDragGroupSettle = groupDrop
             vm.isLayerDragSettling = true
         } else {
             // Cancelled or dropped outside panel: spring back to origin
             val b = rowBounds[from]
             val originY = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == from }.coerceAtLeast(0) * rowPx)
+            val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
             vm.layerDragSettleFrom = settleFromOffset
-            vm.layerDragSettleTo = Offset(listLeft, originY)
+            vm.layerDragSettleTo = Offset(settleTargetX, originY)
             vm.isLayerDragGroupSettle = false
             vm.isLayerDragSettling = true
         }
