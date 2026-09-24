@@ -309,6 +309,22 @@ Java_com_reverie_paint_core_ReverieCoreBridge_drawShape(JNIEnv *, jobject, jint 
     core()->drawShape(kind, x1, y1, x2, y2, filled == JNI_TRUE);
 }
 
+static inline void copyTransformPreviewToBitmap(const QImage &outImage, void *pixels, const AndroidBitmapInfo &info)
+{
+    const QImage &src = (outImage.width() == (int)info.width && outImage.height() == (int)info.height)
+        ? outImage
+        : outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    if (info.stride == info.width * 4 && src.bytesPerLine() == (int)info.width * 4) {
+        memcpy(pixels, src.constBits(), size_t(info.width) * info.height * 4);
+    } else {
+        for (uint32_t y = 0; y < info.height; ++y) {
+            memcpy(static_cast<char *>(pixels) + size_t(y) * info.stride,
+                   src.constScanLine(y),
+                   size_t(info.width) * 4);
+        }
+    }
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreview(JNIEnv *env, jobject, jobject bitmap)
 {
@@ -322,12 +338,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreview(JNIEnv *env,
             info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
             AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
 
-            if (outImage.width() == (int)info.width && outImage.height() == (int)info.height) {
-                memcpy(pixels, outImage.constBits(), size_t(info.width) * info.height * 4);
-            } else {
-                QImage scaled = outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-                memcpy(pixels, scaled.constBits(), size_t(info.width) * info.height * 4);
-            }
+            copyTransformPreviewToBitmap(outImage, pixels, info);
             AndroidBitmap_unlockPixels(env, bitmap);
             return JNI_TRUE;
         }
@@ -358,12 +369,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreviewLayers(
             info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
             AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
 
-            if (outImage.width() == (int)info.width && outImage.height() == (int)info.height) {
-                memcpy(pixels, outImage.constBits(), size_t(info.width) * info.height * 4);
-            } else {
-                QImage scaled = outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-                memcpy(pixels, scaled.constBits(), size_t(info.width) * info.height * 4);
-            }
+            copyTransformPreviewToBitmap(outImage, pixels, info);
             AndroidBitmap_unlockPixels(env, bitmap);
             return JNI_TRUE;
         }
@@ -394,12 +400,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreviewLayersEx(
             info.format == ANDROID_BITMAP_FORMAT_RGBA_8888 &&
             AndroidBitmap_lockPixels(env, bitmap, &pixels) >= 0) {
 
-            if (outImage.width() == (int)info.width && outImage.height() == (int)info.height) {
-                memcpy(pixels, outImage.constBits(), size_t(info.width) * info.height * 4);
-            } else {
-                QImage scaled = outImage.scaled(info.width, info.height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-                memcpy(pixels, scaled.constBits(), size_t(info.width) * info.height * 4);
-            }
+            copyTransformPreviewToBitmap(outImage, pixels, info);
             AndroidBitmap_unlockPixels(env, bitmap);
             return JNI_TRUE;
         }

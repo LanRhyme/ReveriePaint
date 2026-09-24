@@ -38,8 +38,7 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
     }
     painter.end();
 
-    QVector<quint8> mask(size_t(iw) * ih);
-    memcpy(mask.data(), maskImg.constBits(), size_t(iw) * ih);
+    const QVector<quint8> mask = qimageAlpha8ToMask(maskImg);
 
     QVector<quint8> finalMask;
     const int selMode = qBound(0, (int)m_selectionMode, 3);
@@ -79,8 +78,7 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
     painter.drawPolygon(poly);
     painter.end();
 
-    QVector<quint8> mask(size_t(iw) * ih);
-    memcpy(mask.data(), maskImg.constBits(), size_t(iw) * ih);
+    const QVector<quint8> mask = qimageAlpha8ToMask(maskImg);
 
     QVector<quint8> finalMask;
     const int selMode = qBound(0, (int)m_selectionMode, 3);

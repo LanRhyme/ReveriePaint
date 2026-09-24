@@ -280,6 +280,25 @@ static inline QVector<quint8> readSelectionMaskBytes(const KisImageSP &image,
     return bytes;
 }
 
+// Extract raw 8-bit mask bytes from a QImage (handling 4-byte scanline alignment)
+static inline QVector<quint8> qimageAlpha8ToMask(const QImage &img)
+{
+    const int iw = img.width();
+    const int ih = img.height();
+    QVector<quint8> mask(size_t(iw) * ih);
+    const int bpl = img.bytesPerLine();
+    if (bpl == iw) {
+        memcpy(mask.data(), img.constBits(), size_t(iw) * ih);
+    } else {
+        const quint8 *src = img.constBits();
+        quint8 *dst = mask.data();
+        for (int y = 0; y < ih; ++y) {
+            memcpy(dst + size_t(y) * iw, src + size_t(y) * bpl, size_t(iw));
+        }
+    }
+    return mask;
+}
+
 // Blend destImg (filtered) with origImg (unfiltered) using selection pixel mask:
 // pixels outside selection remain origImg, pixels inside selection become destImg,
 // pixels with partial alpha (feathering/anti-aliasing) are linearly blended.
