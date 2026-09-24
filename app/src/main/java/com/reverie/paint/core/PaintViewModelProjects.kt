@@ -800,6 +800,9 @@ internal fun PaintViewModel.exportImageToGallery(
 internal fun PaintViewModel.goHome() {
     recorder.endSession()
     stopPaintingTimer()
+    // 动画播放是自续定时链: 离开绘画页必须停掉, 否则主页/回放页仍在按帧率
+    // 渲染并循环播放导入音频, 系统判为"应用在静音播放视频"而报耗电异常
+    stopAnimationPlaybackForPageExit()
     currentProjectFile = null
     docName = ""
     isModified = false
@@ -815,6 +818,7 @@ internal fun PaintViewModel.goHome() {
 
 internal fun PaintViewModel.goCreate() {
     stopPaintingTimer()
+    stopAnimationPlaybackForPageExit()
     currentPage = Page.CREATE
 }
 
@@ -939,6 +943,9 @@ internal fun PaintViewModel.startPainting(
 internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
     recorder.endSession()
     stopPaintingTimer()
+    // 回放页与动画播放互斥: 不停播的话两套自续链会同时渲染 (动画帧还会覆盖
+    // 回放画布), 且回放播完后动画链仍在跑, 持续耗电
+    stopAnimationPlaybackForPageExit()
     currentPage = Page.REPLAY
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_preparing_replay)

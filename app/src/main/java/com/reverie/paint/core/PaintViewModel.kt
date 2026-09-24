@@ -177,12 +177,20 @@ class PaintViewModel : ViewModel() {
     }
 
     fun onAppBackgrounded() {
+        // 后台不再每秒唤醒: 计时与自动保存都只在绘画页前台有意义。
+        // 必须放在下面几个早退之前 —— 否则"无未保存改动"时计时器会一直留在后台跑。
+        stopPaintingTimer()
         if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
         if (currentPage != Page.PAINTING) return
         if (!hasUnsavedChanges()) return
 
         // 软件切入后台时，立即触发后台静默自动保存
         autoSaveProject()
+    }
+
+    /** 回到前台: 若仍停在绘画页, 恢复每秒计时与自动保存唤醒。 */
+    fun onAppForegrounded() {
+        if (currentPage == Page.PAINTING) startPaintingTimer()
     }
 
     /** ElapsedRealtime of the last stroke end; autosave defers for a quiet window after it. */
@@ -2554,6 +2562,21 @@ class PaintViewModel : ViewModel() {
 
     var stylusDriver: com.reverie.paint.core.stylus.StylusDriver? = null
 
+    /** 应用是否处于前台 (由 MainActivity 的 onResume/onPause 维护)。 */
+    internal var isAppForeground = true
+
+    /**
+     * 刷新纸张音效管线门控: 只有绘画页且前台才保持 AudioTrack 预热。
+     *
+     * 扩张性新增 (AGENTS.md §5): 不改既有签名, 仅由页面切换与前后台变化驱动。
+     * 不做门控时音效引擎会在主页/回放页/后台持续写静音 PCM, 系统会把常驻的
+     * USAGE_MEDIA 输出判为"应用在静音播放视频", 表现为静止时耗电仍偏高。
+     */
+    internal fun refreshStylusAudioGate(foreground: Boolean = isAppForeground) {
+        isAppForeground = foreground
+        stylusDriver?.refreshAudioGate(foreground)
+    }
+
     fun getOrCreateStylusDriver(context: android.content.Context): com.reverie.paint.core.stylus.StylusDriver {
         val existing = stylusDriver
         if (existing != null) {
@@ -2561,6 +2584,8 @@ class PaintViewModel : ViewModel() {
         }
         val driver = com.reverie.paint.core.stylus.StylusDriver(context.applicationContext, this)
         stylusDriver = driver
+        // 新建驱动时立即对齐场景门控, 避免在首页/回放页先预热一段
+        driver.refreshAudioGate(isAppForeground)
         return driver
     }
 

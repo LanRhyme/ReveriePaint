@@ -1553,6 +1553,20 @@ internal fun PaintViewModel.animationPause() {
     }
 }
 
+/**
+ * 离开绘画页时停止动画播放 (循环步进链 + 导入音频的播放器)。
+ *
+ * [animationStep] 是挂在 reverie-render 线程上的自续定时链, 默认循环播放;
+ * 页面退出不停止的话, 用户停留在主页/回放页时仍会按帧率持续做全量投影渲染,
+ * 并让导入音频的 MediaPlayer 一直循环播放 —— 系统会把这种"持续出帧 + 常驻
+ * 媒体会话"判为应用在静音播放视频, 直接表现为回放播完后耗电仍居高不下
+ * (动画帧还会覆盖回放画布)。幂等, 可安全重复调用。
+ */
+internal fun PaintViewModel.stopAnimationPlaybackForPageExit() {
+    if (anim.isPlaying) animationPause()
+    stopAnimAudio()
+}
+
 /** 清理循环播放帧 RAM 缓存 (释放位图堆内存) */
 internal fun PaintViewModel.clearPlaybackRamCache() {
     renderHandler?.post {
@@ -1657,6 +1671,12 @@ internal fun PaintViewModel.playbackEndFrame(): Int {
 /** 单步播放。运行在 reverie-render 线程上 (由 animationPlay 投递)。 */
 private fun PaintViewModel.animationStep(gen: Int) {
     if (gen != anim.playGen || !anim.isPlaying) return
+    // 兜底: 步进链只能在绘画页运行。离开绘画页的路径都会显式停播, 这里再挡
+    // 一次, 保证页面外的异常路径也不会残留按帧率渲染的"静音视频"式活动。
+    if (currentPage != Page.PAINTING) {
+        mainHandler.post { animationPause() }
+        return
+    }
 
     val start = playbackStartFrame()
     val end = playbackEndFrame()
