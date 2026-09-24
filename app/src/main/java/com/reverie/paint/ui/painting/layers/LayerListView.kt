@@ -18,6 +18,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -155,6 +159,7 @@ internal fun LayerListView(
     var dragFingerX by remember { mutableFloatStateOf(0f) }
     var dragFingerY by remember { mutableFloatStateOf(0f) }
     var dragStartX by remember { mutableFloatStateOf(0f) }
+    var dragStartY by remember { mutableFloatStateOf(0f) }
     var dragTargetIdx by remember { mutableIntStateOf(-1) }
     var listLeft by remember { mutableFloatStateOf(0f) }
     var listTop by remember { mutableFloatStateOf(0f) }
@@ -406,6 +411,7 @@ internal fun LayerListView(
         draggingFrom = -1
         dragTargetIdx = -1
         dragStartX = 0f
+        dragStartY = 0f
         dragFingerX = 0f
         dragFingerY = 0f
         dragOver = null
@@ -415,10 +421,13 @@ internal fun LayerListView(
         if (draggingFrom < 0) return@LaunchedEffect
         val scrollZone = with(density) { 48.dp.toPx() }
         val maxScrollStep = with(density) { 14.dp.toPx() }
+        val minDragDistanceToScroll = with(density) { 32.dp.toPx() }
         while (isActive && draggingFrom >= 0) {
             val inHorizontalRange = dragFingerX >= listLeft - with(density) { 40.dp.toPx() } &&
                 dragFingerX <= listLeft + listWidth + with(density) { 40.dp.toPx() }
-            if (inHorizontalRange) {
+            val startY = if (dragStartY != 0f) dragStartY else (vm.activeLayerDrag?.startY ?: 0f)
+            val hasMovedFromStart = startY > 0f && abs(dragFingerY - startY) > minDragDistanceToScroll
+            if (inHorizontalRange && hasMovedFromStart && dragFingerY > 0f) {
                 val topDist = dragFingerY - listTop
                 val bottomDist = (listTop + listHeight) - dragFingerY
                 var scrollDelta = 0f
@@ -668,114 +677,121 @@ internal fun LayerListView(
                         }
                     },
         ) {
-            LazyColumn(
-                state = listState,
-                userScrollEnabled = draggingFrom < 0,
-                modifier = Modifier.fillMaxSize(),
+            @OptIn(ExperimentalFoundationApi::class)
+            CompositionLocalProvider(
+                LocalOverscrollFactory provides null,
+                LocalOverscrollConfiguration provides null,
             ) {
-                // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
-                items(displayList, key = { it.id }) { layer ->
-                    LayerRow(
-                        vm = vm,
-                        layer = layer,
-                        selected = layer.index == selectedIndex,
-                        collapsed = layer.name in collapsedGroupNames,
-                        onToggleCollapse = {
-                            revealedIndex = null
-                            collapsedGroupNames =
-                                if (layer.name in collapsedGroupNames) {
-                                    collapsedGroupNames - layer.name
-                                } else {
-                                    collapsedGroupNames + layer.name
+                LazyColumn(
+                    state = listState,
+                    userScrollEnabled = draggingFrom < 0,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
+                    items(displayList, key = { it.id }) { layer ->
+                        LayerRow(
+                            vm = vm,
+                            layer = layer,
+                            selected = layer.index == selectedIndex,
+                            collapsed = layer.name in collapsedGroupNames,
+                            onToggleCollapse = {
+                                revealedIndex = null
+                                collapsedGroupNames =
+                                    if (layer.name in collapsedGroupNames) {
+                                        collapsedGroupNames - layer.name
+                                    } else {
+                                        collapsedGroupNames + layer.name
+                                    }
+                            },
+                            revealed = layer.index == revealedIndex,
+                            onReveal = { revealedIndex = layer.index },
+                            onRevealClose = { revealedIndex = null },
+                            onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
+                            onDragStart = { startX, startY ->
+                                revealedIndex = null
+                                if (layer.index !in vm.selectedLayerIndices) {
+                                    vm.clearLayerSelection()
                                 }
-                        },
-                        revealed = layer.index == revealedIndex,
-                        onReveal = { revealedIndex = layer.index },
-                        onRevealClose = { revealedIndex = null },
-                        onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
-                        onDragStart = { startX, startY ->
-                            revealedIndex = null
-                            if (layer.index !in vm.selectedLayerIndices) {
-                                vm.clearLayerSelection()
-                            }
-                            draggingFrom = layer.index
-                            dragStartX = startX
+                                draggingFrom = layer.index
+                                dragStartX = startX
+                                dragStartY = startY
 
-                            val isMulti = layer.index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
-                            val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(layer.index)
-                            val draggedLayers = vm.layers.filter { it.index in batch }
-                            val draggedIds = draggedLayers.map { it.id }.toSet()
+                                val isMulti = layer.index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                                val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(layer.index)
+                                val draggedLayers = vm.layers.filter { it.index in batch }
+                                val draggedIds = draggedLayers.map { it.id }.toSet()
 
-                            val b = rowBounds[layer.index]
-                            val rowScreenTop = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == layer.index }.coerceAtLeast(0) * rowPx)
-                            val grabOffsetX = (startX - listLeft).coerceIn(0f, listWidth.coerceAtLeast(1f))
-                            val grabOffsetY = (startY - rowScreenTop).coerceIn(0f, rowPx.toFloat())
+                                val b = rowBounds[layer.index]
+                                val rowScreenTop = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == layer.index }.coerceAtLeast(0) * rowPx)
+                                val grabOffsetX = (startX - listLeft).coerceIn(0f, listWidth.coerceAtLeast(1f))
+                                val grabOffsetY = (startY - rowScreenTop).coerceIn(0f, rowPx.toFloat())
 
-                            vm.layerDragFingerX = startX
-                            vm.layerDragFingerY = startY
-                            vm.isLayerDragSettling = false
-                            vm.isLayerDragGroupSettle = false
-                            vm.layerDragSettleTo = null
-                            vm.layerDragSettleFrom = null
+                                vm.layerDragFingerX = startX
+                                vm.layerDragFingerY = startY
+                                vm.isLayerDragSettling = false
+                                vm.isLayerDragGroupSettle = false
+                                vm.layerDragSettleTo = null
+                                vm.layerDragSettleFrom = null
 
-                            vm.activeLayerDrag = PaintViewModel.LayerDragState(
-                                layer = layer,
-                                draggedIds = draggedIds,
-                                isMulti = isMulti,
-                                multiCount = batch.size,
-                                startX = startX,
-                                startY = startY,
-                                grabOffsetX = grabOffsetX,
-                                grabOffsetY = grabOffsetY,
-                                cardWidthPx = if (listWidth > 0f) listWidth else with(density) { 280.dp.toPx() },
-                                cardHeightPx = rowPx.toFloat(),
-                            )
+                                vm.activeLayerDrag = PaintViewModel.LayerDragState(
+                                    layer = layer,
+                                    draggedIds = draggedIds,
+                                    isMulti = isMulti,
+                                    multiCount = batch.size,
+                                    startX = startX,
+                                    startY = startY,
+                                    grabOffsetX = grabOffsetX,
+                                    grabOffsetY = grabOffsetY,
+                                    cardWidthPx = if (listWidth > 0f) listWidth else with(density) { 280.dp.toPx() },
+                                    cardHeightPx = rowPx.toFloat(),
+                                )
 
-                            updateDragPos(startX, startY)
-                        },
-                        onDragPosition = { x, y -> updateDragPos(x, y) },
-                        onDragEnd = { endDrag() },
-                        dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
-                        isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
-                            draggingFrom == layer.index ||
-                            (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
-                        dragFingerY = dragFingerY,
-                        multiSelected = layer.index in vm.selectedLayerIndices,
-                        onSelect = {
-                            revealedIndex = null
-                            vm.toggleLayerSelection(layer.index)
-                        },
-                        onClick = {
-                            revealedIndex = null
-                            if (layer.index !in vm.selectedLayerIndices) {
-                                // Tapping an unselected row switches the
-                                // target (standard behaviour) and clears the
-                                // multi-selection
-                                vm.clearLayerSelection()
-                            }
-                            // NOTE: tapping a row that IS part of the multi-
-                            // selection keeps the set - the old unconditional
-                            // clear silently nuked the whole selection after
-                            // the user had swiped several rows
-                            if (layer.index == selectedIndex) {
-                                onOpenDetail(layer.index)
-                            } else {
-                                // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
-                                vm.cancelSoloIfSwitchingLayer()
-                                selectedIndex = layer.index
-                                vm.setCurrentLayer(layer.index)
-                            }
-                        },
-                        modifier =
-                            Modifier.animateItem(
-                                placementSpec = spring(
-                                    dampingRatio = 0.85f,
-                                    stiffness = 500f,
+                                updateDragPos(startX, startY)
+                            },
+                            onDragPosition = { x, y -> updateDragPos(x, y) },
+                            onDragEnd = { endDrag() },
+                            dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
+                            isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
+                                draggingFrom == layer.index ||
+                                (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
+                            dragFingerY = dragFingerY,
+                            multiSelected = layer.index in vm.selectedLayerIndices,
+                            onSelect = {
+                                revealedIndex = null
+                                vm.toggleLayerSelection(layer.index)
+                            },
+                            onClick = {
+                                revealedIndex = null
+                                if (layer.index !in vm.selectedLayerIndices) {
+                                    // Tapping an unselected row switches the
+                                    // target (standard behaviour) and clears the
+                                    // multi-selection
+                                    vm.clearLayerSelection()
+                                }
+                                // NOTE: tapping a row that IS part of the multi-
+                                // selection keeps the set - the old unconditional
+                                // clear silently nuked the whole selection after
+                                // the user had swiped several rows
+                                if (layer.index == selectedIndex) {
+                                    onOpenDetail(layer.index)
+                                } else {
+                                    // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.setCurrentLayer(layer.index)
+                                }
+                            },
+                            modifier =
+                                Modifier.animateItem(
+                                    placementSpec = spring(
+                                        dampingRatio = 0.85f,
+                                        stiffness = 500f,
+                                    ),
+                                    fadeInSpec = tween(150),
+                                    fadeOutSpec = tween(150),
                                 ),
-                                fadeInSpec = tween(150),
-                                fadeOutSpec = tween(150),
-                            ),
-                    )
+                        )
+                    }
                 }
             }
 

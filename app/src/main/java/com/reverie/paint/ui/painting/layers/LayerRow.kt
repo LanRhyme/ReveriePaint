@@ -326,7 +326,7 @@ internal fun LayerRow(
             targetValue =
                 when {
                     dragOnGroup -> Morandi.accent.copy(alpha = 0.22f)
-                    isDragging -> Morandi.panel.copy(alpha = 0.45f)
+                    isDragging -> Color.Transparent
                     selected -> Morandi.accent.copy(alpha = 0.28f)
                     multiSelected -> Morandi.accent.copy(alpha = 0.16f)
                     else -> Color.Transparent
@@ -334,22 +334,13 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "selectionBg",
         )
-        val contentAlpha = if (isDragging) 0f else 1f
         val groupBorderColor by animateColorAsState(
-            targetValue = when {
-                dragOnGroup -> Morandi.accent
-                isDragging -> Morandi.subText.copy(alpha = 0.35f)
-                else -> Color.Transparent
-            },
+            targetValue = if (dragOnGroup) Morandi.accent else Color.Transparent,
             animationSpec = tween(180),
             label = "groupBorderColor",
         )
         val groupBorderWidth by animateDpAsState(
-            targetValue = when {
-                dragOnGroup -> 2.dp
-                isDragging -> 1.dp
-                else -> 0.dp
-            },
+            targetValue = if (dragOnGroup) 2.dp else 0.dp,
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 600f),
             label = "groupBorderWidth",
         )
@@ -363,6 +354,7 @@ internal fun LayerRow(
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
                     .graphicsLayer {
+                        alpha = if (isDragging) 0f else 1f
                         scaleX = groupScale
                         scaleY = groupScale
                     },
@@ -377,10 +369,7 @@ internal fun LayerRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .padding(horizontal = 4.dp)
-                    .graphicsLayer {
-                        alpha = contentAlpha
-                    },
+                    .padding(horizontal = 4.dp),
             )
             Row(
                 modifier =
@@ -388,10 +377,7 @@ internal fun LayerRow(
                         .align(Alignment.CenterEnd)
                         .offset { IntOffset(drawerPx, 0) }
                         .width(drawerWidth)
-                        .fillMaxHeight()
-                        .graphicsLayer {
-                            alpha = contentAlpha
-                        },
+                        .fillMaxHeight(),
             ) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, stringResource(R.string.common_copy)) {
                     vm.copyLayer(index)
