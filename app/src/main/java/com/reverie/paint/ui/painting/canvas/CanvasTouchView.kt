@@ -1408,9 +1408,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         val sinR = kotlin.math.sin(rad).toFloat()
 
                         val totalMoved = hypot(centroid.x - initialCentroid.x, centroid.y - initialCentroid.y)
-                        val scaleRatio = distance / initialDistance
+                        // 捏合判定统一用"手指真实移动了多少像素"衡量, 三个判据同量纲。
+                        // 旧写法用比例(缩放 2%)与绝对角度(2°), 两者的实际灵敏度都随
+                        // 手指间距反比放大: 间距 40px 时 0.8px 的抖动即判成捏合, 于是
+                        // 手指并拢的双指/三指轻点几乎必然被吞掉 (三指重做手指靠近就失效)。
+                        // 间距张开时新旧阈值量级相当, 手感不变。
+                        val spreadMoved = abs(distance - initialDistance) * 0.5f
                         val angleDiff = abs(normalizeAngle(angle - initialAngle))
-                        if (totalMoved > 6f * density || abs(scaleRatio - 1f) > 0.02f || angleDiff > 2f) {
+                        val arcMoved = Math.toRadians(angleDiff.toDouble()).toFloat() * initialDistance * 0.5f
+                        if (totalMoved > 6f * density || spreadMoved > 3f * density || arcMoved > 3f * density) {
                             isPinchMotion = true
                             removeCallbacks(continuousUndoRunnable)
                             removeCallbacks(continuousRedoRunnable)
