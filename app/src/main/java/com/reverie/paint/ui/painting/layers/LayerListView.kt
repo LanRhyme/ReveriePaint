@@ -776,6 +776,17 @@ internal fun LayerListView(
                 }
             }
 
+            var lastHapticSlot by remember { mutableIntStateOf(-1) }
+            LaunchedEffect(dragTargetIdx, dragOver) {
+                if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0 && dragTargetIdx != lastHapticSlot) {
+                    lastHapticSlot = dragTargetIdx
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                } else if (dragOver != null && lastHapticSlot != -999) {
+                    lastHapticSlot = -999
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+
             val animatedLineY by animateFloatAsState(
                 targetValue = rawLineY ?: lastValidLineY,
                 animationSpec = spring(
@@ -807,21 +818,56 @@ internal fun LayerListView(
                         .zIndex(5f)
                 ) {
                     val y = animatedLineY.coerceIn(0f, size.height)
-                    val dotRadius = 4.dp.toPx()
+                    val dotRadius = 4.5.dp.toPx()
+                    val haloRadius = 7.5.dp.toPx()
                     val lineStroke = 2.5.dp.toPx()
                     val startX = (16 + animatedDepth * 20).dp.toPx()
                     val endX = size.width - 16.dp.toPx()
-                    val color = Morandi.accent.copy(alpha = lineAlpha)
 
+                    // 1. Soft glowing outer beam
                     drawLine(
-                        color = color,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Morandi.accent.copy(alpha = lineAlpha * 0.35f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.15f),
+                                Color.Transparent,
+                            ),
+                            startX = startX,
+                            endX = endX,
+                        ),
+                        start = Offset(startX, y),
+                        end = Offset(endX, y),
+                        strokeWidth = lineStroke * 2.2f,
+                        cap = StrokeCap.Round,
+                    )
+
+                    // 2. Crisp foreground beam
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Morandi.accent.copy(alpha = lineAlpha),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.85f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.45f),
+                            ),
+                            startX = startX,
+                            endX = endX,
+                        ),
                         start = Offset(startX + dotRadius, y),
                         end = Offset(endX, y),
                         strokeWidth = lineStroke,
                         cap = StrokeCap.Round,
                     )
+
+                    // 3. Glowing dot outer halo
                     drawCircle(
-                        color = color,
+                        color = Morandi.accent.copy(alpha = lineAlpha * 0.35f),
+                        radius = haloRadius,
+                        center = Offset(startX, y),
+                    )
+
+                    // 4. Glowing dot inner core
+                    drawCircle(
+                        color = Morandi.accent.copy(alpha = lineAlpha),
                         radius = dotRadius,
                         center = Offset(startX, y),
                     )
@@ -853,28 +899,48 @@ internal fun LayerListView(
 
                     val cardScale by animateFloatAsState(
                         targetValue = when {
-                            settling && isGroupSettle -> 0.82f
+                            settling && isGroupSettle -> 0.72f
                             settling -> 1.0f
-                            draggingFrom >= 0 -> 1.04f
+                            draggingFrom >= 0 -> 1.045f
                             else -> 1.0f
                         },
-                        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
                         label = "cardScale",
                     )
                     val cardElevation by animateDpAsState(
-                        targetValue = if (draggingFrom >= 0 && !settling) 14.dp else 0.dp,
-                        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                        targetValue = if (draggingFrom >= 0 && !settling) 16.dp else 0.dp,
+                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 450f),
                         label = "cardElevation",
                     )
                     val cardAlpha by animateFloatAsState(
                         targetValue = if (settling) 0f else 1f,
-                        animationSpec = tween(180),
+                        animationSpec = tween(durationMillis = 220, delayMillis = 60),
                         label = "cardAlpha",
                     )
                     val fanOffset by animateFloatAsState(
                         targetValue = if (draggingFrom >= 0 && !settling) 1f else 0f,
-                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 450f),
+                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
                         label = "fanOffset",
+                    )
+
+                    val rawDragDx = (dragFingerX - dragStartX)
+                    val cardOffsetX by animateFloatAsState(
+                        targetValue = when {
+                            settling -> 0f
+                            draggingFrom >= 0 -> (rawDragDx * 0.40f).coerceIn(-48f * density.density, 48f * density.density)
+                            else -> 0f
+                        },
+                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+                        label = "cardOffsetX",
+                    )
+                    val cardTilt by animateFloatAsState(
+                        targetValue = when {
+                            settling -> 0f
+                            draggingFrom >= 0 -> (rawDragDx * 0.032f).coerceIn(-2.6f, 2.6f)
+                            else -> 0f
+                        },
+                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 380f),
+                        label = "cardTilt",
                     )
 
                     Box(
@@ -887,13 +953,15 @@ internal fun LayerListView(
                                         } else {
                                             dragFingerY - listTop - rowPx / 2f
                                         }
-                                    IntOffset(0, y.roundToInt())
-                                }.fillMaxWidth()
+                                    IntOffset(cardOffsetX.roundToInt(), y.roundToInt())
+                                }
+                                .fillMaxWidth()
                                 .height(rowHeight)
                                 .zIndex(10f)
                                 .graphicsLayer {
                                     scaleX = cardScale
                                     scaleY = cardScale
+                                    rotationZ = cardTilt
                                     alpha = cardAlpha
                                     shadowElevation = with(density) { cardElevation.toPx() }
                                 },
@@ -906,6 +974,7 @@ internal fun LayerListView(
                                         Modifier
                                             .fillMaxSize()
                                             .offset(x = 6.dp * fanOffset, y = (-6).dp * fanOffset)
+                                            .graphicsLayer { rotationZ = -2.5f * fanOffset }
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Morandi.panelHi.copy(alpha = 0.5f))
                                             .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
@@ -917,6 +986,7 @@ internal fun LayerListView(
                                         Modifier
                                             .fillMaxSize()
                                             .offset(x = 3.dp * fanOffset, y = (-3).dp * fanOffset)
+                                            .graphicsLayer { rotationZ = -1.2f * fanOffset }
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Morandi.panelHi.copy(alpha = 0.75f))
                                             .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),

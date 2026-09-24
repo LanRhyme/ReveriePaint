@@ -317,10 +317,16 @@ internal fun LayerRow(
                 },
     ) {
         // Inner unit: row content + buttons slide as one piece.
+        val groupScale by animateFloatAsState(
+            targetValue = if (dragOnGroup) 1.025f else 1.0f,
+            animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+            label = "groupScale",
+        )
         val selectionBg by animateColorAsState(
             targetValue =
                 when {
                     dragOnGroup -> Morandi.accent.copy(alpha = 0.22f)
+                    isDragging -> Morandi.panel.copy(alpha = 0.45f)
                     selected -> Morandi.accent.copy(alpha = 0.28f)
                     multiSelected -> Morandi.accent.copy(alpha = 0.16f)
                     else -> Color.Transparent
@@ -329,17 +335,25 @@ internal fun LayerRow(
             label = "selectionBg",
         )
         val rowAlpha by animateFloatAsState(
-            targetValue = if (isDragging) 0.30f else 1.0f,
+            targetValue = if (isDragging) 0.25f else 1.0f,
             animationSpec = tween(180),
             label = "rowAlpha",
         )
         val groupBorderColor by animateColorAsState(
-            targetValue = if (dragOnGroup) Morandi.accent else Color.Transparent,
+            targetValue = when {
+                dragOnGroup -> Morandi.accent
+                isDragging -> Morandi.subText.copy(alpha = 0.35f)
+                else -> Color.Transparent
+            },
             animationSpec = tween(180),
             label = "groupBorderColor",
         )
         val groupBorderWidth by animateDpAsState(
-            targetValue = if (dragOnGroup) 2.dp else 0.dp,
+            targetValue = when {
+                dragOnGroup -> 2.dp
+                isDragging -> 1.dp
+                else -> 0.dp
+            },
             animationSpec = spring(dampingRatio = 0.8f, stiffness = 600f),
             label = "groupBorderWidth",
         )
@@ -352,7 +366,11 @@ internal fun LayerRow(
                     .then(if (groupBorder != null) Modifier.border(groupBorder, RoundedCornerShape(8.dp)) else Modifier)
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
-                    .graphicsLayer { alpha = rowAlpha },
+                    .graphicsLayer {
+                        alpha = rowAlpha
+                        scaleX = groupScale
+                        scaleY = groupScale
+                    },
         ) {
             LayerRowContent(
                 vm = vm,
