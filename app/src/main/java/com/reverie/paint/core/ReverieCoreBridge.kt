@@ -886,6 +886,12 @@ object ReverieCoreBridge {
         placeAbove: Boolean,
     ): Boolean
 
+    external fun moveLayersRelative(
+        fromIndices: IntArray,
+        target: Int,
+        placeAbove: Boolean,
+    ): Boolean
+
     external fun moveLayerUp(index: Int): Boolean
 
     external fun moveLayerDown(index: Int): Boolean

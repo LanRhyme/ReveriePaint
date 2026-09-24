@@ -114,6 +114,7 @@ public:
     bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
     bool moveLayersToGroup(const QVector<int> &fromIndices, int groupIndex); // batch move layers to group in one undo step
     bool moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove); // move layer relative to target layer in hierarchy
+    bool moveLayersRelative(const QVector<int> &fromIndices, int targetIndex, bool placeAbove); // batch move layers relative to target in one undo step
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
     // layer hides every other layer, tapping the soloed layer again restores.
     // Solo mode is PURELY a render-time filter: it never touches the layer

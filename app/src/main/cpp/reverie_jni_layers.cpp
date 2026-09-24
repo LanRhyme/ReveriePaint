@@ -277,6 +277,24 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerRelative(JNIEnv *, jobjec
     return core()->moveLayerRelative(from, target, placeAbove == JNI_TRUE);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayersRelative(
+    JNIEnv *env, jobject, jintArray fromIndicesArr, jint target, jboolean placeAbove)
+{
+    if (!core() || !fromIndicesArr) return JNI_FALSE;
+    jsize len = env->GetArrayLength(fromIndicesArr);
+    if (len <= 0) return JNI_FALSE;
+    jint *elems = env->GetIntArrayElements(fromIndicesArr, nullptr);
+    if (!elems) return JNI_FALSE;
+    QVector<int> indices;
+    indices.reserve(len);
+    for (int i = 0; i < len; ++i) {
+        indices.append(elems[i]);
+    }
+    env->ReleaseIntArrayElements(fromIndicesArr, elems, JNI_ABORT);
+    return core()->moveLayersRelative(indices, target, placeAbove == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)
 {
     return core()->mergeDown(index);

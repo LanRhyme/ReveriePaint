@@ -200,47 +200,7 @@ internal fun LayerListView(
             if (res.isEmpty() && n > 0) vm.layers.reversed() else res
         }
 
-    // Freeze the dragged order on release so the row does not first animate
-    // back to its original position: displayList stays at the drop order until
-    // the native move has landed (vm.layers updates -> LaunchedEffect releases).
-    // Frozen drop order, keyed by layer NAME (indices change after the native
-    // move lands, so an index-keyed freeze remaps wrong and plays a phantom
-    // animateItem shuffle after release)
-    var pendingOrder by remember { mutableStateOf<List<String>?>(null) }
-
-    // Display list priority: frozen drop order > dragging order > real order
-    val displayList =
-        remember(vm.layers, collapsedGroupNames, draggingFrom, dragTargetIdx, pendingOrder, dragOver) {
-            if (pendingOrder != null) {
-                val byName = displayRows.associateBy { it.name }
-                pendingOrder!!.mapNotNull { byName[it] }
-            } else if (dragOver != null && dragOver!!.second == DropMode.OnGroup) {
-                // When hovering over a group to drop into it, keep displayRows unchanged
-                // so the group folder DOES NOT move or dodge under the finger
-                displayRows
-            } else if (draggingFrom >= 0 && dragTargetIdx >= 0) {
-                val l = displayRows.toMutableList()
-                val fi = l.indexOfFirst { it.index == draggingFrom }
-                if (fi >= 0) {
-                    val item = l.removeAt(fi)
-                    l.add(dragTargetIdx.coerceIn(0, l.size), item)
-                }
-                l
-            } else {
-                displayRows
-            }
-        }
-
-    // Once the native layer list reflects the move, release the frozen order
-    LaunchedEffect(vm.layers) {
-        if (pendingOrder != null) {
-            android.util.Log.d(
-                "LayerPanel",
-                "RELEASE pending=$pendingOrder real=${displayRows.map { it.name }}",
-            )
-            pendingOrder = null
-        }
-    }
+    val displayList = displayRows
 
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -269,7 +229,7 @@ internal fun LayerListView(
             if (b != null && fingerY >= b.first && fingerY <= b.second) {
                 val h = (b.second - b.first).coerceAtLeast(1f)
                 val relY = (fingerY - b.first) / h
-                if (relY in 0.10f..0.90f) {
+                if (relY in 0.18f..0.82f) {
                     over = layer.index to DropMode.OnGroup
                     break
                 }
@@ -281,7 +241,7 @@ internal fun LayerListView(
                     val gBottom = gTop + rowPx
                     if (contentY >= gTop && contentY <= gBottom) {
                         val relY = (contentY - gTop) / rowPx.toFloat()
-                        if (relY in 0.10f..0.90f) {
+                        if (relY in 0.18f..0.82f) {
                             over = layer.index to DropMode.OnGroup
                             break
                         }
@@ -296,54 +256,29 @@ internal fun LayerListView(
             if (groupVisualIdx >= 0) {
                 dragTargetIdx = groupVisualIdx
             }
-            android.util.Log.d("LayerPanel", "GROUP HOVER DETECTED on group=${over.first} fingerY=$fingerY")
             return
         }
 
-        // 2. Math slot calculation with hysteresis to avoid oscillation
-        val currentSlot = dragTargetIdx
-        val rawSlot = (contentY / rowPx).toInt()
-        val hysteresisPx = rowPx * 0.25f
-
-        var nextSlot = if (currentSlot >= 0) {
-            val slotTop = currentSlot * rowPx
-            val slotBottom = (currentSlot + 1) * rowPx
-            when {
-                contentY < slotTop - hysteresisPx -> {
-                    ((contentY + hysteresisPx) / rowPx).toInt()
-                }
-                contentY > slotBottom + hysteresisPx -> {
-                    ((contentY - hysteresisPx) / rowPx).toInt()
-                }
-                else -> currentSlot
-            }
-        } else {
-            rawSlot
-        }
-
-        // Background protection: never below the background row (index 0)
-        val bgVisual = displayList.indexOfFirst { it.index == 0 }
-        val maxSlot = if (bgVisual >= 0) (bgVisual - 1).coerceAtLeast(0) else (displayList.size - 1).coerceAtLeast(0)
-        nextSlot = nextSlot.coerceIn(0, maxSlot)
-
-        if (nextSlot != dragTargetIdx) {
-            dragTargetIdx = nextSlot
-        }
+        // 2. Math slot calculation (divider seam between rows)
+        val rawSlot = ((contentY + rowPx * 0.5f) / rowPx).toInt()
+        val bgVisual = displayRows.indexOfFirst { it.isBackground || it.index == 0 }
+        val maxSlot = if (bgVisual >= 0) bgVisual else (displayRows.size - 1).coerceAtLeast(0)
+        dragTargetIdx = rawSlot.coerceIn(0, maxSlot)
     }
 
     fun endDrag() {
+        if (draggingFrom < 0) return
         val from = draggingFrom
         val insert = dragTargetIdx
         val over = dragOver
-        android.util.Log.d("LayerPanel", "endDrag from=$from insert=$insert over=$over multi=${vm.selectedLayerIndices}")
+        val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(from)
+
         if (from > 0 && (insert >= 0 || over != null)) {
             val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
-                val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
-                android.util.Log.d("LayerPanel", "ACTION: MOVE TO GROUP groupIdx=$groupIdx isMulti=$isMulti")
-                if (isMulti) {
-                    val batch = vm.selectedLayerIndices.filter { it > 0 }.sorted()
+                if (batch.size > 1) {
                     vm.moveLayersToGroup(batch, groupIdx)
                 } else {
                     vm.moveLayerToGroup(from, groupIdx)
@@ -353,41 +288,34 @@ internal fun LayerListView(
                     collapsedGroupNames = collapsedGroupNames - groupLayer.name
                 }
             } else if (insert >= 0) {
-                val frozen = displayRows.toMutableList()
-                val fi = frozen.indexOfFirst { it.index == from }
-                if (fi >= 0) {
-                    val item = frozen.removeAt(fi)
-                    frozen.add(insert.coerceIn(0, frozen.size), item)
-                }
-                pendingOrder = frozen.map { it.name }
+                val draggedSet = batch.toSet()
+                val nonDraggedPrev = displayRows.take(insert).lastOrNull { it.index !in draggedSet }
+                val nonDraggedNext = displayRows.drop(insert).firstOrNull { it.index !in draggedSet }
+                val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
+                val isIndented = dragFingerX >= indentThreshold
 
-                val listWithoutFrom = displayRows.filter { it.index != from }
-                if (listWithoutFrom.isNotEmpty()) {
-                    val safeInsert = insert.coerceIn(0, listWithoutFrom.size)
-                    if (safeInsert == 0) {
-                        val target = listWithoutFrom.first().index
-                        vm.moveLayerRelative(from, target, placeAbove = true)
-                    } else if (safeInsert >= listWithoutFrom.size) {
-                        val target = listWithoutFrom.last().index
-                        vm.moveLayerRelative(from, target, placeAbove = false)
-                    } else {
-                        val prevItem = listWithoutFrom[safeInsert - 1]
-                        val nextItem = listWithoutFrom[safeInsert]
-                        val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
-                        if (prevItem.depth > nextItem.depth) {
-                            if (dragFingerX >= indentThreshold) {
-                                vm.moveLayerRelative(from, prevItem.index, placeAbove = false)
+                when {
+                    nonDraggedPrev == null && nonDraggedNext != null -> {
+                        vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                    }
+                    nonDraggedNext == null && nonDraggedPrev != null -> {
+                        vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
+                    }
+                    nonDraggedPrev != null && nonDraggedNext != null -> {
+                        if (nonDraggedPrev.depth > nonDraggedNext.depth) {
+                            if (isIndented) {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
                             } else {
-                                vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             }
-                        } else if (prevItem.isGroup && (prevItem.name !in collapsedGroupNames) && prevItem.depth < nextItem.depth) {
-                            if (dragFingerX >= indentThreshold) {
-                                vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                        } else if (nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth) {
+                            if (isIndented) {
+                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             } else {
-                                vm.moveLayerRelative(from, prevItem.index, placeAbove = true)
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
                             }
                         } else {
-                            vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                            vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                         }
                     }
                 }
@@ -397,7 +325,7 @@ internal fun LayerListView(
             val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
             if (targetInfo != null) {
                 settleFrom = dragFingerY - listTop - rowPx / 2f
-                settleTo = listTop + targetInfo.offset.toFloat() + rowPx / 2f
+                settleTo = listTop + targetInfo.offset.toFloat()
                 settling = true
             } else {
                 activeDragLayer = null
@@ -709,7 +637,6 @@ internal fun LayerListView(
                         onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
                         onDragStart = { startX, startY ->
                             revealedIndex = null
-                            pendingOrder = null
                             if (layer.index !in vm.selectedLayerIndices) {
                                 vm.clearLayerSelection()
                             }
@@ -766,26 +693,33 @@ internal fun LayerListView(
             // Insertion indicator line with start dot and hierarchy indentation
             if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0) {
                 val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx }
-                if (targetInfo != null) {
-                    val lineY = targetInfo.offset.toFloat() + targetInfo.size / 2f
-                    val listWithoutFrom = displayRows.filter { it.index != draggingFrom }
-                    val safeInsert = dragTargetIdx.coerceIn(0, listWithoutFrom.size)
+                val lineY = if (targetInfo != null) {
+                    targetInfo.offset.toFloat()
+                } else {
+                    val lastInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx - 1 }
+                    lastInfo?.let { (it.offset + it.size).toFloat() }
+                }
+
+                if (lineY != null) {
+                    val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                    val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
+                    val draggedSet = batch.toSet()
+
+                    val nonDraggedPrev = displayRows.take(dragTargetIdx).lastOrNull { it.index !in draggedSet }
+                    val nonDraggedNext = displayRows.drop(dragTargetIdx).firstOrNull { it.index !in draggedSet }
+                    val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
+                    val isIndented = dragFingerX >= indentThreshold
+
                     val targetDepth = when {
-                        safeInsert == 0 -> 0
-                        safeInsert >= listWithoutFrom.size -> 0
-                        else -> {
-                            val prevItem = listWithoutFrom[safeInsert - 1]
-                            val nextItem = listWithoutFrom[safeInsert]
-                            val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
-                            val isIndented = dragFingerX >= indentThreshold
-                            if (prevItem.depth > nextItem.depth) {
-                                if (isIndented) prevItem.depth else nextItem.depth
-                            } else if (prevItem.isGroup && (prevItem.name !in collapsedGroupNames) && prevItem.depth < nextItem.depth) {
-                                if (isIndented) nextItem.depth else prevItem.depth
-                            } else {
-                                nextItem.depth
-                            }
+                        nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
+                        nonDraggedNext == null -> nonDraggedPrev.depth
+                        nonDraggedPrev.depth > nonDraggedNext.depth -> {
+                            if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
                         }
+                        nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                            if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
+                        }
+                        else -> nonDraggedNext.depth
                     }
 
                     Canvas(

@@ -657,21 +657,36 @@ internal fun PaintViewModel.moveLayersToGroup(
     }
 }
 
+internal fun PaintViewModel.moveLayersRelative(
+    fromIndices: List<Int>,
+    target: Int,
+    placeAbove: Boolean,
+) {
+    if (fromIndices.isEmpty()) return
+    val selectedNames = layers.filter { it.index in fromIndices }.map { it.name }.toSet()
+    if (recorder.recording) {
+        for (from in fromIndices) {
+            recorder.layerOp(
+                com.reverie.paint.model.RecordingEvents.L_MOVE_RELATIVE,
+                from,
+                "$target:${if (placeAbove) 1 else 0}",
+            )
+        }
+    }
+    runCore(after = {
+        notifyLayerChanged()
+        selectedLayerIndices = layers.filter { it.name in selectedNames }.map { it.index }.toSet()
+    }) {
+        ReverieCoreBridge.moveLayersRelative(fromIndices.toIntArray(), target, placeAbove)
+    }
+}
+
 internal fun PaintViewModel.moveLayerRelative(
     from: Int,
     target: Int,
     placeAbove: Boolean,
 ) {
-    if (recorder.recording) {
-        recorder.layerOp(
-            com.reverie.paint.model.RecordingEvents.L_MOVE_RELATIVE,
-            from,
-            "$target:${if (placeAbove) 1 else 0}",
-        )
-    }
-    runCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.moveLayerRelative(from, target, placeAbove)
-    }
+    moveLayersRelative(listOf(from), target, placeAbove)
 }
 
 internal fun PaintViewModel.moveLayerUp(i: Int) {
