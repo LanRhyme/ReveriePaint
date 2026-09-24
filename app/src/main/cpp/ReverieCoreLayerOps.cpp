@@ -378,6 +378,60 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
     return true;
 }
 
+bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIndex)
+{
+    if (groupIndex <= 0 || groupIndex >= m_layers.size() || !m_document) {
+        return false;
+    }
+    const LayerEntry &grp = m_layers[groupIndex];
+    if (grp.locked || !grp.isGroup || !grp.node) {
+        return false;
+    }
+    KisNodeSP group(grp.node);
+
+    QVector<int> sortedIndices = fromIndices;
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+
+    QVector<KisNodeSP> nodesToMove;
+    for (int idx : sortedIndices) {
+        if (idx <= 0 || idx >= m_layers.size()) continue;
+        if (idx == groupIndex) continue;
+        const LayerEntry &src = m_layers[idx];
+        if (src.locked || src.background || !src.node) continue;
+
+        KisNodeSP node(src.node);
+        if (src.isGroup) {
+            KisNodeSP p(group->parent());
+            bool isAncestor = false;
+            while (p) {
+                if (p == node) {
+                    isAncestor = true;
+                    break;
+                }
+                p = p->parent();
+            }
+            if (isAncestor) continue;
+        }
+        nodesToMove.append(node);
+    }
+
+    if (nodesToMove.isEmpty()) return false;
+
+    beginUndoMacro(QStringLiteral("Move Layers to Group"));
+    for (KisNodeSP node : nodesToMove) {
+        pushUndoCommand(new KisImageLayerMoveCommand(
+            m_document, node, group, group->childCount()));
+    }
+    endUndoMacro();
+
+    syncLayersFromImage();
+    const int grpIdx = indexOfNode(group.data());
+    if (grpIdx >= 0) m_currentLayer = grpIdx;
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
 bool ReverieCore::moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove)
 {
     if (fromIndex <= 0 || fromIndex >= m_layers.size()) return false;

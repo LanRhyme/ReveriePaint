@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -315,23 +316,29 @@ internal fun LayerListView(
         val insert = dragTargetIdx
         val over = dragOver
         if (from > 0 && insert >= 0) {
-            val frozen = displayRows.toMutableList()
-            val fi = frozen.indexOfFirst { it.index == from }
-            if (fi >= 0) {
-                val item = frozen.removeAt(fi)
-                frozen.add(insert.coerceIn(0, frozen.size), item)
-            }
-            pendingOrder = frozen.map { it.name }
-
             val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
-                vm.moveLayerToGroup(from, groupIdx)
+                val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                if (isMulti) {
+                    val batch = vm.selectedLayerIndices.filter { it > 0 }.sorted()
+                    vm.moveLayersToGroup(batch, groupIdx)
+                } else {
+                    vm.moveLayerToGroup(from, groupIdx)
+                }
                 val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
                 if (groupLayer != null && groupLayer.name in collapsedGroupNames) {
                     collapsedGroupNames = collapsedGroupNames - groupLayer.name
                 }
             } else {
+                val frozen = displayRows.toMutableList()
+                val fi = frozen.indexOfFirst { it.index == from }
+                if (fi >= 0) {
+                    val item = frozen.removeAt(fi)
+                    frozen.add(insert.coerceIn(0, frozen.size), item)
+                }
+                pendingOrder = frozen.map { it.name }
+
                 val listWithoutFrom = displayRows.filter { it.index != from }
                 if (listWithoutFrom.isNotEmpty()) {
                     val safeInsert = insert.coerceIn(0, listWithoutFrom.size)
@@ -681,6 +688,9 @@ internal fun LayerListView(
                         onDragStart = { startX, startY ->
                             revealedIndex = null
                             pendingOrder = null
+                            if (layer.index !in vm.selectedLayerIndices) {
+                                vm.clearLayerSelection()
+                            }
                             activeDragLayer = layer
                             draggingFrom = layer.index
                             updateDragPos(startX, startY)
@@ -688,7 +698,8 @@ internal fun LayerListView(
                         onDragPosition = { x, y -> updateDragPos(x, y) },
                         onDragEnd = { endDrag() },
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
-                        isDragging = draggingFrom == layer.index,
+                        isDragging = draggingFrom == layer.index ||
+                            (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
                         dragFingerY = dragFingerY,
                         multiSelected = layer.index in vm.selectedLayerIndices,
                         onSelect = {
@@ -802,6 +813,8 @@ internal fun LayerListView(
             if (draggingFrom >= 0 || settling) {
                 val dragged = activeDragLayer
                 if (dragged != null) {
+                    val isMultiDrag = (dragged.index in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
+                    val multiCount = if (isMultiDrag) vm.selectedLayerIndices.size else 1
                     Box(
                         modifier =
                             Modifier
@@ -822,6 +835,33 @@ internal fun LayerListView(
                                     shadowElevation = with(density) { 16.dp.toPx() }
                                 },
                     ) {
+                        // Stacked cards effect for multi-selection drag
+                        if (isMultiDrag) {
+                            if (multiCount >= 3) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .offset(x = 6.dp, y = (-6).dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Morandi.panelHi.copy(alpha = 0.5f))
+                                            .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
+                                )
+                            }
+                            if (multiCount >= 2) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .offset(x = 3.dp, y = (-3).dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Morandi.panelHi.copy(alpha = 0.75f))
+                                            .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
+                                )
+                            }
+                        }
+
+                        // Main floating card
                         LayerRowContent(
                             vm = vm,
                             layer = dragged,
@@ -834,8 +874,38 @@ internal fun LayerListView(
                                     .fillMaxSize()
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(Morandi.panelHi)
+                                    .border(1.dp, Morandi.accent.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
                                     .padding(horizontal = 8.dp),
                         )
+
+                        // Multi-selection count badge
+                        if (isMultiDrag) {
+                            Surface(
+                                modifier =
+                                    Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 4.dp, y = (-6).dp)
+                                        .zIndex(20f),
+                                shape = CircleShape,
+                                color = Morandi.accent,
+                                shadowElevation = 6.dp,
+                            ) {
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .sizeIn(minWidth = 22.dp, minHeight = 22.dp)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "$multiCount",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

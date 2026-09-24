@@ -638,6 +638,25 @@ internal fun PaintViewModel.moveLayerToGroup(
     }
 }
 
+internal fun PaintViewModel.moveLayersToGroup(
+    fromIndices: List<Int>,
+    group: Int,
+) {
+    if (fromIndices.isEmpty()) return
+    val selectedNames = layers.filter { it.index in fromIndices }.map { it.name }.toSet()
+    if (recorder.recording) {
+        for (from in fromIndices) {
+            recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_MOVE_TO_GROUP, from, group.toString())
+        }
+    }
+    runCore(after = {
+        notifyLayerChanged()
+        selectedLayerIndices = layers.filter { it.name in selectedNames }.map { it.index }.toSet()
+    }) {
+        ReverieCoreBridge.moveLayersToGroup(fromIndices.toIntArray(), group)
+    }
+}
+
 internal fun PaintViewModel.moveLayerRelative(
     from: Int,
     target: Int,
