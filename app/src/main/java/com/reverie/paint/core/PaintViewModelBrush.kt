@@ -258,6 +258,7 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushAntiAliasing(v: Int) {
         brushAntiAliasing = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushAntiAliasing(v) }
     }
 
     internal fun PaintViewModel.updateBrushTipShape(v: Int) {
@@ -268,16 +269,19 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushRandomFlipX(v: Boolean) {
         brushRandomFlipX = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
     }
 
     internal fun PaintViewModel.updateBrushRandomFlipY(v: Boolean) {
         brushRandomFlipY = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
     }
 
     internal fun PaintViewModel.updateBrushFollowDirection(v: Boolean) {
         brushFollowDirection = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushFollowDirection(v) }
     }
 
     internal fun PaintViewModel.updateBrushStreamline(v: Double) {
@@ -338,21 +342,33 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushPressureEnabled(v: Boolean) {
         brushPressureEnabled = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureSize(v: Double) {
         brushPressureSize = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureOpacity(v: Double) {
         brushPressureOpacity = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureFlow(v: Double) {
         brushPressureFlow = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushSpeedSize(v: Double) {
@@ -363,6 +379,9 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushPressureCurve(v: Int) {
         brushPressureCurve = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushTipAsset(asset: String) {
@@ -408,11 +427,13 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushJitterAngle(v: Double) {
         brushJitterAngle = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
     }
 
     internal fun PaintViewModel.updateBrushJitterSize(v: Double) {
         brushJitterSize = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
     }
 
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
@@ -982,6 +1003,8 @@ import kotlinx.coroutines.withContext
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                 }
                 brushCompositeOp = effectiveCompOp
+                brushMinSizeLimit = 1.0
+                brushMaxSizeLimit = maxOf(500.0, brushSize)
                 brushAuthor = if (isBuiltIn) "Krita" else "原创创作者"
                 brushIsAuthorLocked = isBuiltIn
             }
@@ -1013,6 +1036,17 @@ import kotlinx.coroutines.withContext
                 ReverieCoreBridge.setBrushSharpness(saved.sharpness)
                 ReverieCoreBridge.setBrushRotation(saved.rotation)
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
+                ReverieCoreBridge.setBrushPressureDynamics(
+                    saved.pressureEnabled,
+                    saved.pressureSize,
+                    saved.pressureOpacity,
+                    saved.pressureFlow,
+                    saved.pressureCurve,
+                )
+                ReverieCoreBridge.setBrushFollowDirection(saved.followDirection)
+                ReverieCoreBridge.setBrushJitter(saved.jitterAngle, saved.jitterSize)
+                ReverieCoreBridge.setBrushMirror(saved.randomFlipX, saved.randomFlipY)
+                ReverieCoreBridge.setBrushAntiAliasing(saved.antiAliasing)
                 ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
                 val effectiveAirbrushRate = if (saved.airbrushRate >= 5.0) saved.airbrushRate else 30.0

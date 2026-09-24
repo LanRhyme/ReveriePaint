@@ -314,8 +314,11 @@ bool ReverieCore::flushStrokeBatch()
     // In erasing mode, the non-incremental brush paints its opaque/anti-aliased
     // dab onto the temporary target, which is then composited onto the layer
     // with COMPOSITE_ERASE (effectiveOp).
-    // Note: ToolSmudge must ALWAYS paint directly to canvas to blend underlying pixels.
-    const bool needsIndirect = (m_toolMode != ToolSmudge) && m_brushPreset && m_brushPreset->settings() &&
+    // Note: ToolSmudge and presets with colorsmudge engine must ALWAYS paint directly to canvas to blend underlying pixels.
+    const bool isSmudgeOp = (m_toolMode == ToolSmudge) ||
+        (m_brushPreset && m_brushPreset->paintOp().id() == QStringLiteral("colorsmudge"));
+
+    const bool needsIndirect = !isSmudgeOp && m_brushPreset && m_brushPreset->settings() &&
         !m_brushPreset->settings()->paintIncremental();
 
     KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
@@ -477,11 +480,16 @@ bool ReverieCore::flushStrokeBatch()
         if (m_brushPreset && m_strokeOp) {
             // Krita dab for a genuine tap (paintAt = single dab at pos)
             m_strokeOp->paintAt(KisPaintInformation(p, pressure), m_strokeDistance);
-            QVector<KisRunnableStrokeJobData *> jobs;
-            m_strokeOp->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
+            while (true) {
+                QVector<KisRunnableStrokeJobData *> jobs;
+                auto result = m_strokeOp->doAsynchronousUpdate(jobs);
+                for (auto *j : jobs) {
+                    j->run();
+                    delete j;
+                }
+                if (jobs.isEmpty() || !result.second) {
+                    break;
+                }
             }
         } else {
             // Pressure floor is only a safety net against the dab fully
@@ -561,11 +569,16 @@ bool ReverieCore::flushStrokeBatch()
                                   KisPaintInformation(b.imgPos, b.pressure),
                                   m_strokeDistance);
         }
-        QVector<KisRunnableStrokeJobData *> jobs;
-        m_strokeOp->doAsynchronousUpdate(jobs);
-        for (auto *j : jobs) {
-            j->run();
-            delete j;
+        while (true) {
+            QVector<KisRunnableStrokeJobData *> jobs;
+            auto result = m_strokeOp->doAsynchronousUpdate(jobs);
+            for (auto *j : jobs) {
+                j->run();
+                delete j;
+            }
+            if (jobs.isEmpty() || !result.second) {
+                break;
+            }
         }
         // Restore the pixels outside the selection for engines that bypass
         // KisPainter's selection clipping (see above)

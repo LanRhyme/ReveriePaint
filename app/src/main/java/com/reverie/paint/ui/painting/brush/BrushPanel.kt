@@ -1519,8 +1519,8 @@ fun BrushPropertyPage(
                 ModernParamSlider(
                     label = stringResource(R.string.brush_param_size),
                     value = vm.brushSize,
-                    min = 1.0,
-                    max = 200.0,
+                    min = vm.brushMinSizeLimit.coerceAtLeast(0.5),
+                    max = vm.brushMaxSizeLimit.coerceAtLeast(vm.brushMinSizeLimit.coerceAtLeast(0.5) + 0.1),
                     unit = ParamUnit.PIXEL,
                 ) { vm.updateBrushSize(it) }
 

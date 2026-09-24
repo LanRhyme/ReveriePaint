@@ -633,6 +633,11 @@ public:
     void setBrushSharpness(qreal v);
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
+    void setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType);
+    void setBrushFollowDirection(bool enabled);
+    void setBrushJitter(qreal jitterAngle, qreal jitterSize);
+    void setBrushMirror(bool flipX, bool flipY);
+    void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
     bool setBrushTipAsset(const QString &assetName);
     bool hasPendingStrokeSamples() const { return m_strokeSamples.size() > m_strokeCarryCount; }

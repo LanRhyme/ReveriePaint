@@ -201,6 +201,36 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushCompositeOp(JNIEnv *env, j
 }
 
 JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushPressureDynamics(JNIEnv *, jobject, jboolean enabled, jdouble size, jdouble opacity, jdouble flow, jint curveType)
+{
+    core()->setBrushPressureDynamics(enabled == JNI_TRUE, size, opacity, flow, curveType);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFollowDirection(JNIEnv *, jobject, jboolean enabled)
+{
+    core()->setBrushFollowDirection(enabled == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushJitter(JNIEnv *, jobject, jdouble jitterAngle, jdouble jitterSize)
+{
+    core()->setBrushJitter(jitterAngle, jitterSize);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushMirror(JNIEnv *, jobject, jboolean flipX, jboolean flipY)
+{
+    core()->setBrushMirror(flipX == JNI_TRUE, flipY == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushAntiAliasing(JNIEnv *, jobject, jint level)
+{
+    core()->setBrushAntiAliasing(level);
+}
+
+JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {
     const char *c = env->GetStringUTFChars(color, nullptr);

@@ -335,13 +335,27 @@ private fun BrushSizeGroup(
         "${kotlin.math.round(brushSize).toInt()}"
     }
 
+    val minL = vm.brushMinSizeLimit.coerceAtLeast(0.5)
+    val maxL = vm.brushMaxSizeLimit.coerceAtLeast(minL + 0.1)
+    val logMin = kotlin.math.ln(minL)
+    val logMax = kotlin.math.ln(maxL)
+    val range = (logMax - logMin).coerceAtLeast(1e-6)
+    val current = brushSize.coerceIn(minL, maxL)
+    val frac = ((kotlin.math.ln(current) - logMin) / range).toFloat().coerceIn(0f, 1f)
+
     ReVerticalSlider(
         label = "S",
         title = stringResource(R.string.tool_rail_brush_size),
         iconRes = R.drawable.ic_brush,
-        fraction = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f),
-        onFraction = { frac -> onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * frac.toDouble()), false) },
-        onRelease = { frac -> onBrushSize(kotlin.math.exp(kotlin.math.ln(500.0) * frac.toDouble()), true) },
+        fraction = frac,
+        onFraction = { f ->
+            val raw = kotlin.math.exp(logMin + f.toDouble() * range).coerceIn(minL, maxL)
+            onBrushSize(raw, false)
+        },
+        onRelease = { f ->
+            val raw = kotlin.math.exp(logMin + f.toDouble() * range).coerceIn(minL, maxL)
+            onBrushSize(raw, true)
+        },
         trackWidth = 26,
         trackHeight = vm.quickSliderHeightDp,
         valueText = formattedValue,
@@ -352,15 +366,15 @@ private fun BrushSizeGroup(
                 brushSize < 100.0 -> 1.0
                 else -> 5.0
             }
-            val newSize = if (increase) (brushSize + step).coerceAtMost(500.0) else (brushSize - step).coerceAtLeast(1.0)
+            val newSize = if (increase) (brushSize + step).coerceAtMost(maxL) else (brushSize - step).coerceAtLeast(minL)
             onBrushSize(newSize, true)
         },
-        quickChips = listOf(
-            "2px" to { onBrushSize(2.0, true) },
-            "10px" to { onBrushSize(10.0, true) },
-            "40px" to { onBrushSize(40.0, true) },
-            "120px" to { onBrushSize(120.0, true) },
-        ),
+        quickChips = listOf(2.0, 10.0, 40.0, 120.0, 300.0)
+            .filter { it in minL..maxL }
+            .map { s ->
+                val label = if (s < 10.0) "${s.toInt()}px" else "${s.toInt()}px"
+                label to { onBrushSize(s, true) }
+            },
         presets = vm.brushSizePresets,
         onSelectPreset = { onBrushSize(it, true) },
         onSavePreset = { idx -> vm.saveSizePreset(brushSize, idx) },

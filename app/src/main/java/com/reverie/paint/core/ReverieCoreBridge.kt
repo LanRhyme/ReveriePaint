@@ -511,6 +511,17 @@ object ReverieCoreBridge {
     external fun setBrushRotation(v: Double)
 
     external fun setBrushCompositeOp(op: String)
+    external fun setBrushPressureDynamics(
+        enabled: Boolean,
+        sizeStrength: Double,
+        opacityStrength: Double,
+        flowStrength: Double,
+        curveType: Int,
+    )
+    external fun setBrushFollowDirection(enabled: Boolean)
+    external fun setBrushJitter(jitterAngle: Double, jitterSize: Double)
+    external fun setBrushMirror(flipX: Boolean, flipY: Boolean)
+    external fun setBrushAntiAliasing(level: Int)
     external fun setBrushTipAsset(assetName: String): Boolean
 
     external fun touchStrokeStart(

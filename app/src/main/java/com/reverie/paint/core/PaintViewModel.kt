@@ -1312,19 +1312,24 @@ class PaintViewModel : ViewModel() {
                     "high" -> 0.035f
                     else -> 0.025f
                 }
-                // 与画布侧边栏滑块对齐，采用对数/指数映射：fraction = ln(size) / ln(500)
-                val currentFrac = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f)
+                val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+                val maxL = brushMaxSizeLimit.coerceAtLeast(minL + 0.1)
+                val logMin = kotlin.math.ln(minL)
+                val logMax = kotlin.math.ln(maxL)
+                val range = (logMax - logMin).coerceAtLeast(1e-6)
+                val current = brushSize.coerceIn(minL, maxL)
+                val currentFrac = ((kotlin.math.ln(current) - logMin) / range).toFloat().coerceIn(0f, 1f)
                 val targetFrac = (currentFrac + (if (isIncrease) deltaFrac else -deltaFrac)).coerceIn(0f, 1f)
-                val rawNewSize = kotlin.math.exp(kotlin.math.ln(500.0) * targetFrac.toDouble()).coerceIn(1.0, 500.0)
+                val rawNewSize = kotlin.math.exp(logMin + targetFrac.toDouble() * range).coerceIn(minL, maxL)
                 val newSize = if (rawNewSize < 10.0) {
-                    (kotlin.math.round(rawNewSize * 10.0) / 10.0).coerceIn(1.0, 500.0)
+                    (kotlin.math.round(rawNewSize * 10.0) / 10.0).coerceIn(minL, maxL)
                 } else {
-                    kotlin.math.round(rawNewSize).coerceIn(1.0, 500.0)
+                    kotlin.math.round(rawNewSize).coerceIn(minL, maxL)
                 }
                 val finalSize = if (isIncrease && newSize <= brushSize) {
-                    if (brushSize < 10.0) (brushSize + 0.1).coerceAtMost(500.0) else (brushSize + 1.0).coerceAtMost(500.0)
+                    if (brushSize < 10.0) (brushSize + 0.1).coerceAtMost(maxL) else (brushSize + 1.0).coerceAtMost(maxL)
                 } else if (!isIncrease && newSize >= brushSize) {
-                    if (brushSize <= 10.0) (brushSize - 0.1).coerceAtLeast(1.0) else (brushSize - 1.0).coerceAtLeast(1.0)
+                    if (brushSize <= 10.0) (brushSize - 0.1).coerceAtLeast(minL) else (brushSize - 1.0).coerceAtLeast(minL)
                 } else {
                     newSize
                 }

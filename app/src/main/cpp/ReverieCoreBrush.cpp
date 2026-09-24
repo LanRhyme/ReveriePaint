@@ -318,11 +318,22 @@ bool ReverieCore::loadBrushPreset(int index)
         m_airbrushRate = rate >= 5.0 ? rate : 30.0;
         m_smudgeRate = s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.5));
         m_smudgeLength = s->getDouble("SmudgeRateValue", 0.5);
+
+        const double presetSize = s->paintOpSize();
+        if (presetSize > 0.0 && presetSize == presetSize) {
+            m_brushSize = presetSize;
+        }
+        m_brushOpacity = qBound(0.0, s->getDouble("OpacityValue", 1.0), 1.0);
+        m_brushFlow = qBound(0.0, s->getDouble("FlowValue", 1.0), 1.0);
+        KisBrushBasedPaintOpSettings *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(s.data());
+        if (bs) {
+            const double sp = bs->spacing();
+            if (sp > 0.0 && sp == sp) m_brushSpacing = sp;
+        }
     }
-    // Re-apply the user's current size / opacity / flow over the preset's
-    // own values (they are stored per preset and would otherwise override).
-    // Note: brush spacing, airbrush, and smudge parameters belong to the preset defaults
-    // unless explicitly customized in BrushStudio (which calls setBrush* after loading).
+    // Apply size / opacity / flow to the newly loaded preset.
+    // If the caller (ViewModel) has user-customized saved parameters,
+    // it will immediately follow with setBrush* to override these defaults.
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
@@ -357,7 +368,9 @@ QVector<double> ReverieCore::brushPresetDefaults(int index)
     if (!m_brushResources) {
         m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
     }
-    QFile f(m_presets[index].second);
+    const QString path = m_presets[index].second;
+    ensureBrushForPreset(path);
+    QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         return {20.0, 1.0, 1.0, 0.15, 0.0, 30.0, 0.5, 0.5};
     }
@@ -661,5 +674,108 @@ bool ReverieCore::setBrushTipAsset(const QString &assetName)
     prop.writeOptionSetting(bs);
     RPC_LOG("RPC setBrushTipAsset SUCCESS: %s", assetName.toUtf8().constData());
     return true;
+}
+
+void ReverieCore::setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+
+    // Invalidate size curve cache for cursor ring
+    {
+        QMutexLocker locker(&m_sizeCurveMutex);
+        m_sizeCurveOwner = nullptr;
+    }
+
+    if (!enabled) {
+        s->setProperty("PressureSize", false);
+        s->setProperty("PressureOpacity", false);
+        s->setProperty("PressureFlow", false);
+        return;
+    }
+
+    QString curveStr;
+    switch (curveType) {
+    case 1: // Soft
+        curveStr = QStringLiteral("0,0;0.25,0.5;0.75,0.9;1,1;");
+        break;
+    case 2: // Hard
+        curveStr = QStringLiteral("0,0;0.25,0.1;0.75,0.5;1,1;");
+        break;
+    case 3: // S-curve
+        curveStr = QStringLiteral("0,0;0.25,0.1;0.75,0.9;1,1;");
+        break;
+    case 0: // Linear
+    default:
+        curveStr = QStringLiteral("0,0;1,1;");
+        break;
+    }
+
+    const QString sensorXml = QStringLiteral("<!DOCTYPE params><params id=\"pressure\"><curve>%1</curve></params>").arg(curveStr);
+
+    const bool useSize = (sizeStrength > 0.001);
+    s->setProperty("PressureSize", useSize);
+    s->setProperty("SizeUseCurve", useSize);
+    s->setProperty("SizeValue", sizeStrength);
+    s->setProperty("SizeSensor", sensorXml);
+
+    const bool useOpacity = (opacityStrength > 0.001);
+    s->setProperty("PressureOpacity", useOpacity);
+    s->setProperty("OpacityUseCurve", useOpacity);
+    s->setProperty("OpacityValue", opacityStrength);
+    s->setProperty("OpacitySensor", sensorXml);
+
+    const bool useFlow = (flowStrength > 0.001);
+    s->setProperty("PressureFlow", useFlow);
+    s->setProperty("FlowUseCurve", useFlow);
+    s->setProperty("FlowValue", flowStrength);
+    s->setProperty("FlowSensor", sensorXml);
+}
+
+void ReverieCore::setBrushFollowDirection(bool enabled)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    s->setProperty("PressureRotation", enabled);
+    s->setProperty("RotationUseCurve", enabled);
+    if (enabled) {
+        s->setProperty("RotationSensor", QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>0,0;1,1;</curve></params>"));
+        s->setProperty("RotationValue", 1.0);
+    }
+}
+
+void ReverieCore::setBrushJitter(qreal jitterAngle, qreal jitterSize)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    if (jitterAngle > 0.001) {
+        s->setProperty("PressureRotation", true);
+        s->setProperty("RotationUseCurve", true);
+        s->setProperty("RotationValue", jitterAngle);
+        s->setProperty("RotationSensor", QStringLiteral("<!DOCTYPE params><params id=\"fuzzy\"><curve>0,0;1,1;</curve></params>"));
+    }
+    if (jitterSize > 0.001) {
+        s->setProperty("PressureSize", true);
+        s->setProperty("SizeUseCurve", true);
+        s->setProperty("SizeValue", jitterSize);
+        s->setProperty("SizeSensor", QStringLiteral("<!DOCTYPE params><params id=\"fuzzy_per_dab\"><curve>0,0;1,1;</curve></params>"));
+    }
+}
+
+void ReverieCore::setBrushMirror(bool flipX, bool flipY)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    s->setProperty("HorizontalMirrorEnabled", flipX);
+    s->setProperty("VerticalMirrorEnabled", flipY);
+}
+
+void ReverieCore::setBrushAntiAliasing(int level)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    const bool aa = (level > 0);
+    s->setProperty("Antialiasing", aa);
+    s->setProperty("antialiasEdges", aa);
 }
 
