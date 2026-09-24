@@ -2173,8 +2173,12 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
-                    v.liquify(liquifyPrevPos.x, liquifyPrevPos.y, docPos.x, docPos.y, liquifyMode, liquifyStrength.toDouble())
-                    liquifyPrevPos = docPos
+                    // 历史点(coalesced)必须一起消费: 原先只取当帧最终点, 手快时
+                    // 一次事件跨几十像素, 形变搭接不上就会留下断口
+                    for (i in 0 until event.historySize) {
+                        liquifyAlongPath(v, screenToDoc(Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))))
+                    }
+                    liquifyAlongPath(v, docPos)
                 }
             }
             Tool.PICKER -> {
@@ -2327,6 +2331,28 @@ class CanvasTouchView(context: Context) : View(context) {
             v.touchMove(pt.x, pt.y, pt.pressure)
         }
         v.touchEnd()
+    }
+
+    /**
+     * 液化沿路径推进: 位移大于笔刷影响半径时拆成多个补点, 让相邻形变搭接,
+     * 消除快速拖动时的断线。强度按 [LiquifyPath.substepStrengthScale] 折算,
+     * 保证细分前后总形变量一致 (引擎侧幅度曲线对每个 dab 有固定底)。
+     */
+    private fun liquifyAlongPath(v: PaintViewModel, to: Offset) {
+        val from = liquifyPrevPos
+        val dist = hypot(to.x - from.x, to.y - from.y)
+        val n = LiquifyPath.substepCount(dist, liquifyBrushSize)
+        if (n == 0) return
+        val strength = liquifyStrength *
+            LiquifyPath.substepStrengthScale(dist, liquifyBrushSize, n, liquifyMode)
+        var prev = from
+        for (i in 1..n) {
+            val t = i.toFloat() / n
+            val next = Offset(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
+            v.liquify(prev.x, prev.y, next.x, next.y, liquifyMode, strength.toDouble())
+            prev = next
+        }
+        liquifyPrevPos = to
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
