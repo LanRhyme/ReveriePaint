@@ -593,7 +593,13 @@ class CanvasTouchView(context: Context) : View(context) {
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
+        // 离开绘画页: 喷枪是挂在渲染线程上的自续定时链, 不停掉会让页面之外
+        // 仍周期渲染并保持笔画事务开启; 未投递的笔画样本与起笔 kick 一并丢弃
+        vm?.stopAirbrush()
+        vm?.disarmStrokeStartKick()
+        vm?.clearPendingStrokeSamples()
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+        cachedDriver?.feedbackManager?.stopStrokeSound()
         cachedDriver = null
         oplusPredictor?.destroy()
         oplusPredictor = null

@@ -7,6 +7,7 @@ package com.reverie.paint.core.stylus
 import android.content.Context
 import android.view.KeyEvent
 import android.view.MotionEvent
+import com.reverie.paint.core.Page
 import com.reverie.paint.core.PaintViewModel
 
 /**
@@ -65,6 +66,18 @@ class StylusDriver(
 
     fun onActivityPause(activity: android.app.Activity) {
         adapters.forEach { it.onActivityPause(activity) }
+    }
+
+    /**
+     * 刷新纸张音效管线门控: 仅绘画页 + 前台需要预热, 其余场景挂起 AudioTrack
+     * (见 [PaperSoundEngine.setActive])。
+     *
+     * 触发源只有两处: 页面切换 (MainActivity 的 LaunchedEffect) 与 Activity
+     * 的 STARTED 状态 (onStart/onStop)。刻意不用 onPause —— 分屏/悬浮窗失焦
+     * 时 Activity 处于 PAUSED 但用户仍在绘画, 用 onPause 会把音效误关。
+     */
+    fun refreshAudioGate(foreground: Boolean) {
+        feedbackManager.setAudioActive(foreground && vm.currentPage == Page.PAINTING)
     }
 
     fun detectOppoPencilModel(): OppoPencilModel {

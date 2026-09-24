@@ -58,6 +58,16 @@ class PaperSoundEngine {
     @Volatile private var profile: Profile = profilePencil
     @Volatile private var isTickType = false
 
+    /**
+     * 场景门控 (扩而不改, 默认 true 即保持既有"启用就预热"的行为):
+     * 只有真正需要音效的界面 (绘画页且应用在前台) 才保持管线预热。
+     *
+     * false 时 worker 挂起、AudioTrack 退出播放态, 不再写任何静音块 ——
+     * 常驻的 USAGE_MEDIA 输出会被系统 (尤其三星 Device Care) 判定为
+     * "应用正在静音播放视频/媒体", 在主页、回放页与后台白白耗电。
+     */
+    @Volatile private var active = true
+
     // ---- live stroke state (hot path: plain volatile writes only) ----
     @Volatile private var writing = false
     @Volatile private var pendingTick = false
@@ -145,6 +155,21 @@ class PaperSoundEngine {
         }
     }
 
+    /**
+     * 更新场景门控 (见 [active]); 由页面切换与 Activity 前后台变化驱动。
+     * 非阻塞: 只写标志并唤醒 worker, 由 worker 自己 pause 轨道。
+     */
+    fun setActive(value: Boolean) {
+        if (active == value) return
+        active = value
+        if (!value) {
+            // 丢弃在途笔画状态, 恢复预热后不会残留旧增益/待发 tick
+            writing = false
+            pendingTick = false
+        }
+        synchronized(lock) { lock.notifyAll() }
+    }
+
     fun configure(enabled: Boolean, volume: Float, type: StylusAudioType) {
         this.enabled = enabled
         this.volume = volume.coerceIn(0f, 1f)
@@ -181,11 +206,15 @@ class PaperSoundEngine {
     private fun renderLoop() {
         while (running.get()) {
             val t = track
-            if (t == null || !enabled) {
-                // 冷却: 引擎未启用或轨道不可用, 挂起等待 (configure/release 会唤醒)
+            if (t == null || !enabled || !active) {
+                // 冷却: 引擎未启用、或不在需要音效的界面/前台, 挂起等待
+                // (configure / setActive / release 会唤醒)
                 pauseTrack(t)
+                writing = false
+                pendingTick = false
+                currentGain = 0f
                 synchronized(lock) {
-                    while (running.get() && !enabled) {
+                    while (running.get() && (!enabled || !active)) {
                         try { lock.wait() } catch (_: InterruptedException) { return }
                     }
                 }

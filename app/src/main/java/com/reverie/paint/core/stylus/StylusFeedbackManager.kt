@@ -51,6 +51,15 @@ class StylusFeedbackManager(private val context: Context) {
     }
 
     /**
+     * 场景门控: 是否允许纸张音效保持 AudioTrack 管线预热。
+     * 只有绘画页且应用在前台才需要; 其余场景常驻的静音输出会被系统判为
+     * "应用在静音播放媒体"并计入耗电 (见 [PaperSoundEngine.setActive])。
+     */
+    fun setAudioActive(active: Boolean) {
+        paperSound.setActive(active)
+    }
+
+    /**
      * Begin paper friction sound at stroke start (non-blocking, zero allocation).
      * @param isEraser slightly quiets the texture for eraser strokes.
      */

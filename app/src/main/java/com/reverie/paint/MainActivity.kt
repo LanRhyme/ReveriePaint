@@ -186,6 +186,12 @@ class MainActivity : ComponentActivity() {
                 handleIncomingIntent(intent)
             }
             applyImmersive(vm.immersiveMode, vm.extendToCutout)
+            // 页面切换时刷新手写笔音效门控: 只有绘画页 + 前台才保持 AudioTrack
+            // 预热, 其余页面挂起, 避免常驻静音输出被系统判为"播放媒体"而耗电
+            val appPage = vm.currentPage
+            androidx.compose.runtime.LaunchedEffect(appPage) {
+                vm.refreshStylusAudioGate()
+            }
             ReverieApp(vm)
         }
         setupDragAndDrop()
@@ -337,6 +343,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val vm = currentViewModel
+        // 门控用 STARTED 而非 RESUMED: 分屏/悬浮窗失焦时仍算前台, 绘画音效
+        // 必须保持可用; 只有真正切到后台才挂起音效管线
+        vm?.refreshStylusAudioGate(true)
+        vm?.onAppForegrounded()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
@@ -416,6 +431,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        // 切后台立即挂起纸张音效管线: 常驻的 USAGE_MEDIA 静音输出会被系统
+        // 判为"应用在后台静音播放媒体", 触发耗电异常告警
+        currentViewModel?.refreshStylusAudioGate(false)
         // 当软件切入后台时，自动触发后台保存
         currentViewModel?.onAppBackgrounded()
     }
