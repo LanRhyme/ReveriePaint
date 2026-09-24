@@ -643,6 +643,7 @@ internal fun PaintViewModel.moveLayersToGroup(
     group: Int,
 ) {
     if (fromIndices.isEmpty()) return
+    val selectedIds = layers.filter { it.index in fromIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in fromIndices }.map { it.name }.toSet()
     if (recorder.recording) {
         for (from in fromIndices) {
@@ -651,7 +652,7 @@ internal fun PaintViewModel.moveLayersToGroup(
     }
     runCore(after = {
         notifyLayerChanged()
-        selectedLayerIndices = layers.filter { it.name in selectedNames }.map { it.index }.toSet()
+        selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
         ReverieCoreBridge.moveLayersToGroup(fromIndices.toIntArray(), group)
     }
@@ -663,6 +664,7 @@ internal fun PaintViewModel.moveLayersRelative(
     placeAbove: Boolean,
 ) {
     if (fromIndices.isEmpty()) return
+    val selectedIds = layers.filter { it.index in fromIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in fromIndices }.map { it.name }.toSet()
     if (recorder.recording) {
         for (from in fromIndices) {
@@ -675,7 +677,7 @@ internal fun PaintViewModel.moveLayersRelative(
     }
     runCore(after = {
         notifyLayerChanged()
-        selectedLayerIndices = layers.filter { it.name in selectedNames }.map { it.index }.toSet()
+        selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
         ReverieCoreBridge.moveLayersRelative(fromIndices.toIntArray(), target, placeAbove)
     }

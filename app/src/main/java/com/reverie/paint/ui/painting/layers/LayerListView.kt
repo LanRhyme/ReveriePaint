@@ -155,6 +155,7 @@ internal fun LayerListView(
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
     var dragFingerX by remember { mutableFloatStateOf(0f) }
     var dragFingerY by remember { mutableFloatStateOf(0f) }
+    var dragStartX by remember { mutableFloatStateOf(0f) }
     var dragTargetIdx by remember { mutableIntStateOf(-1) }
     var listLeft by remember { mutableFloatStateOf(0f) }
     var listTop by remember { mutableFloatStateOf(0f) }
@@ -225,6 +226,14 @@ internal fun LayerListView(
             val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
             if (fromLayer?.isGroup == true && layer.depth > fromLayer.depth) continue
 
+            // If the layer being dragged already belongs to this group, do not hover-drop into it
+            val isAlreadyInsideThisGroup = fromLayer != null && fromLayer.depth > layer.depth &&
+                run {
+                    val pg = vm.layers.take(fromLayer.index).lastOrNull { it.depth == layer.depth && it.isGroup }
+                    pg?.index == layer.index
+                }
+            if (isAlreadyInsideThisGroup) continue
+
             // Priority A: direct screen bounding box from onGloballyPositioned
             val b = rowBounds[layer.index]
             if (b != null && fingerY >= b.first && fingerY <= b.second) {
@@ -293,8 +302,15 @@ internal fun LayerListView(
                 val draggedSet = batch.toSet()
                 val nonDraggedPrev = displayRows.take(insert).lastOrNull { it.index !in draggedSet }
                 val nonDraggedNext = displayRows.drop(insert).firstOrNull { it.index !in draggedSet }
-                val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
-                val isIndented = dragFingerX >= indentThreshold
+                val panelX = dragFingerX - listLeft
+                val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
+                    panelX >= with(density) { 130.dp.toPx() }
+
+                val fromLayer = vm.layers.firstOrNull { it.index == from }
+                val fromIsNested = (fromLayer?.depth ?: 0) > 0
+                val parentGroup = if (fromIsNested && fromLayer != null) {
+                    vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
+                } else null
 
                 when {
                     nonDraggedPrev == null && nonDraggedNext != null -> {
@@ -315,6 +331,20 @@ internal fun LayerListView(
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             } else {
                                 vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
+                            }
+                        } else if (!isIndented && fromIsNested && parentGroup != null) {
+                            val grpVisualIdx = displayRows.indexOfFirst { it.index == parentGroup.index }
+                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
+                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
+                            } else {
+                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = false)
+                            }
+                        } else if (nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index) {
+                            val grpVisualIdx = displayRows.indexOfFirst { it.index == nonDraggedPrev.index }
+                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
+                            } else {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
                             }
                         } else {
                             vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
@@ -342,6 +372,7 @@ internal fun LayerListView(
         }
         draggingFrom = -1
         dragTargetIdx = -1
+        dragStartX = 0f
         dragFingerX = 0f
         dragFingerY = 0f
         dragOver = null
@@ -648,6 +679,7 @@ internal fun LayerListView(
                             }
                             activeDragLayer = layer
                             draggingFrom = layer.index
+                            dragStartX = startX
                             updateDragPos(startX, startY)
                         },
                         onDragPosition = { x, y -> updateDragPos(x, y) },
@@ -713,8 +745,15 @@ internal fun LayerListView(
 
             val nonDraggedPrev = if (showIndicator) displayRows.take(dragTargetIdx).lastOrNull { it.index !in draggedSet } else null
             val nonDraggedNext = if (showIndicator) displayRows.drop(dragTargetIdx).firstOrNull { it.index !in draggedSet } else null
-            val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
-            val isIndented = dragFingerX >= indentThreshold
+            val panelX = dragFingerX - listLeft
+            val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
+                panelX >= with(density) { 130.dp.toPx() }
+
+            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
+            val fromIsNested = (fromLayer?.depth ?: 0) > 0
+            val parentGroup = if (fromIsNested && fromLayer != null) {
+                vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
+            } else null
 
             val targetDepth = when {
                 nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
@@ -725,6 +764,8 @@ internal fun LayerListView(
                 nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
                 }
+                !isIndented && fromIsNested -> 0
+                nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index -> 0
                 else -> nonDraggedNext?.depth ?: 0
             }
 

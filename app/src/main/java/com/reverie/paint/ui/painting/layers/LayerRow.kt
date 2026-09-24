@@ -210,6 +210,8 @@ internal fun LayerRow(
                         val startX = down.position.x
                         val startY = down.position.y
                         val startOffset = revealAnim.value
+                        val touchSlop = viewConfiguration.touchSlop
+                        val isDrawerOpen = revealed || startOffset < -touchSlop
                         var gestureMode = 0 // 0: undecided, 1: swiping drawer, 2: dragging layer, 3: scrolling
                         var velocityX = 0f
                         var prevX = startX
@@ -217,14 +219,18 @@ internal fun LayerRow(
                         var selectTriggered = false
                         val pressTime = down.uptimeMillis
                         val longPressTimeoutMs = 300L
-                        val touchSlop = viewConfiguration.touchSlop
                         val press = androidx.compose.foundation.interaction.PressInteraction.Press(down.position)
-                        scope.launch { rowInteraction.emit(press) }
+                        if (!isDrawerOpen) {
+                            scope.launch { rowInteraction.emit(press) }
+                        }
 
+                        var lastChange: androidx.compose.ui.input.pointer.PointerInputChange? = null
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
-                            if (change == null || change.changedToUpIgnoreConsumed()) break
+                            if (change == null) break
+                            lastChange = change
+                            if (change.changedToUpIgnoreConsumed()) break
                             val currentX = change.position.x
                             val currentY = change.position.y
                             val dx = currentX - startX
@@ -234,11 +240,15 @@ internal fun LayerRow(
                             if (gestureMode == 0) {
                                 if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 0.7f) {
                                     gestureMode = 1
-                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                    if (!isDrawerOpen) {
+                                        scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                    }
                                 } else if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
                                     gestureMode = 3
-                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
-                                } else if (elapsed >= longPressTimeoutMs && abs(dx) <= touchSlop * 1.5f && abs(dy) <= touchSlop * 1.5f) {
+                                    if (!isDrawerOpen) {
+                                        scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                    }
+                                } else if (!isDrawerOpen && elapsed >= longPressTimeoutMs && abs(dx) <= touchSlop * 1.5f && abs(dy) <= touchSlop * 1.5f) {
                                     gestureMode = 2
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
@@ -287,8 +297,21 @@ internal fun LayerRow(
                             scope.launch { revealAnim.animateTo(targetOffset, animSpec) }
                             if (shouldReveal) onReveal() else onRevealClose()
                         } else if (gestureMode == 0) {
-                            scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
-                            onClick()
+                            if (isDrawerOpen) {
+                                // Drawer was open: do NOT trigger onClick / layer properties
+                                if (startX < size.width - drawerPx) {
+                                    scope.launch {
+                                        revealAnim.animateTo(0f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+                                    }
+                                    onRevealClose()
+                                }
+                            } else if (lastChange?.isConsumed == true) {
+                                // Child clickable (eye toggle, chevron) handled the event
+                                scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                            } else {
+                                scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
+                                onClick()
+                            }
                         }
                     }
                 },
