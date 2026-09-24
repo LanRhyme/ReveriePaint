@@ -17,9 +17,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.BorderStroke
@@ -677,14 +674,13 @@ internal fun LayerListView(
                         }
                     },
         ) {
-            @OptIn(ExperimentalFoundationApi::class)
             CompositionLocalProvider(
                 LocalOverscrollFactory provides null,
-                LocalOverscrollConfiguration provides null,
             ) {
                 LazyColumn(
                     state = listState,
                     userScrollEnabled = draggingFrom < 0,
+                    overscrollEffect = null,
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
@@ -754,7 +750,6 @@ internal fun LayerListView(
                             isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
                                 draggingFrom == layer.index ||
                                 (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
-                            dragFingerY = dragFingerY,
                             multiSelected = layer.index in vm.selectedLayerIndices,
                             onSelect = {
                                 revealedIndex = null
