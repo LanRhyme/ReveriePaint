@@ -210,10 +210,14 @@ internal fun LayerListView(
 
     // Display list priority: frozen drop order > dragging order > real order
     val displayList =
-        remember(vm.layers, collapsedGroupNames, draggingFrom, dragTargetIdx, pendingOrder) {
+        remember(vm.layers, collapsedGroupNames, draggingFrom, dragTargetIdx, pendingOrder, dragOver) {
             if (pendingOrder != null) {
                 val byName = displayRows.associateBy { it.name }
                 pendingOrder!!.mapNotNull { byName[it] }
+            } else if (dragOver != null && dragOver!!.second == DropMode.OnGroup) {
+                // When hovering over a group to drop into it, keep displayRows unchanged
+                // so the group folder DOES NOT move or dodge under the finger
+                displayRows
             } else if (draggingFrom >= 0 && dragTargetIdx >= 0) {
                 val l = displayRows.toMutableList()
                 val fi = l.indexOfFirst { it.index == draggingFrom }
@@ -250,22 +254,37 @@ internal fun LayerListView(
         val scrollOffset = listState.firstVisibleItemIndex * rowPx + listState.firstVisibleItemScrollOffset
         val contentY = (fingerY - listTop) + scrollOffset
 
+        val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val draggedSet = if (isMulti) vm.selectedLayerIndices else setOf(draggingFrom)
+
         // 1. Group hover detection
-        val localY = fingerY - listTop
-        val hoveredItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
-            localY >= info.offset && localY < info.offset + info.size
-        }
         var over: Pair<Int, DropMode>? = null
-        if (hoveredItem != null) {
-            val hoveredLayer = displayList.getOrNull(hoveredItem.index)
-            if (hoveredLayer != null && hoveredLayer.isGroup && hoveredLayer.index != draggingFrom) {
-                val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
-                val isDescendant = fromLayer?.isGroup == true && hoveredLayer.depth > fromLayer.depth
-                if (!isDescendant) {
-                    val inRowY = localY - hoveredItem.offset
-                    val inRowRatio = inRowY / hoveredItem.size.toFloat()
-                    if (inRowRatio in 0.22f..0.78f) {
-                        over = hoveredLayer.index to DropMode.OnGroup
+        for (layer in vm.layers) {
+            if (!layer.isGroup || layer.index in draggedSet) continue
+            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
+            if (fromLayer?.isGroup == true && layer.depth > fromLayer.depth) continue
+
+            // Priority A: direct screen bounding box from onGloballyPositioned
+            val b = rowBounds[layer.index]
+            if (b != null && fingerY >= b.first && fingerY <= b.second) {
+                val h = (b.second - b.first).coerceAtLeast(1f)
+                val relY = (fingerY - b.first) / h
+                if (relY in 0.10f..0.90f) {
+                    over = layer.index to DropMode.OnGroup
+                    break
+                }
+            } else {
+                // Priority B: mathematical contentY range in displayRows
+                val groupVisualIdx = displayRows.indexOfFirst { it.index == layer.index }
+                if (groupVisualIdx >= 0) {
+                    val gTop = groupVisualIdx * rowPx
+                    val gBottom = gTop + rowPx
+                    if (contentY >= gTop && contentY <= gBottom) {
+                        val relY = (contentY - gTop) / rowPx.toFloat()
+                        if (relY in 0.10f..0.90f) {
+                            over = layer.index to DropMode.OnGroup
+                            break
+                        }
                     }
                 }
             }
@@ -273,10 +292,11 @@ internal fun LayerListView(
         dragOver = over
 
         if (over != null) {
-            val groupVisualIdx = displayList.indexOfFirst { it.index == over.first }
+            val groupVisualIdx = displayRows.indexOfFirst { it.index == over.first }
             if (groupVisualIdx >= 0) {
                 dragTargetIdx = groupVisualIdx
             }
+            android.util.Log.d("LayerPanel", "GROUP HOVER DETECTED on group=${over.first} fingerY=$fingerY")
             return
         }
 
@@ -315,11 +335,13 @@ internal fun LayerListView(
         val from = draggingFrom
         val insert = dragTargetIdx
         val over = dragOver
-        if (from > 0 && insert >= 0) {
+        android.util.Log.d("LayerPanel", "endDrag from=$from insert=$insert over=$over multi=${vm.selectedLayerIndices}")
+        if (from > 0 && (insert >= 0 || over != null)) {
             val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
                 val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                android.util.Log.d("LayerPanel", "ACTION: MOVE TO GROUP groupIdx=$groupIdx isMulti=$isMulti")
                 if (isMulti) {
                     val batch = vm.selectedLayerIndices.filter { it > 0 }.sorted()
                     vm.moveLayersToGroup(batch, groupIdx)
@@ -330,7 +352,7 @@ internal fun LayerListView(
                 if (groupLayer != null && groupLayer.name in collapsedGroupNames) {
                     collapsedGroupNames = collapsedGroupNames - groupLayer.name
                 }
-            } else {
+            } else if (insert >= 0) {
                 val frozen = displayRows.toMutableList()
                 val fi = frozen.indexOfFirst { it.index == from }
                 if (fi >= 0) {
