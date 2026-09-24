@@ -10,6 +10,7 @@
 #include "ReverieCoreInternal.h"
 
 #include <QRegularExpression>
+#include <QBuffer>
 #include <algorithm>
 #include <QtEndian>
 #include <zlib.h>
@@ -156,6 +157,33 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
         res = new KisPngBrush(baseName);
     } else if (baseName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
         res = new KisSvgBrush(baseName);
+    } else if (baseName.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) ||
+               baseName.endsWith(QLatin1String(".jpeg"), Qt::CaseInsensitive)) {
+        QImage img(fullPath);
+        if (!img.isNull()) {
+            QByteArray pngData;
+            QBuffer buf(&pngData);
+            buf.open(QIODevice::WriteOnly);
+            if (img.save(&buf, "PNG")) {
+                buf.close();
+                buf.open(QIODevice::ReadOnly);
+                res = new KisPngBrush(baseName);
+                if (res->loadFromDevice(&buf, m_brushResources)) {
+                    KisLocalStrokeResources *lr =
+                        dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
+                    if (lr) {
+                        lr->addResource(KoResourceSP(res));
+                        KisBrush *b = dynamic_cast<KisBrush *>(res);
+                        if (b) {
+                            m_loadedBrushes.insert(baseName, KisBrushSP(b));
+                        }
+                        return true;
+                    }
+                }
+                delete res;
+            }
+        }
+        return false;
     }
     if (!res) return false;
 
@@ -281,18 +309,23 @@ bool ReverieCore::loadBrushPreset(int index)
     m_brushPresetIndex = index;
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        m_airbrushEnabled = s->getBool("PaintOpSettings/isAirbrushing",
+                            s->getBool("AirbrushOption/isAirbrushing",
+                            s->getBool("Airbrush/isChecked", false)));
+        const double rate = s->getDouble("PaintOpSettings/rate",
+                            s->getDouble("AirbrushOption/rate", 30.0));
+        m_airbrushRate = rate >= 5.0 ? rate : 30.0;
+        m_smudgeRate = s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.5));
+        m_smudgeLength = s->getDouble("SmudgeRateValue", 0.5);
     }
     // Re-apply the user's current size / opacity / flow over the preset's
     // own values (they are stored per preset and would otherwise override).
-    // Note: brush spacing belongs to the preset unless explicitly customized in BrushStudio.
+    // Note: brush spacing, airbrush, and smudge parameters belong to the preset defaults
+    // unless explicitly customized in BrushStudio (which calls setBrush* after loading).
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
-    setBrushSmudgeRate(m_smudgeRate);
-    setBrushSmudgeLength(m_smudgeLength);
-    // Re-apply the airbrush mode over the preset's own keys (same pattern as
-    // size/opacity/flow above; members keep the user's last values).
-    setBrushAirbrush(m_airbrushEnabled, m_airbrushRate);
     m_brushTipAsset.clear();
     // Diagnostics: is the preset's brush resolved to a real brush resource
     // or did it fall back to the default auto_brush (circle)?
@@ -318,7 +351,7 @@ bool ReverieCore::loadBrushPreset(int index)
 QVector<double> ReverieCore::brushPresetDefaults(int index)
 {
     if (index < 0 || index >= m_presets.size()) {
-        return {20.0, 1.0, 1.0};
+        return {20.0, 1.0, 1.0, 0.15, 0.0, 30.0, 0.5, 0.5};
     }
     registerPaintOps();
     if (!m_brushResources) {
@@ -326,24 +359,50 @@ QVector<double> ReverieCore::brushPresetDefaults(int index)
     }
     QFile f(m_presets[index].second);
     if (!f.open(QIODevice::ReadOnly)) {
-        return {20.0, 1.0, 1.0};
+        return {20.0, 1.0, 1.0, 0.15, 0.0, 30.0, 0.5, 0.5};
     }
     KisPaintOpPresetSP preset(new KisPaintOpPreset(m_presets[index].first));
     const bool ok = preset->loadFromDevice(&f, m_brushResources);
     f.close();
-    if (!ok) {
-        return {20.0, 1.0, 1.0};
+    if (!ok || !preset->settings()) {
+        return {20.0, 1.0, 1.0, 0.15, 0.0, 30.0, 0.5, 0.5};
     }
-    double size = 20.0;
-    if (preset->settings()) {
-        size = preset->settings()->paintOpSize();
-        if (!(size > 0.0) || size != size) {  // NaN / non-positive guard
-            size = 20.0;
-        }
+    KisPaintOpSettingsSP s = preset->settings();
+    double size = s->paintOpSize();
+    if (!(size > 0.0) || size != size) {  // NaN / non-positive guard
+        size = 20.0;
     }
-    const double opacity = preset->settings()->getDouble("OpacityValue", 1.0);
-    const double flow = preset->settings()->getDouble("FlowValue", 1.0);
-    return {size, opacity, flow};
+    const double opacity = s->getDouble("OpacityValue", 1.0);
+    const double flow = s->getDouble("FlowValue", 1.0);
+
+    // Spacing
+    double spacing = 0.15;
+    KisBrushBasedPaintOpSettings *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(s.data());
+    if (bs) {
+        spacing = bs->spacing();
+    }
+    if (!(spacing > 0.0) || spacing != spacing) {
+        spacing = s->getDouble("SpacingValue", s->getDouble("spacing", 0.15));
+    }
+    if (!(spacing > 0.0) || spacing != spacing) {
+        spacing = 0.15;
+    }
+
+    // Airbrush
+    const bool isAirbrush = s->getBool("PaintOpSettings/isAirbrushing",
+                            s->getBool("AirbrushOption/isAirbrushing",
+                            s->getBool("Airbrush/isChecked", false)));
+    double airbrushRate = s->getDouble("PaintOpSettings/rate",
+                          s->getDouble("AirbrushOption/rate", 30.0));
+    if (!(airbrushRate >= 5.0) || airbrushRate != airbrushRate) {
+        airbrushRate = 30.0;
+    }
+
+    // Smudge
+    const double smudgeRate = s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.5));
+    const double smudgeLength = s->getDouble("SmudgeRateValue", 0.5);
+
+    return {size, opacity, flow, spacing, isAirbrush ? 1.0 : 0.0, airbrushRate, smudgeRate, smudgeLength};
 }
 
 int ReverieCore::brushPresetCount() const
@@ -417,13 +476,20 @@ void ReverieCore::setBrushSmudgeRate(qreal v)
     KisPaintOpSettingsSP s = m_brushPreset->settings();
     s->setProperty("ColorRateValue", v);
     s->setProperty("MixValue", v); // legacy key for older-generation presets
+    s->setProperty("PressureColorRate", true);
+    s->setProperty("ColorRate/isChecked", true);
+    s->setProperty("ColorRate/strengthValue", v);
 }
 
 void ReverieCore::setBrushSmudgeLength(qreal v)
 {
     m_smudgeLength = v;
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setProperty("SmudgeRateValue", v);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setProperty("SmudgeRateValue", v);
+        s->setProperty("PressureSmudgeRate", true);
+        s->setProperty("SmudgeRate/isChecked", true);
+        s->setProperty("SmudgeRate/strengthValue", v);
     }
 }
 
@@ -433,11 +499,14 @@ void ReverieCore::setBrushSmudgeLength(qreal v)
 void ReverieCore::setBrushAirbrush(bool enabled, qreal rate)
 {
     m_airbrushEnabled = enabled;
-    m_airbrushRate = rate > 0.0 ? rate : 1.0;
+    m_airbrushRate = rate >= 5.0 ? rate : 30.0;
     if (m_brushPreset && m_brushPreset->settings()) {
         KisPaintOpSettingsSP s = m_brushPreset->settings();
         s->setProperty("PaintOpSettings/isAirbrushing", enabled);
+        s->setProperty("AirbrushOption/isAirbrushing", enabled);
+        s->setProperty("Airbrush/isChecked", enabled);
         s->setProperty("PaintOpSettings/rate", m_airbrushRate);
+        s->setProperty("AirbrushOption/rate", m_airbrushRate);
     }
 }
 
@@ -465,7 +534,18 @@ void ReverieCore::setBrushAngle(qreal v)
 void ReverieCore::setBrushScatter(qreal v)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setPaintOpScatter(v);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setPaintOpScatter(v);
+        // KisPaintOpSettings::setPaintOpScatter early-returns if "PressureScatter" property is missing.
+        // Directly write both Krita 4 and 5 scattering keys to ensure scatter works on any preset.
+        const bool active = (v > 0.001);
+        s->setProperty("PressureScatter", active);
+        s->setProperty("Scatter/isChecked", active);
+        s->setProperty("Scatter/strengthValue", v);
+        s->setProperty("Scattering/Amount", v);
+        s->setProperty("ScatterValue", v);
+        s->setProperty("Scattering/AxisX", true);
+        s->setProperty("Scattering/AxisY", true);
     }
 }
 
@@ -527,12 +607,33 @@ void ReverieCore::setBrushCompositeOp(const QString &op)
 bool ReverieCore::setBrushTipAsset(const QString &assetName)
 {
     m_brushTipAsset = assetName;
-    if (assetName.isEmpty() || !m_brushPreset || !m_brushPreset->settings()) {
+    if (!m_brushPreset || !m_brushPreset->settings()) {
         return false;
     }
     KisBrushBasedPaintOpSettings *bs =
         dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
     if (!bs) {
+        return false;
+    }
+    if (assetName.isEmpty()) {
+        // Restore factory brush tip from the original .kpp preset file
+        if (m_brushPresetIndex >= 0 && m_brushPresetIndex < m_presets.size()) {
+            QFile f(m_presets[m_brushPresetIndex].second);
+            if (f.open(QIODevice::ReadOnly)) {
+                KisPaintOpPresetSP originalPreset(new KisPaintOpPreset(m_presets[m_brushPresetIndex].first));
+                if (originalPreset->loadFromDevice(&f, m_brushResources)) {
+                    KisBrushBasedPaintOpSettings *origBs =
+                        dynamic_cast<KisBrushBasedPaintOpSettings *>(originalPreset->settings().data());
+                    if (origBs && origBs->brush()) {
+                        KisBrushOptionProperties prop;
+                        prop.readOptionSetting(origBs, m_brushResources, origBs->canvasResourcesInterface());
+                        prop.writeOptionSetting(bs);
+                        RPC_LOG("RPC setBrushTipAsset: restored factory brush tip for preset %d", m_brushPresetIndex);
+                        return true;
+                    }
+                }
+            }
+        }
         return false;
     }
     KisBrushSP brush = m_loadedBrushes.value(assetName);

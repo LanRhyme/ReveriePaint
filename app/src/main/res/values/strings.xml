@@ -1055,6 +1055,7 @@
     <string name="brush_studio_dynamics_airbrush_mode">喷枪流速模式 (Airbrush)</string>
     <string name="brush_studio_dynamics_airbrush_enable">启用喷枪时间流速持续喷涂</string>
     <string name="brush_studio_dynamics_airbrush_rate">喷涂流速 (Rate)</string>
+    <string name="brush_studio_unit_dabs_per_sec">点/秒</string>
     <string name="brush_studio_color_jitter_title">色彩随机抖动</string>
     <string name="brush_studio_color_hue_jitter">色相抖动 (Hue Jitter)</string>
     <string name="brush_studio_color_sat_jitter">饱和度抖动 (Saturation)</string>

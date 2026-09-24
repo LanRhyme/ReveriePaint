@@ -287,7 +287,7 @@ class PaintViewModel : ViewModel() {
     var brushTipAsset by mutableStateOf("")
     var brushPaintOpId by mutableStateOf("defaultpaintop")
     var brushAirbrush by mutableStateOf(false)
-    var brushAirbrushRate by mutableDoubleStateOf(0.05)
+    var brushAirbrushRate by mutableDoubleStateOf(30.0)
     var brushSmudgeRate by mutableDoubleStateOf(0.5)
     var brushSmudgeLength by mutableDoubleStateOf(0.5)
     var brushSpikes by mutableIntStateOf(2)
@@ -2816,7 +2816,8 @@ class PaintViewModel : ViewModel() {
         pendingSampleY = y.toDouble()
         pendingSampleP = p
         if (!brushAirbrush) return
-        airbrushIntervalMs = ((1000.0 * (1.0 - brushAirbrushRate)).coerceAtLeast(20.0)).toLong()
+        val rate = brushAirbrushRate.coerceIn(10.0, 120.0)
+        airbrushIntervalMs = (1000.0 / rate).toLong().coerceIn(8L, 100L)
         airbrushActive = true
         renderHandler?.postDelayed(airbrushRunnable, airbrushIntervalMs)
     }
@@ -3170,7 +3171,7 @@ data class BrushParams(
     val tipAsset: String = "",
     val paintOpId: String = "defaultpaintop",
     val airbrush: Boolean = false,
-    val airbrushRate: Double = 0.05,
+    val airbrushRate: Double = 30.0,
     val smudgeRate: Double = 0.5,
     val smudgeLength: Double = 0.5,
     val spikes: Int = 2,

@@ -1011,7 +1011,7 @@ private fun StrokeTabContent(vm: PaintViewModel, cardBg: Color, borderCol: Color
     StudioSectionHeader(stringResource(R.string.brush_studio_dynamics_airbrush_mode), textSub)
     StudioSwitchItem(stringResource(R.string.brush_studio_dynamics_airbrush_enable), vm.brushAirbrush, textMain = textMain) { vm.updateBrushAirbrush(it) }
     if (vm.brushAirbrush) {
-        StudioSliderItem(stringResource(R.string.brush_studio_dynamics_airbrush_rate), vm.brushAirbrushRate, 0.01, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushAirbrushRate(it) }
+        StudioSliderItem(stringResource(R.string.brush_studio_dynamics_airbrush_rate), vm.brushAirbrushRate, 10.0, 120.0, unit = stringResource(R.string.brush_studio_unit_dabs_per_sec), textMain = textMain, textSub = textSub) { vm.updateBrushAirbrushRate(it) }
     }
 }
 

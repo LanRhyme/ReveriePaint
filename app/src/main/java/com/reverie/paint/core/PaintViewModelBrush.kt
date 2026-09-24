@@ -649,7 +649,7 @@ import kotlinx.coroutines.withContext
                     tipAsset = o.optString("ta", ""),
                     paintOpId = o.optString("poid", "defaultpaintop"),
                     airbrush = o.optBoolean("ab", false),
-                    airbrushRate = o.optDouble("abr", 0.05),
+                    airbrushRate = o.optDouble("abr", 30.0).let { if (it < 5.0) 30.0 else it },
                     smudgeRate = o.optDouble("smr", 0.5),
                     smudgeLength = o.optDouble("sml", 0.5),
                     spikes = o.optInt("spk", 2),
@@ -725,7 +725,7 @@ import kotlinx.coroutines.withContext
         brushSize = d?.getOrNull(0) ?: 20.0
         brushOpacity = (d?.getOrNull(1) ?: 1.0).coerceIn(0.0, 1.0)
         brushFlow = (d?.getOrNull(2) ?: 1.0).coerceIn(0.0, 1.0)
-        brushSpacing = 0.1
+        brushSpacing = d?.getOrNull(3) ?: 0.15
         brushAngle = 0.0
         brushScatter = 0.0
         brushFade = 0.0
@@ -760,10 +760,11 @@ import kotlinx.coroutines.withContext
         brushMaxSizeLimit = 500.0
         brushTipAsset = ""
         brushPaintOpId = "defaultpaintop"
-        brushAirbrush = false
-        brushAirbrushRate = 0.05
-        brushSmudgeRate = 0.5
-        brushSmudgeLength = 0.5
+        brushAirbrush = (d?.getOrNull(4) ?: 0.0) > 0.5
+        val defaultRate = d?.getOrNull(5) ?: 30.0
+        brushAirbrushRate = if (defaultRate >= 5.0) defaultRate else 30.0
+        brushSmudgeRate = d?.getOrNull(6) ?: 0.5
+        brushSmudgeLength = d?.getOrNull(7) ?: 0.5
         brushSpikes = 2
         brushJitterAngle = 0.0
         brushJitterSize = 0.0
@@ -952,7 +953,7 @@ import kotlinx.coroutines.withContext
                 brushTipAsset = saved.tipAsset
                 brushPaintOpId = saved.paintOpId
                 brushAirbrush = saved.airbrush
-                brushAirbrushRate = saved.airbrushRate
+                brushAirbrushRate = if (saved.airbrushRate >= 5.0) saved.airbrushRate else 30.0
                 brushSmudgeRate = saved.smudgeRate
                 brushSmudgeLength = saved.smudgeLength
                 brushSpikes = saved.spikes
@@ -965,7 +966,17 @@ import kotlinx.coroutines.withContext
             } else {
                 // First use: the preset's own defaults
                 val d = ReverieCoreBridge.brushPresetDefaults(index)
-                if (d != null && d.size >= 3) {
+                if (d.size >= 8) {
+                    brushSize = d[0]
+                    brushOpacity = d[1].coerceIn(0.0, 1.0)
+                    brushFlow = d[2].coerceIn(0.0, 1.0)
+                    brushSpacing = d[3]
+                    brushAirbrush = d[4] > 0.5
+                    val defaultRate = d[5]
+                    brushAirbrushRate = if (defaultRate >= 5.0) defaultRate else 30.0
+                    brushSmudgeRate = d[6]
+                    brushSmudgeLength = d[7]
+                } else if (d.size >= 3) {
                     brushSize = d[0]
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
@@ -1004,15 +1015,13 @@ import kotlinx.coroutines.withContext
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
-                ReverieCoreBridge.setBrushAirbrush(saved.airbrush, saved.airbrushRate)
+                val effectiveAirbrushRate = if (saved.airbrushRate >= 5.0) saved.airbrushRate else 30.0
+                ReverieCoreBridge.setBrushAirbrush(saved.airbrush, effectiveAirbrushRate)
                 if (saved.tipAsset.isNotEmpty()) {
                     ReverieCoreBridge.setBrushTipAsset(saved.tipAsset)
                 }
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
-                ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
-                ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
-                ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
             }
         }
     }
@@ -1520,23 +1529,37 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.importCustomBrushTip(uri: android.net.Uri): String? {
         return try {
             val resolver = appContext.contentResolver
-            val filename = runCatching {
+            val rawName = runCatching {
                 resolver.query(uri, null, null, null, null)?.use { cursor ->
                     val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                     if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
                 }
-            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "tip_${System.currentTimeMillis()}.png"
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "tip_${System.currentTimeMillis()}"
 
-            val cleanName = if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".jpg", true)) {
-                filename
-            } else {
-                "$filename.png"
-            }
+            val baseName = if (rawName.contains('.')) rawName.substringBeforeLast(".") else rawName
+            val ext = if (rawName.contains('.')) rawName.substringAfterLast(".").lowercase() else "png"
+            val isKritaNative = ext == "gbr" || ext == "gih" || ext == "svg"
+
             val brushDir = File(appContext.filesDir, "brushes")
             if (!brushDir.exists()) brushDir.mkdirs()
-            val target = File(brushDir, cleanName)
-            resolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
+
+            val cleanName: String
+            if (isKritaNative) {
+                cleanName = "$baseName.$ext"
+                val target = File(brushDir, cleanName)
+                resolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            } else {
+                // Decode any image format and write as standard lossless PNG for KisPngBrush
+                cleanName = "$baseName.png"
+                val target = File(brushDir, cleanName)
+                val bmp = resolver.openInputStream(uri)?.use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)
+                } ?: return null
+                target.outputStream().use { output ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, output)
+                }
             }
             updateBrushTipAsset(cleanName)
             cleanName

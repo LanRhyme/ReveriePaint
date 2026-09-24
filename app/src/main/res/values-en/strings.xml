@@ -1055,6 +1055,7 @@
     <string name="brush_studio_dynamics_airbrush_mode">Airbrush Mode</string>
     <string name="brush_studio_dynamics_airbrush_enable">Enable Continuous Airbrush Flow</string>
     <string name="brush_studio_dynamics_airbrush_rate">Flow Rate</string>
+    <string name="brush_studio_unit_dabs_per_sec">dabs/s</string>
     <string name="brush_studio_color_jitter_title">Color Dynamics &amp; Jitter</string>
     <string name="brush_studio_color_hue_jitter">Hue Jitter</string>
     <string name="brush_studio_color_sat_jitter">Saturation Jitter</string>
