@@ -125,6 +125,9 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
 // every worker (grid ops are content-independent), and the whole gesture is
 // committed as ONE composite undo command.
 //
+// SELECTION: the writeback is constrained by the active selection, so an
+// existing selection freezes everything outside it (see liquifyApplyLocked).
+//
 // PERFORMANCE: run() clears dst and fast-copies the ENTIRE complement of the
 // strokes sub-grid. The worker is therefore constructed over a LOCAL rect
 // around the brush (src clone is local too), rebased when the brush wanders
@@ -161,15 +164,31 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     }
     const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
     QRect dirtyUnion;
+    // An active selection is a freeze mask: the grid warp itself still runs
+    // over the whole worker bounds (pixels may be pulled IN from outside,
+    // like Krita's transform tool), but only selected pixels are written
+    // back - the same KisPainter-level constraint every other paint path
+    // here uses. The exact rect additionally keeps the writeback (and the
+    // recomposite it triggers) off untouched areas.
+    QRect clipRect(0, 0, m_document->width(), m_document->height());
+    if (m_selection) {
+        clipRect &= m_selection->selectedExactRect();
+    }
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (!t.worker) continue;
         t.dst->clear();
         t.worker->run(t.src, t.dst);
-        const QRect area = deltaRect.intersected(t.bounds)
-                               .intersected(QRect(0, 0, m_document->width(), m_document->height()));
+        const QRect area = deltaRect.intersected(t.bounds).intersected(clipRect);
         if (!area.isEmpty()) {
             KisPainter p(t.device);
             p.setCompositeOpId(COMPOSITE_COPY);
+            if (m_selection) {
+                p.setSelection(m_selection);
+            }
+            // Alpha-locked layer keeps its silhouette: only the colour
+            // channels follow the warp (same flags the stroke path uses)
+            p.setChannelFlags(t.layer && t.layer->alphaLocked() ? t.layer->channelLockFlags()
+                                                                : QBitArray());
             p.bitBlt(area.topLeft(), t.dst, area);
             p.end();
             t.device->setDirty(area);
@@ -225,6 +244,7 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         seen.append(dev);
         LiquifyTarget t;
         t.device = dev;
+        t.layer = dynamic_cast<KisPaintLayer *>(m_layers[idx].node);
         t.txn = new KisTransaction(kundo2_i18n("Liquify"), dev, nullptr, -1, nullptr);
         m_liquifyTargets.append(t);
     }
@@ -347,9 +367,16 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             t.src->makeCloneFrom(t.device, bounds);
             t.dst = new KisPaintDevice(t.device->colorSpace());
             delete t.worker;
-            // pixelPrecision 16: quarter the polygon count vs 8 with no
-            // visible quality difference for smooth liquify warps
-            t.worker = new KisLiquifyTransformWorker(bounds, nullptr, 16);
+            // pixelPrecision is the grid cell size: the warp is piecewise
+            // linear WITHIN a cell, so the gaussian bump must be resolved by
+            // several cells or its curvature degenerates into flat facets -
+            // visible as jagged/stair-stepped edges on the warped content.
+            // A fixed 16 resolved a 20px brush with barely one cell. Scale
+            // the grid with the brush instead (~8 cells across the radius),
+            // clamped so tiny brushes stay affordable and huge brushes keep
+            // the coarse grid the throttling budget was tuned for.
+            const int precision = qBound<int>(4, qRound(size / 8.0), 16);
+            t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
         }
     }
