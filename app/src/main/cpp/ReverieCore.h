@@ -68,6 +68,12 @@ public:
     void clearLayer(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
+    quint64 layerId(int index) const {
+        if (index >= 0 && index < m_layers.size() && m_layers[index].node) {
+            return reinterpret_cast<quintptr>(m_layers[index].node);
+        }
+        return static_cast<quint64>(index + 1);
+    }
     QString layerName(int index) const;
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;

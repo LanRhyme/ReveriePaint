@@ -163,6 +163,7 @@ internal fun LayerListView(
     var settleTo by remember { mutableStateOf<Float?>(null) }
     var settleFrom by remember { mutableStateOf<Float?>(null) }
     var settling by remember { mutableStateOf(false) }
+    var isGroupSettle by remember { mutableStateOf(false) }
     val settleAnim = remember { Animatable(0f) }
     val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
 
@@ -276,6 +277,7 @@ internal fun LayerListView(
 
         if (from > 0 && (insert >= 0 || over != null)) {
             val groupDrop = over != null && over.second == DropMode.OnGroup
+            isGroupSettle = groupDrop
             if (groupDrop) {
                 val groupIdx = over!!.first
                 if (batch.size > 1) {
@@ -321,11 +323,16 @@ internal fun LayerListView(
                 }
             }
 
-            // Settle animation into drop slot
-            val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
+            // Settle animation into drop slot or group folder
+            val targetInfo = if (groupDrop) {
+                val grpVisualIdx = displayRows.indexOfFirst { r -> r.index == over!!.first }
+                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == grpVisualIdx }
+            } else {
+                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
+            }
             if (targetInfo != null) {
                 settleFrom = dragFingerY - listTop - rowPx / 2f
-                settleTo = listTop + targetInfo.offset.toFloat()
+                settleTo = targetInfo.offset.toFloat()
                 settling = true
             } else {
                 activeDragLayer = null
@@ -614,9 +621,8 @@ internal fun LayerListView(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // Key by a unique combination of depth, name, and index to ensure
-                // stability while preventing duplicate key crashes even with duplicate names
-                items(displayList, key = { "${it.depth}:${it.name}:${it.index}" }) { layer ->
+                // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
+                items(displayList, key = { it.id }) { layer ->
                     LayerRow(
                         vm = vm,
                         layer = layer,
@@ -678,74 +684,106 @@ internal fun LayerListView(
                         },
                         modifier =
                             Modifier.animateItem(
-                                // Smooth non-bouncy parting animation
-                                // (the drag flicker was the thumbnail
-                                // index cache going empty after moves,
-                                // not this animation)
-                                placementSpec = tween(220),
-                                fadeInSpec = tween(120),
-                                fadeOutSpec = tween(120),
+                                placementSpec = spring(
+                                    dampingRatio = 0.85f,
+                                    stiffness = 500f,
+                                ),
+                                fadeInSpec = tween(150),
+                                fadeOutSpec = tween(150),
                             ),
                     )
                 }
             }
 
             // Insertion indicator line with start dot and hierarchy indentation
-            if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0) {
-                val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx }
-                val lineY = if (targetInfo != null) {
-                    targetInfo.offset.toFloat()
-                } else {
-                    val lastInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx - 1 }
-                    lastInfo?.let { (it.offset + it.size).toFloat() }
+            val showIndicator = draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0
+            val targetInfo = if (showIndicator) listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx } else null
+            val rawLineY = if (targetInfo != null) {
+                targetInfo.offset.toFloat()
+            } else if (showIndicator) {
+                val lastInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx - 1 }
+                lastInfo?.let { (it.offset + it.size).toFloat() }
+            } else {
+                null
+            }
+
+            val isMultiDrag = (draggingFrom in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
+            val batch = if (isMultiDrag) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
+            val draggedSet = batch.toSet()
+
+            val nonDraggedPrev = if (showIndicator) displayRows.take(dragTargetIdx).lastOrNull { it.index !in draggedSet } else null
+            val nonDraggedNext = if (showIndicator) displayRows.drop(dragTargetIdx).firstOrNull { it.index !in draggedSet } else null
+            val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
+            val isIndented = dragFingerX >= indentThreshold
+
+            val targetDepth = when {
+                nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
+                nonDraggedNext == null -> nonDraggedPrev.depth
+                nonDraggedPrev.depth > nonDraggedNext.depth -> {
+                    if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
                 }
+                nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                    if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
+                }
+                else -> nonDraggedNext?.depth ?: 0
+            }
 
-                if (lineY != null) {
-                    val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
-                    val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
-                    val draggedSet = batch.toSet()
+            var lastValidLineY by remember { mutableFloatStateOf(0f) }
+            LaunchedEffect(rawLineY) {
+                if (rawLineY != null) {
+                    lastValidLineY = rawLineY
+                }
+            }
 
-                    val nonDraggedPrev = displayRows.take(dragTargetIdx).lastOrNull { it.index !in draggedSet }
-                    val nonDraggedNext = displayRows.drop(dragTargetIdx).firstOrNull { it.index !in draggedSet }
-                    val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
-                    val isIndented = dragFingerX >= indentThreshold
+            val animatedLineY by animateFloatAsState(
+                targetValue = rawLineY ?: lastValidLineY,
+                animationSpec = spring(
+                    dampingRatio = 0.85f,
+                    stiffness = 650f,
+                ),
+                label = "animatedLineY",
+            )
 
-                    val targetDepth = when {
-                        nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
-                        nonDraggedNext == null -> nonDraggedPrev.depth
-                        nonDraggedPrev.depth > nonDraggedNext.depth -> {
-                            if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
-                        }
-                        nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
-                            if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
-                        }
-                        else -> nonDraggedNext.depth
-                    }
+            val animatedDepth by animateFloatAsState(
+                targetValue = targetDepth.toFloat(),
+                animationSpec = spring(
+                    dampingRatio = 0.85f,
+                    stiffness = 550f,
+                ),
+                label = "animatedDepth",
+            )
 
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(5f)
-                    ) {
-                        val y = lineY.coerceIn(0f, size.height)
-                        val dotRadius = 4.dp.toPx()
-                        val lineStroke = 2.5.dp.toPx()
-                        val startX = (16 + targetDepth * 20).dp.toPx()
-                        val endX = size.width - 16.dp.toPx()
+            val lineAlpha by animateFloatAsState(
+                targetValue = if (showIndicator && rawLineY != null) 1f else 0f,
+                animationSpec = tween(120),
+                label = "lineAlpha",
+            )
 
-                        drawLine(
-                            color = Morandi.accent,
-                            start = Offset(startX + dotRadius, y),
-                            end = Offset(endX, y),
-                            strokeWidth = lineStroke,
-                            cap = StrokeCap.Round,
-                        )
-                        drawCircle(
-                            color = Morandi.accent,
-                            radius = dotRadius,
-                            center = Offset(startX, y),
-                        )
-                    }
+            if (lineAlpha > 0.01f) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(5f)
+                ) {
+                    val y = animatedLineY.coerceIn(0f, size.height)
+                    val dotRadius = 4.dp.toPx()
+                    val lineStroke = 2.5.dp.toPx()
+                    val startX = (16 + animatedDepth * 20).dp.toPx()
+                    val endX = size.width - 16.dp.toPx()
+                    val color = Morandi.accent.copy(alpha = lineAlpha)
+
+                    drawLine(
+                        color = color,
+                        start = Offset(startX + dotRadius, y),
+                        end = Offset(endX, y),
+                        strokeWidth = lineStroke,
+                        cap = StrokeCap.Round,
+                    )
+                    drawCircle(
+                        color = color,
+                        radius = dotRadius,
+                        center = Offset(startX, y),
+                    )
                 }
             }
 
@@ -753,12 +791,13 @@ internal fun LayerListView(
             LaunchedEffect(settling, settleTo, settleFrom) {
                 if (settling && settleTo != null && settleFrom != null) {
                     settleAnim.snapTo(settleFrom ?: 0f)
-                    val target = (settleTo ?: 0f) - listTop - rowPx / 2f
-                    settleAnim.animateTo(target, tween(160))
+                    val target = settleTo ?: 0f
+                    settleAnim.animateTo(target, spring(dampingRatio = 0.85f, stiffness = 500f))
                     settling = false
                     settleTo = null
                     settleFrom = null
                     activeDragLayer = null
+                    isGroupSettle = false
                 }
             }
 
@@ -769,8 +808,34 @@ internal fun LayerListView(
             if (draggingFrom >= 0 || settling) {
                 val dragged = activeDragLayer
                 if (dragged != null) {
-                    val isMultiDrag = (dragged.index in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
                     val multiCount = if (isMultiDrag) vm.selectedLayerIndices.size else 1
+
+                    val cardScale by animateFloatAsState(
+                        targetValue = when {
+                            settling && isGroupSettle -> 0.82f
+                            settling -> 1.0f
+                            draggingFrom >= 0 -> 1.04f
+                            else -> 1.0f
+                        },
+                        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                        label = "cardScale",
+                    )
+                    val cardElevation by animateDpAsState(
+                        targetValue = if (draggingFrom >= 0 && !settling) 14.dp else 0.dp,
+                        animationSpec = spring(dampingRatio = 0.8f, stiffness = 500f),
+                        label = "cardElevation",
+                    )
+                    val cardAlpha by animateFloatAsState(
+                        targetValue = if (settling) 0f else 1f,
+                        animationSpec = tween(180),
+                        label = "cardAlpha",
+                    )
+                    val fanOffset by animateFloatAsState(
+                        targetValue = if (draggingFrom >= 0 && !settling) 1f else 0f,
+                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 450f),
+                        label = "fanOffset",
+                    )
+
                     Box(
                         modifier =
                             Modifier
@@ -786,9 +851,10 @@ internal fun LayerListView(
                                 .height(rowHeight)
                                 .zIndex(10f)
                                 .graphicsLayer {
-                                    scaleX = 1.05f
-                                    scaleY = 1.05f
-                                    shadowElevation = with(density) { 16.dp.toPx() }
+                                    scaleX = cardScale
+                                    scaleY = cardScale
+                                    alpha = cardAlpha
+                                    shadowElevation = with(density) { cardElevation.toPx() }
                                 },
                     ) {
                         // Stacked cards effect for multi-selection drag
@@ -798,7 +864,7 @@ internal fun LayerListView(
                                     modifier =
                                         Modifier
                                             .fillMaxSize()
-                                            .offset(x = 6.dp, y = (-6).dp)
+                                            .offset(x = 6.dp * fanOffset, y = (-6).dp * fanOffset)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Morandi.panelHi.copy(alpha = 0.5f))
                                             .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
@@ -809,7 +875,7 @@ internal fun LayerListView(
                                     modifier =
                                         Modifier
                                             .fillMaxSize()
-                                            .offset(x = 3.dp, y = (-3).dp)
+                                            .offset(x = 3.dp * fanOffset, y = (-3).dp * fanOffset)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(Morandi.panelHi.copy(alpha = 0.75f))
                                             .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
@@ -840,7 +906,7 @@ internal fun LayerListView(
                                 modifier =
                                     Modifier
                                         .align(Alignment.TopEnd)
-                                        .offset(x = 4.dp, y = (-6).dp)
+                                        .offset(x = 4.dp * fanOffset, y = (-6).dp * fanOffset)
                                         .zIndex(20f),
                                 shape = CircleShape,
                                 color = Morandi.accent,
@@ -849,8 +915,8 @@ internal fun LayerListView(
                                 Box(
                                     modifier =
                                         Modifier
-                                            .sizeIn(minWidth = 22.dp, minHeight = 22.dp)
-                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        .sizeIn(minWidth = 22.dp, minHeight = 22.dp)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(

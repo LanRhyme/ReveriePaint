@@ -2453,6 +2453,7 @@ class PaintViewModel : ViewModel() {
      * JNI getters during composition, so updates are always visible. */
     data class LayerUiState(
         val index: Int,
+        val id: Long = 0L,
         val name: String,
         val visible: Boolean,
         val locked: Boolean,
@@ -2969,6 +2970,7 @@ class PaintViewModel : ViewModel() {
             list.add(
                 LayerUiState(
                     index = i,
+                    id = ReverieCoreBridge.layerId(i),
                     name = ReverieCoreBridge.layerName(i),
                     visible = if (soloKeep != null) i in soloKeep else ReverieCoreBridge.layerVisible(i),
                     locked = ReverieCoreBridge.layerLocked(i),

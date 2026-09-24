@@ -85,6 +85,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_currentLayerIndex(JNIEnv *, jobjec
     return core()->currentLayerIndex();
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerId(JNIEnv *, jobject, jint index)
+{
+    return static_cast<jlong>(core()->layerId(index));
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_addGroupLayer(JNIEnv *env, jobject, jstring name)
 {

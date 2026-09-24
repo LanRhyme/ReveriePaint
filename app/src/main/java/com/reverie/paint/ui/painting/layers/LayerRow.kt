@@ -305,7 +305,22 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "selectionBg",
         )
-        val groupBorder = if (dragOnGroup) BorderStroke(2.dp, Morandi.accent) else null
+        val rowAlpha by animateFloatAsState(
+            targetValue = if (isDragging) 0.30f else 1.0f,
+            animationSpec = tween(180),
+            label = "rowAlpha",
+        )
+        val groupBorderColor by animateColorAsState(
+            targetValue = if (dragOnGroup) Morandi.accent else Color.Transparent,
+            animationSpec = tween(180),
+            label = "groupBorderColor",
+        )
+        val groupBorderWidth by animateDpAsState(
+            targetValue = if (dragOnGroup) 2.dp else 0.dp,
+            animationSpec = spring(dampingRatio = 0.8f, stiffness = 600f),
+            label = "groupBorderWidth",
+        )
+        val groupBorder = if (groupBorderWidth > 0.dp) BorderStroke(groupBorderWidth, groupBorderColor) else null
         Box(
             modifier =
                 Modifier
@@ -314,7 +329,7 @@ internal fun LayerRow(
                     .then(if (groupBorder != null) Modifier.border(groupBorder, RoundedCornerShape(8.dp)) else Modifier)
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
-                    .graphicsLayer { if (isDragging) alpha = 0.35f },
+                    .graphicsLayer { alpha = rowAlpha },
         ) {
             LayerRowContent(
                 vm = vm,

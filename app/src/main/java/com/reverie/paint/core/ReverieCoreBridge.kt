@@ -129,6 +129,8 @@ object ReverieCoreBridge {
 
     external fun currentLayerIndex(): Int
 
+    external fun layerId(index: Int): Long
+
     // ===== 动画: 帧 / 轨道 / 关键帧 =====
     // 每条轨道 = 一个图层; 帧数据由 Krita 的 KisRasterKeyframeChannel 持有
 
