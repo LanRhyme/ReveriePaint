@@ -158,6 +158,7 @@ internal fun LayerListView(
     var dragStartX by remember { mutableFloatStateOf(0f) }
     var dragStartY by remember { mutableFloatStateOf(0f) }
     var dragTargetIdx by remember { mutableIntStateOf(-1) }
+    var previewDropIdx by remember { mutableIntStateOf(-1) }
     var listLeft by remember { mutableFloatStateOf(0f) }
     var listTop by remember { mutableFloatStateOf(0f) }
     var listWidth by remember { mutableFloatStateOf(0f) }
@@ -198,7 +199,40 @@ internal fun LayerListView(
             if (res.isEmpty() && n > 0) vm.layers.reversed() else res
         }
 
-    val displayList = displayRows
+    val activeDrag = vm.activeLayerDrag
+    val isDraggingActive = draggingFrom >= 0 || activeDrag != null
+    val targetSlot = when {
+        draggingFrom >= 0 -> if (dragOver != null) -1 else dragTargetIdx
+        activeDrag != null -> previewDropIdx
+        else -> -1
+    }
+
+    LaunchedEffect(vm.activeLayerDrag) {
+        if (vm.activeLayerDrag == null) {
+            previewDropIdx = -1
+        }
+    }
+
+    // Dynamic preview displayList: parts remaining rows to open a vacant slot
+    // at the drop target seam so other layers smoothly spring into position
+    val displayList = remember(displayRows, isDraggingActive, targetSlot, dragOver, activeDrag) {
+        val draggedIds = activeDrag?.draggedIds ?: emptySet()
+        val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val batchIndices = if (isMulti) vm.selectedLayerIndices else if (draggingFrom >= 0) setOf(draggingFrom) else emptySet()
+
+        if (!isDraggingActive || dragOver != null || targetSlot < 0 || displayRows.isEmpty() || (draggedIds.isEmpty() && batchIndices.isEmpty())) {
+            displayRows
+        } else {
+            val isDragged: (PaintViewModel.LayerUiState) -> Boolean = { it.id in draggedIds || it.index in batchIndices }
+            val draggedItems = displayRows.filter(isDragged)
+            val remaining = displayRows.filterNot(isDragged)
+            val insertAt = targetSlot.coerceIn(0, remaining.size)
+            val result = ArrayList<PaintViewModel.LayerUiState>(displayRows.size)
+            result.addAll(remaining)
+            result.addAll(insertAt, draggedItems)
+            result
+        }
+    }
 
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -275,11 +309,13 @@ internal fun LayerListView(
             return
         }
 
-        // 2. Math slot calculation (divider seam between rows)
-        val rawSlot = ((contentY + rowPx * 0.5f) / rowPx).toInt()
-        val bgVisual = displayRows.indexOfFirst { it.isBackground || it.index == 0 }
-        val maxSlot = if (bgVisual >= 0) bgVisual else (displayRows.size - 1).coerceAtLeast(0)
-        dragTargetIdx = rawSlot.coerceIn(0, maxSlot)
+        // 2. Math slot calculation (divider seam between rows of remaining)
+        val remaining = displayRows.filter { it.index !in draggedSet }
+        val bgVisual = remaining.indexOfFirst { it.isBackground || it.index == 0 }
+        val maxSlot = if (bgVisual >= 0) bgVisual else remaining.size
+        val rawSlot = ((contentY + rowPx * 0.4f) / rowPx).toInt().coerceIn(0, maxSlot)
+        dragTargetIdx = rawSlot
+        previewDropIdx = rawSlot
     }
 
     fun endDrag() {
@@ -289,6 +325,8 @@ internal fun LayerListView(
         val over = dragOver
         val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
         val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(from)
+        val draggedSet = batch.toSet()
+        val remaining = displayRows.filter { it.index !in draggedSet }
 
         val grabOffsetX = vm.activeLayerDrag?.grabOffsetX ?: 0f
         val grabOffsetY = vm.activeLayerDrag?.grabOffsetY ?: 0f
@@ -322,9 +360,8 @@ internal fun LayerListView(
                     collapsedGroupNames = collapsedGroupNames - groupLayer.name
                 }
             } else if (insert >= 0) {
-                val draggedSet = batch.toSet()
-                val nonDraggedPrev = displayRows.take(insert).lastOrNull { it.index !in draggedSet }
-                val nonDraggedNext = displayRows.drop(insert).firstOrNull { it.index !in draggedSet }
+                val nonDraggedPrev = remaining.take(insert).lastOrNull()
+                val nonDraggedNext = remaining.drop(insert).firstOrNull()
                 val panelX = dragFingerX - listLeft
                 val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
                     panelX >= with(density) { 130.dp.toPx() }
@@ -356,14 +393,14 @@ internal fun LayerListView(
                                 vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
                             }
                         } else if (!isIndented && fromIsNested && parentGroup != null) {
-                            val grpVisualIdx = displayRows.indexOfFirst { it.index == parentGroup.index }
+                            val grpVisualIdx = remaining.indexOfFirst { it.index == parentGroup.index }
                             if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
                                 vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
                             } else {
                                 vm.moveLayersRelative(batch, parentGroup.index, placeAbove = false)
                             }
                         } else if (nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index) {
-                            val grpVisualIdx = displayRows.indexOfFirst { it.index == nonDraggedPrev.index }
+                            val grpVisualIdx = remaining.indexOfFirst { it.index == nonDraggedPrev.index }
                             if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
                                 vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
                             } else {
@@ -388,13 +425,14 @@ internal fun LayerListView(
             } else if (groupDrop) {
                 rowBounds[over!!.first]?.first ?: listTop
             } else {
-                rowBounds[from]?.first ?: listTop
+                listTop + insert * rowPx
             }
             val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
             vm.layerDragSettleFrom = settleFromOffset
             vm.layerDragSettleTo = Offset(settleTargetX, targetY.toFloat())
             vm.isLayerDragGroupSettle = groupDrop
             vm.isLayerDragSettling = true
+            previewDropIdx = if (groupDrop) -1 else insert
         } else {
             // Cancelled or dropped outside panel: spring back to origin
             val b = rowBounds[from]
@@ -404,6 +442,7 @@ internal fun LayerListView(
             vm.layerDragSettleTo = Offset(settleTargetX, originY)
             vm.isLayerDragGroupSettle = false
             vm.isLayerDragSettling = true
+            previewDropIdx = -1
         }
         draggingFrom = -1
         dragTargetIdx = -1
@@ -805,9 +844,10 @@ internal fun LayerListView(
             val isMultiDrag = (draggingFrom in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
             val batch = if (isMultiDrag) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
             val draggedSet = batch.toSet()
+            val remaining = displayRows.filter { it.index !in draggedSet }
 
-            val nonDraggedPrev = if (showIndicator) displayRows.take(dragTargetIdx).lastOrNull { it.index !in draggedSet } else null
-            val nonDraggedNext = if (showIndicator) displayRows.drop(dragTargetIdx).firstOrNull { it.index !in draggedSet } else null
+            val nonDraggedPrev = if (showIndicator) remaining.take(dragTargetIdx).lastOrNull() else null
+            val nonDraggedNext = if (showIndicator) remaining.drop(dragTargetIdx).firstOrNull() else null
             val panelX = dragFingerX - listLeft
             val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
                 panelX >= with(density) { 130.dp.toPx() }
