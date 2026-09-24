@@ -411,7 +411,7 @@ internal fun LayerListView(
         dragOver = null
     }
 
-    LaunchedEffect(draggingFrom, dragFingerY) {
+    LaunchedEffect(draggingFrom) {
         if (draggingFrom < 0) return@LaunchedEffect
         val scrollZone = with(density) { 48.dp.toPx() }
         val maxScrollStep = with(density) { 14.dp.toPx() }
@@ -422,10 +422,10 @@ internal fun LayerListView(
                 val topDist = dragFingerY - listTop
                 val bottomDist = (listTop + listHeight) - dragFingerY
                 var scrollDelta = 0f
-                if (topDist in 0f..scrollZone) {
+                if (topDist in 0f..scrollZone && listState.canScrollBackward) {
                     val ratio = 1f - (topDist / scrollZone).coerceIn(0f, 1f)
                     scrollDelta = -maxScrollStep * ratio
-                } else if (bottomDist in 0f..scrollZone) {
+                } else if (bottomDist in 0f..scrollZone && listState.canScrollForward) {
                     val ratio = 1f - (bottomDist / scrollZone).coerceIn(0f, 1f)
                     scrollDelta = maxScrollStep * ratio
                 }
@@ -666,27 +666,11 @@ internal fun LayerListView(
                                 }
                             }
                         }
-                    }
-                    .pointerInput(draggingFrom >= 0) {
-                        if (draggingFrom < 0) return@pointerInput
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                                val pressed = event.changes.firstOrNull { it.pressed }
-                                if (pressed == null || event.changes.size > 1) {
-                                    endDrag()
-                                    break
-                                }
-                                pressed.consume()
-                                val rootX = listLeft + pressed.position.x
-                                val rootY = listTop + pressed.position.y
-                                updateDragPos(rootX, rootY)
-                            }
-                        }
                     },
         ) {
             LazyColumn(
                 state = listState,
+                userScrollEnabled = draggingFrom < 0,
                 modifier = Modifier.fillMaxSize(),
             ) {
                 // Key by unique stable layer id so Compose animateItem correctly animates reordered rows

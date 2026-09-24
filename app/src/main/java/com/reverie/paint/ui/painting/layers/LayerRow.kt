@@ -334,11 +334,7 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "selectionBg",
         )
-        val rowAlpha by animateFloatAsState(
-            targetValue = if (isDragging) 0.25f else 1.0f,
-            animationSpec = tween(180),
-            label = "rowAlpha",
-        )
+        val contentAlpha = if (isDragging) 0f else 1f
         val groupBorderColor by animateColorAsState(
             targetValue = when {
                 dragOnGroup -> Morandi.accent
@@ -367,7 +363,6 @@ internal fun LayerRow(
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
                     .graphicsLayer {
-                        alpha = rowAlpha
                         scaleX = groupScale
                         scaleY = groupScale
                     },
@@ -382,7 +377,10 @@ internal fun LayerRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 4.dp)
+                    .graphicsLayer {
+                        alpha = contentAlpha
+                    },
             )
             Row(
                 modifier =
@@ -390,7 +388,10 @@ internal fun LayerRow(
                         .align(Alignment.CenterEnd)
                         .offset { IntOffset(drawerPx, 0) }
                         .width(drawerWidth)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .graphicsLayer {
+                            alpha = contentAlpha
+                        },
             ) {
                 DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, stringResource(R.string.common_copy)) {
                     vm.copyLayer(index)
