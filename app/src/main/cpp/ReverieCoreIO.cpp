@@ -13,6 +13,8 @@
 #include <QDomDocument>
 #include <QDomElement>
 #include <QStack>
+#include <QtConcurrent>
+#include <QElapsedTimer>
 #include <kis_store_paintdevice_writer.h>
 #include <kis_group_layer.h>
 #include <kis_paint_layer.h>
@@ -223,11 +225,16 @@ bool writeRevpStore(const QString &path,
                     const QByteArray &recordingBlob,
                     const QVector<QPair<QString, QByteArray>> &storedSelectionFiles)
 {
+    QElapsedTimer totalTimer;
+    totalTimer.start();
+
     const QString tmpPath = path + ".tmp";
     QScopedPointer<KoStore> store(KoStore::createStore(tmpPath, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
     if (!store || store->bad()) {
         return false;
     }
+    // PNG 图像内部已是 Deflate 压缩, 禁用 ZIP 容器的二次 Deflate 可消除数十秒冗余运算并极大提速写盘
+    store->setCompressionEnabled(false);
 
     // 1. Meta / Manifest JSON
     if (store->open("meta.json")) {
@@ -245,58 +252,55 @@ bool writeRevpStore(const QString &path,
         }
     }
 
-    // 2. Merged Preview thumbnail
+    // 2. 收集所有需编码为 PNG 的图像项, 准备多核并行压缩
+    struct PngImageTask {
+        QString fileName;
+        QImage image;
+        QByteArray encodedBytes;
+    };
+    QVector<PngImageTask> pngTasks;
+
     if (!comp.isNull()) {
-        if (store->open("preview.png")) {
-            QByteArray pngBytes;
-            QBuffer buf(&pngBytes);
-            buf.open(QIODevice::WriteOnly);
-            comp.save(&buf, "PNG");
-            store->write(pngBytes);
-            store->close();
-        }
-        if (store->open("thumbnail.png")) {
-            QByteArray thumbBytes;
-            QBuffer tbuf(&thumbBytes);
-            tbuf.open(QIODevice::WriteOnly);
-            const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-            thumb.save(&tbuf, "PNG");
-            store->write(thumbBytes);
-            store->close();
-        }
+        pngTasks.append({"preview.png", comp, {}});
+        const QImage thumb = comp.scaled(400, 400, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        pngTasks.append({"thumbnail.png", thumb, {}});
     }
 
-    // 3. Layer images
     for (const auto &pair : layerImages) {
         const int idx = pair.first;
-        const QImage &layerImg = pair.second;
         const QString layerFileName = QString("layer_%1.png").arg(idx, 3, 10, QChar('0'));
-        if (store->open(layerFileName)) {
-            QByteArray lBytes;
-            QBuffer lBuf(&lBytes);
-            lBuf.open(QIODevice::WriteOnly);
-            layerImg.save(&lBuf, "PNG");
-            store->write(lBytes);
-            store->close();
-        }
+        pngTasks.append({layerFileName, pair.second, {}});
     }
 
-    // 4. Animation keyframe frames (每动画图层每关键帧一整幅画布 PNG)
     for (const auto &kf : keyframeImages) {
         const QString fn = QString("frame_%1_%2.png")
                                .arg(kf.layer, 3, 10, QChar('0'))
                                .arg(kf.time, 5, 10, QChar('0'));
-        if (store->open(fn)) {
-            QByteArray kBytes;
-            QBuffer kBuf(&kBytes);
-            kBuf.open(QIODevice::WriteOnly);
-            kf.img.save(&kBuf, "PNG");
-            store->write(kBytes);
+        pngTasks.append({fn, kf.img, {}});
+    }
+
+    // 多核并行 PNG 编码 (quality = 70: 平衡速度与压缩比, 无损画质)
+    QElapsedTimer encodeTimer;
+    encodeTimer.start();
+    const int pngQuality = 70;
+    QtConcurrent::blockingMap(pngTasks, [pngQuality](PngImageTask &task) {
+        if (!task.image.isNull()) {
+            QBuffer buf(&task.encodedBytes);
+            buf.open(QIODevice::WriteOnly);
+            task.image.save(&buf, "PNG", pngQuality);
+        }
+    });
+    const qint64 encodeMs = encodeTimer.elapsed();
+
+    // 顺序写入已编码的 PNG 条目到 ZIP 存储
+    for (const auto &task : pngTasks) {
+        if (!task.encodedBytes.isEmpty() && store->open(task.fileName)) {
+            store->write(task.encodedBytes);
             store->close();
         }
     }
 
-    // 5. Imported assets (音频/视频等二进制资源, 文件名即资源名)
+    // 3. Imported assets (音频/视频等二进制资源, 文件名即资源名)
     for (auto it = assets.constBegin(); it != assets.constEnd(); ++it) {
         if (store->open("assets/" + it.key())) {
             store->write(it.value());
@@ -304,7 +308,7 @@ bool writeRevpStore(const QString &path,
         }
     }
 
-    // 5.5 Stored Selection masks (选区历史与存储槽位)
+    // 4. Stored Selection masks (选区历史与存储槽位)
     for (const auto &pair : storedSelectionFiles) {
         if (store->open(pair.first)) {
             store->write(pair.second);
@@ -312,7 +316,7 @@ bool writeRevpStore(const QString &path,
         }
     }
 
-    // 6. Recording
+    // 5. Recording
     if (!recordingBlob.isEmpty()) {
         if (store->open("recording")) {
             store->write(recordingBlob);
@@ -330,7 +334,10 @@ bool writeRevpStore(const QString &path,
     }
 
     QFile f(path);
-    return f.exists() && f.size() > 0;
+    const bool ok = f.exists() && f.size() > 0;
+    qDebug() << "writeRevpStore: encoded" << pngTasks.size() << "images in" << encodeMs
+             << "ms, total store write in" << totalTimer.elapsed() << "ms, ok=" << ok << ", size=" << f.size();
+    return ok;
 }
 
 static std::atomic<bool> s_savingRevpAsync{false};
@@ -529,7 +536,7 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
                 QByteArray pngBytes;
                 QBuffer mBuf(&pngBytes);
                 mBuf.open(QIODevice::WriteOnly);
-                mImg.save(&mBuf, "PNG");
+                mImg.save(&mBuf, "PNG", 70);
                 storedSelFiles.append(qMakePair(fileName, pngBytes));
             }
         }
@@ -730,7 +737,7 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
                 QByteArray pngBytes;
                 QBuffer mBuf(&pngBytes);
                 mBuf.open(QIODevice::WriteOnly);
-                mImg.save(&mBuf, "PNG");
+                mImg.save(&mBuf, "PNG", 70);
                 storedSelFiles.append(qMakePair(fileName, pngBytes));
             }
         }
