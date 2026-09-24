@@ -611,7 +611,7 @@ fun BrushPanel(
                             presetIndex = v.index,
                             onBack = { view = BrushView.List },
                             onOpenStudio = {
-                                vm.brushPresetIndex = v.index
+                                vm.selectBrushPreset(v.index)
                                 vm.brushStudioOpen = true
                                 onClose()
                             },
@@ -690,6 +690,7 @@ fun BrushPanel(
         val isSpecialPinned = cat in setOf("全部", "常用", "最近")
         val isBuiltIn = isSpecialPinned || vm.isBuiltInGroup(cat)
         val catIdx = categories.indexOf(cat)
+        val context = LocalContext.current
         CategoryMenuDialog(
             categoryName = cat,
             isBuiltIn = isBuiltIn,
@@ -698,6 +699,7 @@ fun BrushPanel(
             onDismiss = { categoryMenuTarget = null },
             onMoveUp = { vm.moveCategoryUp(cat, categories) },
             onMoveDown = { vm.moveCategoryDown(cat, categories) },
+            onExportGroup = { vm.exportBrushGroup(context, cat) },
             onRename = { renameCategoryTarget = cat },
             onDelete = { groupPendingDelete = cat },
         )
@@ -961,12 +963,14 @@ private fun CategoryMenuDialog(
     onDismiss: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onExportGroup: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val displayCatName = brushCategoryDisplayName(categoryName)
     val moveUpText = stringResource(R.string.brush_group_move_up)
     val moveDownText = stringResource(R.string.brush_group_move_down)
+    val exportGroupText = stringResource(R.string.brush_export_group_action)
     val renameText = stringResource(R.string.brush_group_rename)
     val deleteText = stringResource(R.string.brush_group_delete)
     val builtinTagText = stringResource(R.string.brush_group_builtin_tag)
@@ -983,6 +987,7 @@ private fun CategoryMenuDialog(
                 if (canMoveDown) {
                     menuItems.add(moveDownText to onMoveDown)
                 }
+                menuItems.add(exportGroupText to onExportGroup)
                 if (!isBuiltIn) {
                     menuItems.add(renameText to onRename)
                     menuItems.add(deleteText to onDelete)

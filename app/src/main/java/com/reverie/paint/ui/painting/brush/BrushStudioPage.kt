@@ -351,6 +351,13 @@ fun BrushStudioPage(
                             },
                         )
                         DropdownMenuItem(
+                            text = { Text(stringResource(R.string.brush_export_group_action), color = textMain, fontSize = 13.sp) },
+                            onClick = {
+                                showMenu = false
+                                preset?.group?.let { vm.exportBrushGroup(context, it) }
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text(stringResource(R.string.brush_studio_reset_params), color = textMain, fontSize = 13.sp) },
                             onClick = {
                                 showMenu = false

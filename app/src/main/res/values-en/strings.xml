@@ -1003,6 +1003,10 @@
     <string name="brush_studio_delete_brush">Delete Current Brush</string>
     <string name="brush_share_action">Share &amp; Export Brush</string>
     <string name="brush_share_title">Share Brush: %s</string>
+    <string name="brush_export_group_action">Export Brush Group (.bundle)</string>
+    <string name="brush_share_group_title">Export Brush Group: %s</string>
+    <string name="brush_group_empty_export">No brushes found in the current group to export</string>
+    <string name="brush_export_group_failed">Failed to export brush group</string>
     <string name="brush_reset_action">Reset to Defaults</string>
     <string name="brush_reset_toast">Restored \"%s\" to factory defaults</string>
     <string name="brush_share_failed">Failed to export brush: %s</string>

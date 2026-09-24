@@ -1003,6 +1003,10 @@
     <string name="brush_studio_delete_brush">删除当前笔刷</string>
     <string name="brush_share_action">分享与导出笔刷</string>
     <string name="brush_share_title">分享笔刷: %s</string>
+    <string name="brush_export_group_action">导出此笔刷组 (.bundle)</string>
+    <string name="brush_share_group_title">导出笔刷组：%s</string>
+    <string name="brush_group_empty_export">当前笔刷组内没有可导出的笔刷</string>
+    <string name="brush_export_group_failed">笔刷组导出失败</string>
     <string name="brush_reset_action">恢复默认参数</string>
     <string name="brush_reset_toast">已恢复「%s」的出厂默认参数</string>
     <string name="brush_share_failed">笔刷导出失败：%s</string>
