@@ -2178,6 +2178,27 @@ class PaintViewModel : ViewModel() {
     /** Whether panel pinning & dragging controls are enabled for layer & brush panels (off by default) */
     var panelPinningEnabled by mutableStateOf(false)
 
+    data class LayerDragState(
+        val layer: LayerUiState,
+        val draggedIds: Set<Long> = emptySet(),
+        val isMulti: Boolean = false,
+        val multiCount: Int = 1,
+        val startX: Float = 0f,
+        val startY: Float = 0f,
+        val grabOffsetX: Float = 0f,
+        val grabOffsetY: Float = 0f,
+        val cardWidthPx: Float = 0f,
+        val cardHeightPx: Float = 0f,
+    )
+
+    var activeLayerDrag by mutableStateOf<LayerDragState?>(null)
+    var layerDragFingerX by mutableFloatStateOf(0f)
+    var layerDragFingerY by mutableFloatStateOf(0f)
+    var layerDragSettleTo by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    var layerDragSettleFrom by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    var isLayerDragSettling by mutableStateOf(false)
+    var isLayerDragGroupSettle by mutableStateOf(false)
+
     fun updatePanelPinningEnabled(enabled: Boolean) {
         panelPinningEnabled = enabled
         if (!enabled) {

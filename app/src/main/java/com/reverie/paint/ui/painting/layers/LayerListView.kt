@@ -151,7 +151,6 @@ internal fun LayerListView(
     var collapsedGroupNames by remember { mutableStateOf(setOf<String>()) }
     val listState = rememberLazyListState()
     var draggingFrom by remember { mutableIntStateOf(-1) }
-    var activeDragLayer by remember { mutableStateOf<PaintViewModel.LayerUiState?>(null) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
     var dragFingerX by remember { mutableFloatStateOf(0f) }
     var dragFingerY by remember { mutableFloatStateOf(0f) }
@@ -161,11 +160,6 @@ internal fun LayerListView(
     var listTop by remember { mutableFloatStateOf(0f) }
     var listWidth by remember { mutableFloatStateOf(0f) }
     var listHeight by remember { mutableFloatStateOf(0f) }
-    var settleTo by remember { mutableStateOf<Float?>(null) }
-    var settleFrom by remember { mutableStateOf<Float?>(null) }
-    var settling by remember { mutableStateOf(false) }
-    var isGroupSettle by remember { mutableStateOf(false) }
-    val settleAnim = remember { Animatable(0f) }
     val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
 
     // Display order, top-first, keeping group blocks intact.
@@ -212,6 +206,16 @@ internal fun LayerListView(
         if (displayList.isEmpty() || draggingFrom < 0) return
         dragFingerX = fingerX
         dragFingerY = fingerY
+        vm.layerDragFingerX = fingerX
+        vm.layerDragFingerY = fingerY
+
+        val isOutsidePanel = fingerX < listLeft - with(density) { 60.dp.toPx() } ||
+            fingerX > (listLeft + listWidth + with(density) { 60.dp.toPx() })
+        if (isOutsidePanel) {
+            dragOver = null
+            dragTargetIdx = -1
+            return
+        }
 
         val scrollOffset = listState.firstVisibleItemIndex * rowPx + listState.firstVisibleItemScrollOffset
         val contentY = (fingerY - listTop) + scrollOffset
@@ -284,9 +288,16 @@ internal fun LayerListView(
         val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
         val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(from)
 
+        val grabOffsetX = vm.activeLayerDrag?.grabOffsetX ?: 0f
+        val grabOffsetY = vm.activeLayerDrag?.grabOffsetY ?: 0f
+        val settleFromOffset = Offset(
+            x = dragFingerX - grabOffsetX,
+            y = dragFingerY - grabOffsetY,
+        )
+
+        var groupDrop = false
         if (from > 0 && (insert >= 0 || over != null)) {
-            val groupDrop = over != null && over.second == DropMode.OnGroup
-            isGroupSettle = groupDrop
+            groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
                 if (batch.size > 1) {
@@ -360,15 +371,25 @@ internal fun LayerListView(
             } else {
                 listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
             }
-            if (targetInfo != null) {
-                settleFrom = dragFingerY - listTop - rowPx / 2f
-                settleTo = targetInfo.offset.toFloat()
-                settling = true
+            val targetY = if (targetInfo != null) {
+                listTop + targetInfo.offset
+            } else if (groupDrop) {
+                rowBounds[over!!.first]?.first ?: listTop
             } else {
-                activeDragLayer = null
+                rowBounds[from]?.first ?: listTop
             }
+            vm.layerDragSettleFrom = settleFromOffset
+            vm.layerDragSettleTo = Offset(listLeft, targetY.toFloat())
+            vm.isLayerDragGroupSettle = groupDrop
+            vm.isLayerDragSettling = true
         } else {
-            activeDragLayer = null
+            // Cancelled or dropped outside panel: spring back to origin
+            val b = rowBounds[from]
+            val originY = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == from }.coerceAtLeast(0) * rowPx)
+            vm.layerDragSettleFrom = settleFromOffset
+            vm.layerDragSettleTo = Offset(listLeft, originY)
+            vm.isLayerDragGroupSettle = false
+            vm.isLayerDragSettling = true
         }
         draggingFrom = -1
         dragTargetIdx = -1
@@ -383,19 +404,23 @@ internal fun LayerListView(
         val scrollZone = with(density) { 48.dp.toPx() }
         val maxScrollStep = with(density) { 14.dp.toPx() }
         while (isActive && draggingFrom >= 0) {
-            val topDist = dragFingerY - listTop
-            val bottomDist = (listTop + listHeight) - dragFingerY
-            var scrollDelta = 0f
-            if (topDist in 0f..scrollZone) {
-                val ratio = 1f - (topDist / scrollZone).coerceIn(0f, 1f)
-                scrollDelta = -maxScrollStep * ratio
-            } else if (bottomDist in 0f..scrollZone) {
-                val ratio = 1f - (bottomDist / scrollZone).coerceIn(0f, 1f)
-                scrollDelta = maxScrollStep * ratio
-            }
-            if (scrollDelta != 0f) {
-                listState.scrollBy(scrollDelta)
-                updateDragPos(dragFingerX, dragFingerY)
+            val inHorizontalRange = dragFingerX >= listLeft - with(density) { 40.dp.toPx() } &&
+                dragFingerX <= listLeft + listWidth + with(density) { 40.dp.toPx() }
+            if (inHorizontalRange) {
+                val topDist = dragFingerY - listTop
+                val bottomDist = (listTop + listHeight) - dragFingerY
+                var scrollDelta = 0f
+                if (topDist in 0f..scrollZone) {
+                    val ratio = 1f - (topDist / scrollZone).coerceIn(0f, 1f)
+                    scrollDelta = -maxScrollStep * ratio
+                } else if (bottomDist in 0f..scrollZone) {
+                    val ratio = 1f - (bottomDist / scrollZone).coerceIn(0f, 1f)
+                    scrollDelta = maxScrollStep * ratio
+                }
+                if (scrollDelta != 0f) {
+                    listState.scrollBy(scrollDelta)
+                    updateDragPos(dragFingerX, dragFingerY)
+                }
             }
             delay(16L)
         }
@@ -677,15 +702,46 @@ internal fun LayerListView(
                             if (layer.index !in vm.selectedLayerIndices) {
                                 vm.clearLayerSelection()
                             }
-                            activeDragLayer = layer
                             draggingFrom = layer.index
                             dragStartX = startX
+
+                            val isMulti = layer.index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                            val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(layer.index)
+                            val draggedLayers = vm.layers.filter { it.index in batch }
+                            val draggedIds = draggedLayers.map { it.id }.toSet()
+
+                            val b = rowBounds[layer.index]
+                            val rowScreenTop = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == layer.index }.coerceAtLeast(0) * rowPx)
+                            val grabOffsetX = (startX - listLeft).coerceIn(0f, listWidth.coerceAtLeast(1f))
+                            val grabOffsetY = (startY - rowScreenTop).coerceIn(0f, rowPx.toFloat())
+
+                            vm.layerDragFingerX = startX
+                            vm.layerDragFingerY = startY
+                            vm.isLayerDragSettling = false
+                            vm.isLayerDragGroupSettle = false
+                            vm.layerDragSettleTo = null
+                            vm.layerDragSettleFrom = null
+
+                            vm.activeLayerDrag = PaintViewModel.LayerDragState(
+                                layer = layer,
+                                draggedIds = draggedIds,
+                                isMulti = isMulti,
+                                multiCount = batch.size,
+                                startX = startX,
+                                startY = startY,
+                                grabOffsetX = grabOffsetX,
+                                grabOffsetY = grabOffsetY,
+                                cardWidthPx = if (listWidth > 0f) listWidth else with(density) { 280.dp.toPx() },
+                                cardHeightPx = rowPx.toFloat(),
+                            )
+
                             updateDragPos(startX, startY)
                         },
                         onDragPosition = { x, y -> updateDragPos(x, y) },
                         onDragEnd = { endDrag() },
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
-                        isDragging = draggingFrom == layer.index ||
+                        isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
+                            draggingFrom == layer.index ||
                             (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
                         dragFingerY = dragFingerY,
                         multiSelected = layer.index in vm.selectedLayerIndices,
@@ -871,175 +927,6 @@ internal fun LayerListView(
                         radius = dotRadius,
                         center = Offset(startX, y),
                     )
-                }
-            }
-
-            // After release the overlay glides into the drop slot (settleTo)
-            LaunchedEffect(settling, settleTo, settleFrom) {
-                if (settling && settleTo != null && settleFrom != null) {
-                    settleAnim.snapTo(settleFrom ?: 0f)
-                    val target = settleTo ?: 0f
-                    settleAnim.animateTo(target, spring(dampingRatio = 0.85f, stiffness = 500f))
-                    settling = false
-                    settleTo = null
-                    settleFrom = null
-                    activeDragLayer = null
-                    isGroupSettle = false
-                }
-            }
-
-            // Floating drag overlay: the dragged row rendered on top of the
-            // list, following the finger, so it is never occluded by other rows.
-            // After release it stays for 160ms, gliding into the drop slot
-            // (settleTo) so the visual landing matches the real landing.
-            if (draggingFrom >= 0 || settling) {
-                val dragged = activeDragLayer
-                if (dragged != null) {
-                    val multiCount = if (isMultiDrag) vm.selectedLayerIndices.size else 1
-
-                    val cardScale by animateFloatAsState(
-                        targetValue = when {
-                            settling && isGroupSettle -> 0.72f
-                            settling -> 1.0f
-                            draggingFrom >= 0 -> 1.045f
-                            else -> 1.0f
-                        },
-                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
-                        label = "cardScale",
-                    )
-                    val cardElevation by animateDpAsState(
-                        targetValue = if (draggingFrom >= 0 && !settling) 16.dp else 0.dp,
-                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 450f),
-                        label = "cardElevation",
-                    )
-                    val cardAlpha by animateFloatAsState(
-                        targetValue = if (settling) 0f else 1f,
-                        animationSpec = tween(durationMillis = 220, delayMillis = 60),
-                        label = "cardAlpha",
-                    )
-                    val fanOffset by animateFloatAsState(
-                        targetValue = if (draggingFrom >= 0 && !settling) 1f else 0f,
-                        animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
-                        label = "fanOffset",
-                    )
-
-                    val rawDragDx = (dragFingerX - dragStartX)
-                    val cardOffsetX by animateFloatAsState(
-                        targetValue = when {
-                            settling -> 0f
-                            draggingFrom >= 0 -> (rawDragDx * 0.40f).coerceIn(-48f * density.density, 48f * density.density)
-                            else -> 0f
-                        },
-                        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
-                        label = "cardOffsetX",
-                    )
-                    val cardTilt by animateFloatAsState(
-                        targetValue = when {
-                            settling -> 0f
-                            draggingFrom >= 0 -> (rawDragDx * 0.032f).coerceIn(-2.6f, 2.6f)
-                            else -> 0f
-                        },
-                        animationSpec = spring(dampingRatio = 0.75f, stiffness = 380f),
-                        label = "cardTilt",
-                    )
-
-                    Box(
-                        modifier =
-                            Modifier
-                                .offset {
-                                    val y =
-                                        if (settling && settleTo != null) {
-                                            settleAnim.value
-                                        } else {
-                                            dragFingerY - listTop - rowPx / 2f
-                                        }
-                                    IntOffset(cardOffsetX.roundToInt(), y.roundToInt())
-                                }
-                                .fillMaxWidth()
-                                .height(rowHeight)
-                                .zIndex(10f)
-                                .graphicsLayer {
-                                    scaleX = cardScale
-                                    scaleY = cardScale
-                                    rotationZ = cardTilt
-                                    alpha = cardAlpha
-                                    shadowElevation = with(density) { cardElevation.toPx() }
-                                },
-                    ) {
-                        // Stacked cards effect for multi-selection drag
-                        if (isMultiDrag) {
-                            if (multiCount >= 3) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .offset(x = 6.dp * fanOffset, y = (-6).dp * fanOffset)
-                                            .graphicsLayer { rotationZ = -2.5f * fanOffset }
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Morandi.panelHi.copy(alpha = 0.5f))
-                                            .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
-                                )
-                            }
-                            if (multiCount >= 2) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .offset(x = 3.dp * fanOffset, y = (-3).dp * fanOffset)
-                                            .graphicsLayer { rotationZ = -1.2f * fanOffset }
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Morandi.panelHi.copy(alpha = 0.75f))
-                                            .border(1.dp, Morandi.panelHi, RoundedCornerShape(8.dp)),
-                                )
-                            }
-                        }
-
-                        // Main floating card
-                        LayerRowContent(
-                            vm = vm,
-                            layer = dragged,
-                            selected = dragged.index == selectedIndex,
-                            collapsed = dragged.name in collapsedGroupNames,
-                            index = dragged.index,
-                            onToggleCollapse = {},
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Morandi.panelHi)
-                                    .border(1.dp, Morandi.accent.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp),
-                        )
-
-                        // Multi-selection count badge
-                        if (isMultiDrag) {
-                            Surface(
-                                modifier =
-                                    Modifier
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 4.dp * fanOffset, y = (-6).dp * fanOffset)
-                                        .zIndex(20f),
-                                shape = CircleShape,
-                                color = Morandi.accent,
-                                shadowElevation = 6.dp,
-                            ) {
-                                Box(
-                                    modifier =
-                                        Modifier
-                                        .sizeIn(minWidth = 22.dp, minHeight = 22.dp)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = "$multiCount",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
