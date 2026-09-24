@@ -139,8 +139,8 @@ internal fun LayerRow(
     onReveal: () -> Unit,
     onRevealClose: () -> Unit,
     onBounds: (Float, Float) -> Unit,
-    onDragStart: () -> Unit,
-    onDragPosition: (Float) -> Unit,
+    onDragStart: (Float, Float) -> Unit,
+    onDragPosition: (Float, Float) -> Unit,
     onDragEnd: () -> Unit,
     dragOnGroup: Boolean,
     isDragging: Boolean,
@@ -162,8 +162,9 @@ internal fun LayerRow(
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     // Right-swipe (multi-select) follow distance cap before the row springs back
     val selectMaxPx = with(density) { 64.dp.roundToPx() }
-    var rowTop by remember { mutableStateOf(0f) }
-    var rowBottom by remember { mutableStateOf(0f) }
+    var rowTop by remember { mutableFloatStateOf(0f) }
+    var rowBottom by remember { mutableFloatStateOf(0f) }
+    var rowLeft by remember { mutableFloatStateOf(0f) }
     val rowInteraction = remember { MutableInteractionSource() }
 
     // Coroutine scope used to drive revealAnim directly from gesture callbacks —
@@ -196,8 +197,10 @@ internal fun LayerRow(
                 .clipToBounds()
                 .pressScale(rowInteraction, pressedScale = 0.97f)
                 .onGloballyPositioned { c ->
-                    rowTop = c.boundsInRoot().top
-                    rowBottom = c.boundsInRoot().bottom
+                    val bounds = c.boundsInRoot()
+                    rowTop = bounds.top
+                    rowBottom = bounds.bottom
+                    rowLeft = bounds.left
                     onBounds(rowTop, rowBottom)
                 }
                 .pointerInput(index, isBg) {
@@ -207,30 +210,49 @@ internal fun LayerRow(
                         val startX = down.position.x
                         val startY = down.position.y
                         val startOffset = revealAnim.value
-                        var gestureSwiping = false
+                        var gestureMode = 0 // 0: undecided, 1: swiping drawer, 2: dragging layer, 3: scrolling
                         var velocityX = 0f
                         var prevX = startX
                         var prevTimeNs = down.uptimeMillis * 1_000_000L
                         var selectTriggered = false
+                        val pressTime = down.uptimeMillis
+                        val longPressTimeoutMs = 300L
+                        val touchSlop = viewConfiguration.touchSlop
+                        val press = androidx.compose.foundation.interaction.PressInteraction.Press(down.position)
+                        scope.launch { rowInteraction.emit(press) }
+
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id }
                             if (change == null || change.changedToUpIgnoreConsumed()) break
-                            val dx = change.position.x - startX
-                            val dy = change.position.y - startY
-                            val nowNs = change.uptimeMillis * 1_000_000L
-                            val dt = ((nowNs - prevTimeNs) / 1_000_000f).coerceAtLeast(1f)
-                            velocityX = ((change.position.x - prevX) / dt * 1000f).coerceIn(-5000f, 5000f)
-                            prevX = change.position.x
-                            prevTimeNs = nowNs
+                            val currentX = change.position.x
+                            val currentY = change.position.y
+                            val dx = currentX - startX
+                            val dy = currentY - startY
+                            val elapsed = change.uptimeMillis - pressTime
 
-                            if (!gestureSwiping) {
-                                if (abs(dx) > viewConfiguration.touchSlop && abs(dx) > abs(dy) * 0.7f) {
-                                    gestureSwiping = true
+                            if (gestureMode == 0) {
+                                if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 0.7f) {
+                                    gestureMode = 1
+                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                } else if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
+                                    gestureMode = 3
+                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                } else if (elapsed >= longPressTimeoutMs && abs(dx) <= touchSlop * 1.5f && abs(dy) <= touchSlop * 1.5f) {
+                                    gestureMode = 2
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                    onDragStart(rowLeft + currentX, rowTop + currentY)
                                 }
                             }
-                            if (gestureSwiping) {
+
+                            if (gestureMode == 1) {
                                 change.consume()
+                                val nowNs = change.uptimeMillis * 1_000_000L
+                                val dt = ((nowNs - prevTimeNs) / 1_000_000f).coerceAtLeast(1f)
+                                velocityX = ((currentX - prevX) / dt * 1000f).coerceIn(-5000f, 5000f)
+                                prevX = currentX
+                                prevTimeNs = nowNs
                                 if (dx > 0 && startOffset >= -revealThresholdPx) {
                                     // Right-swipe from closed: multi-select
                                     scope.launch { revealAnim.snapTo(dx.coerceIn(0f, selectMaxPx.toFloat())) }
@@ -243,14 +265,20 @@ internal fun LayerRow(
                                     // Left-swipe to open or right-swipe to close open drawer
                                     scope.launch { revealAnim.snapTo((startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)) }
                                 }
+                            } else if (gestureMode == 2) {
+                                change.consume()
+                                val rootX = rowLeft + currentX
+                                val rootY = rowTop + currentY
+                                onDragPosition(rootX, rootY)
                             }
                         }
-                        if (gestureSwiping) {
+
+                        if (gestureMode == 2) {
+                            onDragEnd()
+                        } else if (gestureMode == 1) {
                             val currentOffset = revealAnim.value
                             val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
                             val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
-                            // Opening: light bounce for a snappy reveal feel
-                            // Closing / right-swipe springback: no bounce (overdamped)
                             val animSpec = if (shouldReveal) {
                                 spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
                             } else {
@@ -258,26 +286,18 @@ internal fun LayerRow(
                             }
                             scope.launch { revealAnim.animateTo(targetOffset, animSpec) }
                             if (shouldReveal) onReveal() else onRevealClose()
+                        } else if (gestureMode == 0) {
+                            scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
+                            onClick()
                         }
                     }
-                }.combinedClickable(
-                    interactionSource = rowInteraction,
-                    indication = null,
-                    onClick = { onClick() },
-                    onLongClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDragStart()
-                    },
-                ),
+                },
     ) {
         // Inner unit: row content + buttons slide as one piece.
-        // The inner Box uses a transparent/selection-tinted background so the
-        // outer panel background shows through normally; the outer Box's
-        // Morandi.panel background fills the gap as the unit slides left.
         val selectionBg by animateColorAsState(
             targetValue =
                 when {
-                    dragOnGroup -> Morandi.panelHi
+                    dragOnGroup -> Morandi.accent.copy(alpha = 0.22f)
                     selected -> Morandi.accent.copy(alpha = 0.28f)
                     multiSelected -> Morandi.accent.copy(alpha = 0.16f)
                     else -> Color.Transparent
@@ -285,14 +305,16 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "selectionBg",
         )
+        val groupBorder = if (dragOnGroup) BorderStroke(2.dp, Morandi.accent) else null
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .background(selectionBg)
+                    .then(if (groupBorder != null) Modifier.border(groupBorder, RoundedCornerShape(8.dp)) else Modifier)
+                    .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
-                    .graphicsLayer { if (isDragging) alpha = 0.4f },
+                    .graphicsLayer { if (isDragging) alpha = 0.35f },
         ) {
             LayerRowContent(
                 vm = vm,

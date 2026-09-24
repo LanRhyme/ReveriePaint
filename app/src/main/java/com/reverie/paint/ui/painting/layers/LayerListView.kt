@@ -50,6 +50,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.scrollBy
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -144,14 +148,17 @@ internal fun LayerListView(
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
     var collapsedGroupNames by remember { mutableStateOf(setOf<String>()) }
-    var draggingFrom by remember { mutableStateOf(-1) }
+    val listState = rememberLazyListState()
+    var draggingFrom by remember { mutableIntStateOf(-1) }
+    var activeDragLayer by remember { mutableStateOf<PaintViewModel.LayerUiState?>(null) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
-    var dragFingerY by remember { mutableStateOf(0f) }
-    var dragTargetIdx by remember { mutableStateOf(-1) }
-    // After release the floating overlay glides into the drop slot before
-    // fading out, so what the user sees (finger position) matches where the
-    // layer lands (slot center). settleTo = absolute y of the slot center;
-    // settleFrom = the overlay offset at release.
+    var dragFingerX by remember { mutableFloatStateOf(0f) }
+    var dragFingerY by remember { mutableFloatStateOf(0f) }
+    var dragTargetIdx by remember { mutableIntStateOf(-1) }
+    var listLeft by remember { mutableFloatStateOf(0f) }
+    var listTop by remember { mutableFloatStateOf(0f) }
+    var listWidth by remember { mutableFloatStateOf(0f) }
+    var listHeight by remember { mutableFloatStateOf(0f) }
     var settleTo by remember { mutableStateOf<Float?>(null) }
     var settleFrom by remember { mutableStateOf<Float?>(null) }
     var settling by remember { mutableStateOf(false) }
@@ -233,51 +240,74 @@ internal fun LayerListView(
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val rowPx = with(density) { rowHeight.roundToPx() }
-    var columnTop by remember { mutableStateOf(0f) }
 
-    fun updateDragPos(fingerY: Float) {
-        if (displayList.isEmpty()) return
+    fun updateDragPos(fingerX: Float, fingerY: Float) {
+        if (displayList.isEmpty() || draggingFrom < 0) return
+        dragFingerX = fingerX
         dragFingerY = fingerY
-        // Math-mapped target: rows are fixed-height, so the insert index is
-        // (fingerY - listTop) / rowHeight, ROUNDED to the nearest row boundary
-        // (finger in the top half of a row = insert before it, bottom half =
-        // insert after it). The parting animation and the drop use the same
-        // index, so what the user sees is where it lands.
-        val rowPos = (fingerY - columnTop) / rowPx
-        // 0.5 counts as THIS row (roundToInt's Math.round bumps 0.5 up, so a
-        // finger at the row center snapped the placeholder a full row lower -
-        // the "offset by a bit" feel when dragging). (x+0.4999).toInt() keeps
-        // the placeholder centered on the finger's row.
-        var target = (rowPos + 0.4999f).toInt().coerceIn(0, (displayList.size - 1).coerceAtLeast(0))
-        // Background protection: never below the background row (index 0)
-        val bgVisual = displayList.indexOfFirst { it.index == 0 }
-        if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
-        // Only re-sort when the target slot actually changes: recomputing the
-        // list for every in-row finger micro-move restarts the animateItem
-        // animations over and over, which reads as jitter
-        if (target != dragTargetIdx) dragTargetIdx = target
-        // Group middle zone highlight (rowBounds only used for this hint)
+
+        val scrollOffset = listState.firstVisibleItemIndex * rowPx + listState.firstVisibleItemScrollOffset
+        val contentY = (fingerY - listTop) + scrollOffset
+
+        // 1. Group hover detection
+        val localY = fingerY - listTop
+        val hoveredItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            localY >= info.offset && localY < info.offset + info.size
+        }
         var over: Pair<Int, DropMode>? = null
-        for (i in displayList.indices) {
-            val idx = displayList[i].index
-            if (idx == draggingFrom) continue
-            val b = rowBounds[idx] ?: continue
-            if (fingerY >= b.first && fingerY <= b.second) {
-                val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
-                if (isGroup) {
-                    val mid0 = b.first + (b.second - b.first) * 0.3f
-                    val mid1 = b.first + (b.second - b.first) * 0.7f
-                    if (fingerY >= mid0 && fingerY <= mid1) {
-                        over = idx to DropMode.OnGroup
+        if (hoveredItem != null) {
+            val hoveredLayer = displayList.getOrNull(hoveredItem.index)
+            if (hoveredLayer != null && hoveredLayer.isGroup && hoveredLayer.index != draggingFrom) {
+                val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
+                val isDescendant = fromLayer?.isGroup == true && hoveredLayer.depth > fromLayer.depth
+                if (!isDescendant) {
+                    val inRowY = localY - hoveredItem.offset
+                    val inRowRatio = inRowY / hoveredItem.size.toFloat()
+                    if (inRowRatio in 0.22f..0.78f) {
+                        over = hoveredLayer.index to DropMode.OnGroup
                     }
                 }
             }
         }
         dragOver = over
-        android.util.Log.d(
-            "LayerPanel",
-            "dragPos y=$fingerY colTop=$columnTop rowPx=$rowPx rowPos=$rowPos target=$target size=${displayList.size}",
-        )
+
+        if (over != null) {
+            val groupVisualIdx = displayList.indexOfFirst { it.index == over.first }
+            if (groupVisualIdx >= 0) {
+                dragTargetIdx = groupVisualIdx
+            }
+            return
+        }
+
+        // 2. Math slot calculation with hysteresis to avoid oscillation
+        val currentSlot = dragTargetIdx
+        val rawSlot = (contentY / rowPx).toInt()
+        val hysteresisPx = rowPx * 0.25f
+
+        var nextSlot = if (currentSlot >= 0) {
+            val slotTop = currentSlot * rowPx
+            val slotBottom = (currentSlot + 1) * rowPx
+            when {
+                contentY < slotTop - hysteresisPx -> {
+                    ((contentY + hysteresisPx) / rowPx).toInt()
+                }
+                contentY > slotBottom + hysteresisPx -> {
+                    ((contentY - hysteresisPx) / rowPx).toInt()
+                }
+                else -> currentSlot
+            }
+        } else {
+            rawSlot
+        }
+
+        // Background protection: never below the background row (index 0)
+        val bgVisual = displayList.indexOfFirst { it.index == 0 }
+        val maxSlot = if (bgVisual >= 0) (bgVisual - 1).coerceAtLeast(0) else (displayList.size - 1).coerceAtLeast(0)
+        nextSlot = nextSlot.coerceIn(0, maxSlot)
+
+        if (nextSlot != dragTargetIdx) {
+            dragTargetIdx = nextSlot
+        }
     }
 
     fun endDrag() {
@@ -295,32 +325,85 @@ internal fun LayerListView(
 
             val groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
-                vm.moveLayerToGroup(from, over.first)
+                val groupIdx = over!!.first
+                vm.moveLayerToGroup(from, groupIdx)
+                val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
+                if (groupLayer != null && groupLayer.name in collapsedGroupNames) {
+                    collapsedGroupNames = collapsedGroupNames - groupLayer.name
+                }
             } else {
                 val listWithoutFrom = displayRows.filter { it.index != from }
                 if (listWithoutFrom.isNotEmpty()) {
-                    if (insert == 0) {
+                    val safeInsert = insert.coerceIn(0, listWithoutFrom.size)
+                    if (safeInsert == 0) {
                         val target = listWithoutFrom.first().index
                         vm.moveLayerRelative(from, target, placeAbove = true)
-                    } else if (insert >= listWithoutFrom.size) {
+                    } else if (safeInsert >= listWithoutFrom.size) {
                         val target = listWithoutFrom.last().index
                         vm.moveLayerRelative(from, target, placeAbove = false)
                     } else {
-                        val prevItem = listWithoutFrom[insert - 1]
-                        val nextItem = listWithoutFrom[insert]
+                        val prevItem = listWithoutFrom[safeInsert - 1]
+                        val nextItem = listWithoutFrom[safeInsert]
+                        val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
                         if (prevItem.depth > nextItem.depth) {
-                            vm.moveLayerRelative(from, prevItem.index, placeAbove = false)
+                            if (dragFingerX >= indentThreshold) {
+                                vm.moveLayerRelative(from, prevItem.index, placeAbove = false)
+                            } else {
+                                vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                            }
+                        } else if (prevItem.isGroup && (prevItem.name !in collapsedGroupNames) && prevItem.depth < nextItem.depth) {
+                            if (dragFingerX >= indentThreshold) {
+                                vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                            } else {
+                                vm.moveLayerRelative(from, prevItem.index, placeAbove = true)
+                            }
                         } else {
                             vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
                         }
                     }
                 }
             }
+
+            // Settle animation into drop slot
+            val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
+            if (targetInfo != null) {
+                settleFrom = dragFingerY - listTop - rowPx / 2f
+                settleTo = listTop + targetInfo.offset.toFloat() + rowPx / 2f
+                settling = true
+            } else {
+                activeDragLayer = null
+            }
+        } else {
+            activeDragLayer = null
         }
         draggingFrom = -1
         dragTargetIdx = -1
+        dragFingerX = 0f
         dragFingerY = 0f
         dragOver = null
+    }
+
+    LaunchedEffect(draggingFrom, dragFingerY) {
+        if (draggingFrom < 0) return@LaunchedEffect
+        val scrollZone = with(density) { 48.dp.toPx() }
+        val maxScrollStep = with(density) { 14.dp.toPx() }
+        while (isActive && draggingFrom >= 0) {
+            val topDist = dragFingerY - listTop
+            val bottomDist = (listTop + listHeight) - dragFingerY
+            var scrollDelta = 0f
+            if (topDist in 0f..scrollZone) {
+                val ratio = 1f - (topDist / scrollZone).coerceIn(0f, 1f)
+                scrollDelta = -maxScrollStep * ratio
+            } else if (bottomDist in 0f..scrollZone) {
+                val ratio = 1f - (bottomDist / scrollZone).coerceIn(0f, 1f)
+                scrollDelta = maxScrollStep * ratio
+            }
+            if (scrollDelta != 0f) {
+                listState.scrollBy(scrollDelta)
+                updateDragPos(dragFingerX, dragFingerY)
+            }
+            delay(16L)
+        }
     }
 
     var showNewLayerMenu by remember { mutableStateOf(false) }
@@ -477,7 +560,6 @@ internal fun LayerListView(
 
         Spacer(Modifier.height(4.dp))
 
-        var listTop by remember { mutableStateOf(0f) }
         // Adaptive height: grows with the layer count, capped at
         // screen*3/4 minus the panel header (~56dp); scrolls beyond that
         val cfg = LocalConfiguration.current
@@ -489,7 +571,13 @@ internal fun LayerListView(
                 Modifier
                     .fillMaxWidth()
                     .height(listH)
-                    .onGloballyPositioned { listTop = it.boundsInRoot().top }
+                    .onGloballyPositioned { coords ->
+                        val b = coords.boundsInRoot()
+                        listLeft = b.left
+                        listTop = b.top
+                        listWidth = b.width
+                        listHeight = b.height
+                    }
                     .pointerInput(displayList) {
                         awaitPointerEventScope {
                             var pinchStartDist = 0f
@@ -546,32 +634,28 @@ internal fun LayerListView(
                                 }
                             }
                         }
+                    }
+                    .pointerInput(draggingFrom >= 0) {
+                        if (draggingFrom < 0) return@pointerInput
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                val pressed = event.changes.firstOrNull { it.pressed }
+                                if (pressed == null || event.changes.size > 1) {
+                                    endDrag()
+                                    break
+                                }
+                                pressed.consume()
+                                val rootX = listLeft + pressed.position.x
+                                val rootY = listTop + pressed.position.y
+                                updateDragPos(rootX, rootY)
+                            }
+                        }
                     },
         ) {
             LazyColumn(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .onGloballyPositioned { columnTop = it.boundsInRoot().top }
-                        // Panel-level drag handler: once a row's long press activated
-                        // dragging (draggingFrom >= 0), this consumes the following
-                        // moves for drop-position calculation. Consuming also stops
-                        // the lazy scroll from hijacking the drag.
-                        .pointerInput(draggingFrom) {
-                            if (draggingFrom < 0) return@pointerInput
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pressed = event.changes.firstOrNull { it.pressed }
-                                    if (pressed == null) {
-                                        endDrag()
-                                        break
-                                    }
-                                    pressed.consume()
-                                    updateDragPos(columnTop + pressed.position.y)
-                                }
-                            }
-                        },
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 // Key by a unique combination of depth, name, and index to ensure
                 // stability while preventing duplicate key crashes even with duplicate names
@@ -594,12 +678,14 @@ internal fun LayerListView(
                         onReveal = { revealedIndex = layer.index },
                         onRevealClose = { revealedIndex = null },
                         onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
-                        onDragStart = {
+                        onDragStart = { startX, startY ->
                             revealedIndex = null
                             pendingOrder = null
+                            activeDragLayer = layer
                             draggingFrom = layer.index
+                            updateDragPos(startX, startY)
                         },
-                        onDragPosition = { updateDragPos(it) },
+                        onDragPosition = { x, y -> updateDragPos(x, y) },
                         onDragEnd = { endDrag() },
                         dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
                         isDragging = draggingFrom == layer.index,
@@ -644,6 +730,58 @@ internal fun LayerListView(
                 }
             }
 
+            // Insertion indicator line with start dot and hierarchy indentation
+            if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0) {
+                val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx }
+                if (targetInfo != null) {
+                    val lineY = targetInfo.offset.toFloat() + targetInfo.size / 2f
+                    val listWithoutFrom = displayRows.filter { it.index != draggingFrom }
+                    val safeInsert = dragTargetIdx.coerceIn(0, listWithoutFrom.size)
+                    val targetDepth = when {
+                        safeInsert == 0 -> 0
+                        safeInsert >= listWithoutFrom.size -> 0
+                        else -> {
+                            val prevItem = listWithoutFrom[safeInsert - 1]
+                            val nextItem = listWithoutFrom[safeInsert]
+                            val indentThreshold = listLeft + with(density) { 48.dp.toPx() }
+                            val isIndented = dragFingerX >= indentThreshold
+                            if (prevItem.depth > nextItem.depth) {
+                                if (isIndented) prevItem.depth else nextItem.depth
+                            } else if (prevItem.isGroup && (prevItem.name !in collapsedGroupNames) && prevItem.depth < nextItem.depth) {
+                                if (isIndented) nextItem.depth else prevItem.depth
+                            } else {
+                                nextItem.depth
+                            }
+                        }
+                    }
+
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(5f)
+                    ) {
+                        val y = lineY.coerceIn(0f, size.height)
+                        val dotRadius = 4.dp.toPx()
+                        val lineStroke = 2.5.dp.toPx()
+                        val startX = (16 + targetDepth * 20).dp.toPx()
+                        val endX = size.width - 16.dp.toPx()
+
+                        drawLine(
+                            color = Morandi.accent,
+                            start = Offset(startX + dotRadius, y),
+                            end = Offset(endX, y),
+                            strokeWidth = lineStroke,
+                            cap = StrokeCap.Round,
+                        )
+                        drawCircle(
+                            color = Morandi.accent,
+                            radius = dotRadius,
+                            center = Offset(startX, y),
+                        )
+                    }
+                }
+            }
+
             // After release the overlay glides into the drop slot (settleTo)
             LaunchedEffect(settling, settleTo, settleFrom) {
                 if (settling && settleTo != null && settleFrom != null) {
@@ -653,14 +791,16 @@ internal fun LayerListView(
                     settling = false
                     settleTo = null
                     settleFrom = null
+                    activeDragLayer = null
                 }
             }
+
             // Floating drag overlay: the dragged row rendered on top of the
             // list, following the finger, so it is never occluded by other rows.
             // After release it stays for 160ms, gliding into the drop slot
             // (settleTo) so the visual landing matches the real landing.
-            if (draggingFrom >= 0 || settleTo != null) {
-                val dragged = vm.layers.firstOrNull { it.index == draggingFrom }
+            if (draggingFrom >= 0 || settling) {
+                val dragged = activeDragLayer
                 if (dragged != null) {
                     Box(
                         modifier =
@@ -675,6 +815,7 @@ internal fun LayerListView(
                                     IntOffset(0, y.roundToInt())
                                 }.fillMaxWidth()
                                 .height(rowHeight)
+                                .zIndex(10f)
                                 .graphicsLayer {
                                     scaleX = 1.05f
                                     scaleY = 1.05f
