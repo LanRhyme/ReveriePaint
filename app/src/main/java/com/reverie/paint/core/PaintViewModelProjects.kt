@@ -361,6 +361,57 @@ internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project)
     }
 }
 
+internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.model.Project>) {
+    projects.forEach { p ->
+        if (p.isFolder) {
+            val dir = File(p.filePath)
+            if (dir.exists() && dir.isDirectory) {
+                dir.deleteRecursively()
+            }
+        } else {
+            val file = File(p.filePath)
+            if (file.exists()) file.delete()
+        }
+    }
+    refreshProjects()
+}
+
+internal fun PaintViewModel.duplicateProjects(projects: List<com.reverie.paint.model.Project>) {
+    var count = 0
+    val parentDir = projectDir()
+    val isZh = LanguageManager.isChinese()
+    val copySuffix = if (isZh) "副本" else "Copy"
+
+    projects.forEach { p ->
+        if (!p.isFolder) {
+            val srcFile = File(p.filePath)
+            if (srcFile.exists() && srcFile.length() > 0L) {
+                val dir = srcFile.parentFile ?: parentDir
+                val baseName = p.name
+                val ext = srcFile.extension
+                var candidateName = "$baseName $copySuffix"
+                var targetFile = File(dir, "$candidateName.$ext")
+                var counter = 2
+                while (targetFile.exists()) {
+                    candidateName = "$baseName $copySuffix $counter"
+                    targetFile = File(dir, "$candidateName.$ext")
+                    counter++
+                }
+                try {
+                    srcFile.copyTo(targetFile, overwrite = false)
+                    count++
+                } catch (e: Exception) {
+                    android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
+                }
+            }
+        }
+    }
+    if (count > 0) {
+        refreshProjects()
+        showActionToast(R.string.gallery_toast_batch_duplicated, R.drawable.ic_copy, count)
+    }
+}
+
 fun shareProjectFile(context: android.content.Context, p: com.reverie.paint.model.Project) {
     if (p.isFolder) return
     val file = File(p.filePath)

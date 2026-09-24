@@ -20,6 +20,7 @@
     <string name="common_import">导入</string>
     <string name="common_export">导出</string>
     <string name="common_settings">设置</string>
+    <string name="common_move">移动</string>
     <string name="common_search">搜索</string>
     <string name="common_undo">撤销</string>
     <string name="common_redo">重做</string>
@@ -132,6 +133,9 @@
     <string name="gallery_toast_stack_deleted">画集已删除</string>
     <string name="gallery_toast_artwork_deleted">作品已删除</string>
     <string name="gallery_toast_batch_deleted">已删除 %d 项内容</string>
+    <string name="gallery_toast_batch_duplicated">已复制 %d 项作品</string>
+    <string name="gallery_select_all">全选</string>
+    <string name="gallery_deselect_all">取消全选</string>
     <string name="gallery_processing">正在处理...</string>
 
     <!-- Create Canvas -->
