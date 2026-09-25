@@ -138,6 +138,14 @@ namespace
 {
 // min writeback interval; adapts upward if a single apply is slower
 const qint64 LIQUIFY_APPLY_MIN_INTERVAL_MS = 20;
+// 累积脏区面积上限 (像素)。大笔刷 (单 dab 影响半径 infl = 3.2×size, 200px 笔刷就是
+// ~1300² ≈ 1.7M px) 叠加快速拖动时, 若一直 united() 累积区会退化成"整条轨迹的包围盒",
+// 单次 apply 的 warp + 回写 + 投影合成面积无界增长 —— 真机表现就是"笔刷/强度调大后
+// 严重卡顿, 极端时闪退"。这里设上限并按下一次 apply 的实测耗时自适应。
+const qint64 LIQUIFY_DELTA_BUDGET_MIN_PX = 256 * 1024;     // ≈512×512
+const qint64 LIQUIFY_DELTA_BUDGET_MAX_PX = 2 * 1024 * 1024; // ≈1448×1448
+const qint64 LIQUIFY_DELTA_BUDGET_DEFAULT_PX = 768 * 1024;
+std::atomic<qint64> s_liquifyDeltaBudgetPx{LIQUIFY_DELTA_BUDGET_DEFAULT_PX};
 // 多目标 warp 并行开关 (一键回退): 真机上若怀疑并行引起异常, 置 false 重编译
 // 即可回到逐层串行, 其余行为逐像素一致。
 const bool kLiquifyParallelTargets = true;
@@ -154,6 +162,7 @@ void ReverieCore::resetLiquifyWorker()
     m_liquifyWorkerBounds = QRect();
     m_liquifyPendingDelta = QRect();
     m_liquifyApplyIntervalMs = LIQUIFY_APPLY_MIN_INTERVAL_MS;
+    s_liquifyDeltaBudgetPx.store(LIQUIFY_DELTA_BUDGET_DEFAULT_PX);
 }
 
 // Re-run the accumulated warp and write back only the DELTA region: older
@@ -161,6 +170,54 @@ void ReverieCore::resetLiquifyWorker()
 // only change within the newest dabs' influence. Writing back the whole
 // accumulated strokes region instead made every apply cost (and recomposite)
 // grow linearly with drag length.
+// 回写前补洞: worker 的 run() 只覆盖它实际遍历到的瓦片, 其余保持 clear() 后的透明,
+// 而回写用 COMPOSITE_COPY 会把这些透明像素**擦进图层** —— 透明处露出画布白底, 就是
+// 用户看到的"液化白线 + 白色矩形轮廓"(沿瓦片边界与回写区边界)。这里把 area 内 alpha=0
+// 的目标像素补回 src 原内容: 已映射的像素逐像素不变, 只消除"假透明"。
+// thread_local 复用缓冲: 拖动中每几十毫秒调用一次, 不允许每帧分配。
+// 注: 参数按值传 QSharedPointer 而不是 const 引用 —— const 引用下 QSharedPointer 的
+// operator-> 给出的是 const 指针, 无法调用非 const 的 writeBytes (KisPaintDevice 如此)。
+void seedTransparentFromSource(KisPaintDeviceSP dst, KisPaintDeviceSP src,
+                               const QRect &area)
+{
+    if (!dst || !src || area.isEmpty()) return;
+    const KoColorSpace *cs = dst->colorSpace();
+    if (!cs) return;
+    const int ps = cs->pixelSize();
+    if (ps <= 0) return;
+    // 文档色彩空间为 8bit RGBA/BGRA ⇒ alpha 在 ps 范围内的某个字节位置;
+    // 取不到有效位置就整体放弃 (宁可漏补也不写坏像素)
+    const int alphaPos = int(cs->alphaPos());
+    if (alphaPos < 0 || alphaPos >= ps) return;
+
+    const int w = area.width();
+    const int h = area.height();
+    const size_t count = size_t(w) * size_t(h);
+    const size_t bytes = count * size_t(ps);
+    thread_local QByteArray dstBuf;
+    thread_local QByteArray srcBuf;
+    if (size_t(dstBuf.size()) < bytes) {
+        dstBuf.resize(int(bytes));
+        srcBuf.resize(int(bytes));
+    }
+    quint8 *d = reinterpret_cast<quint8 *>(dstBuf.data());
+    quint8 *s = reinterpret_cast<quint8 *>(srcBuf.data());
+    dst->readBytes(d, area.x(), area.y(), w, h);
+    src->readBytes(s, area.x(), area.y(), w, h);
+
+    bool patched = false;
+    for (size_t i = 0; i < count; ++i) {
+        const size_t off = i * size_t(ps);
+        if (d[off + size_t(alphaPos)] == 0) {
+            memcpy(d + off, s + off, size_t(ps));
+            patched = true;
+        }
+    }
+    if (patched) {
+        dst->writeBytes(d, area.x(), area.y(), w, h);
+    }
+}
+
 void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
 {
     if (m_liquifyTargets.isEmpty() || !m_document) {
@@ -192,12 +249,13 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
         // 并行期间不触碰 m_liquifyTargets 的容器本身
         QtConcurrent::blockingMap(reverieBackgroundPool(), warped,
                                   [](LiquifyTarget *t) {
-                                      t->dst->clear();
+                                      // run() 内部本来就会 dst->clear() (见
+                                      // KisLiquifyTransformWorker::run), 这里不再重复清一遍 ——
+                                      // 每次 apply 每目标少清一整块 bounds (200px 时 0.58M px)
                                       t->worker->run(t->src, t->dst);
                                   });
     } else {
         for (LiquifyTarget *t : warped) {
-            t->dst->clear();
             t->worker->run(t->src, t->dst);
         }
     }
@@ -207,6 +265,8 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
         if (!t.worker) continue;
         const QRect area = deltaRect.intersected(t.bounds).intersected(clipRect);
         if (!area.isEmpty()) {
+            // 先补掉 warp 未覆盖的透明像素, 否则 COMPOSITE_COPY 会把它们擦进图层
+            seedTransparentFromSource(t.dst, t.src, area);
             KisPainter p(t.device);
             p.setCompositeOpId(COMPOSITE_COPY);
             if (m_selection) {
@@ -224,15 +284,40 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     }
     if (!dirtyUnion.isEmpty()) {
         markRegionDirty(dirtyUnion);
+        // 立刻把投影的这块区域同步合成掉: Krita 后台调度器未必已经处理刚标记的脏区,
+        // 渲染路径此时读投影就会拿到半更新像素 (白线/撕裂的第二个成因)。放在这里做,
+        // 重活就落在"按 20~64ms 节流的 apply"上, 而不是每个输入事件一次的渲染路径上 ——
+        // 大笔刷下这是数量级的差别 (200px 笔刷单次脏区可达数百万像素)。
+        if (!m_soloedNode && m_document) {
+            KisPaintDeviceSP proj = m_document->projection();
+            const QRect c = dirtyUnion.intersected(
+                QRect(0, 0, m_document->width(), m_document->height()));
+            if (proj && !c.isEmpty()) {
+                proj->clear(c);
+                compositeLayersRange(proj, 0, m_layers.size(), c);
+            }
+        }
     }
     m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 elapsed = m_liquifyLastApplyMs - t0;
     // Adaptive pacing: if one apply exceeds the frame budget, back off (up
     // to ~15fps) so the render thread always keeps serving input
+    // 节流上限回到 64ms: 放宽到 120ms 会让一次 apply 前累积更多 dab, 网格形变更剧烈、
+    // 更容易走 Krita 内部的退化路径 (真机 68px 闪退)。宁可多做一些 apply 也不冒险。
     m_liquifyApplyIntervalMs =
         qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS,
                        qMax<qint64>(elapsed * 2, LIQUIFY_APPLY_MIN_INTERVAL_MS),
                        64);
+    // 脏区预算同步自适应: 单次 apply 超帧预算就收小累积区, 很快时再逐步放回。
+    // 目标始终是"一次 apply 的 warp + 回写 + 同步合成"贴着帧预算, 而不是随拖动越来越大。
+    {
+        const qint64 budget = s_liquifyDeltaBudgetPx.load();
+        if (elapsed > 32) {
+            s_liquifyDeltaBudgetPx.store(qMax(LIQUIFY_DELTA_BUDGET_MIN_PX, budget / 2));
+        } else if (elapsed < 12) {
+            s_liquifyDeltaBudgetPx.store(qMin(LIQUIFY_DELTA_BUDGET_MAX_PX, budget * 2));
+        }
+    }
     RPC_TRACE("liquify apply total=%dms targets=%d area=%dx%d bounds=%dx%d int=%d",
               int(elapsed), int(m_liquifyTargets.size()),
               dirtyUnion.width(), dirtyUnion.height(),
@@ -381,6 +466,8 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         }
         // Tight bounds: only the brush neighbourhood + the gaussian influence
         // radius (3 sigma) must fit; anything larger only adds copy cost
+        // 影响半径保持 1.9σ: 试过压到 1.6σ 省面积, 但 bounds 变小后强位移会更频繁地
+        // 需要 bounds 之外的像素 / 让网格退化, 真机上反而更不稳 (68px 就闪退)。稳妥优先。
         const int R = qMax<int>(192, qRound(size * 1.9));
         QRect bounds(tx - R, ty - R, 2 * R, 2 * R);
         bounds = bounds.intersected(QRect(0, 0, image->width(), image->height()));
@@ -402,7 +489,17 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             // the grid with the brush instead (~8 cells across the radius),
             // clamped so tiny brushes stay affordable and huge brushes keep
             // the coarse grid the throttling budget was tuned for.
-            const int precision = qBound<int>(4, qRound(size / 8.0), 16);
+            // 网格精度必须落在 Krita 的合法集合 {1,2,4,8,16}(或 16 的倍数) 里 ——
+            // KisLiquifyTransformWorker 内部按此断言, 非 2 的幂会破坏网格索引假设。
+            // 上游是 qBound(4, size/8, 16), 对 68px 会得到 9 (非法值); 这里改为吸附到
+            // 最近的合法档 4/8/16, 既保留"随笔刷缩放网格"的意图, 又不出合法集合。
+            // 合法档集合是 {4,8,16,32,...}(32 满足 Krita 断言的 "16 的倍数")。
+            // 大笔刷用 32: run() 的成本里"每个网格单元一次多边形填充 + 瓦片读写"占大头
+            // (单元数 = (bounds/精度)²), 760² 的 bounds 从 47×47=2209 个单元降到 24×24=576,
+            // 约 4 倍提速; 380px 半径上仍有 12 个单元/半径, 足够解析高斯形状。
+            const int rawPrecision = qBound<int>(4, qRound(size / 8.0), 32);
+            const int precision = rawPrecision > 16 ? 32
+                                 : (rawPrecision > 12 ? 16 : (rawPrecision > 6 ? 8 : 4));
             t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
         }
@@ -448,6 +545,21 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     const int infl = qRound(size * 3.2) + 8;
     const QRect dab(qMin(fx, tx) - infl, qMin(fy, ty) - infl,
                     qAbs(tx - fx) + 2 * infl, qAbs(ty - fy) + 2 * infl);
+    // 累积前先看预算: 超预算或新 dab 与已累积区脱开就先 flush 再重新累积。
+    // build-up 语义下旧位移不会再变, 提前回写与最终结果逐像素一致。
+    if (!m_liquifyPendingDelta.isNull()) {
+        const QRect merged = m_liquifyPendingDelta.united(dab);
+        const qint64 mergedPx = qint64(merged.width()) * qint64(merged.height());
+        // 预算至少要能容下 2 个 dab: 大笔刷单 dab 就有 1.7M px (size=200 时 infl=648),
+        // 若预算小于它, 就会退化成"每个 dab 都 flush 一次" —— 等于把一次节流 apply
+        // 变成每个输入事件多次 apply, 反而更卡。
+        const qint64 dabPx = qint64(dab.width()) * qint64(dab.height());
+        const qint64 budget = qMax(s_liquifyDeltaBudgetPx.load(), dabPx * 2);
+        if (mergedPx > budget || !m_liquifyPendingDelta.intersects(dab)) {
+            liquifyApplyLocked(m_liquifyPendingDelta);
+            m_liquifyPendingDelta = QRect();
+        }
+    }
     m_liquifyPendingDelta =
         m_liquifyPendingDelta.isNull() ? dab : m_liquifyPendingDelta.united(dab);
 

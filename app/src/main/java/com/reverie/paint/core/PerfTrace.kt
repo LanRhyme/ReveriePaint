@@ -326,9 +326,11 @@ object PerfTrace {
         if (scaledCount > 0L) sb.append("  scaled ").append(scaledCount)
         sb.append('\n')
 
-        // 第 2 行: 纹理重传代理 + draw 耗时
-        val fps = if (span > 0) flipCount * 1000.0 / span else 0.0
-        sb.append("flip ").append("%.1f".format(fps)).append("/s")
+        // 第 2 行: 纹理重传代理 + draw 耗时。
+        // 窗口不足 500ms 时不报 fps —— 否则"窗口刚重置 + 1 次翻转"会被折算成 100+/s 的
+        // 伪读数 (真机实测见过 flip 140/s 这种不可能的数字, 会误导判断)。
+        val fps = if (span >= 500L) flipCount * 1000.0 / span else -1.0
+        sb.append("flip ").append(if (fps < 0) "--" else "%.1f".format(fps)).append("/s")
         if (flipCount > 0L) {
             sb.append("  重传 ").append("%.1f".format(flipBytes / flipCount / 1048576.0)).append("MB/帧")
         }

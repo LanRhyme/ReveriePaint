@@ -107,6 +107,9 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
+        // 注: 液化事务的投影同步合成已挪到 liquifyApplyLocked (按 20~64ms 节流) ——
+        // 放在渲染路径上会让"每个输入事件一次的渲染"都承担一次大区域合成, 大笔刷下
+        // 直接吃满渲染线程 (真机表现为严重卡顿)。渲染路径因此只保留笔画这一支。
         if (m_drawing) {
             // Non-blocking in-stroke rendering: bypass Krita background scheduler completely.
             // Synchronously composite the exact dirty sub-region across visible layers in <0.05ms.
