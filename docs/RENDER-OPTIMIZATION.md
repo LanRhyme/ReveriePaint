@@ -368,6 +368,54 @@ Krita 原路径)。**在 2A-2 的真机结论(几何是否正确、手感是否�
 - 每 dab 会新建一张小位图(位移纹理)而不是原地覆写: `copyPixelsFromBuffer` 不保证推进 generation id,
   原地改内容可能让 GPU 继续用旧纹理。
 
+### 4.11 Phase 2C: 交互调度 latest-state-wins (实验开关)
+
+前两阶段已经把"最终物化"与"交互态呈现"分开: Phase 0 证明代价几乎全在 Krita 网格 `run()`
+(60px ≈ 20ms/次、200px ≈ 41ms/次, 其中 `形变` 占 19/39ms), 2A-2/2B 证明交互态可以不碰 `run()`。
+剩下的最后一个工程问题不是"采样再快一点", 而是**输入 → 预览的调度会不会积压**:
+
+```
+一次 ACTION_MOVE 可以带多个历史点; 旧实现 = 每个历史点 × 每个补点 立即提交一次
+        ⇒ 队列里排的是"历史状态", 手越快 / 笔刷越大积压越多 ⇒ 预览越来越落后
+```
+
+另一条结论同样来自真机数据: `draw p95 0.10ms` —— 呈现层不是瓶颈, 所以**不要回头改脏区/绘制层**;
+AGSL 模式下引擎既不 apply 也不写显示缓冲(`脏比 0.0%` 是正常现象), 覆盖层由预览更新驱动重绘。
+
+**实验内容**: 交互态只保证"预览追上最新位置", 中间位置全部丢弃 —— 每帧最多推进 `n` 个补点, 方向始终
+指向**最新**位置, 没追完下一帧继续; 抬笔时把剩余段按常规补点规则一次性补齐(不丢形变)。补点数与强度
+折算复用同一套规则, 因此"分帧"只改变调度节奏, 不改变总量口径。
+
+| 项 | 值 |
+|---|---|
+| 开关 | `setprop debug.reverie.lqcoalesce <n>`(n = 每帧最多推进的补点数; `0` = 关闭; 未设 = AGSL 预览时默认 2, 其它模式关闭) |
+| 实现 | [`flushLiquifyPending()`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt:2635) + [`LiquifyPath.chaseSubsteps()`](../app/src/main/java/com/reverie/paint/model/LiquifyPath.kt:53) |
+| 度量 | logcat 每秒窗口出现 `liquify.input`(输入事件数) / `liquify.flush`(推进次数) / `liquify.dabs`(补点总数); 三者之比就是实际的合并倍率 |
+| 边界 | 抬笔/取消前先 `removeCallbacks` 再补齐剩余段; `n = 0` 或距离 < 0.5px 时不推进 |
+
+**为什么默认不激进**: 无预览与 CPU 预览这两条路径直接决定"最终提交的形变", 默认保持逐点处理不变;
+AGSL 模式下引擎每帧的液化成本已接近 0, 这个开关只影响"网格调用次数", 默认 2 步/帧即可, 不会影响
+已经验收过的 2A-2 基线。
+
+**没有数据线时的测法(构建期档位)**: `./gradlew :app:assembleDebug -PlqTestProfile=<n>` —— 只改默认值,
+装包即可对照, 不需要 adb 也不需要 logcat:
+
+| 档位 | 默认行为 | 用途 |
+|---|---|---|
+| 0(默认) | 完全不变 | 一切照旧由 debug property 控制 —— 提交与 PR 用的就是它 |
+| 1 | AGSL 预览 + latest-state-wins(2 步/帧) | **目标形态**, 先看这个 |
+| 2 | 引擎侧 CPU 预览 + latest-state-wins(2 步/帧) | 2A-2 基线对照(看是否仍有 192px 块感) |
+| 3 | AGSL 预览 + 不做调度合并 | 对照"调度合并到底帮不帮到手感" |
+
+HUD 新增的第 4.5 行就是这台实验的读数: `泵 输入<i>/推进<f>/补点<d>/物化<a>`(上一秒窗口)。
+`i/f` 即合并倍率; `d ≤ n×f` 验证"每帧最多 n 个补点"; **`a` = 这一秒发生了多少次 `apply`** ——
+预览模式下引擎只在 rebase 与抬笔时 apply, 所以 `a` 就是"拖动中 rebase 的次数", 它决定下一步
+是去优化 rebase(把物化从"整块 bounds 全分辨率"降下来), 还是交互侧已经收工。
+
+真机首组读数(200px/90%, 档位 1): `泵 输入110/推进89/补点127/物化…`, `液化 59ms 形变 54/补洞 2/
+回写 0/合成 3, 543K px` —— 543K px 恰好是 200px 笔刷的 bounds 面积, 即那 54ms 是一次**物化**
+而不是拖动中的每次提交。若 `物化` 在拖动中还明显 > 0, 说明 rebase 是下一个瓶颈。
+
 ## 5. 内存与线程
 
 ### 5.1 帧缓存预算 + 内存压力
@@ -540,6 +588,10 @@ Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / �
 | `21/22-liquify-grid-{debug,release}` | +网格导出与箭头可视化(§4.8) | 目视核对位移场几何/方向 |
 | `23/24-liquify-preview-{debug,release}` | +CPU 低分辨率预览(§4.9) | **真机验收通过**(几何/手感/rebase/抬笔/撤销/多层全部正确) |
 | `25/26-liquify-gpu-preview-{debug,release}` | +AGSL 预览(§4.10) | 待真机对比 CPU 预览的清晰度与开销 |
+| `27/28-liquify-latest-wins-{debug,release}` | +交互调度 latest-state-wins(§4.11) | 待真机看 `liquify.input/flush/dabs` 的合并倍率与手感 |
+| `29-lq-p1-agsl-chase2-debug` | 档位 1: AGSL + 2 步/帧 | **无数据线首选**: 目标形态 |
+| `30-lq-p2-cpu-chase2-debug` | 档位 2: CPU 预览 + 2 步/帧 | 2A-2 对照 |
+| `31-lq-p3-agsl-nochase-debug` | 档位 3: AGSL + 不合并 | 调度对照 |
 
 ### 旧编号对照(供检索引擎/历史提交使用)
 

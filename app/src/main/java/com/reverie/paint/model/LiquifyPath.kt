@@ -28,6 +28,9 @@ object LiquifyPath {
     /** 单段最大补点数, 约束单帧内的跨 JNI 调用次数 */
     const val MAX_SUBSTEPS = 12
 
+    /** 每帧推进的补点上限(Phase 2C latest-state-wins 实验的默认值) */
+    const val DEFAULT_MAX_DABS_PER_FLUSH = 2
+
     /** 推拉模式: 位移量与传入 delta 成正比, 不走幅度曲线 */
     const val MODE_PUSH = 0
 
@@ -36,6 +39,20 @@ object LiquifyPath {
         if (distance <= 0f) return 0
         val step = (brushSize.coerceAtLeast(MIN_BRUSH_SIZE) * STEP_RATIO).coerceAtLeast(MIN_STEP)
         return ceil(distance / step).toInt().coerceIn(1, MAX_SUBSTEPS)
+    }
+
+    /**
+     * 每帧推进的补点数(Phase 2C latest-state-wins 实验)
+     *
+     * 交互态只保证"预览追上最新位置": 单帧阻塞时间必须有界, 因此取
+     * `min(整段补点数, 每帧上限)`; 没追完的部分下一帧继续, 方向**始终指向最新位置**,
+     * 中间位置全部丢弃 —— 抬笔时仍会把剩余段按常规补点规则一次性补齐, 不丢形变。
+     *
+     * @return 0 表示本帧不需要推进(上限关闭 / 距离为 0)
+     */
+    fun chaseSubsteps(distance: Float, brushSize: Float, maxDabsPerFlush: Int): Int {
+        if (maxDabsPerFlush <= 0 || distance <= 0f) return 0
+        return min(substepCount(distance, brushSize), maxDabsPerFlush)
     }
 
     /**

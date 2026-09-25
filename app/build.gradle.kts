@@ -57,6 +57,15 @@ android {
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
 
+        // 无 adb 真机 A/B 用的"液化实验档位": ./gradlew assembleDebug -PlqTestProfile=<n>
+        //   0(默认) = 不改任何默认行为(一切照旧由 debug property 控制)
+        //   1 = 默认开 AGSL 预览 + latest-state-wins(2 步/帧)   ← 目标形态
+        //   2 = 默认开引擎侧 CPU 预览 + latest-state-wins(2 步/帧)(2A-2 对照)
+        //   3 = 默认开 AGSL 预览 + 不做 latest-state-wins(对照调度)
+        // 只改"默认值": 任一项仍可被对应 property 覆盖(见 docs/RENDER-OPTIMIZATION.md §4.11)
+        val lqTestProfile = (project.findProperty("lqTestProfile") as? String)?.toIntOrNull() ?: 0
+        buildConfigField("int", "LQ_TEST_PROFILE", lqTestProfile.toString())
+
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

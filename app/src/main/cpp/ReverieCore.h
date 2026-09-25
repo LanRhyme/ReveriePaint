@@ -598,6 +598,8 @@ private:
     void liquifyApplyLocked(const QRect &deltaRect);
 
     // Phase 2A-2 预览态内部实现(见 LiquifyPreviewMeta 的公开接口说明)
+    /** 本次手势是否需要预览(diagnostic property, 或 Kotlin 侧显式指定了绘制模式)。 */
+    bool liquifyPreviewWanted() const;
     void liquifyPreviewCaptureLocked(); // rebase 后缓存 bounds 的原始像素(整段手势只读一次)
     void liquifyPreviewBuildLocked();   // 每次 dab 后重建低分辨率预览(反向采样)
     /** 把预览混合进刚写好的显示缓冲区域(缓冲像素坐标; 预览覆盖 m_liquifyWorkerBounds)。 */

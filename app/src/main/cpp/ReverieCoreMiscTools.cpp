@@ -264,6 +264,15 @@ bool ReverieCore::liquifyPreviewHostDraw() const
     return liquifyPreviewGpuRequested();
 }
 
+bool ReverieCore::liquifyPreviewWanted() const
+{
+    // Kotlin 侧显式写了绘制模式(>= 0)就等于"这次手势要预览": 没有数据线时靠构建档位
+    // (app/build.gradle.kts 的 -PlqTestProfile)也能测, 不必先设 property。
+    // 0 = 引擎侧 CPU 叠加, 1 = 主机侧(AGSL)绘制。
+    if (m_liquifyPreviewHostDrawMode >= 0) return true;
+    return liquifyPreviewRequested();
+}
+
 void ReverieCore::setLiquifyPreviewHostDrawMode(int mode)
 {
     m_liquifyPreviewHostDrawMode = mode < 0 ? -1 : (mode > 0 ? 1 : 0);
@@ -984,7 +993,7 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         }
         // Phase 2A-2: 预览模式下 rebase 后缓存一份 bounds 的原始像素(整段手势只读这一次),
         // 之后每次 dab 只做 CPU 位移采样 —— 拖动期间不再碰 Krita device。
-        if (!ownBracket && liquifyPreviewRequested()) {
+        if (!ownBracket && liquifyPreviewWanted()) {
             m_liquifyPreview = true;
             liquifyPreviewCaptureLocked();
         }

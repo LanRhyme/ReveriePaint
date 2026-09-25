@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.*
@@ -194,6 +195,12 @@ class CanvasTouchView(context: Context) : View(context) {
     private val lassoPoints = mutableListOf<Offset>()
     private var lastLassoPreviewNs = 0L
     private var liquifyPrevPos = Offset.Zero
+    // Phase 2C 实验(latest-state-wins): 每帧最多推进几个补点; 0 = 关闭(逐个历史点立即处理)
+    private var liquifyMaxDabsPerFlush = 0
+    private var liquifyPendingTo: Offset? = null
+    private var liquifyFlushPosted = false
+    private var liquifyInputSinceFlush = 0
+    private val liquifyFlushRunnable = Runnable { flushLiquifyPending() }
     private var smoothedPressure = 0.8f
 
     // 文本交互状态
@@ -2091,6 +2098,25 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 liquifyPrevPos = docPos
+                liquifyPendingTo = null
+                liquifyFlushPosted = false
+                removeCallbacks(liquifyFlushRunnable)
+                // Phase 2C 实验开关: `setprop debug.reverie.lqcoalesce <n>` 指定每帧最多推进的
+                // 补点数(0 = 关闭)。AGSL 预览本来就"不阻塞引擎", 因此它默认按 2 步/帧跑;
+                // 引擎侧路径(无预览/CPU 预览)默认关闭, 保持既有行为, 需要时用 property 打开。
+                val prop = PerfTrace.debugPropInt("debug.reverie.lqcoalesce", -1)
+                liquifyMaxDabsPerFlush = when {
+                    // 1) property 最高优先(无数据线时也能靠构建档位兜底)
+                    prop >= 0 -> prop
+                    // 2) 构建期档位: 3 = 对照"不做调度合并", 1/2 = 默认 2 步/帧
+                    BuildConfig.LQ_TEST_PROFILE == 3 -> 0
+                    BuildConfig.LQ_TEST_PROFILE == 1 || BuildConfig.LQ_TEST_PROFILE == 2 ->
+                        LiquifyPath.DEFAULT_MAX_DABS_PER_FLUSH
+                    // 3) AGSL 预览(引擎侧本来就不阻塞)默认开启; 其它路径保持逐点处理
+                    LiquifyGpuPreview.requested -> LiquifyPath.DEFAULT_MAX_DABS_PER_FLUSH
+                    else -> 0
+                }
+                liquifyInputSinceFlush = 0
                 v.liquifyBegin()
                 strokeStarted = true
             }
@@ -2415,12 +2441,23 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
-                    // 历史点(coalesced)必须一起消费: 原先只取当帧最终点, 手快时
-                    // 一次事件跨几十像素, 形变搭接不上就会留下断口
-                    for (i in 0 until event.historySize) {
-                        liquifyAlongPath(v, screenToDoc(Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))))
+                    if (liquifyMaxDabsPerFlush > 0) {
+                        // Phase 2C: latest-state-wins —— 只留"最新位置", 中间状态(含历史点)全丢,
+                        // 由下一帧统一推进。避免"一个事件里多个历史点 → 队列里堆多次 apply"。
+                        liquifyPendingTo = docPos
+                        liquifyInputSinceFlush++
+                        if (!liquifyFlushPosted) {
+                            liquifyFlushPosted = true
+                            postOnAnimation(liquifyFlushRunnable)
+                        }
+                    } else {
+                        // 历史点(coalesced)必须一起消费: 原先只取当帧最终点, 手快时
+                        // 一次事件跨几十像素, 形变搭接不上就会留下断口
+                        for (i in 0 until event.historySize) {
+                            liquifyAlongPath(v, screenToDoc(Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))))
+                        }
+                        liquifyAlongPath(v, docPos)
                     }
-                    liquifyAlongPath(v, docPos)
                 }
             }
             Tool.PICKER -> {
@@ -2595,6 +2632,61 @@ class CanvasTouchView(context: Context) : View(context) {
             prev = next
         }
         liquifyPrevPos = to
+        // 逐点路径的"推进 == 输入": 作为 latest-state-wins 的对照基线(合并倍率恒为 1)
+        PerfTrace.liquifySchedule(1, n)
+    }
+
+    /**
+     * Phase 2C 实验: latest-state-wins 的"一帧推进"。
+     *
+     * 每帧最多推进 [liquifyMaxDabsPerFlush] 个补点, 方向永远指向**最新**位置; 没追完下一帧继续。
+     * 与"逐个历史点立即处理"的差别只有两点: ①同一帧内多个输入事件被合并成一段(中间位置丢弃);
+     * ②单帧阻塞时间有上界 —— 不会再出现"一个事件里 10 个历史点 × 每个 41ms"这种排队。
+     */
+    private fun flushLiquifyPending() {
+        liquifyFlushPosted = false
+        val v = vm ?: return
+        val to = liquifyPendingTo ?: return
+        val from = liquifyPrevPos
+        val size = liquifyBrushSize
+        val dist = hypot(to.x - from.x, to.y - from.y)
+        if (dist < 0.5f) {
+            liquifyPrevPos = to
+            liquifyPendingTo = null
+            return
+        }
+        // 整段的补点数作为"总步数": 与常规路径同一套补点与强度折算规则, 分帧不改变总量
+        val full = LiquifyPath.substepCount(dist, size)
+        val n = LiquifyPath.chaseSubsteps(dist, size, liquifyMaxDabsPerFlush)
+        if (n <= 0) {
+            liquifyAlongPath(v, to)
+            return
+        }
+        val strength = liquifyStrength *
+            LiquifyPath.substepStrengthScale(dist, size, full, liquifyMode)
+        val stepX = (to.x - from.x) / full
+        val stepY = (to.y - from.y) / full
+        var px = from.x
+        var py = from.y
+        for (i in 0 until n) {
+            val nx = px + stepX
+            val ny = py + stepY
+            v.liquify(px, py, nx, ny, liquifyMode, strength.toDouble())
+            px = nx
+            py = ny
+        }
+        liquifyPrevPos = Offset(px, py)
+        PerfTrace.liquifySchedule(liquifyInputSinceFlush, n)
+        liquifyInputSinceFlush = 0
+        if (n < full) {
+            // 还没追完: 下一帧继续朝最新位置推进
+            if (!liquifyFlushPosted) {
+                liquifyFlushPosted = true
+                postOnAnimation(liquifyFlushRunnable)
+            }
+        } else {
+            liquifyPendingTo = null
+        }
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
@@ -2640,6 +2732,16 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
+                    // Phase 2C: 抬笔要把没追完的剩余段一次性补齐(此时按常规补点规则覆盖整段,
+                    // 不丢形变), 再提交事务
+                    if (liquifyMaxDabsPerFlush > 0) {
+                        removeCallbacks(liquifyFlushRunnable)
+                        liquifyFlushPosted = false
+                        liquifyPendingTo?.let { to ->
+                            liquifyPendingTo = null
+                            liquifyAlongPath(v, to)
+                        }
+                    }
                     if (isCancel) {
                         v.liquifyCancel()
                     } else {

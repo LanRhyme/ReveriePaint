@@ -12,6 +12,7 @@ import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
 import android.util.Half
+import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.CanvasViewTransform
 import java.nio.ByteBuffer
 import java.nio.ShortBuffer
@@ -41,6 +42,14 @@ import java.nio.ShortBuffer
 internal object LiquifyGpuPreview {
 
     private const val PROP_GPU = "debug.reverie.liquifyPreviewGpu"
+
+    /**
+     * 构建期注入的实验档位(`-PlqTestProfile=<n>`, 见 `app/build.gradle.kts`):
+     * 0 = 不改默认行为; 1 = 默认 AGSL 预览 + latest-state-wins; 2 = 默认 CPU 预览 + latest-state-wins;
+     * 3 = 默认 AGSL 预览但不做 latest-state-wins。**只改默认值**, 任一 property 仍可覆盖。
+     * 存在的意义: 没有数据线时也能直接装包对照(见 docs/RENDER-OPTIMIZATION.md §4.11)。
+     */
+    private val testProfile = BuildConfig.LQ_TEST_PROFILE
 
     /**
      * 位移采样 shader。输入:
@@ -130,12 +139,20 @@ internal object LiquifyGpuPreview {
      * @return -1 = 跟随 property(GPU 可用且开关打开); 0 = 强制引擎侧 CPU 叠加
      */
     fun decideForGesture(): Int {
-        val wantGpu = propBool(PROP_GPU) && ensureSupported()
+        val wantGpu =
+            (propBool(PROP_GPU) || testProfile == 1 || testProfile == 3) && ensureSupported()
         requested = wantGpu
         if (!wantGpu) {
             active = false
         }
-        return if (wantGpu) -1 else 0
+        // 1 = 强制主机侧(AGSL)绘制; 0 = 强制引擎侧 CPU 叠加; -1 = 交给引擎按 property 判断。
+        // 档位 2 是"CPU 预览对照", 用 0 显式打开 —— 否则"引擎要预览"这件事只能靠 property 传达,
+        // 无数据线的设备就没法测。
+        return when {
+            wantGpu -> 1
+            testProfile == 2 -> 0
+            else -> -1
+        }
     }
 
     /** 平台是否支持(只看 API 等级; shader 编译在 [update] 里做, 失败即回退)。 */

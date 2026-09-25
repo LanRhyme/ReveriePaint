@@ -258,6 +258,25 @@ object PerfTrace {
         hudCacheMs = 0L
     }
 
+    // Phase 2C: 交互调度计数(每秒窗口) —— 输入事件 / 推进次数 / 补点总数, 用于判断合并倍率
+    private var lqScheduleInput = 0L
+    private var lqScheduleFlush = 0L
+    private var lqScheduleDab = 0L
+    private var lqApplyPerWindow = 0L
+    private var lqApplyCountLast = 0L
+
+    /**
+     * 记录一次液化"推进"(Phase 2C latest-state-wins 的每帧一次):
+     * [inputs] = 距上次推进累积的输入事件数, [dabs] = 本次推进实际提交的补点数。
+     * 三者之比就是合并倍率: 1 次推进 = 1 帧, 补点数 ≤ 每帧上限。
+     */
+    @Synchronized
+    fun liquifySchedule(inputs: Int, dabs: Int) {
+        lqScheduleInput += inputs
+        lqScheduleFlush++
+        lqScheduleDab += dabs
+    }
+
     /**
      * 引擎侧回报的上一次液化 apply 的分段耗时 (见 `liquifyStats`)。
      * 四段之和约等于 total: warp(Krita 网格形变) / seed(补洞内存流量) / blit(回写图层) /
@@ -279,6 +298,10 @@ object PerfTrace {
         if (!enabled) return
         if (applyCount == lqCount) return
         lqCount = applyCount
+        // 本窗口发生了多少次"物化"(apply): 预览模式下引擎只在 rebase 与抬笔时 apply,
+        // 因此这个增量就是 **拖动中 rebase 的次数** —— 它决定下一步是优化 rebase 还是收工。
+        lqApplyPerWindow += (applyCount - lqApplyCountLast).coerceAtLeast(0L)
+        lqApplyCountLast = applyCount
         lqTotalMs = totalMs
         lqWarpMs = warpMs
         lqSeedMs = seedMs
@@ -372,6 +395,11 @@ object PerfTrace {
         dirtyPixels = 0L
         drawIdx = 0
         drawN = 0
+        // 调度计数与其它窗口量一起清零: HUD 显示的就是"当前这一秒"的合并倍率
+        lqScheduleInput = 0L
+        lqScheduleFlush = 0L
+        lqScheduleDab = 0L
+        lqApplyPerWindow = 0L
         windowStart = now
     }
 
@@ -449,6 +477,16 @@ object PerfTrace {
                 .append(" 精度").append(lqPrecision).append("/单元").append(lqCells)
         }
 
+        // 第 4.5 行: 交互调度(Phase 2C latest-state-wins)的合并倍率 —— 上一秒窗口内
+        // `输入事件 / 推进次数 / 补点总数`。无数据线时靠这一行就能判断"有没有真的在合并"。
+        if (lqScheduleFlush > 0L) {
+            sb.append('\n')
+            sb.append("泵 输入").append(lqScheduleInput)
+                .append("/推进").append(lqScheduleFlush)
+                .append("/补点").append(lqScheduleDab)
+                .append("/物化").append(lqApplyPerWindow)
+        }
+
         // 第 5 行: 液化网格快照 (setprop debug.reverie.lqgrid 1 时才有)
         if (gridCount > 0) {
             sb.append('\n')
@@ -460,6 +498,13 @@ object PerfTrace {
         hudCache = sb.toString()
         return hudCache
     }
+
+    /**
+     * 读取引擎侧同名诊断 property 的整数值(未设 / 不可读时返回 [def])。
+     * 交互类实验(如液化的 latest-state-wins 调度)用它做 A/B, 默认值保持既有行为。
+     */
+    internal fun debugPropInt(key: String, def: Int): Int =
+        runCatching { SystemPropertiesCompat.getInt(key, def) }.getOrDefault(def)
 
     /** 允许用系统属性临时打开, 免去为了量一次数据重新出包 */
     fun refreshFromSystemProp() {
@@ -487,5 +532,17 @@ private object SystemPropertiesCompat {
     fun getBoolean(key: String, def: Boolean): Boolean {
         val m = getBooleanMethod ?: return def
         return runCatching { m.invoke(null, key, def) as? Boolean ?: def }.getOrDefault(def)
+    }
+
+    private val getStringMethod = runCatching {
+        Class.forName("android.os.SystemProperties")
+            .getMethod("get", String::class.java, String::class.java)
+    }.getOrNull()
+
+    /** 整数 property; 反射不可用或值非法时返回 [def] */
+    fun getInt(key: String, def: Int): Int {
+        val m = getStringMethod ?: return def
+        val raw = runCatching { m.invoke(null, key, def.toString()) as? String }.getOrNull()
+        return raw?.trim()?.toIntOrNull() ?: def
     }
 }
