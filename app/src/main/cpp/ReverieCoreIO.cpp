@@ -1196,8 +1196,11 @@ bool ReverieCore::loadRevp(const QString &path)
     }
     } // !treeLoaded
 
+    m_backgroundColor = Qt::white;
     if (bgLayerVisible) {
-        image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+        image->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
+    } else {
+        image->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
     }
 
     m_document = image.data();
@@ -1538,7 +1541,7 @@ bool ReverieCore::loadPsd(const QString &path)
         return false;
     }
 
-    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    m_backgroundColor = Qt::white;
     m_document = image.data();
     m_docWidth = w;
     m_docHeight = h;

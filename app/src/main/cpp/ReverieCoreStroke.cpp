@@ -21,6 +21,15 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
     if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
     if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
+    // Safety cleanup: if a previous stroke was left uncommitted or unclosed, finish it now
+    if (m_strokeBatchOpen) {
+        touchStrokeEnd();
+    }
+    endStrokeBatch();
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+
     // Defer the undo snapshot to the first real flush: reading every layer
     // here costs a full-document read per touch-down, which is felt as lag
     // when starting strokes. Nothing is painted at down time anyway.
@@ -404,7 +413,7 @@ bool ReverieCore::flushStrokeBatch()
     KoColor koBgColor(qBgColor, cs);
 
     // Krita-style: reuse one KisPainter for the whole stroke.
-    if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
+    if (m_snapshotPending || !m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
         m_strokeDevice = (void *)target.data();
         // Deferred Krita undo: for direct painting, start transaction on the layer.
@@ -823,6 +832,9 @@ bool ReverieCore::canUndo() const
 
 void ReverieCore::undo()
 {
+    if (m_strokeBatchOpen) {
+        touchStrokeCancel();
+    }
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
     }
@@ -831,6 +843,11 @@ void ReverieCore::undo()
     oldNodes.reserve(m_layers.size());
     for (const auto &e : m_layers) {
         oldNodes.append(e.node);
+    }
+    QVector<bool> oldVisibilities;
+    oldVisibilities.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldVisibilities.append(e.visible);
     }
 
     const KUndo2Command *cmd = m_undoStore->presentCommand();
@@ -845,7 +862,7 @@ void ReverieCore::undo()
     bool structureChanged = isStructuralCmd || oldNodes.size() != m_layers.size();
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node) {
+            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
                 structureChanged = true;
                 break;
             }
@@ -863,6 +880,9 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
+    if (m_strokeBatchOpen) {
+        touchStrokeCancel();
+    }
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
     }
@@ -872,6 +892,11 @@ void ReverieCore::redo()
     for (const auto &e : m_layers) {
         oldNodes.append(e.node);
     }
+    QVector<bool> oldVisibilities;
+    oldVisibilities.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldVisibilities.append(e.visible);
+    }
 
     m_undoStore->redo();
     --m_redoCount;
@@ -880,7 +905,7 @@ void ReverieCore::redo()
     bool structureChanged = oldNodes.size() != m_layers.size();
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node) {
+            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
                 structureChanged = true;
                 break;
             }

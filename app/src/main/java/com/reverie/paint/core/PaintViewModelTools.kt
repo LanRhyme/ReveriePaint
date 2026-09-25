@@ -919,6 +919,9 @@ internal fun PaintViewModel.undo() {
         showActionToast(R.string.toast_undo_lasso_point, R.drawable.ic_undo)
         return
     }
+    stopAirbrush()
+    disarmStrokeStartKick()
+    clearPendingStrokeSamples()
     showActionToast(R.string.toast_undo, R.drawable.ic_undo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
@@ -937,6 +940,9 @@ internal fun PaintViewModel.undo() {
 }
 
 internal fun PaintViewModel.redo() {
+    stopAirbrush()
+    disarmStrokeStartKick()
+    clearPendingStrokeSamples()
     showActionToast(R.string.toast_redo, R.drawable.ic_redo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)

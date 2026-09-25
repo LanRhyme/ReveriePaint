@@ -88,15 +88,17 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     }
     image->setResolution(72.0, 72.0);
 
-    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    m_backgroundColor = Qt::white;
+    KoColor bgKoColor(m_backgroundColor, cs);
+    image->setDefaultProjectionColor(bgKoColor);
     registerCoreFilters();
 
-    // Background layer (transparent, locked): index 0, controls projection background
+    // Background layer (solid background, locked): index 0, controls projection background
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
     if (!bg) {
         return false;
     }
-    bg->original()->fill(QRect(0, 0, width, height), KoColor(Qt::transparent, cs));
+    bg->original()->fill(QRect(0, 0, width, height), bgKoColor);
     bg->original()->setDirty();
     bg->setUserLocked(true);
     bg->setAlphaLocked(true);
@@ -133,9 +135,13 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
     if (!dev) return;
     const KoColorSpace *cs = image->colorSpace();
     QColor qc = QColor::fromRgba(color);
+    if (!qc.isValid()) qc = Qt::white;
+    m_backgroundColor = qc;
     KoColor koColor(qc, cs);
 
-    image->setDefaultProjectionColor(koColor);
+    if (m_layers[0].visible) {
+        image->setDefaultProjectionColor(koColor);
+    }
 
     if (commit) {
         KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
@@ -312,6 +318,16 @@ void ReverieCore::syncLayersFromImage()
         m_layers[0].locked = true;
         m_layers[0].alphaLocked = true;
         m_layers[0].clipped = false;
+
+        // Keep default projection color in sync with background layer visibility
+        if (m_document) {
+            const KoColorSpace *cs = m_document->colorSpace();
+            if (m_layers[0].visible) {
+                m_document->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
+            } else {
+                m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
+            }
+        }
     }
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.isEmpty() ? 0 : m_layers.size() - 1;

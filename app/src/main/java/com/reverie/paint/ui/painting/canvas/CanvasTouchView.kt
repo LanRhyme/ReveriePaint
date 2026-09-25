@@ -693,6 +693,10 @@ class CanvasTouchView(context: Context) : View(context) {
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
+        if (strokeStarted) {
+            vm?.touchCancel()
+            strokeStarted = false
+        }
         // 离开绘画页: 喷枪是挂在渲染线程上的自续定时链, 不停掉会让页面之外
         // 仍周期渲染并保持笔画事务开启; 未投递的笔画样本与起笔 kick 一并丢弃
         vm?.stopAirbrush()
@@ -1500,6 +1504,15 @@ class CanvasTouchView(context: Context) : View(context) {
             longPressToken++
             isPendingLongPress = false
 
+            if (strokeStarted) {
+                cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                cachedDriver?.feedbackManager?.stopStrokeSound()
+                v.touchCancel()
+                strokeStarted = false
+                safeEndSymmetryUndoMacro()
+                mirroredBranches.clear()
+            }
+
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
 
             if (numFingers >= 2) {
@@ -1756,6 +1769,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
                     isContinuousUndoing = false
+                    if (strokeStarted) {
+                        cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                        cachedDriver?.feedbackManager?.stopStrokeSound()
+                        v.touchCancel()
+                        strokeStarted = false
+                        safeEndSymmetryUndoMacro()
+                        mirroredBranches.clear()
+                    }
                     postDelayed(resetTransformRunnable, 150)
                     invalidate()
                 }
@@ -1987,11 +2008,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation)
-                if (strokeStarted && hasSymmetry) {
-                    safeBeginSymmetryUndoMacro()
-                } else if (!strokeStarted) {
-                    safeEndSymmetryUndoMacro()
-                }
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
@@ -2238,9 +2254,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 迟到的笔画起点 (首帧被历史点吞掉): 补启摩擦音效
                         getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
                         lastSoundTimeMs = 0L
-                        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-                            safeBeginSymmetryUndoMacro()
-                        }
                     }
                 }
                 if (!strokeStarted) return
@@ -2443,7 +2456,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun replaySymmetricBranch(branch: List<SymStrokeSample>, render: Boolean = true) {
         val v = vm ?: return
-        if (branch.size < 2) return
+        if (branch.isEmpty()) return
 
         val start = branch[0]
         v.touchStart(start.x, start.y, start.pressure)
@@ -2493,8 +2506,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (isCancel) {
                         v.touchCancel()
                     } else {
-                        val validBranches = if (hasSymmetry) mirroredBranches.filter { it.size >= 2 } else emptyList()
+                        val validBranches = if (hasSymmetry) mirroredBranches.filter { it.isNotEmpty() } else emptyList()
                         val hasBranchesToReplay = validBranches.isNotEmpty()
+                        if (hasBranchesToReplay) {
+                            safeBeginSymmetryUndoMacro()
+                        }
                         // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在最后一个分支统一渲染，消除多重组合与缩略图卡顿
                         v.touchEnd(render = !hasBranchesToReplay)
                         if (hasBranchesToReplay) {
@@ -2502,6 +2518,7 @@ class CanvasTouchView(context: Context) : View(context) {
                                 val isLast = (index == validBranches.lastIndex)
                                 replaySymmetricBranch(validBranches[index], render = isLast)
                             }
+                            safeEndSymmetryUndoMacro()
                         }
                     }
                     strokeStarted = false

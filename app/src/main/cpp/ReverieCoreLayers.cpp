@@ -521,12 +521,7 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         if (m_layers[index].background && m_document) {
             const KoColorSpace *cs = m_document->colorSpace();
             if (visible) {
-                KisPaintDeviceSP bgDev = layerPaintDeviceFor(m_layers[index]);
-                KoColor bgCol(Qt::white, cs);
-                if (bgDev && !bgDev->extent().isEmpty()) {
-                    bgDev->pixel(0, 0, &bgCol);
-                }
-                m_document->setDefaultProjectionColor(bgCol);
+                m_document->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
             } else {
                 m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
             }
