@@ -569,7 +569,7 @@ public:
     void recompositeProjection();
 
     // Strokes (touch input; coordinates in document space)
-    void touchStrokeStart(qreal x, qreal y, qreal pressure);
+    void touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
 
     // Application-level undo/redo via per-stroke layer snapshots.
     // Krita's command stack needs the full KisTransaction pipeline; for the
@@ -589,7 +589,7 @@ public:
     void clearUndoHistory();
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
-    bool touchStrokeMove(qreal x, qreal y, qreal pressure);
+    bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
     // Flush the pending stroke start as an ink dot when no movement arrived
     // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
     // Returns true when a dot was painted.
@@ -611,6 +611,7 @@ public:
     // brush_definition lookups (bestMatch by filename) can resolve them.
     // Must be called before loadBrushPreset. Returns the count loaded.
     int loadBrushResources(const QString &dirPath);
+    int loadPatternResources(const QString &dirPath);
     bool loadSingleBrushResource(const QString &baseName);
     void ensureBrushForPreset(const QString &kppPath);
     bool loadBrushPreset(int index);
@@ -719,12 +720,15 @@ private:
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
     // Returns true when a flush painted ink in this call.
-    bool appendStrokeSample(const QPointF &imgPos, qreal pressure);
+    bool appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
     void endStrokeBatch();
 
     struct StrokeSample {
         QPointF imgPos;
         qreal pressure = 1.0;
+        qreal tiltX = 0.0;
+        qreal tiltY = 0.0;
+        qreal rotation = 0.0;
     };
 
 
@@ -835,6 +839,7 @@ private:
     KisResourcesInterfaceSP m_brushResources;
     QHash<QString, KisBrushSP> m_loadedBrushes;
     QString m_brushDir;
+    QString m_patternDir;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
@@ -873,6 +878,9 @@ private:
     QPointF m_strokeStartImg;
     QRectF m_accumulatedStrokeBounds;
     qreal m_lastPressure = 1.0;
+    qreal m_lastTiltX = 0.0;
+    qreal m_lastTiltY = 0.0;
+    qreal m_lastRotation = 0.0;
     // Rendering: the last composited dirty region, used to copy only the
     // changed rows into the Android bitmap (m_bitmapInited gates the first
     // full copy).

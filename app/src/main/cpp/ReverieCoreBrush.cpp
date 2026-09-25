@@ -134,14 +134,19 @@ int ReverieCore::loadBrushPresetsFromDir(const QString &dirPath)
 
 bool ReverieCore::loadSingleBrushResource(const QString &baseName)
 {
-    if (baseName.isEmpty() || m_brushDir.isEmpty()) {
+    if (baseName.isEmpty() || (m_brushDir.isEmpty() && m_patternDir.isEmpty())) {
         return false;
     }
     if (m_loadedBrushes.contains(baseName)) {
         return true;
     }
-    QDir dir(m_brushDir);
-    const QString fullPath = dir.filePath(baseName);
+    QString fullPath;
+    if (!m_brushDir.isEmpty()) {
+        fullPath = QDir(m_brushDir).filePath(baseName);
+    }
+    if ((fullPath.isEmpty() || !QFile::exists(fullPath)) && !m_patternDir.isEmpty()) {
+        fullPath = QDir(m_patternDir).filePath(baseName);
+    }
     if (!QFile::exists(fullPath)) {
         return false;
     }
@@ -157,6 +162,8 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
         res = new KisPngBrush(baseName);
     } else if (baseName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
         res = new KisSvgBrush(baseName);
+    } else if (baseName.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive)) {
+        res = new KoPattern(fullPath);
     } else if (baseName.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) ||
                baseName.endsWith(QLatin1String(".jpeg"), Qt::CaseInsensitive)) {
         QImage img(fullPath);
@@ -240,7 +247,7 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                 decomp.resize(destLen);
                 if (uncompress(reinterpret_cast<Bytef*>(decomp.data()), &destLen, zStream, zLen) == Z_OK) {
                     decomp.resize(destLen);
-                    static const QRegularExpression re(QStringLiteral("([\\w\\-\\._ ]+\\.(?:gbr|gih|png|svg))"), QRegularExpression::CaseInsensitiveOption);
+                    static const QRegularExpression re(QStringLiteral("([\\w\\-\\._ ]+\\.(?:gbr|gih|png|svg|pat))"), QRegularExpression::CaseInsensitiveOption);
                     auto it = re.globalMatch(QString::fromUtf8(decomp));
                     while (it.hasNext()) {
                         const QString file = it.next().captured(1).trimmed();
@@ -252,6 +259,38 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
         }
         idx += 12 + length;
     }
+}
+
+int ReverieCore::loadPatternResources(const QString &dirPath)
+{
+    m_patternDir = dirPath;
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
+    KisLocalStrokeResources *lr =
+        dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
+    if (!lr) return 0;
+
+    QDir dir(dirPath);
+    const QStringList files = dir.entryList(
+        QStringList() << QStringLiteral("*.pat") << QStringLiteral("*.png")
+                      << QStringLiteral("*.jpg") << QStringLiteral("*.jpeg"),
+        QDir::Files, QDir::Name);
+    int loaded = 0;
+    for (const QString &base : files) {
+        const QString fullPath = dir.filePath(base);
+        QFile f(fullPath);
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        KoPattern *pat = new KoPattern(fullPath);
+        if (pat->loadFromDevice(&f, m_brushResources)) {
+            lr->addResource(KoResourceSP(pat));
+            ++loaded;
+        } else {
+            delete pat;
+        }
+    }
+    RPC_LOG("RPC loadPatternResources dir=%s loaded=%d", dirPath.toUtf8().constData(), loaded);
+    return loaded;
 }
 
 int ReverieCore::loadBrushResources(const QString &dirPath)
@@ -315,9 +354,10 @@ bool ReverieCore::loadBrushPreset(int index)
                             s->getBool("Airbrush/isChecked", false)));
         const double rate = s->getDouble("PaintOpSettings/rate",
                             s->getDouble("AirbrushOption/rate", 30.0));
-        m_airbrushRate = rate >= 5.0 ? rate : 30.0;
-        m_smudgeRate = s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.5));
-        m_smudgeLength = s->getDouble("SmudgeRateValue", 0.5);
+        const bool colorRateChecked = s->getBool("ColorRate/isChecked", true);
+        m_smudgeRate = colorRateChecked ? s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.0)) : 0.0;
+        const bool smudgeRateChecked = s->getBool("SmudgeRate/isChecked", true);
+        m_smudgeLength = smudgeRateChecked ? s->getDouble("SmudgeRateValue", 0.5) : 0.0;
 
         const double presetSize = s->paintOpSize();
         if (presetSize > 0.0 && presetSize == presetSize) {
@@ -412,8 +452,10 @@ QVector<double> ReverieCore::brushPresetDefaults(int index)
     }
 
     // Smudge
-    const double smudgeRate = s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.5));
-    const double smudgeLength = s->getDouble("SmudgeRateValue", 0.5);
+    const bool colorRateChecked = s->getBool("ColorRate/isChecked", true);
+    const double smudgeRate = colorRateChecked ? s->getDouble("ColorRateValue", s->getDouble("MixValue", 0.0)) : 0.0;
+    const bool smudgeRateChecked = s->getBool("SmudgeRate/isChecked", true);
+    const double smudgeLength = smudgeRateChecked ? s->getDouble("SmudgeRateValue", 0.5) : 0.0;
 
     return {size, opacity, flow, spacing, isAirbrush ? 1.0 : 0.0, airbrushRate, smudgeRate, smudgeLength};
 }
@@ -489,9 +531,12 @@ void ReverieCore::setBrushSmudgeRate(qreal v)
     KisPaintOpSettingsSP s = m_brushPreset->settings();
     s->setProperty("ColorRateValue", v);
     s->setProperty("MixValue", v); // legacy key for older-generation presets
-    s->setProperty("PressureColorRate", true);
-    s->setProperty("ColorRate/isChecked", true);
     s->setProperty("ColorRate/strengthValue", v);
+    if (v <= 0.0001) {
+        s->setProperty("ColorRate/isChecked", false);
+    } else {
+        s->setProperty("ColorRate/isChecked", true);
+    }
 }
 
 void ReverieCore::setBrushSmudgeLength(qreal v)
@@ -500,9 +545,12 @@ void ReverieCore::setBrushSmudgeLength(qreal v)
     if (m_brushPreset && m_brushPreset->settings()) {
         KisPaintOpSettingsSP s = m_brushPreset->settings();
         s->setProperty("SmudgeRateValue", v);
-        s->setProperty("PressureSmudgeRate", true);
-        s->setProperty("SmudgeRate/isChecked", true);
         s->setProperty("SmudgeRate/strengthValue", v);
+        if (v <= 0.0001) {
+            s->setProperty("SmudgeRate/isChecked", false);
+        } else {
+            s->setProperty("SmudgeRate/isChecked", true);
+        }
     }
 }
 

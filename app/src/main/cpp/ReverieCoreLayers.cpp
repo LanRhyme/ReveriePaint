@@ -520,7 +520,16 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         m_layers[index].visible = visible;
         if (m_layers[index].background && m_document) {
             const KoColorSpace *cs = m_document->colorSpace();
-            m_document->setDefaultProjectionColor(visible ? KoColor(Qt::white, cs) : KoColor(Qt::transparent, cs));
+            if (visible) {
+                KisPaintDeviceSP bgDev = layerPaintDeviceFor(m_layers[index]);
+                KoColor bgCol(Qt::white, cs);
+                if (bgDev && !bgDev->extent().isEmpty()) {
+                    bgDev->pixel(0, 0, &bgCol);
+                }
+                m_document->setDefaultProjectionColor(bgCol);
+            } else {
+                m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
+            }
         }
         recompositeProjection();
         markDirty();

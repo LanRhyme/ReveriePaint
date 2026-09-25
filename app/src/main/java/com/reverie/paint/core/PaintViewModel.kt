@@ -2565,6 +2565,9 @@ class PaintViewModel : ViewModel() {
 
     // Zero-allocation reusable canvas, rect and dirty array for buffer synchronization
     private val syncCanvas = android.graphics.Canvas()
+    private val syncPaint = android.graphics.Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
+    }
     private val lastWrittenRect = android.graphics.Rect()
     private val renderDirty = IntArray(4)
     private var hasWrittenRect = false
@@ -2696,12 +2699,17 @@ class PaintViewModel : ViewModel() {
     // render thread was busy, which turned fast strokes into polylines and
     // lost pressure detail. Buffers are allocated once: zero allocation on
     // the hot path (架构铁律 §4).
+    companion object {
+        const val STROKE_BATCH_CAPACITY = 256
+        const val STROKE_SAMPLE_STRIDE = 6
+    }
+
     @Volatile private var pendingSampleX = 0.0
     @Volatile private var pendingSampleY = 0.0
     @Volatile private var pendingSampleP = 1.0
     private val strokeBatchLock = Any()
-    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
-    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
+    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
+    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
     private var strokeBatchCount = 0
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
@@ -2716,7 +2724,7 @@ class PaintViewModel : ViewModel() {
             n = strokeBatchCount
             strokeBatchCount = 0
             if (n > 0) {
-                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * 3)
+                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * STROKE_SAMPLE_STRIDE)
             }
         }
         pendingCoreOps.decrementPositive()
@@ -2744,7 +2752,15 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    internal fun queueStrokeMove(x: Float, y: Float, p: Double, inputEventTimeMs: Long = 0L) {
+    internal fun queueStrokeMove(
+        x: Float,
+        y: Float,
+        p: Double,
+        inputEventTimeMs: Long = 0L,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ) {
         val h = renderHandler ?: return
         lastQueuedInputEventTime = inputEventTimeMs
         lastQueuedUptime = android.os.SystemClock.uptimeMillis()
@@ -2755,10 +2771,13 @@ class PaintViewModel : ViewModel() {
         pendingSampleP = p
         synchronized(strokeBatchLock) {
             if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
-                val o = strokeBatchCount * 3
+                val o = strokeBatchCount * STROKE_SAMPLE_STRIDE
                 strokeBatchCoords[o] = x
                 strokeBatchCoords[o + 1] = y
                 strokeBatchCoords[o + 2] = p.toFloat()
+                strokeBatchCoords[o + 3] = tiltX.toFloat()
+                strokeBatchCoords[o + 4] = tiltY.toFloat()
+                strokeBatchCoords[o + 5] = rotation.toFloat()
                 strokeBatchCount++
             }
         }
@@ -2913,7 +2932,7 @@ class PaintViewModel : ViewModel() {
         // Synchronize previous frame's dirty region from front buffer to back buffer
         if (!reallocated && hasWrittenRect && !lastWrittenRect.isEmpty && front != null) {
             syncCanvas.setBitmap(back)
-            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, null)
+            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, syncPaint)
         }
 
         val forceFull = reallocated
@@ -3016,6 +3035,9 @@ class PaintViewModel : ViewModel() {
         }
         layers = list
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
+        if (selectedLayerIndices.isNotEmpty()) {
+            selectedLayerIndices = selectedLayerIndices.filter { it in 1 until n }.toSet()
+        }
 
         // 时间轴"选中轨道"与当前图层强制对齐 (修"创建帧错乱"):
         // selectedTrack 旧实现只在时间轴 tap 时写入且**永不重置** —— 用户在
@@ -3186,6 +3208,9 @@ data class BrushParams(
     val isAuthorLocked: Boolean = false,
     val description: String = "",
     val version: String = "1.0",
+    val isCustomized: Boolean = false,
+    val dynamicsCustomized: Boolean = false,
+    val smudgeCustomized: Boolean = false,
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */

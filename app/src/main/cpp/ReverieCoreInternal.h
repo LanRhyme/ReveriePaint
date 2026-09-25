@@ -43,6 +43,7 @@
 #include <kis_imagepipe_brush.h>
 #include <kis_svg_brush.h>
 #include <kis_brush_option.h>
+#include <KoPattern.h>
 #include <QMutex>
 
 #include <QDebug>

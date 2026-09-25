@@ -141,7 +141,7 @@ internal fun LayerListView(
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
     var selectedIndex by remember { mutableStateOf(vm.currentLayerIndex) }
-    LaunchedEffect(vm.currentLayerIndex) {
+    LaunchedEffect(vm.currentLayerIndex, vm.layerRevision) {
         if (vm.currentLayerIndex in vm.layers.indices) {
             selectedIndex = vm.currentLayerIndex
         }
@@ -505,6 +505,7 @@ internal fun LayerListView(
                     val now = System.currentTimeMillis()
                     if (now - lastLayerOpTime > 350L) {
                         lastLayerOpTime = now
+                        vm.clearLayerSelection()
                         vm.addLayer()
                     }
                 },
@@ -516,6 +517,7 @@ internal fun LayerListView(
                     val now = System.currentTimeMillis()
                     if (now - lastLayerOpTime > 350L) {
                         lastLayerOpTime = now
+                        vm.clearLayerSelection()
                         vm.addGroupLayer()
                     }
                 },
@@ -547,6 +549,7 @@ internal fun LayerListView(
                             val now = System.currentTimeMillis()
                             if (now - lastLayerOpTime > 350L) {
                                 lastLayerOpTime = now
+                                vm.clearLayerSelection()
                                 vm.addFillLayer()
                             }
                         },
@@ -563,6 +566,7 @@ internal fun LayerListView(
                         },
                         onClick = {
                             showNewLayerMenu = false
+                            vm.clearLayerSelection()
                             onOpenCreateFilter()
                         },
                     )
@@ -581,6 +585,7 @@ internal fun LayerListView(
                             val now = System.currentTimeMillis()
                             if (now - lastLayerOpTime > 350L) {
                                 lastLayerOpTime = now
+                                vm.clearLayerSelection()
                                 vm.stampVisibleLayers()
                             }
                         },

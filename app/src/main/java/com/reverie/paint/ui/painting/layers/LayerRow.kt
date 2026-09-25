@@ -157,8 +157,8 @@ internal fun LayerRow(
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    // A swipe must travel this far to reveal the drawer
-    val revealThresholdPx = with(density) { 20.dp.roundToPx() }
+    // Right-swipe (multi-select) threshold to trigger selection (deliberate swipe, prevents accidental tap jitter)
+    val selectThresholdPx = with(density) { 36.dp.roundToPx() }
     val drawerPx = with(density) { drawerWidth.roundToPx() }
     // Right-swipe (multi-select) follow distance cap before the row springs back
     val selectMaxPx = with(density) { 64.dp.roundToPx() }
@@ -234,7 +234,7 @@ internal fun LayerRow(
                                 }
                                 val dx = change.position.x - startX
                                 val dy = change.position.y - startY
-                                if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 0.7f) {
+                                if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.25f) {
                                     isSwipe = true
                                     return@withTimeoutOrNull 1
                                 }
@@ -273,9 +273,9 @@ internal fun LayerRow(
 
                             lastChange.consume()
                             val initDx = lastChange.position.x - startX
-                            if (initDx > 0 && startOffset >= -revealThresholdPx) {
+                            if (initDx > 0 && startOffset >= -selectThresholdPx) {
                                 scope.launch { revealAnim.snapTo(initDx.coerceIn(0f, selectMaxPx.toFloat())) }
-                                if (initDx > revealThresholdPx && !selectTriggered) {
+                                if (initDx > selectThresholdPx && !selectTriggered) {
                                     selectTriggered = true
                                     haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                     onSelect()
@@ -297,9 +297,9 @@ internal fun LayerRow(
                                 velocityX = ((currentX - prevX) / dt * 1000f).coerceIn(-5000f, 5000f)
                                 prevX = currentX
                                 prevTimeNs = nowNs
-                                if (dx > 0 && startOffset >= -revealThresholdPx) {
+                                if (dx > 0 && startOffset >= -selectThresholdPx) {
                                     scope.launch { revealAnim.snapTo(dx.coerceIn(0f, selectMaxPx.toFloat())) }
-                                    if (dx > revealThresholdPx && !selectTriggered) {
+                                    if (dx > selectThresholdPx && !selectTriggered) {
                                         selectTriggered = true
                                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                         onSelect()

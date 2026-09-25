@@ -470,6 +470,8 @@ object ReverieCoreBridge {
 
     external fun loadBrushResources(dirPath: String): Int
 
+    external fun loadPatternResources(dirPath: String): Int
+
     external fun loadBrushPreset(index: Int): Boolean
 
     external fun brushPresetCount(): Int
@@ -528,6 +530,15 @@ object ReverieCoreBridge {
         x: Double,
         y: Double,
         pressure: Double,
+    )
+
+    external fun touchStrokeStartWithSensors(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        tiltX: Double,
+        tiltY: Double,
+        rotation: Double,
     )
 
     external fun touchStrokeMove(

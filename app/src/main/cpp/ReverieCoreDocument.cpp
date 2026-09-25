@@ -135,6 +135,8 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
     QColor qc = QColor::fromRgba(color);
     KoColor koColor(qc, cs);
 
+    image->setDefaultProjectionColor(koColor);
+
     if (commit) {
         KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
         dev->fill(QRect(0, 0, image->width(), image->height()), koColor);

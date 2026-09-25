@@ -242,11 +242,15 @@ internal fun PaintViewModel.generateDefaultGroupName(): String {
 }
 
 internal fun PaintViewModel.addLayer() {
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
     }
     val defaultName = generateDefaultLayerName()
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+    }) {
         ReverieCoreBridge.addLayer(defaultName)
     }
 }
@@ -256,6 +260,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     layerName: String = "",
     onComplete: () -> Unit = {},
 ) {
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
     }
@@ -263,6 +268,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     val finalName = layerName.ifBlank { defaultImportName }
     runCore(
         after = {
+            clearLayerSelection()
             notifyLayerChanged(pixelChanged = true)
             onComplete()
         },
@@ -303,10 +309,14 @@ internal fun PaintViewModel.removeLayer() {
 }
 
 internal fun PaintViewModel.removeLayer(index: Int) {
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_REMOVE, index)
     }
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+    }) {
         ReverieCoreBridge.removeLayer(index)
     }
 }
@@ -364,13 +374,14 @@ internal fun PaintViewModel.layerVisible(i: Int) = ReverieCoreBridge.layerVisibl
 // ---- Full layer system ----
 internal fun PaintViewModel.addGroupLayer() {
     val selected = selectedLayerIndices.filter { it > 0 }.sortedDescending()
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD_GROUP)
     }
     val groupName = generateDefaultGroupName()
     runCore(after = {
-        notifyLayerChanged()
         clearLayerSelection()
+        notifyLayerChanged()
     }) {
         val newGroupIndex = ReverieCoreBridge.addGroupLayer(groupName)
         if (selected.isNotEmpty() && newGroupIndex >= 0) {
@@ -396,12 +407,14 @@ internal fun PaintViewModel.addGroupLayer() {
 internal fun PaintViewModel.copyLayer(i: Int) {
     if (isCopyingLayer) return
     isCopyingLayer = true
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_COPY, i)
     }
     val isZh = LanguageManager.isChinese()
     runCore(after = {
         isCopyingLayer = false
+        clearLayerSelection()
         notifyLayerChanged()
     }) {
         val newIdx = ReverieCoreBridge.copyLayer(i)
@@ -571,11 +584,15 @@ internal fun PaintViewModel.fillLayerForeground(i: Int) {
 }
 
 internal fun PaintViewModel.stampVisibleLayers() {
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val isZh = LanguageManager.isChinese()
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+    }) {
         val newIdx = ReverieCoreBridge.stampVisibleLayers()
         if (!isZh && newIdx >= 0) {
             ReverieCoreBridge.setLayerName(newIdx, "Stamp Visible Layers")
@@ -846,6 +863,7 @@ internal fun PaintViewModel.addLayerWithType(
     type: Int = 0,
     fillColor: Int = 0xFFFFFFFF.toInt(),
 ) {
+    clearLayerSelection()
     if (recorder.recording) {
         recorder.layerOp(
             com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
@@ -853,12 +871,16 @@ internal fun PaintViewModel.addLayerWithType(
             "$name|$type|$fillColor",
         )
     }
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+    }) {
         ReverieCoreBridge.addLayerWithType(name, type, fillColor)
     }
 }
 
 internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
+    clearLayerSelection()
     val colorInt = try {
         android.graphics.Color.parseColor(colorHex)
     } catch (_: Exception) {
@@ -875,6 +897,7 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
     // 回滚至稳定行为: type=0 预填色颜料层 + floodFill 补刀 (generator 填充层暂缓)
     runCore(
         after = {
+            clearLayerSelection()
             notifyLayerChanged()
             floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
         },
@@ -884,12 +907,14 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
 }
 
 internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
+    clearLayerSelection()
     if (recorder.recording) {
         // 与 stampVisibleLayers 包装一致: 盖印可见层作为滤镜底图层
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val filterLayerName = generateDefaultFilterLayerName()
     runCore(after = {
+        clearLayerSelection()
         notifyLayerChanged()
         val cur = currentLayerIndex
         if (cur >= 0) {

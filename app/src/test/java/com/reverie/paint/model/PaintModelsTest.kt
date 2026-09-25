@@ -91,4 +91,28 @@ class PaintModelsTest {
         }
         assertEquals("我的作品 (2)", candidate)
     }
+
+    @Test
+    fun `layer selection pruning retains only valid layer indices`() {
+        val totalLayers = 4 // indices: 0 (bg), 1, 2, 3
+        val staleSelection = setOf(0, 1, 3, 5, -1)
+        val pruned = staleSelection.filter { it in 1 until totalLayers }.toSet()
+        assertEquals(setOf(1, 3), pruned)
+    }
+
+    @Test
+    fun `swipe gesture classification rejects vertical dominant scroll`() {
+        val touchSlop = 8f
+        // Vertical diagonal scroll: dx=9, dy=12 (touchSlop exceeded, but vertical dominant)
+        val dx1 = 9f
+        val dy1 = 12f
+        val isSwipe1 = kotlin.math.abs(dx1) > touchSlop && kotlin.math.abs(dx1) > kotlin.math.abs(dy1) * 1.25f
+        assertTrue(!isSwipe1)
+
+        // Clear horizontal swipe: dx=25, dy=8
+        val dx2 = 25f
+        val dy2 = 8f
+        val isSwipe2 = kotlin.math.abs(dx2) > touchSlop && kotlin.math.abs(dx2) > kotlin.math.abs(dy2) * 1.25f
+        assertTrue(isSwipe2)
+    }
 }

@@ -183,6 +183,49 @@ class CanvasTouchView(context: Context) : View(context) {
     private var liquifyPrevPos = Offset.Zero
     private var smoothedPressure = 0.8f
 
+    // 手写笔传感器状态 (倾斜角与朝向)
+    private var touchTiltX: Double = 0.0
+    private var touchTiltY: Double = 0.0
+    private var touchRotation: Double = 0.0
+
+    private fun updateStylusSensors(
+        event: MotionEvent,
+        pointerIndex: Int,
+        isStylus: Boolean,
+        historyPos: Int = -1,
+    ) {
+        if (!isStylus) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
+        val tiltRad = if (historyPos >= 0) {
+            event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, historyPos)
+        } else {
+            event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
+        }
+        if (tiltRad <= 0.0001f) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
+        val orientationRad = if (historyPos >= 0) {
+            event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex, historyPos)
+        } else {
+            event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
+        }
+        val canvasRotRad = Math.toRadians(canvasRotation.toDouble())
+        val docOrientationRad = orientationRad.toDouble() - canvasRotRad
+        val tiltDeg = (tiltRad.toDouble() * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
+        touchTiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        touchTiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        var rotDeg = Math.toDegrees(docOrientationRad) % 360.0
+        if (rotDeg < 0.0) rotDeg += 360.0
+        touchRotation = rotDeg
+    }
+
     // 文本交互状态
     private var activeTextHandle: Int = -1
     private var textDragStartDocPos: Offset = Offset.Zero
@@ -1094,7 +1137,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     isLongPressPickerActive = false
 
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
-                    handleToolDown(screenPos, docPos, pressure, isStylus = true)
+                    updateStylusSensors(event, stylusPointerIndex, isStylus = true)
+                    handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation)
 
                     if (canEyedrop) {
                         isPendingLongPress = true
@@ -1674,7 +1718,15 @@ class CanvasTouchView(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
-    private fun handleToolDown(screenPos: Offset, docPos: Offset, pressure: Float, isStylus: Boolean) {
+    private fun handleToolDown(
+        screenPos: Offset,
+        docPos: Offset,
+        pressure: Float,
+        isStylus: Boolean,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ) {
         val v = vm ?: return
         val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
         val t = effTool()
@@ -1705,7 +1757,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (isStylus) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
@@ -1943,7 +1995,8 @@ class CanvasTouchView(context: Context) : View(context) {
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 if (!strokeStarted) {
-                    strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
+                    updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                    strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation)
                     if (strokeStarted && isStylus) {
                         getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                     }
@@ -1965,7 +2018,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
                     val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
                     val hTime = event.getHistoricalEventTime(i)
-                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime)
+                    updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
+                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, touchTiltX, touchTiltY, touchRotation)
                     if (hasSymmetry) {
                         val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                         for (idx in symPts.indices) {
@@ -1974,7 +2028,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
 
-                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime)
+                updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime, touchTiltX, touchTiltY, touchRotation)
 
                 // 纸张摩擦音效: 按文档坐标瞬时速度调制增益 (零分配, 单次 volatile 写)
                 val soundDt = event.eventTime - lastSoundTimeMs

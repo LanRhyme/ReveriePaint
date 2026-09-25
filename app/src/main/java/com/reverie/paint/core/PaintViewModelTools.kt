@@ -130,6 +130,9 @@ internal fun PaintViewModel.touchStart(
     x: Float,
     y: Float,
     pressure: Double = 1.0,
+    tiltX: Double = 0.0,
+    tiltY: Double = 0.0,
+    rotation: Double = 0.0,
 ): Boolean {
     onPaintingActivity()
     smoothedStrokeX = x
@@ -233,7 +236,18 @@ internal fun PaintViewModel.touchStart(
             ensureKeyframeForPaintOnRenderThread()
         }
         ReverieCoreBridge.setToolMode(mode)
-        ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
+        try {
+            ReverieCoreBridge.touchStrokeStartWithSensors(
+                x.toDouble(),
+                y.toDouble(),
+                effPressure,
+                tiltX,
+                tiltY,
+                rotation,
+            )
+        } catch (_: UnsatisfiedLinkError) {
+            ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
+        }
     }
     // Pen-down instant ink: if the stylus stays still (or moves slower than
     // the sample-spacing gate), paint the start dot after ~1 frame instead
@@ -251,6 +265,9 @@ internal fun PaintViewModel.touchMove(
     y: Float,
     pressure: Double = 1.0,
     inputEventTimeMs: Long = 0L,
+    tiltX: Double = 0.0,
+    tiltY: Double = 0.0,
+    rotation: Double = 0.0,
 ) {
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
@@ -311,7 +328,7 @@ internal fun PaintViewModel.touchMove(
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    queueStrokeMove(effX, effY, effP, inputEventTimeMs)
+    queueStrokeMove(effX, effY, effP, inputEventTimeMs, tiltX, tiltY, rotation)
 }
 
 internal fun PaintViewModel.touchEnd() {

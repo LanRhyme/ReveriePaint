@@ -817,6 +817,9 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                             } else {
                                 tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
                             }
+                            if (tempPainter.compositeOpId().isEmpty()) {
+                                tempPainter.setCompositeOpId(QStringLiteral("normal"));
+                            }
                             if (m_toolMode == ToolEraser) {
                                 tempPainter.setCompositeOpId(QStringLiteral("erase"));
                             }

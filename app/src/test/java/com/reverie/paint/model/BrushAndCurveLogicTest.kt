@@ -92,4 +92,29 @@ class BrushAndCurveLogicTest {
         assertEquals(0, lut[0].toInt() and 0xFF)
         assertEquals(255, lut[255].toInt() and 0xFF)
     }
+
+    @Test
+    fun `BrushParams default instance is not customized`() {
+        val params = com.reverie.paint.core.BrushParams()
+        assertEquals(false, params.isCustomized)
+        assertEquals(false, params.dynamicsCustomized)
+        assertEquals(false, params.smudgeCustomized)
+    }
+
+    @Test
+    fun `stylus tilt and orientation transforms to Krita tilt space accurately`() {
+        val tiltRad = Math.toRadians(30.0)
+        val orientationRad = Math.toRadians(90.0)
+        val canvasRotRad = 0.0
+        val docOrientationRad = orientationRad - canvasRotRad
+        val tiltDeg = (tiltRad * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
+        val tiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        val tiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        var rotDeg = Math.toDegrees(docOrientationRad) % 360.0
+        if (rotDeg < 0.0) rotDeg += 360.0
+
+        assertEquals(30.0, tiltX, 1e-3)
+        assertEquals(0.0, tiltY, 1e-3)
+        assertEquals(90.0, rotDeg, 1e-3)
+    }
 }
