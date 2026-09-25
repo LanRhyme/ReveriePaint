@@ -134,6 +134,12 @@ internal fun PaintViewModel.touchStart(
     tiltY: Double = 0.0,
     rotation: Double = 0.0,
 ): Boolean {
+    if (x.isNaN() || y.isNaN()) return false
+    val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
+    val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
+    val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
+    val safeRotation = 0.0
+
     onPaintingActivity()
     smoothedStrokeX = x
     smoothedStrokeY = y
@@ -143,7 +149,7 @@ internal fun PaintViewModel.touchStart(
     lastStrokeDeltaY = 0f
     lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
     strokeDistanceAccumulator = 0f
-    val effPressure = computeEffectivePressure(pressure)
+    val effPressure = computeEffectivePressure(safePressure)
     val strokeColor = computeDynamicColor(pressure = effPressure)
     lastDynamicColor = strokeColor
     if (strokeColor != brushColor) {
@@ -241,9 +247,9 @@ internal fun PaintViewModel.touchStart(
                 x.toDouble(),
                 y.toDouble(),
                 effPressure,
-                tiltX,
-                tiltY,
-                rotation,
+                safeTiltX,
+                safeTiltY,
+                safeRotation,
             )
         } catch (_: UnsatisfiedLinkError) {
             ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
@@ -269,6 +275,12 @@ internal fun PaintViewModel.touchMove(
     tiltY: Double = 0.0,
     rotation: Double = 0.0,
 ) {
+    if (x.isNaN() || y.isNaN()) return
+    val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
+    val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
+    val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
+    val safeRotation = 0.0
+
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
     val dt = (now - lastStrokeTimeMs).coerceAtLeast(1)
@@ -280,7 +292,7 @@ internal fun PaintViewModel.touchMove(
     if (dist > 0.5) {
         disarmStrokeStartKick()
     }
-    var effPressure = computeEffectivePressure(pressure)
+    var effPressure = computeEffectivePressure(safePressure)
 
     // Velocity-based brush size dynamics (calligraphy thinning)
     if (brushSpeedSize > 0.0) {
@@ -328,7 +340,7 @@ internal fun PaintViewModel.touchMove(
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    queueStrokeMove(effX, effY, effP, inputEventTimeMs, tiltX, tiltY, rotation)
+    queueStrokeMove(effX, effY, effP, inputEventTimeMs, safeTiltX, safeTiltY, safeRotation)
 }
 
 internal fun PaintViewModel.touchEnd(render: Boolean = true) {

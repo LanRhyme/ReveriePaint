@@ -2765,20 +2765,24 @@ class PaintViewModel : ViewModel() {
         val h = renderHandler ?: return
         lastQueuedInputEventTime = inputEventTimeMs
         lastQueuedUptime = android.os.SystemClock.uptimeMillis()
-        // Airbrush hold-still ticks mirror the latest sample position into
-        // their recording; keep these legacy fields in sync.
+        if (x.isNaN() || y.isNaN()) return
+        val safeP = if (p.isNaN() || p < 0.0) 1f else p.toFloat().coerceIn(0f, 1f)
+        val safeTiltX = if (tiltX.isNaN()) 0f else tiltX.toFloat().coerceIn(-60f, 60f)
+        val safeTiltY = if (tiltY.isNaN()) 0f else tiltY.toFloat().coerceIn(-60f, 60f)
+        val safeRotation = 0f
+
         pendingSampleX = x.toDouble()
         pendingSampleY = y.toDouble()
-        pendingSampleP = p
+        pendingSampleP = safeP.toDouble()
         synchronized(strokeBatchLock) {
             if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
                 val o = strokeBatchCount * STROKE_SAMPLE_STRIDE
                 strokeBatchCoords[o] = x
                 strokeBatchCoords[o + 1] = y
-                strokeBatchCoords[o + 2] = p.toFloat()
-                strokeBatchCoords[o + 3] = tiltX.toFloat()
-                strokeBatchCoords[o + 4] = tiltY.toFloat()
-                strokeBatchCoords[o + 5] = rotation.toFloat()
+                strokeBatchCoords[o + 2] = safeP
+                strokeBatchCoords[o + 3] = safeTiltX
+                strokeBatchCoords[o + 4] = safeTiltY
+                strokeBatchCoords[o + 5] = safeRotation
                 strokeBatchCount++
             }
         }

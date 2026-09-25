@@ -254,7 +254,7 @@ class CanvasTouchView(context: Context) : View(context) {
         } else {
             event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
         }
-        if (tiltRad <= 0.0001f) {
+        if (tiltRad.isNaN() || tiltRad <= 0.0001f) {
             touchTiltX = 0.0
             touchTiltY = 0.0
             touchRotation = 0.0
@@ -265,14 +265,21 @@ class CanvasTouchView(context: Context) : View(context) {
         } else {
             event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
         }
+        if (orientationRad.isNaN()) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
         val canvasRotRad = Math.toRadians(canvasRotation.toDouble())
         val docOrientationRad = orientationRad.toDouble() - canvasRotRad
         val tiltDeg = (tiltRad.toDouble() * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
         touchTiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
         touchTiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
-        var rotDeg = Math.toDegrees(docOrientationRad) % 360.0
-        if (rotDeg < 0.0) rotDeg += 360.0
-        touchRotation = rotDeg
+        // Android 手写笔（OnePlus Stylo、Apple Pencil、S-Pen 等）均无笔轴自转（Barrel Rotation）传感器；
+        // AXIS_ORIENTATION 代表的是笔身在屏幕上的方位角（指向方向），绝不能作为 Krita 笔轴自转注入，
+        // 否则将导致带自转或动态朝向计算的笔刷在画弧线、折线时 dab 剧烈扭曲撕裂。此处固定为 0.0。
+        touchRotation = 0.0
     }
 
     // 文本交互状态
@@ -1330,7 +1337,8 @@ class CanvasTouchView(context: Context) : View(context) {
             val y = event.getY(stylusPointerIndex)
             val screenPos = Offset(x, y)
             val docPos = screenToDoc(screenPos)
-            val pressure = event.getPressure(stylusPointerIndex).coerceIn(0f, 1f)
+            val rawPressure = event.getPressure(stylusPointerIndex)
+            val pressure = if (rawPressure.isNaN()) 1f else rawPressure.coerceIn(0f, 1f)
 
             localCursorPos = screenPos
             localIsTouching = true
@@ -2247,7 +2255,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
                     val hDoc = screenToDoc(hScreen)
                     val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
-                    val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                    val hP = if (isStylus) {
+                        val hp = event.getHistoricalPressure(pointerIndex, i)
+                        if (hp.isNaN()) 1f else hp.coerceIn(0f, 1f)
+                    } else 1f
                     val hTime = event.getHistoricalEventTime(i)
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
                     v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, touchTiltX, touchTiltY, touchRotation)

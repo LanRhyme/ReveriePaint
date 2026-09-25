@@ -8,12 +8,19 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <cmath>
 
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
-    if (!m_document) {
+    if (!m_document || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return;
     }
+    if (std::isnan(pressure) || !std::isfinite(pressure) || pressure < 0.0) {
+        pressure = 1.0;
+    }
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
     // Defer the undo snapshot to the first real flush: reading every layer
     // here costs a full-document read per touch-down, which is felt as lag
     // when starting strokes. Nothing is painted at down time anyway.
@@ -49,9 +56,15 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
 
 bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
-    if (!m_drawing || !m_strokeBatchOpen) {
+    if (!m_drawing || !m_strokeBatchOpen || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return false;
     }
+    if (std::isnan(pressure) || !std::isfinite(pressure) || pressure < 0.0) {
+        pressure = 1.0;
+    }
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
     const QPointF imgPos(x, y);
     m_accumulatedStrokeBounds = m_accumulatedStrokeBounds.united(QRectF(x, y, 1.0, 1.0));
     const QPointF lastPos = m_strokeSamples.isEmpty()
@@ -246,6 +259,10 @@ void ReverieCore::touchStrokeCancel()
 
 bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
+
     QString opId;
     if (m_toolMode == ToolSmudge) {
         opId = QStringLiteral("colorsmudge");

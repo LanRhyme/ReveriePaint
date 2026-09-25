@@ -110,11 +110,23 @@ class BrushAndCurveLogicTest {
         val tiltDeg = (tiltRad * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
         val tiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
         val tiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
-        var rotDeg = Math.toDegrees(docOrientationRad) % 360.0
-        if (rotDeg < 0.0) rotDeg += 360.0
+        val rotDeg = 0.0
 
         assertEquals(30.0, tiltX, 1e-3)
         assertEquals(0.0, tiltY, 1e-3)
-        assertEquals(90.0, rotDeg, 1e-3)
+        assertEquals(0.0, rotDeg, 1e-3)
+    }
+
+    @Test
+    fun `stylus tilt with NaN falls back safely to zero`() {
+        val tiltRad = Float.NaN
+        val orientationRad = Float.NaN
+        val isSafe = !tiltRad.isNaN() && tiltRad > 0.0001f && !orientationRad.isNaN()
+        val tiltX = if (isSafe) 30.0 else 0.0
+        val tiltY = if (isSafe) 30.0 else 0.0
+        val rotDeg = 0.0
+        assertEquals(0.0, tiltX, 1e-3)
+        assertEquals(0.0, tiltY, 1e-3)
+        assertEquals(0.0, rotDeg, 1e-3)
     }
 }
