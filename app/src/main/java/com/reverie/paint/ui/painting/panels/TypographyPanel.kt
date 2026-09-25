@@ -150,8 +150,7 @@ fun TypographyPanel(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(min = 280.dp)
+                        .widthIn(min = 280.dp, max = 340.dp)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
                     // 字体族选择
@@ -187,6 +186,7 @@ fun TypographyPanel(
                         range = 12f..240f,
                         value = cfg.fontSize,
                         onValue = { vm.typographyConfig = cfg.copy(fontSize = it) },
+                        labelWidth = 56.dp,
                     )
 
                     // 字间距调节
@@ -196,6 +196,7 @@ fun TypographyPanel(
                         range = -4f..32f,
                         value = cfg.letterSpacingSp,
                         onValue = { vm.typographyConfig = cfg.copy(letterSpacingSp = it) },
+                        labelWidth = 56.dp,
                     )
 
                     // 行距倍数调节
@@ -205,6 +206,7 @@ fun TypographyPanel(
                         range = 0.8f..2.5f,
                         value = cfg.lineHeightMultiplier,
                         onValue = { vm.typographyConfig = cfg.copy(lineHeightMultiplier = it) },
+                        labelWidth = 56.dp,
                     )
                 }
             }
