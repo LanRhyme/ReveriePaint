@@ -6,5 +6,5 @@
 <resources>
     <string name="settings_diagnostics">Diagnostics</string>
     <string name="settings_perf_hud">Performance HUD</string>
-    <string name="settings_perf_hud_sub">Show live render paths, texture re-upload and save timings on the canvas (for diagnosing jank; keep off normally)</string>
+    <string name="settings_perf_hud_sub">Show render paths, texture re-upload and save timings on the canvas (diagnostics; keep off)</string>
 </resources>

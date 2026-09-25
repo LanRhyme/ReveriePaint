@@ -136,8 +136,10 @@ class PaintViewModel : ViewModel() {
                     if (currentPage == Page.PAINTING) {
                         tickPaintingTimer()
                         checkAutoSave()
-                        // 标尺开启时顺带取一次保存阶段统计 (关闭时该调用只剩一次布尔判断)
-                        if (PerfTrace.enabled) pollSaveStats()
+                        // 标尺开启时顺带取一次保存阶段统计 (关闭时只剩一次布尔判断)。
+                        // 必须走 runCore: 架构铁律要求引擎调用不经 UI 线程。这条 JNI 只读
+                        // C++ 侧的 relaxed 原子量、不牵动渲染, 所以 render = false。
+                        if (PerfTrace.enabled) runCore(render = false) { pollSaveStats() }
                     }
                 }
             }
@@ -231,6 +233,9 @@ class PaintViewModel : ViewModel() {
     /**
      * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
      * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
+     *
+     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`): 虽然 C++ 侧只做
+     * `relaxed` 原子量读取、不触碰文档与投影, 但"引擎调用不经 UI 线程"是架构铁律, 不做例外。
      */
     internal fun pollSaveStats() {
         if (!PerfTrace.enabled) return
