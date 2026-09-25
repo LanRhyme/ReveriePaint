@@ -73,6 +73,14 @@
     <string name="blend_color">颜色</string>
     <string name="blend_value">明度</string>
     <string name="blend_erase">擦除</string>
+    <string name="blend_luminosity_sai">发光 (SAI)</string>
+    <string name="blend_glow">发光</string>
+    <string name="blend_category_basic">基础</string>
+    <string name="blend_category_darken">变暗</string>
+    <string name="blend_category_lighten">变亮</string>
+    <string name="blend_category_contrast">对比</string>
+    <string name="blend_category_inversion">差值</string>
+    <string name="blend_category_component">色彩</string>
     <string name="settings_about_sub">基于 Krita 原生渲染引擎构建</string>
 
     <!-- Home & Gallery -->

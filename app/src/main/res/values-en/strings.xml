@@ -73,6 +73,14 @@
     <string name="blend_color">Color</string>
     <string name="blend_value">Value</string>
     <string name="blend_erase">Erase</string>
+    <string name="blend_luminosity_sai">Luminosity (SAI)</string>
+    <string name="blend_glow">Glow</string>
+    <string name="blend_category_basic">Basic</string>
+    <string name="blend_category_darken">Darken</string>
+    <string name="blend_category_lighten">Lighten</string>
+    <string name="blend_category_contrast">Contrast</string>
+    <string name="blend_category_inversion">Inversion</string>
+    <string name="blend_category_component">Component</string>
     <string name="settings_about_sub">Built on Krita native rendering engine</string>
 
     <!-- Home & Gallery -->
