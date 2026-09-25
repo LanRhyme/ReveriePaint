@@ -206,10 +206,13 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         if (size_t(m_subRegionBuffer.size()) < req) {
             m_subRegionBuffer.resize(req);
         }
-        proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), rs.x(), rs.y(), rs.width(), rs.height());
-        QImage subBgra(rs.width(), rs.height(), QImage::Format_RGBA8888);
-        blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), rs.width() * 4,
-                           subBgra.bits(), rs.width() * 4, rs.width(), rs.height());
+        // 直接以复用的脏区缓冲为 QImage 后端, 并就地做 BGRA→RGBA swizzle
+        // (1:1 路径一直是这么做的, in-place 安全)。旧实现每帧多一次 rs 大小的
+        // QImage 分配 + 整块 bits() 拷贝, 缩放视图下这是每帧一次的堆分配。
+        quint8 *scratch = reinterpret_cast<quint8 *>(m_subRegionBuffer.data());
+        proj->readBytes(scratch, rs.x(), rs.y(), rs.width(), rs.height());
+        QImage subBgra(scratch, rs.width(), rs.height(), rs.width() * 4, QImage::Format_RGBA8888);
+        blitBgraToRgbaFast(scratch, rs.width() * 4, scratch, rs.width() * 4, rs.width(), rs.height());
 
         // Map BOTH edges of a rect through the same round(edge*scale) rule so
         // consecutive dirty blits always agree on where each pixel boundary
@@ -273,15 +276,20 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
 
     const int clampedTol = qBound(1, tolerance, 100);
 
-    KoColor seedCol = srcDevice->pixel(QPoint(x, y));
-    QColor qSeed;
-    seedCol.toQColor(&qSeed);
-    QRect beforeBounds = targetDevice->exactBounds();
-    __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
-        "floodFillAt START: pt=(%d, %d), tol=%d, exp=%d, fth=%d, gap=%d, merged=%d, seedRGBA=(%d,%d,%d,%d), targetBefore=(%d,%d,%d,%d)",
-        x, y, clampedTol, expand, feather, closeGap, sampleMerged ? 1 : 0,
-        qSeed.red(), qSeed.green(), qSeed.blue(), qSeed.alpha(),
-        beforeBounds.x(), beforeBounds.y(), beforeBounds.width(), beforeBounds.height());
+    // 填充日志按需开启: 每次填充一次 logcat 写入 + 两次 exactBounds() 全瓦片扫描,
+    // 而填充是绘画软件的高频操作, 生产构建不该付这份代价 (`setprop debug.reverie.trace 1` 打开)
+    const bool traceFill = rpDebugFlag("debug.reverie.trace", "REVERIE_TRACE", false);
+    if (traceFill) {
+        KoColor seedCol = srcDevice->pixel(QPoint(x, y));
+        QColor qSeed;
+        seedCol.toQColor(&qSeed);
+        const QRect beforeBounds = targetDevice->exactBounds();
+        __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
+            "floodFillAt START: pt=(%d, %d), tol=%d, exp=%d, fth=%d, gap=%d, merged=%d, seedRGBA=(%d,%d,%d,%d), targetBefore=(%d,%d,%d,%d)",
+            x, y, clampedTol, expand, feather, closeGap, sampleMerged ? 1 : 0,
+            qSeed.red(), qSeed.green(), qSeed.blue(), qSeed.alpha(),
+            beforeBounds.x(), beforeBounds.y(), beforeBounds.width(), beforeBounds.height());
+    }
 
     KisTransaction txn(kundo2_i18n("Fill"), targetDevice);
     
@@ -324,10 +332,12 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
 
-    QRect afterBounds = targetDevice->exactBounds();
-    __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
-        "floodFillAt END: targetAfter=(%d,%d,%d,%d)",
-        afterBounds.x(), afterBounds.y(), afterBounds.width(), afterBounds.height());
+    if (traceFill) {
+        const QRect afterBounds = targetDevice->exactBounds();
+        __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
+            "floodFillAt END: targetAfter=(%d,%d,%d,%d)",
+            afterBounds.x(), afterBounds.y(), afterBounds.width(), afterBounds.height());
+    }
 }
 
 

@@ -9,6 +9,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "kis_liquify_transform_worker.h"
+#include <QtConcurrent/QtConcurrentMap>
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
 {
@@ -137,6 +138,9 @@ namespace
 {
 // min writeback interval; adapts upward if a single apply is slower
 const qint64 LIQUIFY_APPLY_MIN_INTERVAL_MS = 20;
+// 多目标 warp 并行开关 (一键回退): 真机上若怀疑并行引起异常, 置 false 重编译
+// 即可回到逐层串行, 其余行为逐像素一致。
+const bool kLiquifyParallelTargets = true;
 }
 
 void ReverieCore::resetLiquifyWorker()
@@ -174,10 +178,33 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     if (m_selection) {
         clipRect &= m_selection->selectedExactRect();
     }
+    // 阶段 1: 各目标的 clear + grid warp。
+    // 目标之间完全独立 (各自的 src/dst/worker), 却原先只用一个核 —— 多图层液化时
+    // 单次 apply 的墙钟时间随图层数线性增长, 拖长一次拖动就是成倍的卡顿与发热。
+    // 并行只覆盖这步纯计算; 写回必须留在渲染线程串行 (KisPainter + 脏区标记)。
+    QVector<LiquifyTarget *> warped;
+    warped.reserve(m_liquifyTargets.size());
+    for (LiquifyTarget &t : m_liquifyTargets) {
+        if (t.worker) warped.append(&t);
+    }
+    if (warped.size() > 1 && kLiquifyParallelTargets) {
+        // 引擎专用池 (不借全局池, 避免与 Krita 内部并行争池); 元素是裸指针数组,
+        // 并行期间不触碰 m_liquifyTargets 的容器本身
+        QtConcurrent::blockingMap(reverieBackgroundPool(), warped,
+                                  [](LiquifyTarget *t) {
+                                      t->dst->clear();
+                                      t->worker->run(t->src, t->dst);
+                                  });
+    } else {
+        for (LiquifyTarget *t : warped) {
+            t->dst->clear();
+            t->worker->run(t->src, t->dst);
+        }
+    }
+
+    // 阶段 2: 串行写回 (选区/透明像素锁/脏区标记语义与改动前完全一致)
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (!t.worker) continue;
-        t.dst->clear();
-        t.worker->run(t.src, t.dst);
         const QRect area = deltaRect.intersected(t.bounds).intersected(clipRect);
         if (!area.isEmpty()) {
             KisPainter p(t.device);
@@ -206,11 +233,11 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
         qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS,
                        qMax<qint64>(elapsed * 2, LIQUIFY_APPLY_MIN_INTERVAL_MS),
                        64);
-    RPC_LOG("liquify apply total=%dms targets=%d area=%dx%d bounds=%dx%d int=%d",
-            int(elapsed), int(m_liquifyTargets.size()),
-            dirtyUnion.width(), dirtyUnion.height(),
-            m_liquifyWorkerBounds.width(), m_liquifyWorkerBounds.height(),
-            int(m_liquifyApplyIntervalMs));
+    RPC_TRACE("liquify apply total=%dms targets=%d area=%dx%d bounds=%dx%d int=%d",
+              int(elapsed), int(m_liquifyTargets.size()),
+              dirtyUnion.width(), dirtyUnion.height(),
+              m_liquifyWorkerBounds.width(), m_liquifyWorkerBounds.height(),
+              int(m_liquifyApplyIntervalMs));
 }
 
 void ReverieCore::liquifyBegin(const QVector<int> &layers)
@@ -248,9 +275,9 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         t.txn = new KisTransaction(kundo2_i18n("Liquify"), dev, nullptr, -1, nullptr);
         m_liquifyTargets.append(t);
     }
-    RPC_LOG("liquifyBegin req=%d targets=%d cur=%d layerN=%d active=%d",
-            int(layers.size()), int(m_liquifyTargets.size()),
-            m_currentLayer, int(m_layers.size()), int(m_liquifyTxnActive));
+    RPC_TRACE("liquifyBegin req=%d targets=%d cur=%d layerN=%d active=%d",
+              int(layers.size()), int(m_liquifyTargets.size()),
+              m_currentLayer, int(m_layers.size()), int(m_liquifyTxnActive));
     if (m_liquifyTargets.isEmpty()) {
         return;
     }

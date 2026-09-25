@@ -1,0 +1,9 @@
+# 脚本在 WSL/Linux 上执行: 强制 LF, 否则 Windows 侧 core.autocrlf 会把 shebang 变成
+# "#!/usr/bin/env bash\r" 而导致 scripts/*.sh 无法执行
+*.sh text eol=lf
+*.py text eol=lf
+
+# 二进制产物不做行尾转换
+*.so binary
+*.png binary
+*.jar binary

@@ -699,6 +699,13 @@ object ReverieCoreBridge {
         recordingBlob: ByteArray? = null,
     ): Boolean
 
+    /**
+     * 上一次 .revp 保存的阶段耗时(ms)与产物体积, 供性能标尺显示:
+     * `[total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]`。
+     * 典型用法是保存后或每秒钟取一次 (见 `PaintViewModel.pollSaveStats`)。
+     */
+    external fun revpSaveStats(): LongArray?
+
     external fun saveRevpAsync(
         path: String,
         extraMetaJson: String = "",

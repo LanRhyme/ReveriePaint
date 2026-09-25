@@ -45,13 +45,58 @@
 #include <kis_brush_option.h>
 #include <QMutex>
 
+class QThreadPool;
+
 #include <QDebug>
 #if defined(Q_OS_ANDROID)
 #include <android/log.h>
+#include <sys/system_properties.h>
 #define RPC_LOG(...) __android_log_print(ANDROID_LOG_INFO, "ReverieCore", __VA_ARGS__)
 #else
 #define RPC_LOG(...) do { fprintf(stderr, __VA_ARGS__); fflush(stderr); } while (0)
 #endif
+
+/** 诊断开关: Android 读系统属性 (`setprop debug.reverie.<name> 1`), 其它宿主读环境
+ *  变量。只在"每次操作一次"的粒度上调用 (保存一次、液化一次 apply), 不做进程内缓存
+ *  以免引入跨线程状态; __system_property_get 本身是共享内存读, 开销可忽略。 */
+inline bool rpDebugFlag(const char *propName, const char *envName, bool defVal)
+{
+#if defined(Q_OS_ANDROID)
+    char value[PROP_VALUE_MAX] = {0};
+    if (__system_property_get(propName, value) > 0) {
+        return QByteArray(value).trimmed() != QByteArrayLiteral("0");
+    }
+    return defVal;
+#else
+    const QByteArray value = qgetenv(envName);
+    return value.isEmpty() ? defVal : (value.trimmed() != QByteArrayLiteral("0"));
+#endif
+}
+
+/** 诊断日志: 默认关闭。热路径 (液化 apply / 填充等) 用它而不是 RPC_LOG —— 这些路径
+ *  每秒可触发数十次, 无条件写 logcat 会带来可见的 CPU/IO 开销与发热。
+ *  打开: `setprop debug.reverie.trace 1`。 */
+#if defined(Q_OS_ANDROID)
+#define RPC_TRACE(...)                                                          \
+    do {                                                                        \
+        if (rpDebugFlag("debug.reverie.trace", "REVERIE_TRACE", false))          \
+            __android_log_print(ANDROID_LOG_INFO, "ReverieCore", __VA_ARGS__);   \
+    } while (0)
+#else
+#define RPC_TRACE(...)                                                          \
+    do {                                                                        \
+        if (rpDebugFlag("debug.reverie.trace", "REVERIE_TRACE", false)) {        \
+            fprintf(stderr, __VA_ARGS__);                                        \
+            fflush(stderr);                                                      \
+        }                                                                        \
+    } while (0)
+#endif
+
+/** 引擎后台并行池: 供"可并行的纯计算"使用 (保存期 PNG 编码、液化多目标 warp)。
+ *  刻意独立于 QThreadPool::globalInstance() 与 Krita 内部线程池, 避免争池;
+ *  上限 4 线程 (移动端 4 大核已能打满 zlib/warp 吞吐, 更多只增功耗与发热)。
+ *  定义于 ReverieCoreDocument.cpp。 */
+QThreadPool *reverieBackgroundPool();
 #include <algorithm>
 #include <queue>
 #include <kis_clone_layer.h>

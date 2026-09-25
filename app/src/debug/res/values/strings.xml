@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 构建专属文案: 性能标尺 (开发/量测用, 正式版不含这些资源)。
+  见 app/src/debug/java/com/reverie/paint/perf/PerfHud.kt
+-->
+<resources>
+    <string name="settings_diagnostics">诊断</string>
+    <string name="settings_perf_hud">性能标尺</string>
+    <string name="settings_perf_hud_sub">画布上显示实时渲染路径、纹理重传与保存耗时（排查卡顿用，日常建议关闭）</string>
+</resources>

@@ -26,6 +26,7 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 
 - **预编译模式 (默认)**: 使用 `third_party/android-native-libs` 内置动态库, 不编译 C++。克隆后先执行 `./scripts/copy_jni_libs.sh`, 然后 `./gradlew assembleDebug` 即可。
 - **buildNative 模式 (开发者)**: 重新编译 C++, 需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6。执行 `./scripts/build_native.sh` 或 `./gradlew assembleDebug -PbuildNative`。
+- **WSL/Linux 直调 CMake 模式**: 仓库只提交预编译 `.so` 而不含 Krita/Qt/KF6 头文件, 且 [`CMakeLists.txt`](app/src/main/cpp/CMakeLists.txt:228) 的 NDK 路径按 Linux 宿主写死。在本机重编译 C++ 时用 `scripts/setup_native_env.sh` (组装依赖) + `scripts/build_native_wsl.sh` (交叉编译+strip+同步), 详见 [docs/BUILD-ANDROID-NATIVE.md](docs/BUILD-ANDROID-NATIVE.md)。
 
 ### 常用命令
 
@@ -43,7 +44,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## 3. 目录结构
 
 ```
-app/src/main/java/com/reverie/paint/
+app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
 ├── MainActivity.kt          # 应用入口 + 页面路由 (Page.HOME/CREATE/PAINTING/REPLAY)
 ├── core/                    # 引擎桥接层 (不含 Compose UI)
 │   ├── ReverieCoreBridge.kt #   JNI 外部函数声明 (唯一 JNI 边界)
@@ -70,6 +71,12 @@ app/src/main/java/com/reverie/paint/
         ├── brush/           #   笔刷面板 + 笔刷工坊 (BrushStudio)
         └── panels/          #   工具栏/工具属性面板/取色器/设置面板/选区浮窗
 
+app/src/debug/              # debug 专属源集: 仅开发/量测用的代码与文案
+                            #   java/.../perf/PerfHud.kt (性能标尺 HUD + 设置入口)
+                            #   res/values{,-en}/strings.xml (这些文案不进正式包)
+app/src/release/            # release 专属源集: 上述功能的同签名空实现 (正式包里不存在)
+                            # 见 RENDER-OPTIMIZATION.md §5.14
+
 app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应)
 ├── ReverieCore.h            #   引擎主头文件 (SPDX GPL-3.0 必需)
 ├── ReverieCoreInternal.h    #   内部共享声明
@@ -83,6 +90,9 @@ app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应
 其他目录:
 docs/       # 中文开发文档; PROGRESS.md 为推进日志, 完成里程碑时更新
 scripts/    # build_native.sh (完整构建) / copy_jni_libs.sh (预编译库拷贝)
+            # setup_native_env.sh + prepare_native_deps.py + fetch_kde_dep_headers.py
+            #   + build_native_wsl.sh (Linux/WSL 本地重编译 C++, 见 docs/BUILD-ANDROID-NATIVE.md)
+            # native-bench/ (宿主机 PNG 压缩档位基准 + 引擎 ABI 比对, 见 RENDER-OPTIMIZATION.md §5.12)
 third_party/android-native-libs/   # 预编译动态库闭包 (arm64-v8a, 已 strip)
 art/        # 图标素材
 ```

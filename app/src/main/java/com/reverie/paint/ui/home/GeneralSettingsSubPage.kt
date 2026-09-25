@@ -32,6 +32,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.AppLanguage
 import com.reverie.paint.core.LanguageManager
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.perf.PerfHud
 import com.reverie.paint.ui.theme.Theme
 
 @Composable
@@ -184,6 +185,10 @@ internal fun GeneralSettingsSubPage(
                     onCheckedChange = { vm.updatePromptSaveOnExit(it) },
                 )
             }
+
+            // Section 4: 诊断 (性能标尺)。debug 构建才有内容, 正式版是空实现 ——
+            // 见 [com.reverie.paint.perf.PerfHud]。
+            PerfHud.SettingsSection(vm)
 
             Spacer(Modifier.height(80.dp))
         }

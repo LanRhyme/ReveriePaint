@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only strings: performance HUD (dev/measurement only, absent from release).
+  See app/src/debug/java/com/reverie/paint/perf/PerfHud.kt
+-->
+<resources>
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="settings_perf_hud">Performance HUD</string>
+    <string name="settings_perf_hud_sub">Show live render paths, texture re-upload and save timings on the canvas (for diagnosing jank; keep off normally)</string>
+</resources>

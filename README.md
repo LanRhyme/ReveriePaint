@@ -77,6 +77,8 @@
 
 有关项目技术架构、本地开发环境配置、编译构建步骤与代码规范, 请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 以及开发指引文档 [AGENTS.md](AGENTS.md)
 
+修改 C++ 引擎 (`app/src/main/cpp/`) 需要在本机重编译时, 请参阅 [docs/BUILD-ANDROID-NATIVE.md](docs/BUILD-ANDROID-NATIVE.md) —— 其中记录了已验证的 Qt/Krita/NDK 版本矩阵、一键环境组装脚本与"产物与发布库符号集一致"的校验方法
+
 ---
 
 ## 开源协议与鸣谢

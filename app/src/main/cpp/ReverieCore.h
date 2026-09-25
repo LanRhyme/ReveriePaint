@@ -650,6 +650,10 @@ public:
     static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible);
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
+
+    /** 上一次 .revp 保存的阶段耗时(ms)与产物体积, 供 UI 侧性能标尺显示。
+     *  out 至少 8 个 qint64: [total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]。 */
+    void revpSaveStats(qint64 *out);
     bool loadRevp(const QString &path);
     static bool loadKraTree(const QByteArray &maindocBytes, KisImageSP image, KoStore *store, const QString &docName, bool *bgVisible);
     bool loadPsd(const QString &path);

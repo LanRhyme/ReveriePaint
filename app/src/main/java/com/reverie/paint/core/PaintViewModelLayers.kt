@@ -63,10 +63,47 @@ private var isRefreshingThumbs = false
  *  the panel is closed, and render on-demand when the panel opens. */
 private const val THUMB_REFRESH_DEBOUNCE_MS = 1_000L
 
+/** 引擎忙时的延后轮询间隔与轮询次数上限 (最多等 3 秒) */
+private const val THUMB_DEFER_POLL_MS = 200L
+
+private const val THUMB_DEFER_MAX_TICKS = 15
+
+/**
+ * 渲染线程是否正忙。缩略图必须占用同一个渲染线程逐层渲染, 抢在笔画前面会让
+ * 笔迹成段 (SpeedyNote 的 scroll-settle 思路: 重活推迟到交互停下来之后)。
+ */
+internal fun PaintViewModel.engineBusy(): Boolean =
+    // pendingCoreOps 在笔画批次排队与每次引擎操作期间都 >0 (比 strokeBatchQueued
+    // 覆盖面更广), hQueued 则覆盖渲染线程消息队列里还压着的任务
+    pendingCoreOps.get() > 0 || hQueued() > 0
+
 /** (Re)generate layer thumbnails on the render thread. Debounced; triggers
  *  inside the window keep postponing the refresh until the user pauses. */
 internal fun PaintViewModel.refreshLayerThumbs(force: Boolean = false) {
     if (!force && !layerPanelOpen) {
+        return
+    }
+    // 正在落笔/液化/滤镜: 推迟到引擎空闲再刷, 别和笔画抢渲染线程
+    if (!force && engineBusy()) {
+        val vm = this
+        thumbRefreshJob?.cancel()
+        thumbRefreshJob =
+            viewModelScope.launch {
+                repeat(THUMB_DEFER_MAX_TICKS) {
+                    delay(THUMB_DEFER_POLL_MS)
+                    if (!vm.layerPanelOpen) return@launch
+                    if (!vm.engineBusy()) {
+                        lastThumbRefreshNs = System.nanoTime()
+                        vm.doRefreshLayerThumbs()
+                        return@launch
+                    }
+                }
+                // 一直没闲下来也要刷一次, 否则面板会长期停留在旧缩略图
+                if (vm.layerPanelOpen) {
+                    lastThumbRefreshNs = System.nanoTime()
+                    vm.doRefreshLayerThumbs()
+                }
+            }
         return
     }
     val now = System.nanoTime()

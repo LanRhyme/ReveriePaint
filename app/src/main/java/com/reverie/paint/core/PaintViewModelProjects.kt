@@ -524,31 +524,48 @@ private class ProjectMetaCacheEntry(
 
 private val projectMetaCache = HashMap<String, ProjectMetaCacheEntry>()
 
+private var projectsRefreshJob: Job? = null
+
+/**
+ * 刷新工程列表。
+ *
+ * 目录扫描与 .revp 元数据解析要走 ZIP 解压和磁盘 IO, 因此整体放到 IO 线程执行,
+ * 结果回主线程赋值; 刷新期间保留旧列表 (不置空), 数据就绪后一次性替换。
+ *
+ * 旧实现同步跑在主线程: 保存刚写出的文件 mtime 已变、元数据缓存必然失效, 于是
+ * **每次保存之后都要在主线程重解析一遍刚写出的 .revp**(大画布可达几十 MB),
+ * 工程一多就是明显的卡顿 —— 这是"保存很慢"体感的重要来源之一。
+ */
 internal fun PaintViewModel.refreshProjects() {
+    projectsRefreshJob?.cancel()
+    projectsRefreshJob =
+        viewModelScope.launch {
+            val folder = currentFolder
+            if (folder != null && folder.isFolder && !File(folder.filePath).exists()) {
+                currentFolder = null
+            }
+            val list = withContext(Dispatchers.IO) { buildProjectList() }
+            projects = list
+        }
+}
+
+/** 纯 IO 部分: 扫描目录并把每个工程解析成 [Project] (带 mtime/size 元数据缓存) */
+private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Project> {
     val rootDir = projectDir()
-    if (!rootDir.exists()) {
-        projects = emptyList()
-        return
-    }
+    if (!rootDir.exists()) return emptyList()
 
     // If currently inside a folder, read projects inside that subfolder
     val folder = currentFolder
     if (folder != null && folder.isFolder) {
         val dir = File(folder.filePath)
-        if (!dir.exists()) {
-            currentFolder = null
-            refreshProjects()
-            return
-        }
+        if (!dir.exists()) return emptyList()
         val files: Array<File> =
             dir
                 .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
                 ?.sortedByDescending { it.lastModified() }
                 ?.toTypedArray() ?: emptyArray()
 
-        val list = files.map { parseProjectFromFile(it) }
-        projects = list
-        return
+        return files.map { parseProjectFromFile(it) }
     }
 
     // Root level: read both standalone files and folders (画集)
@@ -614,7 +631,7 @@ internal fun PaintViewModel.refreshProjects() {
         }
     }
 
-    projects = list
+    return list
 }
 
 /**
@@ -994,7 +1011,22 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
     loadViewSettings()
     loadShortcuts()
     loadBrushParams()
-    // Copy the bundled presets from assets to filesDir once
+    // 把 assets 里几百个笔刷预设与笔刷资源 (.gbr/.gih/.png/.svg, 可达几十 MB)
+    // 拷进 filesDir 是纯 IO: 原先同步跑在调用线程 (MainActivity 的
+    // LaunchedEffect, 即主线程), 首启或清数据之后的启动卡顿主要来自这里。
+    // 改为 IO 线程执行, 完成后再回主线程走后面的流程 (Compose 状态写入必须在
+    // 主线程, JNI 读取仍在渲染线程)。
+    viewModelScope.launch {
+        val dirs = withContext(Dispatchers.IO) { copyBundledBrushAssets() }
+        loadBrushPresetsAfterAssets(dirs.first, dirs.second)
+    }
+}
+
+/**
+ * assets -> filesDir 的一次性拷贝 (纯 IO; 已存在的文件直接跳过, 可重复调用)。
+ * 返回 (预设目录, 笔刷资源目录)。
+ */
+private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     val dir = java.io.File(appContext.filesDir, "paintoppresets")
     val assets = appContext.assets
     try {
@@ -1028,6 +1060,14 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
     } catch (e: Exception) {
         android.util.Log.e("ReveriePaint", "brush copy failed", e)
     }
+    return dir to brushDir
+}
+
+/** [loadBrushPresets] 的后续流程 (依赖 assets 已就位, 在主线程执行) */
+private fun PaintViewModel.loadBrushPresetsAfterAssets(
+    dir: File,
+    brushDir: File,
+) {
     // Restore persisted user brush groups and custom order
     loadBrushGroups()
     loadCategoryOrder()

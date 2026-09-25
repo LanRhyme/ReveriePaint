@@ -27,14 +27,23 @@ import android.graphics.PorterDuffColorFilter
 import android.view.WindowManager
 import com.oplusos.vfxsdk.forecast.MotionPredictor as OplusMotionPredictor
 import com.oplusos.vfxsdk.forecast.TouchPointInfo as OplusTouchPointInfo
+import com.reverie.paint.perf.PerfHud
 import com.reverie.paint.ui.painting.brush.BrushTipDecoder
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/** 单帧最多绘制的像素网格线条数, 超过则跳过网格 (防极端缩放下的掉帧) */
+private const val MAX_VISIBLE_GRID_LINES = 6000
+
+/** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
+private const val MAX_MIRROR_BRANCHES = 8
 
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
@@ -339,13 +348,80 @@ class CanvasTouchView(context: Context) : View(context) {
     private var fingerCount = 0
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
-    data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double)
-    private val mirroredBranches = mutableListOf<MutableList<SymStrokeSample>>()
+    // 镜像笔迹采样缓冲: 每个分支一段扁平的 [x, y, pressure] 三元组, 容量按需翻倍。
+    // 旧实现每个采样点 new 一个 SymStrokeSample 再 add 进 MutableList —— 对称绘制
+    // 最多 7 个分支, 等于每帧几十次对象分配加列表扩容; 现在整条笔迹零分配。
+    private val mirroredSamples = ArrayList<FloatArray>(MAX_MIRROR_BRANCHES)
+    private val mirroredSizes = IntArray(MAX_MIRROR_BRANCHES)
+
+    /** 是否有任一分支已累积采样点 (绘制 / 回放 / 局部失效判定的共同前提) */
+    private fun mirrorBranchHasSamples(): Boolean {
+        for (i in 0 until mirroredSamples.size) {
+            if (mirroredSizes[i] > 0) return true
+        }
+        return false
+    }
+
+    private fun resetMirrorBranches() {
+        for (i in 0 until mirroredSamples.size) mirroredSizes[i] = 0
+    }
+
+    /** 按当前分支数准备缓冲; 多余的数组保留复用, 下一笔不再重新分配 */
+    private fun ensureMirrorBranches(count: Int) {
+        while (mirroredSamples.size > count) {
+            mirroredSamples.removeAt(mirroredSamples.size - 1)
+        }
+        while (mirroredSamples.size < count) {
+            mirroredSamples.add(FloatArray(0))
+        }
+        resetMirrorBranches()
+    }
+
+    /**
+     * 追加一个镜像采样点。缓冲以 3 个 float 为一组存 [x, y, pressure],
+     * 扩容按需翻倍 (初始 16 个点), 热路径上不产生任何对象。
+     */
+    private fun appendMirrorSample(branchIndex: Int, x: Float, y: Float, pressure: Double) {
+        if (branchIndex < 0 || branchIndex >= mirroredSamples.size) return
+        val used = mirroredSizes[branchIndex]
+        val need = (used + 1) * 3
+        var buf = mirroredSamples[branchIndex]
+        if (buf.size < need) {
+            val grown = FloatArray(maxOf(need, buf.size * 2, 48))
+            System.arraycopy(buf, 0, grown, 0, used * 3)
+            mirroredSamples[branchIndex] = grown
+            buf = grown
+        }
+        val base = used * 3
+        buf[base] = x
+        buf[base + 1] = y
+        buf[base + 2] = pressure.toFloat()
+        mirroredSizes[branchIndex] = used + 1
+    }
     private val mirroredDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+
+    // ---- 视图变换缓存与热路径零分配暂存区 (AGENTS.md §4) ----
+    // 绘制覆盖层时每个点都要做一次 doc->screen, 旧实现每次现算三角函数; 缓存
+    // 视图参数后整条笔迹共用一份变换, 并且只往复用数组里写结果, 全程零分配。
+    private val viewTransform = CanvasViewTransform()
+    private val pointScratch = FloatArray(2)
+    private val boundsScratch = IntArray(4)
+    private val pixelScratch = IntArray(1)
+
+    /** 画笔颜色的解析缓存 (brushColor 是字符串, 每帧 parseColor 纯属浪费) */
+    private var cachedColorHex: String? = null
+    private var cachedColorInt: Int = android.graphics.Color.BLACK
+
+    /** 压力曲线查表的量化缓存 (JNI 调用; 落笔期间压力连续但帧间变化很小) */
+    private var cachedPressureKey: Int = -1
+    private var cachedPressureFraction: Float = 1f
+
+    /** 局部失效开关: 任一安全条件不满足时自动回退全量重绘 */
+    var partialInvalidateEnabled: Boolean = true
 
     private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
         val v = vm ?: return emptyList()
@@ -618,7 +694,25 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * onDraw 薄壳: 只在性能标尺开启时计时并叠加标尺, 关闭时直接转发 (零额外开销)。
+     * 标尺本体在 debug 专属源集里 ([PerfHud]), 正式版是空实现。
+     */
     override fun onDraw(canvas: Canvas) {
+        if (!PerfHud.enabled) {
+            drawCanvas(canvas)
+            return
+        }
+        val t0 = SystemClock.elapsedRealtimeNanos()
+        try {
+            drawCanvas(canvas)
+        } finally {
+            PerfHud.recordDraw(SystemClock.elapsedRealtimeNanos() - t0)
+            PerfHud.draw(canvas, this)
+        }
+    }
+
+    private fun drawCanvas(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
 
@@ -666,11 +760,23 @@ class CanvasTouchView(context: Context) : View(context) {
                     pixelGridPaint.color =
                         android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
                     pixelGridPaint.strokeWidth = 1f / scale
-                    for (gx in 0..bmp.width) {
-                        canvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, pixelGridPaint)
-                    }
-                    for (gy in 0..bmp.height) {
-                        canvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, pixelGridPaint)
+                    // 只画视口内可见的网格线: 整幅遍历在 4x 放大的大画幅上每帧要发
+                    // 上万条 drawLine, 而屏幕上真正看得见的只有几百条 —— 这是高
+                    // 倍率下最贵的一段绘制 (对应"渲染路径分离"的按视口裁剪)。
+                    ensureViewTransform()
+                    visibleBitmapBounds(boundsScratch)
+                    val gx0 = boundsScratch[0].coerceIn(0, bmp.width)
+                    val gx1 = boundsScratch[2].coerceIn(0, bmp.width)
+                    val gy0 = boundsScratch[1].coerceIn(0, bmp.height)
+                    val gy1 = boundsScratch[3].coerceIn(0, bmp.height)
+                    // 兜底: 视口已经把整幅包进来时线条仍可能过万, 宁可不画网格也不掉帧
+                    if ((gx1 - gx0) + (gy1 - gy0) <= MAX_VISIBLE_GRID_LINES) {
+                        for (gx in gx0..gx1) {
+                            canvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, pixelGridPaint)
+                        }
+                        for (gy in gy0..gy1) {
+                            canvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, pixelGridPaint)
+                        }
                     }
                 }
             }
@@ -715,18 +821,14 @@ class CanvasTouchView(context: Context) : View(context) {
 
                         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
                         val cursorBrushSize = v.brushSize.toFloat()
-                        val pFrac = if (v.brushPressureEnabled) ReverieCoreBridge.brushPressureFraction(predictedPressure) else 1f
+                        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
                         val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
 
                         val isEraser = tool == Tool.ERASER
                         val baseColor = if (isEraser) {
                             android.graphics.Color.WHITE
                         } else {
-                            try {
-                                android.graphics.Color.parseColor(v.brushColor)
-                            } catch (_: Throwable) {
-                                android.graphics.Color.BLACK
-                            }
+                            resolveBrushColorCached(v.brushColor)
                         }
                         val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
 
@@ -757,16 +859,27 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         // 2. 绘画中实时镜像笔迹绘制 (120Hz 零延迟 GPU Canvas 渲染)
         // =========================================================================
-        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirroredBranches.isNotEmpty()) {
+        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirrorBranchHasSamples()) {
             try {
-                val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                mirroredDrawPaint.color = android.graphics.Color.parseColor(v.brushColor)
-                mirroredDrawPaint.strokeWidth = (v.brushSize.toFloat() * scale).coerceAtLeast(1.5f)
-                for (branch in mirroredBranches) {
-                    for (i in 1 until branch.size) {
-                        val p1 = docToScreen(Offset(branch[i - 1].x, branch[i - 1].y))
-                        val p2 = docToScreen(Offset(branch[i].x, branch[i].y))
-                        canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
+                ensureViewTransform()
+                mirroredDrawPaint.color = resolveBrushColorCached(v.brushColor)
+                mirroredDrawPaint.strokeWidth =
+                    (v.brushSize.toFloat() * viewTransform.currentScale).coerceAtLeast(1.5f)
+                // 整条笔迹共用一份视图变换, 逐点只读扁平缓冲并写复用数组
+                // (旧实现每个点现算三角函数 + 每段重复变换前一点)
+                for (b in 0 until mirroredSamples.size) {
+                    val buf = mirroredSamples[b]
+                    val n = mirroredSizes[b]
+                    if (n < 2) continue
+                    viewTransform.docToScreen(buf[0], buf[1], pointScratch)
+                    var prevX = pointScratch[0]
+                    var prevY = pointScratch[1]
+                    for (i in 1 until n) {
+                        val base = i * 3
+                        viewTransform.docToScreen(buf[base], buf[base + 1], pointScratch)
+                        canvas.drawLine(prevX, prevY, pointScratch[0], pointScratch[1], mirroredDrawPaint)
+                        prevX = pointScratch[0]
+                        prevY = pointScratch[1]
                     }
                 }
             } catch (_: Exception) {}
@@ -793,7 +906,7 @@ class CanvasTouchView(context: Context) : View(context) {
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
             val pressureFraction =
                 if (localIsTouching) {
-                    ReverieCoreBridge.brushPressureFraction(localPressure)
+                    pressureFractionCached(localPressure)
                 } else 1f
             val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureFraction).coerceAtLeast(2f)
 
@@ -853,40 +966,23 @@ class CanvasTouchView(context: Context) : View(context) {
             val ix = (docPos.x * (bmp.width.toFloat() / docW)).toInt()
             val iy = (docPos.y * (bmp.height.toFloat() / docH)).toInt()
             if (ix in 0 until bmp.width && iy in 0 until bmp.height) {
-                val pixel = bmp.getPixel(ix, iy)
-                pickerCurrentColor?.value = Color(pixel)
+                // getPixel 每个采样点都是一趟 JNI; 改用复用数组 + getPixels,
+                // 拖动吸色期间每个采样点省一次跨语言调用且零分配
+                bmp.getPixels(pixelScratch, 0, 1, ix, iy, 1, 1)
+                pickerCurrentColor?.value = Color(pixelScratch[0])
             }
         }
     }
 
-    private fun screenToDoc(screenPos: Offset): Offset {
-        val bmp = vm?.displayBitmap ?: docBitmap
-        val bmpW = bmp?.width ?: vm?.docWidth ?: 1
-        val bmpH = bmp?.height ?: vm?.docHeight ?: 1
-        return widgetToImage(
-            screenPos,
-            viewW,
-            viewH,
-            canvasPanX,
-            canvasPanY,
-            canvasZoom,
-            canvasFitScale,
-            canvasRotation,
-            bmpW,
-            bmpH,
-            vm?.docWidth ?: bmpW,
-            vm?.docHeight ?: bmpH
-        )
-    }
-
-    private fun docToScreen(docPos: Offset): Offset {
-        val bmp = vm?.displayBitmap ?: docBitmap
-        val bmpW = bmp?.width ?: vm?.docWidth ?: 1
-        val bmpH = bmp?.height ?: vm?.docHeight ?: 1
-        val dw = vm?.docWidth ?: bmpW
-        val dh = vm?.docHeight ?: bmpH
-        return imageToWidget(
-            docPos,
+    /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
+    private fun ensureViewTransform() {
+        val v = vm
+        val bmp = v?.displayBitmap ?: docBitmap
+        val bmpW = bmp?.width ?: v?.docWidth ?: 1
+        val bmpH = bmp?.height ?: v?.docHeight ?: 1
+        val dw = v?.docWidth ?: bmpW
+        val dh = v?.docHeight ?: bmpH
+        viewTransform.update(
             viewW,
             viewH,
             canvasPanX,
@@ -899,6 +995,130 @@ class CanvasTouchView(context: Context) : View(context) {
             dw,
             dh,
         )
+    }
+
+    private fun screenToDoc(screenPos: Offset): Offset {
+        ensureViewTransform()
+        viewTransform.screenToDoc(screenPos.x, screenPos.y, pointScratch)
+        return Offset(pointScratch[0], pointScratch[1])
+    }
+
+    private fun docToScreen(docPos: Offset): Offset {
+        ensureViewTransform()
+        viewTransform.docToScreen(docPos.x, docPos.y, pointScratch)
+        return Offset(pointScratch[0], pointScratch[1])
+    }
+
+    /** 视口四角反变换到位图坐标后的包围盒 (供按视口裁剪绘制) */
+    private fun visibleBitmapBounds(out: IntArray) {
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (i in 0 until 4) {
+            val sx = if (i == 0 || i == 2) 0f else viewW.toFloat()
+            val sy = if (i < 2) 0f else viewH.toFloat()
+            viewTransform.screenToBitmap(sx, sy, pointScratch)
+            if (pointScratch[0] < minX) minX = pointScratch[0]
+            if (pointScratch[0] > maxX) maxX = pointScratch[0]
+            if (pointScratch[1] < minY) minY = pointScratch[1]
+            if (pointScratch[1] > maxY) maxY = pointScratch[1]
+        }
+        out[0] = floor(minX).toInt()
+        out[1] = floor(minY).toInt()
+        out[2] = ceil(maxX).toInt()
+        out[3] = ceil(maxY).toInt()
+    }
+
+    /** 画笔颜色字符串 -> 颜色值的解析缓存 (brushColor 每帧都可能被读取) */
+    private fun resolveBrushColorCached(hex: String): Int {
+        val cached = cachedColorHex
+        if (cached === hex || cached == hex) return cachedColorInt
+        val parsed =
+            try {
+                android.graphics.Color.parseColor(hex)
+            } catch (_: Throwable) {
+                android.graphics.Color.BLACK
+            }
+        cachedColorHex = hex
+        cachedColorInt = parsed
+        return parsed
+    }
+
+    /**
+     * 压力曲线的量化缓存。压力曲线由引擎侧提供 (JNI), 落笔期间压力逐帧连续
+     * 变化但幅度很小, 按 1/256 量化后绝大多数帧直接命中缓存。
+     */
+    private fun pressureFractionCached(p: Float): Float {
+        val key = (p.coerceIn(0f, 1f) * 256f).toInt()
+        if (key == cachedPressureKey) return cachedPressureFraction
+        val frac =
+            try {
+                ReverieCoreBridge.brushPressureFraction(p)
+            } catch (_: Throwable) {
+                1f
+            }
+        cachedPressureKey = key
+        cachedPressureFraction = frac
+        return frac
+    }
+
+    /**
+     * 渲染线程写完一帧后调用: 只让真正变化的区域重绘 (配合渲染路径分离,
+     * 位图不变的区域不再重绘, 省下大画幅下每帧的整屏 GPU 填充)。
+     *
+     * 任何"会在脏区之外重绘"的覆盖层处于活动状态时 (光标 / 预测笔迹 /
+     * 镜像笔迹 / 像素网格 / 画布旋转 / 变换会话) 一律回退全量重绘 ——
+     * 宁可多画一次, 也不允许出现边缘残影。
+     */
+    fun invalidateFromRender() {
+        val v = vm
+        val snap = v?.renderDirtySnapshot
+        if (!partialInvalidateEnabled || v == null || snap == null) {
+            postInvalidate()
+            return
+        }
+        val dw = snap[2]
+        val dh = snap[3]
+        if (dw <= 0 || dh <= 0 || !canPartialInvalidate(v, dw, dh)) {
+            postInvalidate()
+            return
+        }
+        ensureViewTransform()
+        viewTransform.bitmapRectToScreenBounds(
+            snap[0].toFloat(),
+            snap[1].toFloat(),
+            (snap[0] + dw).toFloat(),
+            (snap[1] + dh).toFloat(),
+            boundsScratch,
+        )
+        val left = boundsScratch[0].coerceAtLeast(0)
+        val top = boundsScratch[1].coerceAtLeast(0)
+        val right = boundsScratch[2].coerceAtMost(viewW)
+        val bottom = boundsScratch[3].coerceAtMost(viewH)
+        if (right <= left || bottom <= top) {
+            postInvalidate()
+            return
+        }
+        postInvalidate(left, top, right, bottom)
+    }
+
+    /** 局部失效的安全条件, 任一条不满足就整屏重绘 */
+    private fun canPartialInvalidate(v: PaintViewModel, dirtyW: Int, dirtyH: Int): Boolean {
+        // 回放与动画播放按帧整体切换画面, 只失效引擎回报的脏区会留下上一帧残影
+        if (v.currentPage == Page.REPLAY || v.anim.isPlaying) return false
+        if (!viewTransform.isAxisAligned) return false
+        if (v.pixelGridEnabled && viewTransform.currentScale >= 4f) return false
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return false
+        if (localCursorPos != null || localIsTouching || localIsHovering) return false
+        if (predictedScreenPoint != null) return false
+        if (isTransformActive || isInteracting) return false
+        val guide = v.drawingGuide
+        if (guide.mode == GuideMode.SYMMETRY && guide.assistedDrawing && mirrorBranchHasSamples()) return false
+        val viewArea = viewW.toLong() * viewH.toLong()
+        if (viewArea <= 0L) return false
+        // 脏区超过视口一半时就省不下什么了, 整屏一次画完更划算
+        return dirtyW.toLong() * dirtyH.toLong() * 2L <= viewArea
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -1843,14 +2063,14 @@ class CanvasTouchView(context: Context) : View(context) {
                 val isAssist = hasSymmetry || (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
                 val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
 
-                mirroredBranches.clear()
                 if (hasSymmetry) {
                     val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
-                    for (symPt in symPts) {
-                        val branch = mutableListOf<SymStrokeSample>()
-                        branch.add(SymStrokeSample(symPt.x, symPt.y, pressure.toDouble()))
-                        mirroredBranches.add(branch)
+                    ensureMirrorBranches(symPts.size)
+                    for (idx in symPts.indices) {
+                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
                     }
+                } else {
+                    resetMirrorBranches()
                 }
             }
             Tool.LIQUIFY -> {
@@ -2098,7 +2318,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hasSymmetry) {
                         val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                         for (idx in symPts.indices) {
-                            if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
+                            appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, hP.toDouble())
                         }
                     }
                 }
@@ -2119,7 +2339,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (hasSymmetry) {
                     val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                     for (idx in symPts.indices) {
-                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
+                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
                     }
                 }
 
@@ -2326,15 +2546,15 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    private fun replaySymmetricBranch(branch: List<SymStrokeSample>) {
+    /** 回放一条镜像分支: [buf] 为扁平的 [x, y, pressure] 三元组, 共 [count] 个点 */
+    private fun replaySymmetricBranch(buf: FloatArray, count: Int) {
         val v = vm ?: return
-        if (branch.size < 2) return
+        if (count < 2 || buf.size < count * 3) return
 
-        val start = branch[0]
-        v.touchStart(start.x, start.y, start.pressure)
-        for (i in 1 until branch.size) {
-            val pt = branch[i]
-            v.touchMove(pt.x, pt.y, pt.pressure)
+        v.touchStart(buf[0], buf[1], buf[2].toDouble())
+        for (i in 1 until count) {
+            val base = i * 3
+            v.touchMove(buf[base], buf[base + 1], buf[base + 2].toDouble())
         }
         v.touchEnd()
     }
@@ -2384,12 +2604,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     } else {
                         v.touchEnd()
-                        if (hasSymmetry && mirroredBranches.isNotEmpty()) {
-                            val branchesToReplay = mirroredBranches.map { ArrayList(it) }
-                            for (branch in branchesToReplay) {
-                                if (branch.size >= 2) {
-                                    replaySymmetricBranch(branch)
-                                }
+                        if (hasSymmetry && mirrorBranchHasSamples()) {
+                            // 回放期间只读缓冲 (抬笔后不再追加采样), 无需再拷贝一份
+                            for (b in 0 until mirroredSamples.size) {
+                                replaySymmetricBranch(mirroredSamples[b], mirroredSizes[b])
                             }
                             v.runCore(render = false) {
                                 ReverieCoreBridge.endUndoMacro()
@@ -2398,7 +2616,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     strokeStarted = false
                 }
-                mirroredBranches.clear()
+                resetMirrorBranches()
                 predictedScreenPoint = null
                 try {
                     oplusPredictor?.reset()

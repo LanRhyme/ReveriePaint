@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.*
+import com.reverie.paint.perf.PerfHud
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -135,6 +136,8 @@ class PaintViewModel : ViewModel() {
                     if (currentPage == Page.PAINTING) {
                         tickPaintingTimer()
                         checkAutoSave()
+                        // 标尺开启时顺带取一次保存阶段统计 (关闭时该调用只剩一次布尔判断)
+                        if (PerfTrace.enabled) pollSaveStats()
                     }
                 }
             }
@@ -209,6 +212,33 @@ class PaintViewModel : ViewModel() {
     var autoSaveEnabled by mutableStateOf(true)
     var autoSaveIntervalMinutes by mutableIntStateOf(5)
     var autoSaveToastEnabled by mutableStateOf(true)
+
+    /**
+     * 性能标尺 (画布左上角实时显示渲染路径/纹理重传/保存阶段耗时)。见 [PerfTrace]。
+     * 与 `setprop debug.reverie.perf 1` 任一为真即为开 (后者方便现场量测, 不写偏好)。
+     */
+    var perfHudEnabled by mutableStateOf(false)
+
+    fun updatePerfHudEnabled(on: Boolean) {
+        perfHudEnabled = on
+        PerfTrace.enabled = on || PerfTrace.isEnabledByProp
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("perfHud", on).apply()
+        }
+    }
+
+    /**
+     * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
+     * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
+     */
+    internal fun pollSaveStats() {
+        if (!PerfTrace.enabled) return
+        val s = ReverieCoreBridge.revpSaveStats() ?: return
+        if (s.size < 8) return
+        if (s[0] <= 0L) return // 还没保存过
+        PerfTrace.saveStats(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7] != 0L)
+    }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false
     var lastAutoSaveTimeMs by mutableLongStateOf(0L)
@@ -1843,6 +1873,10 @@ class PaintViewModel : ViewModel() {
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
+            // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
+            perfHudEnabled = PerfHud.readPref(prefs)
+            PerfTrace.enabled = perfHudEnabled || PerfTrace.isEnabledByProp
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
@@ -2542,6 +2576,14 @@ class PaintViewModel : ViewModel() {
     private val renderDirty = IntArray(4)
     private var hasWrittenRect = false
 
+    // 本帧实际写入区域 (渲染缓冲坐标 x/y/w/h), 供 UI 侧做局部失效。
+    // 双缓冲交替发布: 渲染线程每帧只写一份不重复使用的副本, 读侧拿到的引用
+    // 必然是完整一帧的结果, 且这条每帧路径上不产生任何新数组 (§4)。
+    @Volatile internal var renderDirtySnapshot: IntArray? = null
+    private val dirtySnapshotA = IntArray(4)
+    private val dirtySnapshotB = IntArray(4)
+    private var dirtySnapshotFlip = false
+
     @Volatile internal var displayBufferInvalid = false
 
     @Volatile internal var renderScheduled = false
@@ -2600,6 +2642,7 @@ class PaintViewModel : ViewModel() {
         recorder.endSession()
         replaySession?.stop()
         renderThread?.quitSafely()
+        unregisterMemoryPressureCallbacks()
         renderThread = null
         renderHandler = null
         super.onCleared()
@@ -2877,6 +2920,8 @@ class PaintViewModel : ViewModel() {
             backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             displayBufferInvalid = false
             hasWrittenRect = false
+            // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
+            renderDirtySnapshot = null
         }
 
         val front = frontBuffer
@@ -2889,10 +2934,24 @@ class PaintViewModel : ViewModel() {
         }
 
         val forceFull = reallocated
-        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换), 用 span 只在
-        // 超过阈值时打印, 平常不刷屏
-        val ok = PerfTrace.span("render.buffer", threshold = 8L) {
-            ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
+        // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答
+        // "到底走的是哪条路径、值不值得动它", 单看总耗时看不出来。
+        val traceOn = PerfTrace.enabled
+        val tEngineNs =
+            if (traceOn) android.os.SystemClock.elapsedRealtimeNanos() else 0L
+        val ok = ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        if (traceOn) {
+            PerfTrace.renderPath(
+                when {
+                    !ok -> PerfTrace.PATH_SKIP
+                    forceFull -> PerfTrace.PATH_FULL
+                    else -> PerfTrace.PATH_INCR
+                },
+                android.os.SystemClock.elapsedRealtimeNanos() - tEngineNs,
+                if (ok) renderDirty[2].toLong() * renderDirty[3].toLong() else 0L,
+            )
+            if (w != coreW || h != coreH) PerfTrace.renderScaled()
         }
         PerfTrace.tick("render.calls", 1000L)
         if (!ok) {
@@ -2910,8 +2969,10 @@ class PaintViewModel : ViewModel() {
                 renderDirty[1] + renderDirty[3]
             )
             hasWrittenRect = true
+            publishRenderDirtySnapshot()
         } else {
             hasWrittenRect = false
+            renderDirtySnapshot = null
         }
 
         // Swap front and back buffers
@@ -2920,23 +2981,29 @@ class PaintViewModel : ViewModel() {
         frontBuffer = rendered
         displayBitmap = rendered
 
+        // 纹理重传代理量: 每翻转一次, 下一帧 HWUI 都要把整张 Bitmap 纹理重传一遍
+        // (HWUI 不做局部纹理更新), 这是本项目最大的带宽开销
+        if (traceOn) PerfTrace.renderFlip(w.toLong() * h * 4, w.toLong() * h)
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             rendered.prepareToDraw()
         }
 
-        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
+        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
+        // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
+        // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
-            tv.postInvalidate()
+            tv.invalidateFromRender()
         } else {
             mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
         }
         val isStrokeActive = strokeBatchQueued || (pendingCoreOps.get() > 0)
         if (!isStrokeActive) {
             mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
         }
 
@@ -2946,6 +3013,17 @@ class PaintViewModel : ViewModel() {
                 displayRevision++
             }
         }
+    }
+
+    /** 把本帧写入区域发布给 UI 线程做局部失效 (双缓冲交替, 零分配) */
+    private fun publishRenderDirtySnapshot() {
+        val target = if (dirtySnapshotFlip) dirtySnapshotB else dirtySnapshotA
+        dirtySnapshotFlip = !dirtySnapshotFlip
+        target[0] = renderDirty[0]
+        target[1] = renderDirty[1]
+        target[2] = renderDirty[2]
+        target[3] = renderDirty[3]
+        renderDirtySnapshot = target
     }
 
     var layers by mutableStateOf(listOf<LayerUiState>())
