@@ -2,7 +2,7 @@
 
 > 适用分支: `fix/performance`(基于上游 1.3.1 合并后)。**行号锚点以写下这段文字时的源码为准**,
 > 代码改动后请同步; 与代码冲突时以代码为准。
-> 相关: [开发规范](../AGENTS.md) · [原生构建](BUILD-ANDROID-NATIVE.md) · [滤镜/图层研究](FILTER-LAYER-RESEARCH.md)
+> 相关: [开发规范](../AGENTS.md) · [滤镜/图层研究](FILTER-LAYER-RESEARCH.md)
 > 组织方式: 按**主题**分节(不再是逐轮日志); 历史轮次与旧编号对照见 §11。
 
 ## 1. 一页速览
@@ -104,7 +104,7 @@ Android 侧 `Bitmap` 一旦被写入, HWUI 下次绘制会把**整张**纹理重
 
 ### 3.2 PNG 档位: 用实测换 2.6~4.4 倍编码速度
 
-Qt 的 `quality` 对 PNG 的真实语义由宿主基准实测([`scripts/native-bench/`](../scripts/native-bench/png_compression_bench.cpp:1),
+Qt 的 `quality` 对 PNG 的真实语义由宿主基准实测(基准程序见配套的开发工具改动, 不在本改动范围内;
 用 ICU 56 桩库绕开 Qt 官方 linux 二进制在新发行版上的缺失依赖), 三类典型图层内容(2048²):
 
 | 内容 | Qt 默认(`quality=-1`) | `quality=70` | 结论 |
@@ -318,8 +318,8 @@ unzip -p app/build/outputs/apk/release/app-release.apk resources.arsc | grep -c 
 | 改动范围 | 必跑 |
 |---|---|
 | Kotlin | `:app:compileDebugKotlin`(+ 纯逻辑改动 `:app:testDebugUnitTest`) |
-| C++ | `bash scripts/build_native_wsl.sh`(交叉编译 + strip + 同步 `third_party/android-native-libs` 与 `app/src/main/jniLibs`) |
-| C++ 接口/依赖 | [`verify_abi.sh`](../scripts/native-bench/verify_abi.sh:1) `[基线 rev]`: 导出符号集与 NEEDED 闭包比对 |
+| C++ | 本机交叉编译 + `llvm-strip` + 同步 `third_party/android-native-libs` 与 `app/src/main/jniLibs`(脚本见配套的开发工具改动) |
+| C++ 接口/依赖 | 导出符号集与 NEEDED 闭包比对(工具见配套的开发工具改动) |
 | 出包 | `:app:assembleDebug` / `:app:assembleRelease`(`-PappIdSuffix=.beta` 可出独立包名的测试包) |
 
 > Windows 上仓库未提交 `gradlew.bat`, 可用

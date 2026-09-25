@@ -26,7 +26,6 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 
 - **预编译模式 (默认)**: 使用 `third_party/android-native-libs` 内置动态库, 不编译 C++。克隆后先执行 `./scripts/copy_jni_libs.sh`, 然后 `./gradlew assembleDebug` 即可。
 - **buildNative 模式 (开发者)**: 重新编译 C++, 需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6。执行 `./scripts/build_native.sh` 或 `./gradlew assembleDebug -PbuildNative`。
-- **WSL/Linux 直调 CMake 模式**: 仓库只提交预编译 `.so` 而不含 Krita/Qt/KF6 头文件, 且 [`CMakeLists.txt`](app/src/main/cpp/CMakeLists.txt:228) 的 NDK 路径按 Linux 宿主写死。在本机重编译 C++ 时用 `scripts/setup_native_env.sh` (组装依赖) + `scripts/build_native_wsl.sh` (交叉编译+strip+同步), 详见 [docs/BUILD-ANDROID-NATIVE.md](docs/BUILD-ANDROID-NATIVE.md)。
 
 ### 常用命令
 
@@ -90,9 +89,6 @@ app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应
 其他目录:
 docs/       # 中文开发文档; PROGRESS.md 为推进日志, 完成里程碑时更新
 scripts/    # build_native.sh (完整构建) / copy_jni_libs.sh (预编译库拷贝)
-            # setup_native_env.sh + prepare_native_deps.py + fetch_kde_dep_headers.py
-            #   + build_native_wsl.sh (Linux/WSL 本地重编译 C++, 见 docs/BUILD-ANDROID-NATIVE.md)
-            # native-bench/ (宿主机 PNG 压缩档位基准 + 引擎 ABI 比对, 见 docs/RENDER-OPTIMIZATION.md §3.2)
 third_party/android-native-libs/   # 预编译动态库闭包 (arm64-v8a, 已 strip)
 art/        # 图标素材
 ```
