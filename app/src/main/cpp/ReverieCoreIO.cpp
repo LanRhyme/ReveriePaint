@@ -253,7 +253,7 @@ KisRasterKeyframeChannel *revpRasterChannel(KisNode *node, bool create)
 // ---------------------------------------------------------------------------
 // .revp 容器内的 PNG 条目: 编码档位 + 并行编码
 // ---------------------------------------------------------------------------
-// 档位依据 scripts/native-bench 的宿主实测 (见 docs/RENDER-OPTIMIZATION.md §5.12):
+// 档位依据 scripts/native-bench 的宿主实测 (见 docs/RENDER-OPTIMIZATION.md §3.2):
 // Qt 的 quality=-1 (默认) 等价于 q=30, 在噪声/厚涂型内容上恰好是**最慢**的一档
 // (2048² 噪点图 1032ms/10.6MB), 而 q=70 只要 235ms/9.0MB —— 又快又小; 线稿型
 // 内容 (透明底 + 笔迹) 393ms → 149ms, 体积 +7%。产物仍是标准 PNG, 旧版本照读,
