@@ -232,6 +232,9 @@ fun PaintingPage(
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
     var drawingGuidePanelOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(drawingGuidePanelOpen) {
+        vm.drawingGuidePanelOpen = drawingGuidePanelOpen
+    }
     // 快捷键打开滤镜页时预选的滤镜分类 id (LayerPanel → FiltersPage)
     var filterCategoryHint by remember { mutableStateOf<String?>(null) }
     var activeFilterSession by remember { mutableStateOf<FilterSession?>(null) }
@@ -642,6 +645,7 @@ fun PaintingPage(
                     (layerPanelOpen && !(vm.panelPinningEnabled && vm.isLayerPanelPinned)) ||
                     (colorPanelOpen && !vm.isColorPanelPinned) || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
+                drawingGuidePanelOpen = drawingGuidePanelOpen,
                 filterSessionActive = (filterController != null),
                 onFilterSlideDelta = filterController?.let { c -> { delta -> c.onSlideDelta(delta) } },
                 onFilterHoldingCompare = filterController?.let { c -> { holding -> c.updateHoldingCompare(holding) } },

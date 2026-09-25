@@ -331,7 +331,7 @@ internal fun PaintViewModel.touchMove(
     queueStrokeMove(effX, effY, effP, inputEventTimeMs, tiltX, tiltY, rotation)
 }
 
-internal fun PaintViewModel.touchEnd() {
+internal fun PaintViewModel.touchEnd(render: Boolean = true) {
     stopAirbrush()
     disarmStrokeStartKick()
     lastStrokeEndElapsedMs = android.os.SystemClock.elapsedRealtime()
@@ -381,11 +381,17 @@ internal fun PaintViewModel.touchEnd() {
     } else {
         android.util.Log.d("ReverieRec", "touchEnd: recorder NOT recording")
     }
-    runCore(after = {
-        scheduleRender(immediate = true)
-        refreshLayerThumbs()
-    }) {
-        ReverieCoreBridge.touchStrokeEnd()
+    if (render) {
+        runCore(after = {
+            scheduleRender(immediate = true)
+            refreshLayerThumbs()
+        }) {
+            ReverieCoreBridge.touchStrokeEnd()
+        }
+    } else {
+        runCore(render = false) {
+            ReverieCoreBridge.touchStrokeEnd()
+        }
     }
 }
 

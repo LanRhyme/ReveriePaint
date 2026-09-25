@@ -1345,7 +1345,10 @@ internal fun CanvasOverlay(
                                     val rayLen = maxOf(docW, docH) * 2.5f
                                     drawLine(guideCol, vpOffset, vpOffset + Offset(cos(angle) * rayLen, sin(angle) * rayLen), strokeWidth = gStroke.width)
                                 }
-                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                                if (vm.drawingGuidePanelOpen) {
+                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                                }
+                                drawCircle(Morandi.accent, radius = (if (vm.drawingGuidePanelOpen) 7.dp else 5.dp).toPx() / (zoom.value * fitScale), center = vpOffset)
                                 drawCircle(Color.White, radius = 3.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
                             }
                         }
@@ -1378,7 +1381,13 @@ internal fun CanvasOverlay(
                                     drawLine(symCol, Offset(cx - dMax, cy + dMax), Offset(cx + dMax, cy - dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
                                 }
                             }
-                            drawCircle(Morandi.accent, radius = 5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                            if (vm.drawingGuidePanelOpen) {
+                                drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                drawCircle(Color.White, radius = 2.5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                            } else {
+                                drawCircle(Morandi.accent, radius = 4.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                            }
                         }
                         else -> Unit
                     }
