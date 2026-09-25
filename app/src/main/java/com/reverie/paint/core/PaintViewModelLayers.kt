@@ -70,7 +70,7 @@ private const val THUMB_DEFER_MAX_TICKS = 15
 
 /**
  * 渲染线程是否正忙。缩略图必须占用同一个渲染线程逐层渲染, 抢在笔画前面会让
- * 笔迹成段 (SpeedyNote 的 scroll-settle 思路: 重活推迟到交互停下来之后)。
+ * 思路: 重活推迟到交互停下来之后
  */
 internal fun PaintViewModel.engineBusy(): Boolean =
     // pendingCoreOps 在笔画批次排队与每次引擎操作期间都 >0 (比 strokeBatchQueued
