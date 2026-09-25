@@ -191,7 +191,7 @@ Kotlin 侧同轮修正:
 撤回的两个理由：① 避免与上游 PR 冲突；② 本机没有 Qt for Android + Krita 源码，无法编译
 验证，在仓库里留一份"未经编译的引擎改动"本身就是隐患（源码与 prebuilt `.so` 不一致）。
 
-> 2026-09-25 更新: ② 的阻塞已解除（[`docs/BUILD-ANDROID-NATIVE.md`](docs/BUILD-ANDROID-NATIVE.md:1)），
+> 2026-09-25 更新: ② 的阻塞已解除（[`docs/BUILD-ANDROID-NATIVE.md`](../docs/BUILD-ANDROID-NATIVE.md:1)），
 > 且上游 PR 已修掉液化白线/断线/选区/Alpha 锁等问题。C++ 改动以 **§5.12** 的形式重新落地
 > （保存并行编码、液化多目标并行、缩放路径零分配、热路径日志按需），全部经交叉编译 + ABI 比对验证。
 
@@ -273,24 +273,24 @@ Kotlin 侧能做的是**去掉旁路开销与卡顿**, 本次清掉三处:
 
 ## 5.12 第四轮: C++ 侧落地 (2026-09-25, 交叉编译环境打通后)
 
-前提: [`docs/BUILD-ANDROID-NATIVE.md`](docs/BUILD-ANDROID-NATIVE.md:1) 记录的 WSL 交叉编译环境
+前提: [`docs/BUILD-ANDROID-NATIVE.md`](../docs/BUILD-ANDROID-NATIVE.md:1) 记录的 WSL 交叉编译环境
 已可用, §5.7 里"本机无法编译验证"的阻塞消失。本轮全部改动**编译通过**(`scripts/build_native_wsl.sh`),
 NEEDED 依赖闭包与改动前逐条一致, JNI 导出符号**零增删**(新增的只是 QtConcurrent 模板实例等内部符号)。
 
 ### 5.12.1 保存加速: 并行 PNG 编码 + 去掉容器二次压缩
 
-`.revp` 的保存耗时几乎全在 [`writeRevpStore()`](app/src/main/cpp/ReverieCoreIO.cpp:329): 每个图层/
+`.revp` 的保存耗时几乎全在 [`writeRevpStore()`](../app/src/main/cpp/ReverieCoreIO.cpp:329): 每个图层/
 关键帧/预览各编码一张 PNG, 再塞进 zip。原先的写法有两个纯浪费:
 
 | 问题 | 处理 |
 |---|---|
-| N 个图层/关键帧的 PNG **串行**编码, 大画布多图层时是秒级墙钟 | 新增 [`writeRevpPngJobs()`](app/src/main/cpp/ReverieCoreIO.cpp:266): 条目先汇总成一张表, 用引擎专用池(上限 4 线程, [`reverieBackgroundPool()`](app/src/main/cpp/ReverieCoreDocument.cpp:16))并行编码, 再按**原顺序**串行写 zip。按块编码(块 = 线程数), 峰值内存 ≈ 线程数 × 单图 PNG, 不是"整份工程 PNG 总和" |
+| N 个图层/关键帧的 PNG **串行**编码, 大画布多图层时是秒级墙钟 | 新增 [`writeRevpPngJobs()`](../app/src/main/cpp/ReverieCoreIO.cpp:266): 条目先汇总成一张表, 用引擎专用池(上限 4 线程, [`reverieBackgroundPool()`](../app/src/main/cpp/ReverieCoreDocument.cpp:16))并行编码, 再按**原顺序**串行写 zip。按块编码(块 = 线程数), 峰值内存 ≈ 线程数 × 单图 PNG, 不是"整份工程 PNG 总和" |
 | PNG 本身已是 deflate 流, zip 再按 zlib 默认级别压一遍, 体积几乎不变却白烧 CPU | 写 PNG 条目时 `store->setCompressionEnabled(false)`(KoQuaZipStore 的 level 是**每次 open 时读取**, 因此可逐条目切换); meta / layers.xml / 资产 / 录制流仍走正常压缩 |
 
 ### 5.12.2 PNG 档位: 用实测换 2.6~4.4 倍编码速度
 
 Qt 的 `quality` 参数对 PNG 的真实语义此前无人量过, 因此先写了一个宿主基准
-([`scripts/native-bench/`](scripts/native-bench/png_compression_bench.cpp:1), 用 ICU 56 桩库绕开
+([`scripts/native-bench/`](../scripts/native-bench/png_compression_bench.cpp:1), 用 ICU 56 桩库绕开
 Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图层内容 (2048²):
 
 | 内容 | Qt 默认 (`quality=-1`) | `quality=70` | 结论 |
@@ -300,7 +300,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 | 厚涂/噪点 | 1032 ms / 10.6 MB | **235 ms / 9.0 MB** | 快 4.4x, **体积反而小 15%** |
 
 即默认档恰是最慢的一档; 70 档在三类内容上"时间大赢、体积基本打平"。因此
-[`kRevpPngQualityDefault = 70`](app/src/main/cpp/ReverieCoreIO.cpp:203), 上界压在 89
+[`kRevpPngQualityDefault = 70`](../app/src/main/cpp/ReverieCoreIO.cpp:203), 上界压在 89
 (≥90 时 Qt 直接写不压缩的 PNG, 体积暴涨)。真机可 A/B: `setprop debug.reverie.pngq <1..89>`。
 
 **兼容性**: PNG 是无损格式, 档位只影响压缩率与体积, 不影响像素; `.revp` 仍是同一个 zip 容器、
@@ -310,7 +310,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 ### 5.12.3 液化: 多目标 warp 并行 (真机反馈的剩余瓶颈)
 
 §5.5.1 提到的"多图层液化"原先仍是**逐层串行**跑 `KisLiquifyTransformWorker::run()`, 单次 apply
-的墙钟随图层数线性增长。本轮拆成两阶段([`liquifyApplyLocked()`](app/src/main/cpp/ReverieCoreMiscTools.cpp:160)):
+的墙钟随图层数线性增长。本轮拆成两阶段([`liquifyApplyLocked()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:160)):
 
 - **阶段 1 (并行)**: 各目标的 `dst->clear()` + `run(src, dst)` 丢进引擎专用池。目标之间完全独立
   (各自的 src/dst/worker), 并行期间只操作预先取出的裸指针数组, 不触碰 `m_liquifyTargets` 容器
@@ -318,7 +318,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 - **阶段 2 (串行)**: 写回、`setChannelFlags`、`setDirty`、脏区合并全部保持原样, 在渲染线程执行。
 
 写回逻辑一个字没改 ⇒ 像素结果与改动前**逐像素一致**(选区约束、Alpha 锁、透明像素语义都不变)。
-开关 [`kLiquifyParallelTargets`](app/src/main/cpp/ReverieCoreMiscTools.cpp:141) 可一键回退串行对照。
+开关 [`kLiquifyParallelTargets`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:141) 可一键回退串行对照。
 
 ### 5.12.4 缩略路径零分配 + 热路径日志改为按需
 
@@ -331,7 +331,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 ### 5.12.5 本轮验证结果
 
 - `scripts/build_native_wsl.sh` 通过; 产物 strip 后 3,799,416 B(改动前 3,772,376 B)
-- [`scripts/native-bench/verify_abi.sh`](scripts/native-bench/verify_abi.sh:1): NEEDED 闭包**完全一致**;
+- [`scripts/native-bench/verify_abi.sh`](../scripts/native-bench/verify_abi.sh:1): NEEDED 闭包**完全一致**;
   导出符号仅有新增(QtConcurrent 模板实例、`QList<LiquifyTarget*>` 辅助函数等内部符号),
   `Java_com_reverie_paint_core_*` 入口**无增删**
 - `:app:compileDebugKotlin` / `:app:testDebugUnitTest` / `:app:assembleDebug` 均通过,
@@ -342,7 +342,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 1. **动画关键帧的 `convertToQImage` 仍串行**(在写盘线程里逐个设备转换)。帧数多时它可能比
    PNG 编码还贵; 并行化的前提是确认不同 `KisPaintDevice` 上的并发色彩转换安全 (Krita 的颜色
    转换缓存有锁, 但这条没有实测数据支撑), 故本轮不动。
-2. **手动保存仍占用渲染线程**: [`saveProject`](app/src/main/java/com/reverie/paint/core/PaintViewModelProjects.kt:51)
+2. **手动保存仍占用渲染线程**: [`saveProject`](../app/src/main/java/com/reverie/paint/core/PaintViewModelProjects.kt:51)
    走同步 `saveRevp`(快照 + 编码 + 写 zip 全在 `reverie-render` 线程)。本轮已把编码时长压下来,
    若要彻底释放渲染线程, 需改成"异步保存 + 轮询完成"(要新增一个 JNI 查询), 属 Kotlin 侧改动。
 3. **视口尺寸渲染缓冲**(§5 第 1 条, 仍是最大单点收益): 需要 Kotlin 画布的绘制/变换一起改,
@@ -363,8 +363,8 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 15 图层的大项目, 光"造图 + 拷贝"就有约 4GB 内存流量与约 2GB 新页分配, PNG 编码只占小头 ——
 这正是"调了 PNG 档位与并行度却感觉不出提升"的原因。
 
-本轮把保存改成**流式管线** ([`RevpPngJob`](app/src/main/cpp/ReverieCoreIO.cpp:222) /
-[`writeRevpPngJobs()`](app/src/main/cpp/ReverieCoreIO.cpp:303)):
+本轮把保存改成**流式管线** ([`RevpPngJob`](../app/src/main/cpp/ReverieCoreIO.cpp:222) /
+[`writeRevpPngJobs()`](../app/src/main/cpp/ReverieCoreIO.cpp:303)):
 
 | 项 | 做法 |
 |---|---|
@@ -381,7 +381,7 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 
 风险与回退: 异步保存时引擎线程仍在绘制, 图层快照与工作线程读的是同一批瓦片(COW)。这是 Krita
 自身投影/撤销快照的机制, 也是本文件既有"关键帧拷到写盘线程再转换"的同一前提; 若真机出现异常,
-把 [`makeSnapshotLayerJob()`](app/src/main/cpp/ReverieCoreIO.cpp:370) 里的克隆换成
+把 [`makeSnapshotLayerJob()`](../app/src/main/cpp/ReverieCoreIO.cpp:370) 里的克隆换成
 `dev->convertToQImage(...)`(退回引擎线程转换) 就回到 §5.12 的语义。
 
 ## 5.14 性能标尺 (2026-09-25, 为"要不要做 tile 化 / 动态分辨率"立标尺)
@@ -392,13 +392,13 @@ Qt 官方 linux 二进制在新发行版上的缺失依赖), 测三类典型图�
 
 | 层次 | 内容 | 位置 |
 |---|---|---|
-| 分桶统计 | 渲染路径 `full/incr/skip` 的次数与均耗时、缩放路径次数、**每帧纹理重传 MB**(翻转次数 × 缓冲字节; HWUI 不做局部纹理更新, 故这是真值而非估算)、**脏区占比**、`onDraw` p95 | [`PerfTrace`](app/src/main/java/com/reverie/paint/core/PerfTrace.kt:24) |
-| 保存阶段 | C++ 按阶段计时: 引擎线程快照 / 工作线程编码 / 写盘(zip + IO + 改名), 外加 PNG 条目数、PNG 字节、最终体积 | [`ReverieCoreIO.cpp`](app/src/main/cpp/ReverieCoreIO.cpp:202) + JNI [`revpSaveStats`](app/src/main/cpp/reverie_jni_io.cpp:91) |
-| 呈现 | 每秒一行窗口摘要写 logcat(`ReveriePerf`); 画布左侧偏中叠加 3 行 HUD | [`PerfHud`](app/src/debug/java/com/reverie/paint/perf/PerfHud.kt:1) |
+| 分桶统计 | 渲染路径 `full/incr/skip` 的次数与均耗时、缩放路径次数、**每帧纹理重传 MB**(翻转次数 × 缓冲字节; HWUI 不做局部纹理更新, 故这是真值而非估算)、**脏区占比**、`onDraw` p95 | [`PerfTrace`](../app/src/main/java/com/reverie/paint/core/PerfTrace.kt:24) |
+| 保存阶段 | C++ 按阶段计时: 引擎线程快照 / 工作线程编码 / 写盘(zip + IO + 改名), 外加 PNG 条目数、PNG 字节、最终体积 | [`ReverieCoreIO.cpp`](../app/src/main/cpp/ReverieCoreIO.cpp:202) + JNI [`revpSaveStats`](../app/src/main/cpp/reverie_jni_io.cpp:91) |
+| 呈现 | 每秒一行窗口摘要写 logcat(`ReveriePerf`); 画布左侧偏中叠加 3 行 HUD | [`PerfHud`](../app/src/debug/java/com/reverie/paint/perf/PerfHud.kt:1) |
 
 **可见性按构建类型隔离**(按用户意见修订): 标尺是研发工具、不是绘画功能 —— 入口、HUD 与文案都放在
-**debug 专属源集** ([`app/src/debug/...`](app/src/debug/java/com/reverie/paint/perf/PerfHud.kt:1)),
-正式版由 [`app/src/release/.../PerfHud.kt`](app/src/release/java/com/reverie/paint/perf/PerfHud.kt:1)
+**debug 专属源集** ([`app/src/debug/...`](../app/src/debug/java/com/reverie/paint/perf/PerfHud.kt:1)),
+正式版由 [`app/src/release/.../PerfHud.kt`](../app/src/release/java/com/reverie/paint/perf/PerfHud.kt:1)
 的空实现顶上 —— 正式包里既没有设置入口, 也不含 HUD 绘制代码与字符串资源。
 不用 `if (BuildConfig.DEBUG)` 的原因: release 目前 `isMinifyEnabled = false`, 常量分支不会被 R8
 消除, 代码与文案仍会留在包里。
@@ -411,8 +411,43 @@ p95 用固定环形缓冲 + 原地排序)。打开方式: debug 包 → 设置 �
 
 - 脏比很小(几 %)而重传 MB/帧 很大 ⇒ 瓶颈就是"整张纹理重传", tile 化显示缓冲收益最大(§5 待办 1/4);
 - 脏比接近 100% ⇒ 每次都在写整幅, 分块上传救不了, 先查为什么全量脏(`full` 占比为何高);
-- 保存的"快照"段占比高 ⇒ 引擎线程仍被文档操作占着, 下一步该把快照也异步化或做增量;
+- 保存的"快照"段占比高 ⇒ 引擎线程仍被文档操作占着, 下一步该把快照也异步化或做增量(见 §5.13);
 - "编码"段占比高 ⇒ PNG 仍是瓶颈(可继续调档位/并行度); "写盘"段占比高 ⇒ 是 IO / zip, 考虑直存或分卷。
+
+## 5.15 上游 1.3.1 合并记录 (2026-09-25)
+
+`upstream/main` (a2daae4, 发布 1.3.1) 已合并进 `fix/performance`。上游这一版的核心是
+**笔刷系统**（Krita `.bundle` 打包导出 KppHelper/KritaBundleManager、参数回跳修复、喷枪点频）、
+**图层面板对齐 Procreate**（多选批量拖拽、图层组嵌套、全局浮层动效）、画廊多选底栏、
+非 4 对齐画布选区斜切修复，以及 **`9d2681f` 保存优化**（多核并行 PNG + 去掉 ZIP 二次压缩）。
+
+### 冲突判定 (3 处)
+
+| 冲突 | 判定 |
+|---|---|
+| `ReverieCoreIO.cpp` | 上游 9d2681f 与本分支做的是同一件事，但本分支是**超集**：流式管线（图层/关键帧 COW 快照 + 按块并行 + 逐块释放，峰值内存与条目数解耦）、PNG 档位按实测定为 70、已压缩条目跳过 deflate、保存阶段耗时统计 ⇒ **取本分支版本** |
+| `CanvasTouchView.kt` | 上游删除了笔迹预测整条链路（189 行）与其引起的指示圆伪影；本分支用"渐变淡出"解决同一伪影，并额外带脏区局部失效/像素网格按视口裁剪/镜像笔迹零分配 ⇒ **取本分支版本**（上游那 2 行光标重绘条件依赖已删的预测状态，不适用） |
+| `third_party/.../libreverie_jni.so` | 二进制冲突：按**合并后的源码**重新交叉编译（3,821,360 B）并随合并提交更新，避免源码与预编译库不一致 |
+
+其余（`ReverieCore.h`/`ReverieCoreInternal.h`/`PaintViewModel*.kt`/`ReverieCoreBridge.kt`/`strings.xml` 等）
+git 自动合并成功，无残留冲突标记。
+
+### 验证
+
+- `scripts/build_native_wsl.sh`：合并后源码全量重编通过
+- [`verify_abi.sh`](../scripts/native-bench/verify_abi.sh:1) 相对合并前基线 (4ce4396)：**仅新增 8 个 JNI 入口**
+  （`moveLayersRelative`/`moveLayersToGroup`/`layerId`/`setBrushJitter`… 均为上游新接口），
+  无删除；NEEDED 闭包一致。本分支的 `revpSaveStats` 与它们共存
+- `:app:compileDebugKotlin` / `:app:compileReleaseKotlin` / `:app:testDebugUnitTest`（含上游新增的
+  `KppHelperTest`）/ `:app:assembleDebug` / `:app:assembleRelease` 全部通过
+- debug APK 内 `libreverie_jni.so` 与 `third_party/` 产物 sha256 一致 (`4c905d62…`)
+
+### 与上游的已知分歧 (如后续要跟随上游, 可在此对照)
+
+1. **保存路径**：上游把全部图层整幅图与全部 PNG 字节一次性驻留再并行编码；本分支按块流式处理。
+   语义等价（同样的 PNG 档位 70、同样禁用二次 deflate），但大项目峰值内存差一个数量级。
+2. **笔迹预测伪影**：上游选择"删除预测矢量假线"；本分支保留预测并把假线终点渐隐到 0 透明度。
+   两者都消除"指示圆里的黑色半圆杂点"，取舍不同（本分支保留低延迟预览的引导线）。
 
 ## 6. 回归自检清单
 
@@ -439,7 +474,7 @@ p95 用固定环形缓冲 + 原地排序)。打开方式: debug 包 → 设置 �
 第四轮 (C++ 已编译验证, 需真机回归):
 
 - [ ] 真机: 多图层选中后液化, 墙钟时间较改动前明显下降; 逐像素结果与单次串行一致
-      (异常时把 [`kLiquifyParallelTargets`](app/src/main/cpp/ReverieCoreMiscTools.cpp:141) 置 false 对照)
+      (异常时把 [`kLiquifyParallelTargets`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:141) 置 false 对照)
 - [ ] 真机: 大画布多图层**手动保存**, 耗时明显下降; 保存的文件能被本机旧版本 APK 打开且画面一致
 - [ ] 真机: 保存后重新打开工程, 图层/关键帧/预览/录制回放全部正常 (并行编码没打乱条目顺序)
 - [ ] 真机: `.revp` 体积与改动前对比无明显膨胀 (档位 70; 想复现旧档的耗时/体积可

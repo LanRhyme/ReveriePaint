@@ -4,7 +4,7 @@
  * PNG 压缩档位基准 (宿主 Qt, 非 Android 目标)。
  *
  * 用途: 量化 "PNG 编码" 在工程保存 (.revp) 里的耗时/体积权衡, 为图层 PNG 的
- * 编码档位选择提供数据依据。结论记录在 RENDER-OPTIMIZATION.md §5.12。
+ * 编码档位选择提供数据依据。结论记录在 docs/RENDER-OPTIMIZATION.md §5.12。
  *
  * 测两条轴:
  *   1. QImage::save(..., "PNG", quality): Qt 的 quality 语义 (0=最狠压缩? 100=不压缩?)

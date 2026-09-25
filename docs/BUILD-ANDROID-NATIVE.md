@@ -118,5 +118,5 @@ diff <($RE -d /tmp/prev.so | grep NEEDED | awk '{print $NF}') \
   同步前未 strip 约 40 MB, strip 后约 3.7 MB。
 - 仅支持 `arm64-v8a` (与仓库 [`.github/workflows`](../.github/workflows) 的 abiFilters 一致)。
 - 真机回归仍需手动执行 (AGENTS §8): 本环境只证明**可编译且 ABI 等价**, 不代表行为
-  正确 —— 改了 C++ 后请按 [`RENDER-OPTIMIZATION.md`](../RENDER-OPTIMIZATION.md) 的回归
+  正确 —— 改了 C++ 后请按 [`RENDER-OPTIMIZATION.md`](RENDER-OPTIMIZATION.md) 的回归
   清单在设备上验证笔画/图层/撤销/滤镜路径。

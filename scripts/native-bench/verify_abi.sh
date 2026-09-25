@@ -17,11 +17,12 @@ fi
 
 BIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
 SO="$REPO_ROOT/third_party/android-native-libs/libreverie_jni.so"
+BASE="${1:-HEAD}" # 可选: 对比基线版本 (默认 HEAD), 例如合并上游后与合并前比
 PREV="$(mktemp)"
 
-git -C "$REPO_ROOT" show HEAD:third_party/android-native-libs/libreverie_jni.so >"$PREV"
+git -C "$REPO_ROOT" show "$BASE:third_party/android-native-libs/libreverie_jni.so" >"$PREV"
 
-echo "[abi] 导出符号集比对 (HEAD vs 新构建)"
+echo "[abi] 导出符号集比对 ($BASE vs 工作区)"
 if diff <("$BIN/llvm-nm" -D --defined-only "$PREV" | awk '{print $3}' | sort) \
 	<("$BIN/llvm-nm" -D --defined-only "$SO" | awk '{print $3}' | sort); then
 	echo "[abi]   符号集完全一致 ($("$BIN/llvm-nm" -D --defined-only "$SO" | wc -l) 个)"
