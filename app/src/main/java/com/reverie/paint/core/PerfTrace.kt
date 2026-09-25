@@ -35,8 +35,11 @@ import java.util.Arrays
  *  - `脏比`: 本窗口写入的脏区像素 / 缓冲总像素。**这个数字就是 tile 化缓冲的收益上限**:
  *    脏比 5% 意味着分块上传最多能把每帧带宽降到 1/20;
  *  - `draw p95`: `CanvasTouchView.onDraw` 的耗时 p95 (UI 侧绘制命令录制, 不含 GPU 上传);
- *  - `save`: 上一次保存的 C++ 阶段耗时(快照/编码/写盘)与产物体积, 见
- *    `revpSaveStats`。
+ *  - `save`: 上一次保存的 C++ 阶段耗时(快照/编码/写盘)与产物体积, 见 `revpSaveStats`;
+ *  - `液化`: 上一次液化 apply 的四段拆解 —— `形变`(Krita 网格 run) / `补洞`(透明像素补洞的
+ *    内存流量) / `回写`(bitBlt + setDirty) / `合成`(脏区标记 + 投影同步合成), 见 `liquifyStats`。
+ *    **这一行是给"液化大笔刷卡顿"定位用的标尺**: 哪一段占大头, 决定下一步是优化网格形变、
+ *    优化内存流量, 还是把"回写 + 合成"整段从交互态里剥离(见 docs/RENDER-OPTIMIZATION.md §9)。
  */
 object PerfTrace {
 
@@ -92,6 +95,18 @@ object PerfTrace {
     private var savePngBytes = -1L
     private var saveFileBytes = -1L
     private var saveWasAsync = false
+
+    // 上一次液化 apply 的分段耗时 (由 liquifyStats 填入; lqCount 用于判断是否有新数据)
+    private var lqCount = -1L
+    private var lqTotalMs = -1L
+    private var lqWarpMs = 0L
+    private var lqSeedMs = 0L
+    private var lqBlitMs = 0L
+    private var lqCompositeMs = 0L
+    private var lqAreaPx = 0L
+    private var lqTargets = 0L
+    private var lqPrecision = 0L
+    private var lqCells = 0L
 
     private var windowStart = 0L
     private var hudCache = ""
@@ -231,6 +246,39 @@ object PerfTrace {
         hudCacheMs = 0L
     }
 
+    /**
+     * 引擎侧回报的上一次液化 apply 的分段耗时 (见 `liquifyStats`)。
+     * 四段之和约等于 total: warp(Krita 网格形变) / seed(补洞内存流量) / blit(回写图层) /
+     * composite(脏区标记 + 投影同步合成)。同一次 apply 重复调用会被忽略。
+     */
+    @Synchronized
+    fun liquifyApply(
+        totalMs: Long,
+        warpMs: Long,
+        seedMs: Long,
+        blitMs: Long,
+        compositeMs: Long,
+        areaPx: Long,
+        targets: Long,
+        applyCount: Long,
+        precision: Long,
+        cells: Long,
+    ) {
+        if (!enabled) return
+        if (applyCount == lqCount) return
+        lqCount = applyCount
+        lqTotalMs = totalMs
+        lqWarpMs = warpMs
+        lqSeedMs = seedMs
+        lqBlitMs = blitMs
+        lqCompositeMs = compositeMs
+        lqAreaPx = areaPx
+        lqTargets = targets
+        lqPrecision = precision
+        lqCells = cells
+        hudCacheMs = 0L
+    }
+
     // ------------------------------------------------------------------
     // 窗口汇总 / 输出
     // ------------------------------------------------------------------
@@ -350,6 +398,16 @@ object PerfTrace {
                 .append("%.0f".format(savePngBytes / 1048576.0)).append("MB→")
                 .append("%.0f".format(saveFileBytes / 1048576.0)).append("MB")
             if (saveWasAsync) sb.append(" async")
+        }
+
+        // 第 4 行: 上一次液化 apply 的四段拆解 (做过液化才有)
+        if (lqCount >= 0L) {
+            sb.append('\n')
+            sb.append("液化 ").append(lqTotalMs).append("ms 形变 ").append(lqWarpMs)
+                .append("/补洞 ").append(lqSeedMs).append("/回写 ").append(lqBlitMs)
+                .append("/合成 ").append(lqCompositeMs).append("  ").append(lqTargets)
+                .append("层 ").append("%.0f".format(lqAreaPx / 1024.0)).append("K px")
+                .append(" 精度").append(lqPrecision).append("/单元").append(lqCells)
         }
         hudCache = sb.toString()
         return hudCache

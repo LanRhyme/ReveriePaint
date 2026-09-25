@@ -261,6 +261,20 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyCancel(JNIEnv *, jobject)
     core()->liquifyCancel();
 }
 
+JNIEXPORT jlongArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyStats(JNIEnv *env, jobject)
+{
+    // 上一次液化 apply 的分段耗时与规模:
+    // [total, warp, seed, blit, composite, areaPx, targets, count, precision, cells]。
+    // 只在标尺开启时读数 (每秒一次, 引擎线程调用); count 供 Kotlin 判断"是否有新数据"。
+    qint64 stats[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyStats(stats);
+    jlongArray arr = env->NewLongArray(10);
+    if (!arr) return nullptr;
+    env->SetLongArrayRegion(arr, 0, 10, reinterpret_cast<const jlong *>(stats));
+    return arr;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyBrushSize(JNIEnv *, jobject, jdouble size)
 {

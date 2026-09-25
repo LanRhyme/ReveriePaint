@@ -719,6 +719,16 @@ object ReverieCoreBridge {
      */
     external fun revpSaveStats(): LongArray?
 
+    /**
+     * 上一次液化 apply 的分段耗时(ms)与规模, 供性能标尺显示 —— 用来判断液化卡在
+     * "Krita 网格形变 / 补洞内存流量 / 图层回写 / 投影合成"哪一段:
+     * `[total, warp, seed, blit, composite, areaPx, targets, count, precision, cells]`
+     * (count 单调递增, 供调用方判断是否有新数据; precision 为本次 worker 的网格精度,
+     * cells 为网格单元数的估算值 —— 用于对照"单元数 → 形变耗时"的曲线)。
+     * 典型用法是每秒取一次 (见 `PaintViewModel.pollLiquifyStats`)。
+     */
+    external fun liquifyStats(): LongArray?
+
     external fun saveRevpAsync(
         path: String,
         extraMetaJson: String = "",

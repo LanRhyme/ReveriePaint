@@ -136,10 +136,15 @@ class PaintViewModel : ViewModel() {
                     if (currentPage == Page.PAINTING) {
                         tickPaintingTimer()
                         checkAutoSave()
-                        // 标尺开启时顺带取一次保存阶段统计 (关闭时只剩一次布尔判断)。
-                        // 必须走 runCore: 架构铁律要求引擎调用不经 UI 线程。这条 JNI 只读
+                        // 标尺开启时顺带取一次保存/液化的引擎侧统计 (关闭时只剩一次布尔判断)。
+                        // 必须走 runCore: 架构铁律要求引擎调用不经 UI 线程。这两条 JNI 只读
                         // C++ 侧的 relaxed 原子量、不牵动渲染, 所以 render = false。
-                        if (PerfTrace.enabled) runCore(render = false) { pollSaveStats() }
+                        if (PerfTrace.enabled) {
+                            runCore(render = false) {
+                                pollSaveStats()
+                                pollLiquifyStats()
+                            }
+                        }
                     }
                 }
             }
@@ -243,6 +248,20 @@ class PaintViewModel : ViewModel() {
         if (s.size < 8) return
         if (s[0] <= 0L) return // 还没保存过
         PerfTrace.saveStats(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7] != 0L)
+    }
+
+    /**
+     * 取一次引擎侧"上一次液化 apply"的分段耗时 (仅标尺开启时调用, 每秒一次)。
+     * 四段为 形变(Krita 网格) / 补洞(内存流量) / 回写图层 / 投影合成 —— 用来确定
+     * "液化大笔刷卡顿"下一步该优化哪一段, 而不是凭感觉加线程。
+     *
+     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`)。
+     */
+    internal fun pollLiquifyStats() {
+        if (!PerfTrace.enabled) return
+        val s = ReverieCoreBridge.liquifyStats() ?: return
+        if (s.size < 10 || s[7] <= 0L) return // 还没做过液化
+        PerfTrace.liquifyApply(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9])
     }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false

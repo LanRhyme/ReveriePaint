@@ -541,6 +541,12 @@ public:
     void liquifyBegin(const QVector<int> &layers = QVector<int>());
     void liquifyEnd();
     void liquifyCancel();
+
+    /** 上一次液化 apply 的分段耗时(ms)与规模, 供性能标尺显示 —— 用来判断液化到底卡在
+     *  "Krita 网格形变 / 补洞内存流量 / 图层回写 / 投影合成"哪一段。
+     *  out 至少 8 个 qint64: [total, warp, seed, blit, composite, areaPx, targets, count]。 */
+    void liquifyStats(qint64 *out);
+
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
@@ -821,6 +827,8 @@ private:
     // run() copies the whole bounds complement, so a full-canvas worker
     // cost a full-canvas copy per dab. Rebased when the brush wanders out.
     QRect m_liquifyWorkerBounds;
+    // 当前 worker 的网格精度 (2 的幂: 4/8/16/32)。只用于诊断上报"单元数", 不影响行为。
+    int m_liquifyPrecision = 16;
     qint64 m_liquifyLastApplyMs = 0;
     // Union of dab influence rects not yet written back to the layer
     QRect m_liquifyPendingDelta;

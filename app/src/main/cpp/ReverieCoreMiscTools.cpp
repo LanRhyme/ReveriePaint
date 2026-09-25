@@ -149,6 +149,61 @@ std::atomic<qint64> s_liquifyDeltaBudgetPx{LIQUIFY_DELTA_BUDGET_DEFAULT_PX};
 // 多目标 warp 并行开关 (一键回退): 真机上若怀疑并行引起异常, 置 false 重编译
 // 即可回到逐层串行, 其余行为逐像素一致。
 const bool kLiquifyParallelTargets = true;
+
+// 单次 apply 的四段耗时(ms)与规模, 供性能标尺在真机上回答"液化到底卡在哪一段":
+// 形变(Krita 网格 run) / 补洞(内存流量) / 回写(bitBlt+setDirty) / 合成(投影重组合)。
+// 纯诊断: 每次 apply 8 个 relaxed 原子写, 不改变任何行为; 读取方是引擎线程(标尺每秒取一次)。
+enum LiquifyStat {
+    LqTotal = 0,
+    LqWarp,
+    LqSeed,
+    LqBlit,
+    LqComposite,
+    LqAreaPx,
+    LqTargets,
+    LqCount,
+    LqPrecision,
+    LqCells,
+    LiquifyStatCount
+};
+std::atomic<qint64> s_liquifyStats[LiquifyStatCount];
+
+// 诊断: 强制网格精度 (`setprop debug.reverie.lqprec 4|8|16|32`)。用来在真机上量
+// "网格单元数 → 耗时 / 形变边缘质量"的曲线, 不需要重编译; 只接受 2 的幂的合法档,
+// 其它值一律忽略。0/未设 = 走自动档位(+ 分辨率保底)。
+int liquifyForcedPrecision()
+{
+#if defined(Q_OS_ANDROID)
+    char value[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.reverie.lqprec", value) > 0 && value[0]) {
+        const int v = QByteArray(value).toInt();
+        if (v == 4 || v == 8 || v == 16 || v == 32) return v;
+    }
+#else
+    const QByteArray env = qgetenv("REVERIE_LQPREC");
+    if (!env.isEmpty()) {
+        const int v = env.toInt();
+        if (v == 4 || v == 8 || v == 16 || v == 32) return v;
+    }
+#endif
+    return 0;
+}
+
+void publishLiquifyStats(qint64 totalMs, qint64 warpMs, qint64 seedMs, qint64 blitMs,
+                         qint64 compositeMs, qint64 areaPx, qint64 targets,
+                         qint64 precision, qint64 cells)
+{
+    s_liquifyStats[LqTotal].store(totalMs, std::memory_order_relaxed);
+    s_liquifyStats[LqWarp].store(warpMs, std::memory_order_relaxed);
+    s_liquifyStats[LqSeed].store(seedMs, std::memory_order_relaxed);
+    s_liquifyStats[LqBlit].store(blitMs, std::memory_order_relaxed);
+    s_liquifyStats[LqComposite].store(compositeMs, std::memory_order_relaxed);
+    s_liquifyStats[LqAreaPx].store(areaPx, std::memory_order_relaxed);
+    s_liquifyStats[LqTargets].store(targets, std::memory_order_relaxed);
+    s_liquifyStats[LqPrecision].store(precision, std::memory_order_relaxed);
+    s_liquifyStats[LqCells].store(cells, std::memory_order_relaxed);
+    s_liquifyStats[LqCount].fetch_add(1, std::memory_order_relaxed);
+}
 }
 
 void ReverieCore::resetLiquifyWorker()
@@ -162,6 +217,7 @@ void ReverieCore::resetLiquifyWorker()
     m_liquifyWorkerBounds = QRect();
     m_liquifyPendingDelta = QRect();
     m_liquifyApplyIntervalMs = LIQUIFY_APPLY_MIN_INTERVAL_MS;
+    m_liquifyPrecision = 16;
     s_liquifyDeltaBudgetPx.store(LIQUIFY_DELTA_BUDGET_DEFAULT_PX);
 }
 
@@ -225,6 +281,11 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     }
     const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
     QRect dirtyUnion;
+    // 分段计时 (纯诊断, 见 s_liquifyStats)
+    qint64 tWarpMs = 0;
+    qint64 tSeedMs = 0;
+    qint64 tBlitMs = 0;
+    qint64 tCompositeMs = 0;
     // An active selection is a freeze mask: the grid warp itself still runs
     // over the whole worker bounds (pixels may be pulled IN from outside,
     // like Krita's transform tool), but only selected pixels are written
@@ -239,6 +300,7 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
     // 目标之间完全独立 (各自的 src/dst/worker), 却原先只用一个核 —— 多图层液化时
     // 单次 apply 的墙钟时间随图层数线性增长, 拖长一次拖动就是成倍的卡顿与发热。
     // 并行只覆盖这步纯计算; 写回必须留在渲染线程串行 (KisPainter + 脏区标记)。
+    const qint64 tw0 = QDateTime::currentMSecsSinceEpoch();
     QVector<LiquifyTarget *> warped;
     warped.reserve(m_liquifyTargets.size());
     for (LiquifyTarget &t : m_liquifyTargets) {
@@ -259,6 +321,7 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
             t->worker->run(t->src, t->dst);
         }
     }
+    tWarpMs = QDateTime::currentMSecsSinceEpoch() - tw0;
 
     // 阶段 2: 串行写回 (选区/透明像素锁/脏区标记语义与改动前完全一致)
     for (LiquifyTarget &t : m_liquifyTargets) {
@@ -266,7 +329,10 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
         const QRect area = deltaRect.intersected(t.bounds).intersected(clipRect);
         if (!area.isEmpty()) {
             // 先补掉 warp 未覆盖的透明像素, 否则 COMPOSITE_COPY 会把它们擦进图层
+            const qint64 ts0 = QDateTime::currentMSecsSinceEpoch();
             seedTransparentFromSource(t.dst, t.src, area);
+            tSeedMs += QDateTime::currentMSecsSinceEpoch() - ts0;
+            const qint64 tb0 = QDateTime::currentMSecsSinceEpoch();
             KisPainter p(t.device);
             p.setCompositeOpId(COMPOSITE_COPY);
             if (m_selection) {
@@ -279,10 +345,12 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
             p.bitBlt(area.topLeft(), t.dst, area);
             p.end();
             t.device->setDirty(area);
+            tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
             dirtyUnion = dirtyUnion.isNull() ? area : dirtyUnion.united(area);
         }
     }
     if (!dirtyUnion.isEmpty()) {
+        const qint64 tc0 = QDateTime::currentMSecsSinceEpoch();
         markRegionDirty(dirtyUnion);
         // 立刻把投影的这块区域同步合成掉: Krita 后台调度器未必已经处理刚标记的脏区,
         // 渲染路径此时读投影就会拿到半更新像素 (白线/撕裂的第二个成因)。放在这里做,
@@ -297,6 +365,7 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
                 compositeLayersRange(proj, 0, m_layers.size(), c);
             }
         }
+        tCompositeMs = QDateTime::currentMSecsSinceEpoch() - tc0;
     }
     m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 elapsed = m_liquifyLastApplyMs - t0;
@@ -318,8 +387,16 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect)
             s_liquifyDeltaBudgetPx.store(qMin(LIQUIFY_DELTA_BUDGET_MAX_PX, budget * 2));
         }
     }
-    RPC_TRACE("liquify apply total=%dms targets=%d area=%dx%d bounds=%dx%d int=%d",
-              int(elapsed), int(m_liquifyTargets.size()),
+    const qint64 lqPrec = qMax(1, m_liquifyPrecision);
+    const qint64 lqCells = qint64(m_liquifyWorkerBounds.width() / lqPrec + 2) *
+                           qint64(m_liquifyWorkerBounds.height() / lqPrec + 2);
+    publishLiquifyStats(elapsed, tWarpMs, tSeedMs, tBlitMs, tCompositeMs,
+                        qint64(dirtyUnion.width()) * qint64(dirtyUnion.height()),
+                        m_liquifyTargets.size(), m_liquifyPrecision, lqCells);
+    RPC_TRACE("liquify apply total=%dms (warp=%d seed=%d blit=%d comp=%d) targets=%d "
+              "area=%dx%d bounds=%dx%d int=%d",
+              int(elapsed), int(tWarpMs), int(tSeedMs), int(tBlitMs), int(tCompositeMs),
+              int(m_liquifyTargets.size()),
               dirtyUnion.width(), dirtyUnion.height(),
               m_liquifyWorkerBounds.width(), m_liquifyWorkerBounds.height(),
               int(m_liquifyApplyIntervalMs));
@@ -425,6 +502,14 @@ void ReverieCore::liquifyCancel()
     resetLiquifyWorker();
 }
 
+void ReverieCore::liquifyStats(qint64 *out)
+{
+    if (!out) return;
+    for (int i = 0; i < LiquifyStatCount; ++i) {
+        out[i] = s_liquifyStats[i].load(std::memory_order_relaxed);
+    }
+}
+
 void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mode)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -509,6 +594,13 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             while (precision > resolutionFloor && precision > 4) {
                 precision /= 2;
             }
+            // 诊断覆盖: setprop debug.reverie.lqprec <4|8|16|32> 强制档位(跳过上面的保底), 用来在
+            // 真机上量"单元数 → 耗时/形变边缘"的曲线。
+            const int forcedPrecision = liquifyForcedPrecision();
+            if (forcedPrecision > 0) {
+                precision = forcedPrecision;
+            }
+            m_liquifyPrecision = precision;
             t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
         }
