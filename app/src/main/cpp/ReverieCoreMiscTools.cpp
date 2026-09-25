@@ -489,17 +489,26 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             // the grid with the brush instead (~8 cells across the radius),
             // clamped so tiny brushes stay affordable and huge brushes keep
             // the coarse grid the throttling budget was tuned for.
-            // 网格精度必须落在 Krita 的合法集合 {1,2,4,8,16}(或 16 的倍数) 里 ——
-            // KisLiquifyTransformWorker 内部按此断言, 非 2 的幂会破坏网格索引假设。
-            // 上游是 qBound(4, size/8, 16), 对 68px 会得到 9 (非法值); 这里改为吸附到
-            // 最近的合法档 4/8/16, 既保留"随笔刷缩放网格"的意图, 又不出合法集合。
-            // 合法档集合是 {4,8,16,32,...}(32 满足 Krita 断言的 "16 的倍数")。
+            // 网格精度必须是 **2 的幂**(判据不是"16 的倍数"): Krita 用
+            // `alignmentMask = ~(pixelPrecision - 1)` 对网格边界做位掩码对齐
+            // (kis_grid_interpolation_tools.h:33 calcGridDimension), 非 2 的幂算出
+            // 的网格尺寸与网格点容器容量不一致 ⇒ 越界访问 (真机表现就是闪退)。
+            // 因此合法档为 {4,8,16,32,...}; 上游 qBound(4, size/8, 16) 对 68px 得 9、
+            // 78px 得 10 —— 都是非法值 (68px 必崩, 本分支修掉)。
             // 大笔刷用 32: run() 的成本里"每个网格单元一次多边形填充 + 瓦片读写"占大头
             // (单元数 = (bounds/精度)²), 760² 的 bounds 从 47×47=2209 个单元降到 24×24=576,
-            // 约 4 倍提速; 380px 半径上仍有 12 个单元/半径, 足够解析高斯形状。
+            // 约 4 倍提速。
             const int rawPrecision = qBound<int>(4, qRound(size / 8.0), 32);
-            const int precision = rawPrecision > 16 ? 32
-                                 : (rawPrecision > 12 ? 16 : (rawPrecision > 6 ? 8 : 4));
+            int precision = rawPrecision > 16 ? 32
+                            : (rawPrecision > 12 ? 16 : (rawPrecision > 6 ? 8 : 4));
+            // 分辨率保底 (对齐上游注释里"每半径约 8 个单元"的设计意图): 单元内位移是分段
+            // 线性的, 单元过粗时高斯曲率会被折成平面 ⇒ 形变边缘出现硬折/台阶。32 分钟值在
+            // 132~134px 上只剩 251/32 ≈ 7.8 单元/半径, 显式下压到满足 ≥8 单元的档: 32→16
+            // 只发生在这一窄区间, ≥135px 仍是 32 (即那 4 倍提速的档)。
+            const int resolutionFloor = qMax<int>(16, R / 8);
+            while (precision > resolutionFloor && precision > 4) {
+                precision /= 2;
+            }
             t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
         }
