@@ -68,6 +68,12 @@ public:
     void clearLayer(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
+    quint64 layerId(int index) const {
+        if (index >= 0 && index < m_layers.size() && m_layers[index].node) {
+            return reinterpret_cast<quintptr>(m_layers[index].node);
+        }
+        return static_cast<quint64>(index + 1);
+    }
     QString layerName(int index) const;
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
@@ -112,7 +118,9 @@ public:
     bool moveLayer(int fromIndex, int toIndex);            // move layer to another row's position (cross-parent ok)
     bool moveLayerAbove(int fromIndex, int aboveIndex);   // move layer above the given layer (exact sibling semantics)
     bool moveLayerToGroup(int fromIndex, int groupIndex);  // move layer to the top of a group
+    bool moveLayersToGroup(const QVector<int> &fromIndices, int groupIndex); // batch move layers to group in one undo step
     bool moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove); // move layer relative to target layer in hierarchy
+    bool moveLayersRelative(const QVector<int> &fromIndices, int targetIndex, bool placeAbove); // batch move layers relative to target in one undo step
     // Solo (独显, FolioLayers logic): toggle solo for one layer; soloing a
     // layer hides every other layer, tapping the soloed layer again restores.
     // Solo mode is PURELY a render-time filter: it never touches the layer
@@ -625,6 +633,11 @@ public:
     void setBrushSharpness(qreal v);
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
+    void setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType);
+    void setBrushFollowDirection(bool enabled);
+    void setBrushJitter(qreal jitterAngle, qreal jitterSize);
+    void setBrushMirror(bool flipX, bool flipY);
+    void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
     bool setBrushTipAsset(const QString &assetName);
     bool hasPendingStrokeSamples() const { return m_strokeSamples.size() > m_strokeCarryCount; }

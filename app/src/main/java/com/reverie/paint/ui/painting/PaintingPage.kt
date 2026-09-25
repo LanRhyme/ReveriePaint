@@ -113,6 +113,7 @@ import com.reverie.paint.ui.painting.canvas.TransformState
 import com.reverie.paint.ui.painting.canvas.widgetToImage
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.ui.painting.layers.LayerPanel
+import com.reverie.paint.ui.painting.layers.LayerDragOverlay
 import com.reverie.paint.ui.painting.layers.FilterSession
 import com.reverie.paint.ui.painting.layers.FilterSessionController
 import com.reverie.paint.ui.painting.layers.FilterTopPillHUD
@@ -1970,6 +1971,9 @@ fun PaintingPage(
                 }
             }
         }
+
+        // ---- Floating Layer Drag Overlay (Global Root Window) ----
+        LayerDragOverlay(vm = vm)
     }
 }
 }

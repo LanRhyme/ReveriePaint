@@ -351,12 +351,14 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
                 return true
             }
             android.view.KeyEvent.KEYCODE_LEFT_BRACKET -> {
-                val newSize = (brushSize / 1.25).coerceAtLeast(1.0)
+                val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+                val newSize = (brushSize / 1.25).coerceAtLeast(minL)
                 updateBrushSize(newSize)
                 return true
             }
             android.view.KeyEvent.KEYCODE_RIGHT_BRACKET -> {
-                val newSize = (brushSize * 1.25).coerceAtMost(500.0)
+                val maxL = brushMaxSizeLimit.coerceAtLeast(brushMinSizeLimit)
+                val newSize = (brushSize * 1.25).coerceAtMost(maxL)
                 updateBrushSize(newSize)
                 return true
             }
@@ -397,11 +399,13 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
         "tool_transform" -> applyTool("transform")
         "tool_move" -> applyTool("move")
         "brush_size_inc" -> {
-            val newSize = (brushSize * 1.25).coerceAtMost(500.0)
+            val maxL = brushMaxSizeLimit.coerceAtLeast(brushMinSizeLimit)
+            val newSize = (brushSize * 1.25).coerceAtMost(maxL)
             updateBrushSize(newSize)
         }
         "brush_size_dec" -> {
-            val newSize = (brushSize / 1.25).coerceAtLeast(1.0)
+            val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+            val newSize = (brushSize / 1.25).coerceAtLeast(minL)
             updateBrushSize(newSize)
         }
         "brush_opacity_inc" -> {

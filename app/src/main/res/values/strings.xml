@@ -20,6 +20,7 @@
     <string name="common_import">导入</string>
     <string name="common_export">导出</string>
     <string name="common_settings">设置</string>
+    <string name="common_move">移动</string>
     <string name="common_search">搜索</string>
     <string name="common_undo">撤销</string>
     <string name="common_redo">重做</string>
@@ -132,6 +133,9 @@
     <string name="gallery_toast_stack_deleted">画集已删除</string>
     <string name="gallery_toast_artwork_deleted">作品已删除</string>
     <string name="gallery_toast_batch_deleted">已删除 %d 项内容</string>
+    <string name="gallery_toast_batch_duplicated">已复制 %d 项作品</string>
+    <string name="gallery_select_all">全选</string>
+    <string name="gallery_deselect_all">取消全选</string>
     <string name="gallery_processing">正在处理...</string>
 
     <!-- Create Canvas -->
@@ -999,6 +1003,10 @@
     <string name="brush_studio_delete_brush">删除当前笔刷</string>
     <string name="brush_share_action">分享与导出笔刷</string>
     <string name="brush_share_title">分享笔刷: %s</string>
+    <string name="brush_export_group_action">导出此笔刷组 (.bundle)</string>
+    <string name="brush_share_group_title">导出笔刷组：%s</string>
+    <string name="brush_group_empty_export">当前笔刷组内没有可导出的笔刷</string>
+    <string name="brush_export_group_failed">笔刷组导出失败</string>
     <string name="brush_reset_action">恢复默认参数</string>
     <string name="brush_reset_toast">已恢复「%s」的出厂默认参数</string>
     <string name="brush_share_failed">笔刷导出失败：%s</string>
@@ -1051,6 +1059,7 @@
     <string name="brush_studio_dynamics_airbrush_mode">喷枪流速模式 (Airbrush)</string>
     <string name="brush_studio_dynamics_airbrush_enable">启用喷枪时间流速持续喷涂</string>
     <string name="brush_studio_dynamics_airbrush_rate">喷涂流速 (Rate)</string>
+    <string name="brush_studio_unit_dabs_per_sec">点/秒</string>
     <string name="brush_studio_color_jitter_title">色彩随机抖动</string>
     <string name="brush_studio_color_hue_jitter">色相抖动 (Hue Jitter)</string>
     <string name="brush_studio_color_sat_jitter">饱和度抖动 (Saturation)</string>

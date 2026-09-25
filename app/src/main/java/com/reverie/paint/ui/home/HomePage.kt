@@ -41,8 +41,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -279,7 +281,7 @@ fun HomePage(vm: PaintViewModel) {
             colors = colors,
             count = deleteCount,
             onConfirm = {
-                selectedProjects.forEach { vm.deleteProject(it) }
+                vm.deleteProjects(selectedProjects.toList())
                 selectedProjects.clear()
                 isSelectMode = false
                 Toast.makeText(context, String.format(toastBatchDeleted, deleteCount), Toast.LENGTH_SHORT).show()
@@ -415,12 +417,26 @@ fun HomePage(vm: PaintViewModel) {
                                     }
 
                                     "SELECT" -> {
-                                        Text(
-                                            text = stringResource(R.string.gallery_selected_count, selectedProjects.size),
-                                            color = colors.text,
-                                            fontSize = 17.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                        )
+                                        AnimatedContent(
+                                            targetState = selectedProjects.size,
+                                            transitionSpec = {
+                                                if (targetState > initialState) {
+                                                    (slideInVertically(tween(180)) { -it / 2 } + fadeIn(tween(180)))
+                                                        .togetherWith(slideOutVertically(tween(140)) { it / 2 } + fadeOut(tween(140)))
+                                                } else {
+                                                    (slideInVertically(tween(180)) { it / 2 } + fadeIn(tween(180)))
+                                                        .togetherWith(slideOutVertically(tween(140)) { -it / 2 } + fadeOut(tween(140)))
+                                                }
+                                            },
+                                            label = "SelectedCountAnim",
+                                        ) { count ->
+                                            Text(
+                                                text = stringResource(R.string.gallery_selected_count, count),
+                                                color = colors.text,
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                        }
                                     }
 
                                     else -> {
@@ -486,16 +502,39 @@ fun HomePage(vm: PaintViewModel) {
 
                             if (!isSearchActive) {
                                 if (isSelectMode) {
-                                    ReTextButton(
-                                        stringResource(R.string.common_done),
-                                        onClick = {
-                                        isSelectMode = false
-                                        selectedProjects.clear()
-                                    },
-                                        textColor = colors.accent,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                    )
+                                    val haptic = LocalHapticFeedback.current
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        val allSelected = displayProjects.isNotEmpty() && selectedProjects.size == displayProjects.size
+                                        ReTextButton(
+                                            text = if (allSelected) stringResource(R.string.gallery_deselect_all) else stringResource(R.string.gallery_select_all),
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                if (allSelected) {
+                                                    selectedProjects.clear()
+                                                } else {
+                                                    selectedProjects.clear()
+                                                    selectedProjects.addAll(displayProjects)
+                                                }
+                                            },
+                                            textColor = colors.accent,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 14.sp,
+                                        )
+
+                                        ReTextButton(
+                                            stringResource(R.string.common_done),
+                                            onClick = {
+                                                isSelectMode = false
+                                                selectedProjects.clear()
+                                            },
+                                            textColor = colors.accent,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                        )
+                                    }
                                 } else {
                                     // Top Bar Buttons Group
                                     Row(
@@ -737,6 +776,24 @@ fun HomePage(vm: PaintViewModel) {
                                             label = "CardScaleAnim",
                                         )
 
+                                        val cardSelectScale by animateFloatAsState(
+                                            targetValue = if (isSelectMode && isSelected) 0.94f else 1.0f,
+                                            animationSpec =
+                                                spring(
+                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow,
+                                                ),
+                                            label = "CardSelectScale",
+                                        )
+
+                                        val borderStrokeWidth by animateDpAsState(
+                                            targetValue = if (isSelectMode && isSelected) 2.5.dp else 0.dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+                                            label = "CardBorderWidth",
+                                        )
+
+                                        val haptic = LocalHapticFeedback.current
+
                                         // Organic tactile fan-out physics when pressing stack card
                                         val fanBottomAngle by animateFloatAsState(
                                             targetValue = if (isPressed) -12.5f else -7.0f,
@@ -808,8 +865,8 @@ fun HomePage(vm: PaintViewModel) {
                                             modifier =
                                                 Modifier.graphicsLayer {
                                                     alpha = progress.coerceIn(0f, 1f)
-                                                    scaleX = itemScale * cardPressScale
-                                                    scaleY = itemScale * cardPressScale
+                                                    scaleX = itemScale * cardPressScale * cardSelectScale
+                                                    scaleY = itemScale * cardPressScale * cardSelectScale
                                                     translationY = itemOffsetY.toPx()
                                                     rotationZ = itemRotation
                                                 },
@@ -823,6 +880,7 @@ fun HomePage(vm: PaintViewModel) {
                                                             indication = null,
                                                             onClick = {
                                                                 if (isSelectMode) {
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                     if (isSelected) selectedProjects.remove(p) else selectedProjects.add(p)
                                                                 } else if (p.isFolder) {
                                                                     vm.currentFolder = p
@@ -955,8 +1013,8 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
                                                                     .then(
-                                                                        if (isSelectMode && isSelected) {
-                                                                            Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                                                                        if (borderStrokeWidth > 0.dp) {
+                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
                                                                         } else Modifier
                                                                     ),
                                                             contentAlignment = Alignment.Center,
@@ -1018,36 +1076,16 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                        // Selection checkmark
-                                                        if (isSelectMode) {
-                                                            Box(
-                                                                modifier =
-                                                                    Modifier
-                                                                        .align(Alignment.BottomEnd)
-                                                                        .padding(6.dp)
-                                                                        .size(22.dp)
-                                                                        .clip(CircleShape)
-                                                                        .background(
-                                                                            if (isSelected) {
-                                                                                colors.accent
-                                                                            } else {
-                                                                                Color.Black.copy(
-                                                                                    alpha = 0.45f,
-                                                                                )
-                                                                            },
-                                                                        ),
-                                                                contentAlignment = Alignment.Center,
-                                                            ) {
-                                                                if (isSelected) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_check),
-                                                                        contentDescription = null,
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(14.dp),
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
+                                                        // Selection checkmark badge
+                                                        CardSelectionBadge(
+                                                            isSelectMode = isSelectMode,
+                                                            isSelected = isSelected,
+                                                            colors = colors,
+                                                            modifier =
+                                                                Modifier
+                                                                    .align(Alignment.BottomEnd)
+                                                                    .padding(8.dp),
+                                                        )
                                                     }
                                                 } else {
                                                     // Single artwork card in uniform 1:1 cell with pure canvas aspect ratio
@@ -1068,8 +1106,8 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
                                                                     .then(
-                                                                        if (isSelectMode && isSelected) {
-                                                                            Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                                                                        if (borderStrokeWidth > 0.dp) {
+                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
                                                                         } else Modifier
                                                                     ),
                                                             contentAlignment = Alignment.Center,
@@ -1156,36 +1194,16 @@ fun HomePage(vm: PaintViewModel) {
                                                             }
                                                         }
 
-                                                        // Selection checkmark
-                                                        if (isSelectMode) {
-                                                            Box(
-                                                                modifier =
-                                                                    Modifier
-                                                                        .align(Alignment.BottomEnd)
-                                                                        .padding(6.dp)
-                                                                        .size(22.dp)
-                                                                        .clip(CircleShape)
-                                                                        .background(
-                                                                            if (isSelected) {
-                                                                                colors.accent
-                                                                            } else {
-                                                                                Color.Black.copy(
-                                                                                    alpha = 0.45f,
-                                                                                )
-                                                                            },
-                                                                        ),
-                                                                contentAlignment = Alignment.Center,
-                                                            ) {
-                                                                if (isSelected) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_check),
-                                                                        contentDescription = null,
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(14.dp),
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
+                                                        // Selection checkmark badge
+                                                        CardSelectionBadge(
+                                                            isSelectMode = isSelectMode,
+                                                            isSelected = isSelected,
+                                                            colors = colors,
+                                                            modifier =
+                                                                Modifier
+                                                                    .align(Alignment.BottomEnd)
+                                                                    .padding(8.dp),
+                                                        )
                                                     }
                                                 }
 
@@ -1368,60 +1386,6 @@ fun HomePage(vm: PaintViewModel) {
                             }
                         }
                     } // Added closing brace for Column
-
-                    // Floating selection mode action bar (Share, Move, Delete)
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = isSelectMode && selectedProjects.isNotEmpty(),
-                        enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 },
-                        exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { it / 2 },
-                        modifier =
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 20.dp),
-                    ) {
-                        Row(
-                            modifier =
-                                Modifier
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(colors.panelHi)
-                                    .border(1.dp, colors.border, RoundedCornerShape(24.dp))
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            ReTextButton(
-                                stringResource(R.string.gallery_batch_share, selectedProjects.size),
-                                {
-                                    shareProjectFiles(context, selectedProjects.toList())
-                                },
-                                icon = R.drawable.ic_share,
-                                textColor = colors.accent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
-                            ReTextButton(
-                                stringResource(R.string.gallery_batch_move, selectedProjects.size),
-                                {
-                                    targetMoveProjects = selectedProjects.toList()
-                                    showMoveDialog = true
-                                },
-                                icon = R.drawable.ic_folder_symlink,
-                                textColor = colors.accent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Box(modifier = Modifier.width(1.dp).height(18.dp).background(colors.border))
-                            ReTextButton(
-                                stringResource(R.string.common_delete),
-                                { showBatchDeleteConfirm = true },
-                                icon = R.drawable.ic_trash,
-                                textColor = Color(0xFFFF5252),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
                 }
             } else {
                 // Settings Tab
@@ -1431,15 +1395,55 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-        HomeBottomBar(
-            colors = colors,
-            vm = vm,
-            selectedTab = selectedTab,
-            hazeState = hazeState,
+        val inGallerySelectMode = isSelectMode && selectedTab == 0
+
+        AnimatedContent(
+            targetState = inGallerySelectMode,
+            transitionSpec = {
+                if (targetState) {
+                    (slideInVertically(spring(dampingRatio = 0.82f, stiffness = 420f)) { it } + fadeIn(tween(200)))
+                        .togetherWith(slideOutVertically(tween(160)) { it } + fadeOut(tween(140)))
+                } else {
+                    (slideInVertically(spring(dampingRatio = 0.82f, stiffness = 420f)) { it } + fadeIn(tween(200)))
+                        .togetherWith(slideOutVertically(tween(160)) { it } + fadeOut(tween(140)))
+                }
+            },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding(),
-        )
+            label = "BottomBarModeTransition",
+        ) { inSelect ->
+            if (inSelect) {
+                GallerySelectionBottomBar(
+                    colors = colors,
+                    selectedCount = selectedProjects.size,
+                    canShareOrDuplicate = selectedProjects.any { !it.isFolder },
+                    hazeState = hazeState,
+                    onShare = {
+                        shareProjectFiles(context, selectedProjects.toList())
+                    },
+                    onDuplicate = {
+                        vm.duplicateProjects(selectedProjects.toList())
+                        isSelectMode = false
+                        selectedProjects.clear()
+                    },
+                    onMove = {
+                        targetMoveProjects = selectedProjects.toList()
+                        showMoveDialog = true
+                    },
+                    onDelete = {
+                        showBatchDeleteConfirm = true
+                    },
+                )
+            } else {
+                HomeBottomBar(
+                    colors = colors,
+                    vm = vm,
+                    selectedTab = selectedTab,
+                    hazeState = hazeState,
+                )
+            }
+        }
 
         com.reverie.paint.ui.components.DragHoverOverlay(
             visible = vm.isDraggingExternal,

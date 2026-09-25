@@ -85,6 +85,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_currentLayerIndex(JNIEnv *, jobjec
     return core()->currentLayerIndex();
 }
 
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerId(JNIEnv *, jobject, jint index)
+{
+    return static_cast<jlong>(core()->layerId(index));
+}
+
 extern "C" JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_addGroupLayer(JNIEnv *env, jobject, jstring name)
 {
@@ -254,9 +260,45 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerToGroup(JNIEnv *, jobject
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayersToGroup(
+    JNIEnv *env, jobject, jintArray fromIndicesArr, jint group)
+{
+    if (!core() || !fromIndicesArr) return JNI_FALSE;
+    jsize len = env->GetArrayLength(fromIndicesArr);
+    if (len <= 0) return JNI_FALSE;
+    jint *elems = env->GetIntArrayElements(fromIndicesArr, nullptr);
+    if (!elems) return JNI_FALSE;
+    QVector<int> indices;
+    indices.reserve(len);
+    for (int i = 0; i < len; ++i) {
+        indices.append(elems[i]);
+    }
+    env->ReleaseIntArrayElements(fromIndicesArr, elems, JNI_ABORT);
+    return core()->moveLayersToGroup(indices, group) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerRelative(JNIEnv *, jobject, jint from, jint target, jboolean placeAbove)
 {
     return core()->moveLayerRelative(from, target, placeAbove == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_moveLayersRelative(
+    JNIEnv *env, jobject, jintArray fromIndicesArr, jint target, jboolean placeAbove)
+{
+    if (!core() || !fromIndicesArr) return JNI_FALSE;
+    jsize len = env->GetArrayLength(fromIndicesArr);
+    if (len <= 0) return JNI_FALSE;
+    jint *elems = env->GetIntArrayElements(fromIndicesArr, nullptr);
+    if (!elems) return JNI_FALSE;
+    QVector<int> indices;
+    indices.reserve(len);
+    for (int i = 0; i < len; ++i) {
+        indices.append(elems[i]);
+    }
+    env->ReleaseIntArrayElements(fromIndicesArr, elems, JNI_ABORT);
+    return core()->moveLayersRelative(indices, target, placeAbove == JNI_TRUE) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_reverie_paint_core_ReverieCoreBridge_mergeDown(JNIEnv *, jobject, jint index)

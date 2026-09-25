@@ -317,7 +317,7 @@ class PaintViewModel : ViewModel() {
     var brushTipAsset by mutableStateOf("")
     var brushPaintOpId by mutableStateOf("defaultpaintop")
     var brushAirbrush by mutableStateOf(false)
-    var brushAirbrushRate by mutableDoubleStateOf(0.05)
+    var brushAirbrushRate by mutableDoubleStateOf(30.0)
     var brushSmudgeRate by mutableDoubleStateOf(0.5)
     var brushSmudgeLength by mutableDoubleStateOf(0.5)
     var brushSpikes by mutableIntStateOf(2)
@@ -1342,19 +1342,24 @@ class PaintViewModel : ViewModel() {
                     "high" -> 0.035f
                     else -> 0.025f
                 }
-                // 与画布侧边栏滑块对齐，采用对数/指数映射：fraction = ln(size) / ln(500)
-                val currentFrac = (kotlin.math.ln(brushSize.coerceAtLeast(1.0)) / kotlin.math.ln(500.0)).toFloat().coerceIn(0f, 1f)
+                val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+                val maxL = brushMaxSizeLimit.coerceAtLeast(minL + 0.1)
+                val logMin = kotlin.math.ln(minL)
+                val logMax = kotlin.math.ln(maxL)
+                val range = (logMax - logMin).coerceAtLeast(1e-6)
+                val current = brushSize.coerceIn(minL, maxL)
+                val currentFrac = ((kotlin.math.ln(current) - logMin) / range).toFloat().coerceIn(0f, 1f)
                 val targetFrac = (currentFrac + (if (isIncrease) deltaFrac else -deltaFrac)).coerceIn(0f, 1f)
-                val rawNewSize = kotlin.math.exp(kotlin.math.ln(500.0) * targetFrac.toDouble()).coerceIn(1.0, 500.0)
+                val rawNewSize = kotlin.math.exp(logMin + targetFrac.toDouble() * range).coerceIn(minL, maxL)
                 val newSize = if (rawNewSize < 10.0) {
-                    (kotlin.math.round(rawNewSize * 10.0) / 10.0).coerceIn(1.0, 500.0)
+                    (kotlin.math.round(rawNewSize * 10.0) / 10.0).coerceIn(minL, maxL)
                 } else {
-                    kotlin.math.round(rawNewSize).coerceIn(1.0, 500.0)
+                    kotlin.math.round(rawNewSize).coerceIn(minL, maxL)
                 }
                 val finalSize = if (isIncrease && newSize <= brushSize) {
-                    if (brushSize < 10.0) (brushSize + 0.1).coerceAtMost(500.0) else (brushSize + 1.0).coerceAtMost(500.0)
+                    if (brushSize < 10.0) (brushSize + 0.1).coerceAtMost(maxL) else (brushSize + 1.0).coerceAtMost(maxL)
                 } else if (!isIncrease && newSize >= brushSize) {
-                    if (brushSize <= 10.0) (brushSize - 0.1).coerceAtLeast(1.0) else (brushSize - 1.0).coerceAtLeast(1.0)
+                    if (brushSize <= 10.0) (brushSize - 0.1).coerceAtLeast(minL) else (brushSize - 1.0).coerceAtLeast(minL)
                 } else {
                     newSize
                 }
@@ -2212,6 +2217,27 @@ class PaintViewModel : ViewModel() {
     /** Whether panel pinning & dragging controls are enabled for layer & brush panels (off by default) */
     var panelPinningEnabled by mutableStateOf(false)
 
+    data class LayerDragState(
+        val layer: LayerUiState,
+        val draggedIds: Set<Long> = emptySet(),
+        val isMulti: Boolean = false,
+        val multiCount: Int = 1,
+        val startX: Float = 0f,
+        val startY: Float = 0f,
+        val grabOffsetX: Float = 0f,
+        val grabOffsetY: Float = 0f,
+        val cardWidthPx: Float = 0f,
+        val cardHeightPx: Float = 0f,
+    )
+
+    var activeLayerDrag by mutableStateOf<LayerDragState?>(null)
+    var layerDragFingerX by mutableFloatStateOf(0f)
+    var layerDragFingerY by mutableFloatStateOf(0f)
+    var layerDragSettleTo by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    var layerDragSettleFrom by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    var isLayerDragSettling by mutableStateOf(false)
+    var isLayerDragGroupSettle by mutableStateOf(false)
+
     fun updatePanelPinningEnabled(enabled: Boolean) {
         panelPinningEnabled = enabled
         if (!enabled) {
@@ -2487,6 +2513,7 @@ class PaintViewModel : ViewModel() {
      * JNI getters during composition, so updates are always visible. */
     data class LayerUiState(
         val index: Int,
+        val id: Long = 0L,
         val name: String,
         val visible: Boolean,
         val locked: Boolean,
@@ -2837,7 +2864,8 @@ class PaintViewModel : ViewModel() {
         pendingSampleY = y.toDouble()
         pendingSampleP = p
         if (!brushAirbrush) return
-        airbrushIntervalMs = ((1000.0 * (1.0 - brushAirbrushRate)).coerceAtLeast(20.0)).toLong()
+        val rate = brushAirbrushRate.coerceIn(10.0, 120.0)
+        airbrushIntervalMs = (1000.0 / rate).toLong().coerceIn(8L, 100L)
         airbrushActive = true
         renderHandler?.postDelayed(airbrushRunnable, airbrushIntervalMs)
     }
@@ -3047,6 +3075,7 @@ class PaintViewModel : ViewModel() {
             list.add(
                 LayerUiState(
                     index = i,
+                    id = ReverieCoreBridge.layerId(i),
                     name = ReverieCoreBridge.layerName(i),
                     visible = if (soloKeep != null) i in soloKeep else ReverieCoreBridge.layerVisible(i),
                     locked = ReverieCoreBridge.layerLocked(i),
@@ -3225,7 +3254,7 @@ data class BrushParams(
     val tipAsset: String = "",
     val paintOpId: String = "defaultpaintop",
     val airbrush: Boolean = false,
-    val airbrushRate: Double = 0.05,
+    val airbrushRate: Double = 30.0,
     val smudgeRate: Double = 0.5,
     val smudgeLength: Double = 0.5,
     val spikes: Int = 2,

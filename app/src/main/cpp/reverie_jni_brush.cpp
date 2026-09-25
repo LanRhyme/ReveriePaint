@@ -71,9 +71,9 @@ JNIEXPORT jdoubleArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_brushPresetDefaults(JNIEnv *env, jobject, jint index)
 {
     const QVector<double> d = core()->brushPresetDefaults(index);
-    jdoubleArray arr = env->NewDoubleArray(3);
-    const jdouble tmp[3] = {d.value(0, 20.0), d.value(1, 1.0), d.value(2, 1.0)};
-    env->SetDoubleArrayRegion(arr, 0, 3, tmp);
+    const int count = d.size();
+    jdoubleArray arr = env->NewDoubleArray(count);
+    env->SetDoubleArrayRegion(arr, 0, count, d.constData());
     return arr;
 }
 
@@ -198,6 +198,36 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushCompositeOp(JNIEnv *env, j
     const char *o = env->GetStringUTFChars(op, nullptr);
     core()->setBrushCompositeOp(QString::fromUtf8(o));
     env->ReleaseStringUTFChars(op, o);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushPressureDynamics(JNIEnv *, jobject, jboolean enabled, jdouble size, jdouble opacity, jdouble flow, jint curveType)
+{
+    core()->setBrushPressureDynamics(enabled == JNI_TRUE, size, opacity, flow, curveType);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFollowDirection(JNIEnv *, jobject, jboolean enabled)
+{
+    core()->setBrushFollowDirection(enabled == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushJitter(JNIEnv *, jobject, jdouble jitterAngle, jdouble jitterSize)
+{
+    core()->setBrushJitter(jitterAngle, jitterSize);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushMirror(JNIEnv *, jobject, jboolean flipX, jboolean flipY)
+{
+    core()->setBrushMirror(flipX == JNI_TRUE, flipY == JNI_TRUE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushAntiAliasing(JNIEnv *, jobject, jint level)
+{
+    core()->setBrushAntiAliasing(level);
 }
 
 JNIEXPORT void JNICALL

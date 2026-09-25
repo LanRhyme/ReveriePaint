@@ -378,59 +378,142 @@ bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
     return true;
 }
 
-bool ReverieCore::moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove)
+bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIndex)
 {
-    if (fromIndex <= 0 || fromIndex >= m_layers.size()) return false;
-    if (targetIndex < 0 || targetIndex >= m_layers.size()) return false;
-    if (fromIndex == targetIndex) return false;
+    if (groupIndex <= 0 || groupIndex >= m_layers.size() || !m_document) {
+        return false;
+    }
+    const LayerEntry &grp = m_layers[groupIndex];
+    if (grp.locked || !grp.isGroup || !grp.node) {
+        return false;
+    }
+    KisNodeSP group(grp.node);
 
-    const LayerEntry &src = m_layers[fromIndex];
-    const LayerEntry &dst = m_layers[targetIndex];
-    if (src.locked || src.background) return false;
-    if (!src.node || !dst.node || !m_document) return false;
+    QVector<int> sortedIndices = fromIndices;
+    std::sort(sortedIndices.begin(), sortedIndices.end());
 
-    KisNodeSP node(src.node);
-    KisNodeSP target(dst.node);
+    QVector<KisNodeSP> nodesToMove;
+    for (int idx : sortedIndices) {
+        if (idx <= 0 || idx >= m_layers.size()) continue;
+        if (idx == groupIndex) continue;
+        const LayerEntry &src = m_layers[idx];
+        if (src.locked || src.background || !src.node) continue;
 
-    // Prevent moving a group into its own subtree
-    if (src.isGroup) {
-        KisNodeSP p(target);
-        while (p) {
-            if (p == node) return false;
-            p = p->parent();
+        KisNodeSP node(src.node);
+        if (src.isGroup) {
+            KisNodeSP p(group->parent());
+            bool isAncestor = false;
+            while (p) {
+                if (p == node) {
+                    isAncestor = true;
+                    break;
+                }
+                p = p->parent();
+            }
+            if (isAncestor) continue;
         }
+        nodesToMove.append(node);
     }
 
-    KisNodeSP parent;
-    quint32 newIndex = 0;
+    if (nodesToMove.isEmpty()) return false;
 
-    if (dst.isGroup && !placeAbove) {
-        // Drop into group at its very bottom (visual last child = lowest composition index 0)
-        parent = target;
-        newIndex = 0;
-    } else {
-        parent = target->parent() ? target->parent() : KisNodeSP(m_document->root());
-        int targetIdxInParent = parent->index(target);
-        if (targetIdxInParent < 0) targetIdxInParent = 0;
-
-        if (placeAbove) {
-            // Visual ABOVE target = Higher in composition stack
-            newIndex = quint32(targetIdxInParent + 1);
-        } else {
-            // Visual BELOW target = Lower in composition stack (same slot, pushing target up)
-            newIndex = quint32(targetIdxInParent);
-        }
+    beginUndoMacro(QStringLiteral("Move Layers to Group"));
+    for (KisNodeSP node : nodesToMove) {
+        pushUndoCommand(new KisImageLayerMoveCommand(
+            m_document, node, group, group->childCount()));
     }
+    endUndoMacro();
 
-    if (!parent) parent = m_document->root();
-
-    pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, newIndex));
     syncLayersFromImage();
-    const int idx = indexOfNode(node.data());
+    const int grpIdx = indexOfNode(group.data());
+    if (grpIdx >= 0) m_currentLayer = grpIdx;
+    recompositeProjection();
+    markDirty();
+    return true;
+}
+
+bool ReverieCore::moveLayersRelative(const QVector<int> &fromIndices, int targetIndex, bool placeAbove)
+{
+    if (targetIndex < 0 || targetIndex >= m_layers.size() || !m_document) {
+        return false;
+    }
+    const LayerEntry &dst = m_layers[targetIndex];
+    if (!dst.node) return false;
+
+    // Background layer protection: cannot place anything visually below background
+    if (dst.background && !placeAbove) {
+        placeAbove = true;
+    }
+
+    KisNodeSP target(dst.node);
+    KisNodeSP parent = target->parent() ? target->parent() : KisNodeSP(m_document->rootLayer());
+    if (!parent) parent = m_document->rootLayer();
+
+    // Sort fromIndices ascending (composition order: 0 is lowest, N is highest)
+    QVector<int> sortedIndices = fromIndices;
+    std::sort(sortedIndices.begin(), sortedIndices.end());
+
+    QVector<KisNodeSP> nodesToMove;
+    for (int idx : sortedIndices) {
+        if (idx <= 0 || idx >= m_layers.size()) continue;
+        if (idx == targetIndex) continue;
+        const LayerEntry &src = m_layers[idx];
+        if (src.locked || src.background || !src.node) continue;
+
+        KisNodeSP node(src.node);
+
+        // Prevent moving an ancestor into its own descendant
+        if (src.isGroup) {
+            KisNodeSP p(parent);
+            bool isAncestor = false;
+            while (p) {
+                if (p == node) {
+                    isAncestor = true;
+                    break;
+                }
+                p = p->parent();
+            }
+            if (isAncestor) continue;
+        }
+        nodesToMove.append(node);
+    }
+
+    if (nodesToMove.isEmpty()) return false;
+
+    beginUndoMacro(QStringLiteral("Move Layers"));
+
+    KisNodeSP currentAbove;
+    if (placeAbove) {
+        // Visually ABOVE target: in composition stack, place directly above target
+        currentAbove = target;
+    } else {
+        // Visually BELOW target: in composition stack, place directly below target
+        // (i.e. directly above target's previous sibling)
+        KisNodeSP prev = target->prevSibling();
+        while (prev && nodesToMove.contains(prev)) {
+            prev = prev->prevSibling();
+        }
+        currentAbove = prev;
+    }
+
+    for (KisNodeSP node : nodesToMove) {
+        pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, currentAbove));
+        currentAbove = node;
+    }
+
+    endUndoMacro();
+
+    syncLayersFromImage();
+    const int idx = indexOfNode(nodesToMove.last().data());
     if (idx >= 0) m_currentLayer = idx;
     recompositeProjection();
     markDirty();
     return true;
+}
+
+bool ReverieCore::moveLayerRelative(int fromIndex, int targetIndex, bool placeAbove)
+{
+    return moveLayersRelative(QVector<int>{fromIndex}, targetIndex, placeAbove);
 }
 
 bool ReverieCore::moveLayerUp(int index)

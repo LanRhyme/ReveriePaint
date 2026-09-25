@@ -129,6 +129,8 @@ object ReverieCoreBridge {
 
     external fun currentLayerIndex(): Int
 
+    external fun layerId(index: Int): Long
+
     // ===== 动画: 帧 / 轨道 / 关键帧 =====
     // 每条轨道 = 一个图层; 帧数据由 Krita 的 KisRasterKeyframeChannel 持有
 
@@ -509,6 +511,17 @@ object ReverieCoreBridge {
     external fun setBrushRotation(v: Double)
 
     external fun setBrushCompositeOp(op: String)
+    external fun setBrushPressureDynamics(
+        enabled: Boolean,
+        sizeStrength: Double,
+        opacityStrength: Double,
+        flowStrength: Double,
+        curveType: Int,
+    )
+    external fun setBrushFollowDirection(enabled: Boolean)
+    external fun setBrushJitter(jitterAngle: Double, jitterSize: Double)
+    external fun setBrushMirror(flipX: Boolean, flipY: Boolean)
+    external fun setBrushAntiAliasing(level: Int)
     external fun setBrushTipAsset(assetName: String): Boolean
 
     external fun touchStrokeStart(
@@ -882,8 +895,19 @@ object ReverieCoreBridge {
         group: Int,
     ): Boolean
 
+    external fun moveLayersToGroup(
+        fromIndices: IntArray,
+        group: Int,
+    ): Boolean
+
     external fun moveLayerRelative(
         from: Int,
+        target: Int,
+        placeAbove: Boolean,
+    ): Boolean
+
+    external fun moveLayersRelative(
+        fromIndices: IntArray,
         target: Int,
         placeAbove: Boolean,
     ): Boolean

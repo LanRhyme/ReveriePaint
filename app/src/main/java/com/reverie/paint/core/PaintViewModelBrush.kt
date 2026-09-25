@@ -258,6 +258,7 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushAntiAliasing(v: Int) {
         brushAntiAliasing = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushAntiAliasing(v) }
     }
 
     internal fun PaintViewModel.updateBrushTipShape(v: Int) {
@@ -268,16 +269,19 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushRandomFlipX(v: Boolean) {
         brushRandomFlipX = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
     }
 
     internal fun PaintViewModel.updateBrushRandomFlipY(v: Boolean) {
         brushRandomFlipY = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
     }
 
     internal fun PaintViewModel.updateBrushFollowDirection(v: Boolean) {
         brushFollowDirection = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushFollowDirection(v) }
     }
 
     internal fun PaintViewModel.updateBrushStreamline(v: Double) {
@@ -338,21 +342,33 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushPressureEnabled(v: Boolean) {
         brushPressureEnabled = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureSize(v: Double) {
         brushPressureSize = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureOpacity(v: Double) {
         brushPressureOpacity = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushPressureFlow(v: Double) {
         brushPressureFlow = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushSpeedSize(v: Double) {
@@ -363,6 +379,9 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushPressureCurve(v: Int) {
         brushPressureCurve = v
         saveBrushParam()
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
+        }
     }
 
     internal fun PaintViewModel.updateBrushTipAsset(asset: String) {
@@ -408,11 +427,13 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushJitterAngle(v: Double) {
         brushJitterAngle = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
     }
 
     internal fun PaintViewModel.updateBrushJitterSize(v: Double) {
         brushJitterSize = v
         saveBrushParam()
+        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
     }
 
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
@@ -494,9 +515,18 @@ import kotlinx.coroutines.withContext
             author = brushAuthor,
             isAuthorLocked = brushIsAuthorLocked,
             description = brushDescription,
-            version = brushVersion,
         )
         schedulePersistBrushParams()
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val kppFile = File(dir, "$name.kpp")
+        if (kppFile.exists()) {
+            val pSnapshot = brushParams[name]
+            if (pSnapshot != null) {
+                runCore(render = false) {
+                    KppHelper.updateKppFile(kppFile, name, pSnapshot)
+                }
+            }
+        }
     }
 
     internal fun PaintViewModel.persistBrushParams() {
@@ -649,7 +679,7 @@ import kotlinx.coroutines.withContext
                     tipAsset = o.optString("ta", ""),
                     paintOpId = o.optString("poid", "defaultpaintop"),
                     airbrush = o.optBoolean("ab", false),
-                    airbrushRate = o.optDouble("abr", 0.05),
+                    airbrushRate = o.optDouble("abr", 30.0).let { if (it < 5.0) 30.0 else it },
                     smudgeRate = o.optDouble("smr", 0.5),
                     smudgeLength = o.optDouble("sml", 0.5),
                     spikes = o.optInt("spk", 2),
@@ -725,7 +755,7 @@ import kotlinx.coroutines.withContext
         brushSize = d?.getOrNull(0) ?: 20.0
         brushOpacity = (d?.getOrNull(1) ?: 1.0).coerceIn(0.0, 1.0)
         brushFlow = (d?.getOrNull(2) ?: 1.0).coerceIn(0.0, 1.0)
-        brushSpacing = 0.1
+        brushSpacing = d?.getOrNull(3) ?: 0.15
         brushAngle = 0.0
         brushScatter = 0.0
         brushFade = 0.0
@@ -760,10 +790,11 @@ import kotlinx.coroutines.withContext
         brushMaxSizeLimit = 500.0
         brushTipAsset = ""
         brushPaintOpId = "defaultpaintop"
-        brushAirbrush = false
-        brushAirbrushRate = 0.05
-        brushSmudgeRate = 0.5
-        brushSmudgeLength = 0.5
+        brushAirbrush = (d?.getOrNull(4) ?: 0.0) > 0.5
+        val defaultRate = d?.getOrNull(5) ?: 30.0
+        brushAirbrushRate = if (defaultRate >= 5.0) defaultRate else 30.0
+        brushSmudgeRate = d?.getOrNull(6) ?: 0.5
+        brushSmudgeLength = d?.getOrNull(7) ?: 0.5
         brushSpikes = 2
         brushJitterAngle = 0.0
         brushJitterSize = 0.0
@@ -819,10 +850,11 @@ import kotlinx.coroutines.withContext
         ).show()
     }
 
-    /** Share a brush preset (.kpp) via system share sheet */
+    /** Share a brush preset (.kpp or .bundle if it has custom tip) via system share sheet */
     internal fun PaintViewModel.shareBrushPreset(context: android.content.Context, presetName: String): Boolean {
         return try {
             val dir = File(appContext.filesDir, "paintoppresets")
+            val brushDir = File(appContext.filesDir, "brushes")
             val srcFile = File(dir, "$presetName.kpp")
             if (!srcFile.exists()) {
                 try {
@@ -836,37 +868,145 @@ import kotlinx.coroutines.withContext
             if (!srcFile.exists()) {
                 android.widget.Toast.makeText(
                     context,
-                    context.getString(R.string.brush_share_failed),
+                    context.getString(R.string.brush_share_failed, presetName),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
                 return false
             }
+
+            // Sync latest parameters into .kpp file
+            val params = brushParams[presetName]
+            if (params != null) {
+                KppHelper.updateKppFile(srcFile, presetName, params)
+            }
+
+            val tipName = params?.tipAsset?.ifBlank { null }
+                ?: KppHelper.extractTipAssetFilename(srcFile.readBytes())
+
+            // If the preset has a custom or separate tip asset, export as .bundle so the tip pattern is preserved
+            if (!tipName.isNullOrBlank()) {
+                val tipFile = File(brushDir, tipName)
+                if (!tipFile.exists()) {
+                    try {
+                        appContext.assets.open("brushes/$tipName").use { inS ->
+                            tipFile.outputStream().use { inS.copyTo(it) }
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (tipFile.exists()) {
+                    val group = userBrushGroups[presetName] ?: "分享"
+                    val bundleFile = KritaBundleManager.exportBundle(
+                        context = context,
+                        bundleName = presetName,
+                        groupName = group,
+                        presets = listOf(presetName to srcFile),
+                        tipAssets = listOf(tipFile),
+                    )
+                    return KritaBundleManager.shareFile(
+                        context = context,
+                        file = bundleFile,
+                        mimeType = "application/x-krita-bundle",
+                        title = context.getString(R.string.brush_share_title, presetName),
+                    )
+                }
+            }
+
+            // Standard procedural/algorithm brush without external tip: share .kpp
             val exportDir = File(appContext.cacheDir, "export_brushes").apply { if (!exists()) mkdirs() }
             val exportFile = File(exportDir, "$presetName.kpp")
             srcFile.copyTo(exportFile, overwrite = true)
 
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                exportFile
+            KritaBundleManager.shareFile(
+                context = context,
+                file = exportFile,
+                mimeType = "application/x-krita-paintoppreset",
+                title = context.getString(R.string.brush_share_title, presetName),
             )
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "application/x-krita-paintoppreset"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val chooser = android.content.Intent.createChooser(intent, context.getString(R.string.brush_share_title)).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(chooser)
-            true
         } catch (e: Exception) {
             android.util.Log.e("ReveriePaint", "shareBrushPreset failed", e)
             android.widget.Toast.makeText(
                 context,
-                context.getString(R.string.brush_share_failed),
+                context.getString(R.string.brush_share_failed, presetName),
                 android.widget.Toast.LENGTH_SHORT
             ).show()
+            false
+        }
+    }
+
+    /** Export an entire brush group as a standard Krita .bundle file */
+    internal fun PaintViewModel.exportBrushGroup(context: android.content.Context, groupName: String): Boolean {
+        val targetPresets = if (groupName == "全部") {
+            brushPresets
+        } else {
+            brushPresets.filter { it.group == groupName }
+        }
+        if (targetPresets.isEmpty()) {
+            android.widget.Toast.makeText(context, context.getString(R.string.brush_group_empty_export), android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        val dir = File(appContext.filesDir, "paintoppresets")
+        val brushDir = File(appContext.filesDir, "brushes")
+
+        val presetsToPack = mutableListOf<Pair<String, File>>()
+        val tipAssetsToPack = mutableListOf<File>()
+
+        for (p in targetPresets) {
+            val file = File(dir, "${p.name}.kpp")
+            if (!file.exists()) {
+                try {
+                    appContext.assets.open("paintoppresets/${p.name}.kpp").use { input ->
+                        file.outputStream().use { input.copyTo(it) }
+                    }
+                } catch (_: Exception) {}
+            }
+            if (file.exists()) {
+                val params = brushParams[p.name]
+                if (params != null) {
+                    KppHelper.updateKppFile(file, p.name, params)
+                }
+                presetsToPack.add(p.name to file)
+
+                val tipName = params?.tipAsset?.ifBlank { null }
+                    ?: KppHelper.extractTipAssetFilename(file.readBytes())
+                if (!tipName.isNullOrBlank()) {
+                    val tipFile = File(brushDir, tipName)
+                    if (!tipFile.exists()) {
+                        try {
+                            appContext.assets.open("brushes/$tipName").use { input ->
+                                tipFile.outputStream().use { input.copyTo(it) }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                    if (tipFile.exists() && tipAssetsToPack.none { it.name == tipFile.name }) {
+                        tipAssetsToPack.add(tipFile)
+                    }
+                }
+            }
+        }
+
+        if (presetsToPack.isEmpty()) {
+            android.widget.Toast.makeText(context, context.getString(R.string.brush_group_empty_export), android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
+
+        return try {
+            val bundleFile = KritaBundleManager.exportBundle(
+                context = context,
+                bundleName = groupName,
+                groupName = groupName,
+                presets = presetsToPack,
+                tipAssets = tipAssetsToPack,
+            )
+            KritaBundleManager.shareFile(
+                context = context,
+                file = bundleFile,
+                mimeType = "application/x-krita-bundle",
+                title = context.getString(R.string.brush_share_group_title, groupName),
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "exportBrushGroup failed", e)
+            android.widget.Toast.makeText(context, context.getString(R.string.brush_export_group_failed), android.widget.Toast.LENGTH_SHORT).show()
             false
         }
     }
@@ -952,7 +1092,7 @@ import kotlinx.coroutines.withContext
                 brushTipAsset = saved.tipAsset
                 brushPaintOpId = saved.paintOpId
                 brushAirbrush = saved.airbrush
-                brushAirbrushRate = saved.airbrushRate
+                brushAirbrushRate = if (saved.airbrushRate >= 5.0) saved.airbrushRate else 30.0
                 brushSmudgeRate = saved.smudgeRate
                 brushSmudgeLength = saved.smudgeLength
                 brushSpikes = saved.spikes
@@ -965,14 +1105,61 @@ import kotlinx.coroutines.withContext
             } else {
                 // First use: the preset's own defaults
                 val d = ReverieCoreBridge.brushPresetDefaults(index)
-                if (d != null && d.size >= 3) {
+                if (d.size >= 8) {
+                    brushSize = d[0]
+                    brushOpacity = d[1].coerceIn(0.0, 1.0)
+                    brushFlow = d[2].coerceIn(0.0, 1.0)
+                    brushSpacing = d[3]
+                    brushAirbrush = d[4] > 0.5
+                    val defaultRate = d[5]
+                    brushAirbrushRate = if (defaultRate >= 5.0) defaultRate else 30.0
+                    brushSmudgeRate = d[6]
+                    brushSmudgeLength = d[7]
+                } else if (d.size >= 3) {
                     brushSize = d[0]
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                 }
                 brushCompositeOp = effectiveCompOp
+                brushMinSizeLimit = 1.0
+                brushMaxSizeLimit = maxOf(500.0, brushSize)
                 brushAuthor = if (isBuiltIn) "Krita" else "原创创作者"
                 brushIsAuthorLocked = isBuiltIn
+                brushTipAsset = ""
+                brushAngle = 0.0
+                brushScatter = 0.0
+                brushFade = 0.0
+                brushSoftness = 0.5
+                brushRatio = 1.0
+                brushSharpness = 0.0
+                brushRotation = 0.0
+                brushAntiAliasing = 1
+                brushTipShape = 0
+                brushRandomFlipX = false
+                brushRandomFlipY = false
+                brushFollowDirection = false
+                brushStreamline = 0.0
+                brushTaper = 0.0
+                brushTextureEnabled = false
+                brushTextureScale = 1.0
+                brushTextureStrength = 0.5
+                brushTextureMode = "multiply"
+                brushHueJitter = 0.0
+                brushSatJitter = 0.0
+                brushValJitter = 0.0
+                brushSecondaryMix = 0.0
+                brushPressureColorMix = false
+                brushPressureEnabled = true
+                brushPressureSize = 1.0
+                brushPressureOpacity = 1.0
+                brushPressureFlow = 1.0
+                brushSpeedSize = 0.0
+                brushPressureCurve = 0
+                brushSpikes = 2
+                brushJitterAngle = 0.0
+                brushJitterSize = 0.0
+                brushDescription = ""
+                brushVersion = "1.0"
             }
             // 主线程先写预设值, 再由 overlay 用当前工具记忆覆盖;
             // overlay 内部的引擎 setter 经 runCore 追加在预设 setter 之后, 写序确定。
@@ -1002,17 +1189,29 @@ import kotlinx.coroutines.withContext
                 ReverieCoreBridge.setBrushSharpness(saved.sharpness)
                 ReverieCoreBridge.setBrushRotation(saved.rotation)
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
+                ReverieCoreBridge.setBrushPressureDynamics(
+                    saved.pressureEnabled,
+                    saved.pressureSize,
+                    saved.pressureOpacity,
+                    saved.pressureFlow,
+                    saved.pressureCurve,
+                )
+                ReverieCoreBridge.setBrushFollowDirection(saved.followDirection)
+                ReverieCoreBridge.setBrushJitter(saved.jitterAngle, saved.jitterSize)
+                ReverieCoreBridge.setBrushMirror(saved.randomFlipX, saved.randomFlipY)
+                ReverieCoreBridge.setBrushAntiAliasing(saved.antiAliasing)
                 ReverieCoreBridge.setBrushSmudgeRate(saved.smudgeRate)
                 ReverieCoreBridge.setBrushSmudgeLength(saved.smudgeLength)
-                ReverieCoreBridge.setBrushAirbrush(saved.airbrush, saved.airbrushRate)
+                val effectiveAirbrushRate = if (saved.airbrushRate >= 5.0) saved.airbrushRate else 30.0
+                ReverieCoreBridge.setBrushAirbrush(saved.airbrush, effectiveAirbrushRate)
                 if (saved.tipAsset.isNotEmpty()) {
                     ReverieCoreBridge.setBrushTipAsset(saved.tipAsset)
+                } else {
+                    ReverieCoreBridge.setBrushTipAsset("")
                 }
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
-                ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
-                ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
-                ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
+                ReverieCoreBridge.setBrushTipAsset("")
             }
         }
     }
@@ -1198,12 +1397,30 @@ import kotlinx.coroutines.withContext
         if (srcFile.exists()) {
             srcFile.copyTo(dstFile, overwrite = true)
         }
-        val srcParams = brushParams[src.name] ?: BrushParams()
+        val d = ReverieCoreBridge.brushPresetDefaults(src.index)
+        val srcParams = brushParams[src.name] ?: if (d.size >= 8) {
+            BrushParams(
+                size = d[0],
+                opacity = d[1].coerceIn(0.0, 1.0),
+                flow = d[2].coerceIn(0.0, 1.0),
+                spacing = d[3],
+                airbrush = d[4] > 0.5,
+                airbrushRate = if (d[5] >= 5.0) d[5] else 30.0,
+                smudgeRate = d[6],
+                smudgeLength = d[7],
+            )
+        } else {
+            BrushParams()
+        }
         // 复制出的笔刷作者可自由修改，且非内置
-        brushParams[cleanName] = srcParams.copy(
+        val cleanParams = srcParams.copy(
             author = if (src.isBuiltIn) "Krita (副本)" else srcParams.author,
             isAuthorLocked = false,
         )
+        brushParams[cleanName] = cleanParams
+        if (dstFile.exists()) {
+            KppHelper.updateKppFile(dstFile, cleanName, cleanParams)
+        }
         persistBrushParams()
         if (userBrushGroups.containsKey(src.name)) {
             userBrushGroups = userBrushGroups + (cleanName to userBrushGroups[src.name]!!)
@@ -1265,13 +1482,29 @@ import kotlinx.coroutines.withContext
             val first = dir.listFiles()?.firstOrNull { it.name.endsWith(".kpp") }
             first?.copyTo(targetFile, overwrite = true)
         }
-        val baseParams = base?.name?.let { brushParams[it] }
-        brushParams[cleanName] = (baseParams?.copy() ?: BrushParams()).copy(
+        val baseD = base?.let { ReverieCoreBridge.brushPresetDefaults(it.index) }
+        val baseParams = base?.name?.let { brushParams[it] } ?: if (baseD != null && baseD.size >= 8) {
+            BrushParams(
+                size = baseD[0],
+                opacity = baseD[1].coerceIn(0.0, 1.0),
+                flow = baseD[2].coerceIn(0.0, 1.0),
+                spacing = baseD[3],
+                airbrush = baseD[4] > 0.5,
+                airbrushRate = if (baseD[5] >= 5.0) baseD[5] else 30.0,
+                smudgeRate = baseD[6],
+                smudgeLength = baseD[7],
+            )
+        } else null
+        val newParams = (baseParams?.copy() ?: BrushParams()).copy(
             tipAsset = if (tipAsset.isNotEmpty()) tipAsset else (baseParams?.tipAsset ?: ""),
             paintOpId = if (paintOpId.isNotEmpty() && paintOpId != "defaultpaintop") paintOpId else (baseParams?.paintOpId ?: "defaultpaintop"),
             author = "原创创作者",
             isAuthorLocked = false,
         )
+        brushParams[cleanName] = newParams
+        if (targetFile.exists()) {
+            KppHelper.updateKppFile(targetFile, cleanName, newParams)
+        }
         persistBrushParams()
         userBrushGroups = userBrushGroups + (cleanName to group)
         if (!customBrushGroups.contains(group) && group != "全部") {
@@ -1520,23 +1753,37 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.importCustomBrushTip(uri: android.net.Uri): String? {
         return try {
             val resolver = appContext.contentResolver
-            val filename = runCatching {
+            val rawName = runCatching {
                 resolver.query(uri, null, null, null, null)?.use { cursor ->
                     val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                     if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
                 }
-            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "tip_${System.currentTimeMillis()}.png"
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "tip_${System.currentTimeMillis()}"
 
-            val cleanName = if (filename.endsWith(".png", true) || filename.endsWith(".gbr", true) || filename.endsWith(".gih", true) || filename.endsWith(".jpg", true)) {
-                filename
-            } else {
-                "$filename.png"
-            }
+            val baseName = if (rawName.contains('.')) rawName.substringBeforeLast(".") else rawName
+            val ext = if (rawName.contains('.')) rawName.substringAfterLast(".").lowercase() else "png"
+            val isKritaNative = ext == "gbr" || ext == "gih" || ext == "svg"
+
             val brushDir = File(appContext.filesDir, "brushes")
             if (!brushDir.exists()) brushDir.mkdirs()
-            val target = File(brushDir, cleanName)
-            resolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { output -> input.copyTo(output) }
+
+            val cleanName: String
+            if (isKritaNative) {
+                cleanName = "$baseName.$ext"
+                val target = File(brushDir, cleanName)
+                resolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            } else {
+                // Decode any image format and write as standard lossless PNG for KisPngBrush
+                cleanName = "$baseName.png"
+                val target = File(brushDir, cleanName)
+                val bmp = resolver.openInputStream(uri)?.use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)
+                } ?: return null
+                target.outputStream().use { output ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, output)
+                }
             }
             updateBrushTipAsset(cleanName)
             cleanName

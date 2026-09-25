@@ -17,7 +17,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -47,9 +48,14 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.scrollBy
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -144,18 +150,19 @@ internal fun LayerListView(
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
     var collapsedGroupNames by remember { mutableStateOf(setOf<String>()) }
-    var draggingFrom by remember { mutableStateOf(-1) }
+    val listState = rememberLazyListState()
+    var draggingFrom by remember { mutableIntStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
-    var dragFingerY by remember { mutableStateOf(0f) }
-    var dragTargetIdx by remember { mutableStateOf(-1) }
-    // After release the floating overlay glides into the drop slot before
-    // fading out, so what the user sees (finger position) matches where the
-    // layer lands (slot center). settleTo = absolute y of the slot center;
-    // settleFrom = the overlay offset at release.
-    var settleTo by remember { mutableStateOf<Float?>(null) }
-    var settleFrom by remember { mutableStateOf<Float?>(null) }
-    var settling by remember { mutableStateOf(false) }
-    val settleAnim = remember { Animatable(0f) }
+    var dragFingerX by remember { mutableFloatStateOf(0f) }
+    var dragFingerY by remember { mutableFloatStateOf(0f) }
+    var dragStartX by remember { mutableFloatStateOf(0f) }
+    var dragStartY by remember { mutableFloatStateOf(0f) }
+    var dragTargetIdx by remember { mutableIntStateOf(-1) }
+    var previewDropIdx by remember { mutableIntStateOf(-1) }
+    var listLeft by remember { mutableFloatStateOf(0f) }
+    var listTop by remember { mutableFloatStateOf(0f) }
+    var listWidth by remember { mutableFloatStateOf(0f) }
+    var listHeight by remember { mutableFloatStateOf(0f) }
     val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
 
     // Display order, top-first, keeping group blocks intact.
@@ -192,135 +199,288 @@ internal fun LayerListView(
             if (res.isEmpty() && n > 0) vm.layers.reversed() else res
         }
 
-    // Freeze the dragged order on release so the row does not first animate
-    // back to its original position: displayList stays at the drop order until
-    // the native move has landed (vm.layers updates -> LaunchedEffect releases).
-    // Frozen drop order, keyed by layer NAME (indices change after the native
-    // move lands, so an index-keyed freeze remaps wrong and plays a phantom
-    // animateItem shuffle after release)
-    var pendingOrder by remember { mutableStateOf<List<String>?>(null) }
+    val activeDrag = vm.activeLayerDrag
+    val isDraggingActive = draggingFrom >= 0 || activeDrag != null
+    val targetSlot = when {
+        draggingFrom >= 0 -> if (dragOver != null) -1 else dragTargetIdx
+        activeDrag != null -> previewDropIdx
+        else -> -1
+    }
 
-    // Display list priority: frozen drop order > dragging order > real order
-    val displayList =
-        remember(vm.layers, collapsedGroupNames, draggingFrom, dragTargetIdx, pendingOrder) {
-            if (pendingOrder != null) {
-                val byName = displayRows.associateBy { it.name }
-                pendingOrder!!.mapNotNull { byName[it] }
-            } else if (draggingFrom >= 0 && dragTargetIdx >= 0) {
-                val l = displayRows.toMutableList()
-                val fi = l.indexOfFirst { it.index == draggingFrom }
-                if (fi >= 0) {
-                    val item = l.removeAt(fi)
-                    l.add(dragTargetIdx.coerceIn(0, l.size), item)
-                }
-                l
-            } else {
-                displayRows
-            }
+    LaunchedEffect(vm.activeLayerDrag) {
+        if (vm.activeLayerDrag == null) {
+            previewDropIdx = -1
         }
+    }
 
-    // Once the native layer list reflects the move, release the frozen order
-    LaunchedEffect(vm.layers) {
-        if (pendingOrder != null) {
-            android.util.Log.d(
-                "LayerPanel",
-                "RELEASE pending=$pendingOrder real=${displayRows.map { it.name }}",
-            )
-            pendingOrder = null
+    // Dynamic preview displayList: parts remaining rows to open a vacant slot
+    // at the drop target seam so other layers smoothly spring into position
+    val displayList = remember(displayRows, isDraggingActive, targetSlot, dragOver, activeDrag) {
+        val draggedIds = activeDrag?.draggedIds ?: emptySet()
+        val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val batchIndices = if (isMulti) vm.selectedLayerIndices else if (draggingFrom >= 0) setOf(draggingFrom) else emptySet()
+
+        if (!isDraggingActive || dragOver != null || targetSlot < 0 || displayRows.isEmpty() || (draggedIds.isEmpty() && batchIndices.isEmpty())) {
+            displayRows
+        } else {
+            val isDragged: (PaintViewModel.LayerUiState) -> Boolean = { it.id in draggedIds || it.index in batchIndices }
+            val draggedItems = displayRows.filter(isDragged)
+            val remaining = displayRows.filterNot(isDragged)
+            val insertAt = targetSlot.coerceIn(0, remaining.size)
+            val result = ArrayList<PaintViewModel.LayerUiState>(displayRows.size)
+            result.addAll(remaining)
+            result.addAll(insertAt, draggedItems)
+            result
         }
     }
 
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
     val rowPx = with(density) { rowHeight.roundToPx() }
-    var columnTop by remember { mutableStateOf(0f) }
 
-    fun updateDragPos(fingerY: Float) {
-        if (displayList.isEmpty()) return
+    fun updateDragPos(fingerX: Float, fingerY: Float) {
+        if (displayList.isEmpty() || draggingFrom < 0) return
+        dragFingerX = fingerX
         dragFingerY = fingerY
-        // Math-mapped target: rows are fixed-height, so the insert index is
-        // (fingerY - listTop) / rowHeight, ROUNDED to the nearest row boundary
-        // (finger in the top half of a row = insert before it, bottom half =
-        // insert after it). The parting animation and the drop use the same
-        // index, so what the user sees is where it lands.
-        val rowPos = (fingerY - columnTop) / rowPx
-        // 0.5 counts as THIS row (roundToInt's Math.round bumps 0.5 up, so a
-        // finger at the row center snapped the placeholder a full row lower -
-        // the "offset by a bit" feel when dragging). (x+0.4999).toInt() keeps
-        // the placeholder centered on the finger's row.
-        var target = (rowPos + 0.4999f).toInt().coerceIn(0, (displayList.size - 1).coerceAtLeast(0))
-        // Background protection: never below the background row (index 0)
-        val bgVisual = displayList.indexOfFirst { it.index == 0 }
-        if (bgVisual >= 0) target = target.coerceAtMost((bgVisual - 1).coerceAtLeast(0))
-        // Only re-sort when the target slot actually changes: recomputing the
-        // list for every in-row finger micro-move restarts the animateItem
-        // animations over and over, which reads as jitter
-        if (target != dragTargetIdx) dragTargetIdx = target
-        // Group middle zone highlight (rowBounds only used for this hint)
-        var over: Pair<Int, DropMode>? = null
-        for (i in displayList.indices) {
-            val idx = displayList[i].index
-            if (idx == draggingFrom) continue
-            val b = rowBounds[idx] ?: continue
-            if (fingerY >= b.first && fingerY <= b.second) {
-                val isGroup = vm.layers.firstOrNull { it.index == idx }?.isGroup == true
-                if (isGroup) {
-                    val mid0 = b.first + (b.second - b.first) * 0.3f
-                    val mid1 = b.first + (b.second - b.first) * 0.7f
-                    if (fingerY >= mid0 && fingerY <= mid1) {
-                        over = idx to DropMode.OnGroup
-                    }
-                }
-            }
+        vm.layerDragFingerX = fingerX
+        vm.layerDragFingerY = fingerY
+
+        val isOutsidePanel = fingerX < listLeft - with(density) { 60.dp.toPx() } ||
+            fingerX > (listLeft + listWidth + with(density) { 60.dp.toPx() })
+        if (isOutsidePanel) {
+            dragOver = null
+            dragTargetIdx = -1
+            return
         }
-        dragOver = over
-        android.util.Log.d(
-            "LayerPanel",
-            "dragPos y=$fingerY colTop=$columnTop rowPx=$rowPx rowPos=$rowPos target=$target size=${displayList.size}",
-        )
-    }
 
-    fun endDrag() {
-        val from = draggingFrom
-        val insert = dragTargetIdx
-        val over = dragOver
-        if (from > 0 && insert >= 0) {
-            val frozen = displayRows.toMutableList()
-            val fi = frozen.indexOfFirst { it.index == from }
-            if (fi >= 0) {
-                val item = frozen.removeAt(fi)
-                frozen.add(insert.coerceIn(0, frozen.size), item)
-            }
-            pendingOrder = frozen.map { it.name }
+        val scrollOffset = listState.firstVisibleItemIndex * rowPx + listState.firstVisibleItemScrollOffset
+        val contentY = (fingerY - listTop) + scrollOffset
 
-            val groupDrop = over != null && over.second == DropMode.OnGroup
-            if (groupDrop) {
-                vm.moveLayerToGroup(from, over.first)
+        val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val draggedSet = if (isMulti) vm.selectedLayerIndices else setOf(draggingFrom)
+
+        // 1. Group hover detection
+        var over: Pair<Int, DropMode>? = null
+        for (layer in vm.layers) {
+            if (!layer.isGroup || layer.index in draggedSet) continue
+            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
+            if (fromLayer?.isGroup == true && layer.depth > fromLayer.depth) continue
+
+            // If the layer being dragged already belongs to this group, do not hover-drop into it
+            val isAlreadyInsideThisGroup = fromLayer != null && fromLayer.depth > layer.depth &&
+                run {
+                    val pg = vm.layers.take(fromLayer.index).lastOrNull { it.depth == layer.depth && it.isGroup }
+                    pg?.index == layer.index
+                }
+            if (isAlreadyInsideThisGroup) continue
+
+            // Priority A: direct screen bounding box from onGloballyPositioned
+            val b = rowBounds[layer.index]
+            if (b != null && fingerY >= b.first && fingerY <= b.second) {
+                val h = (b.second - b.first).coerceAtLeast(1f)
+                val relY = (fingerY - b.first) / h
+                if (relY in 0.18f..0.82f) {
+                    over = layer.index to DropMode.OnGroup
+                    break
+                }
             } else {
-                val listWithoutFrom = displayRows.filter { it.index != from }
-                if (listWithoutFrom.isNotEmpty()) {
-                    if (insert == 0) {
-                        val target = listWithoutFrom.first().index
-                        vm.moveLayerRelative(from, target, placeAbove = true)
-                    } else if (insert >= listWithoutFrom.size) {
-                        val target = listWithoutFrom.last().index
-                        vm.moveLayerRelative(from, target, placeAbove = false)
-                    } else {
-                        val prevItem = listWithoutFrom[insert - 1]
-                        val nextItem = listWithoutFrom[insert]
-                        if (prevItem.depth > nextItem.depth) {
-                            vm.moveLayerRelative(from, prevItem.index, placeAbove = false)
-                        } else {
-                            vm.moveLayerRelative(from, nextItem.index, placeAbove = true)
+                // Priority B: mathematical contentY range in displayRows
+                val groupVisualIdx = displayRows.indexOfFirst { it.index == layer.index }
+                if (groupVisualIdx >= 0) {
+                    val gTop = groupVisualIdx * rowPx
+                    val gBottom = gTop + rowPx
+                    if (contentY >= gTop && contentY <= gBottom) {
+                        val relY = (contentY - gTop) / rowPx.toFloat()
+                        if (relY in 0.18f..0.82f) {
+                            over = layer.index to DropMode.OnGroup
+                            break
                         }
                     }
                 }
             }
         }
+        dragOver = over
+
+        if (over != null) {
+            val groupVisualIdx = displayRows.indexOfFirst { it.index == over.first }
+            if (groupVisualIdx >= 0) {
+                dragTargetIdx = groupVisualIdx
+            }
+            return
+        }
+
+        // 2. Math slot calculation (divider seam between rows of remaining)
+        val remaining = displayRows.filter { it.index !in draggedSet }
+        val bgVisual = remaining.indexOfFirst { it.isBackground || it.index == 0 }
+        val maxSlot = if (bgVisual >= 0) bgVisual else remaining.size
+        val rawSlot = ((contentY + rowPx * 0.4f) / rowPx).toInt().coerceIn(0, maxSlot)
+        dragTargetIdx = rawSlot
+        previewDropIdx = rawSlot
+    }
+
+    fun endDrag() {
+        if (draggingFrom < 0) return
+        val from = draggingFrom
+        val insert = dragTargetIdx
+        val over = dragOver
+        val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+        val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(from)
+        val draggedSet = batch.toSet()
+        val remaining = displayRows.filter { it.index !in draggedSet }
+
+        val grabOffsetX = vm.activeLayerDrag?.grabOffsetX ?: 0f
+        val grabOffsetY = vm.activeLayerDrag?.grabOffsetY ?: 0f
+        val currentFingerX = when {
+            dragFingerX != 0f -> dragFingerX
+            vm.layerDragFingerX != 0f -> vm.layerDragFingerX
+            else -> vm.activeLayerDrag?.startX ?: listLeft
+        }
+        val currentFingerY = when {
+            dragFingerY != 0f -> dragFingerY
+            vm.layerDragFingerY != 0f -> vm.layerDragFingerY
+            else -> vm.activeLayerDrag?.startY ?: listTop
+        }
+        val settleFromOffset = Offset(
+            x = currentFingerX - grabOffsetX,
+            y = currentFingerY - grabOffsetY,
+        )
+
+        var groupDrop = false
+        if (from > 0 && (insert >= 0 || over != null)) {
+            groupDrop = over != null && over.second == DropMode.OnGroup
+            if (groupDrop) {
+                val groupIdx = over!!.first
+                if (batch.size > 1) {
+                    vm.moveLayersToGroup(batch, groupIdx)
+                } else {
+                    vm.moveLayerToGroup(from, groupIdx)
+                }
+                val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
+                if (groupLayer != null && groupLayer.name in collapsedGroupNames) {
+                    collapsedGroupNames = collapsedGroupNames - groupLayer.name
+                }
+            } else if (insert >= 0) {
+                val nonDraggedPrev = remaining.take(insert).lastOrNull()
+                val nonDraggedNext = remaining.drop(insert).firstOrNull()
+                val panelX = dragFingerX - listLeft
+                val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
+                    panelX >= with(density) { 130.dp.toPx() }
+
+                val fromLayer = vm.layers.firstOrNull { it.index == from }
+                val fromIsNested = (fromLayer?.depth ?: 0) > 0
+                val parentGroup = if (fromIsNested && fromLayer != null) {
+                    vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
+                } else null
+
+                when {
+                    nonDraggedPrev == null && nonDraggedNext != null -> {
+                        vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                    }
+                    nonDraggedNext == null && nonDraggedPrev != null -> {
+                        vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
+                    }
+                    nonDraggedPrev != null && nonDraggedNext != null -> {
+                        if (nonDraggedPrev.depth > nonDraggedNext.depth) {
+                            if (isIndented) {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
+                            } else {
+                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                            }
+                        } else if (nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth) {
+                            if (isIndented) {
+                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                            } else {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
+                            }
+                        } else if (!isIndented && fromIsNested && parentGroup != null) {
+                            val grpVisualIdx = remaining.indexOfFirst { it.index == parentGroup.index }
+                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
+                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
+                            } else {
+                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = false)
+                            }
+                        } else if (nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index) {
+                            val grpVisualIdx = remaining.indexOfFirst { it.index == nonDraggedPrev.index }
+                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
+                            } else {
+                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
+                            }
+                        } else {
+                            vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                        }
+                    }
+                }
+            }
+
+            // Settle animation into drop slot or group folder
+            val targetInfo = if (groupDrop) {
+                val grpVisualIdx = displayRows.indexOfFirst { r -> r.index == over!!.first }
+                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == grpVisualIdx }
+            } else {
+                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
+            }
+            val targetY = if (targetInfo != null) {
+                listTop + targetInfo.offset
+            } else if (groupDrop) {
+                rowBounds[over!!.first]?.first ?: listTop
+            } else {
+                listTop + insert * rowPx
+            }
+            val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
+            vm.layerDragSettleFrom = settleFromOffset
+            vm.layerDragSettleTo = Offset(settleTargetX, targetY.toFloat())
+            vm.isLayerDragGroupSettle = groupDrop
+            vm.isLayerDragSettling = true
+            previewDropIdx = if (groupDrop) -1 else insert
+        } else {
+            // Cancelled or dropped outside panel: spring back to origin
+            val b = rowBounds[from]
+            val originY = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == from }.coerceAtLeast(0) * rowPx)
+            val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
+            vm.layerDragSettleFrom = settleFromOffset
+            vm.layerDragSettleTo = Offset(settleTargetX, originY)
+            vm.isLayerDragGroupSettle = false
+            vm.isLayerDragSettling = true
+            previewDropIdx = -1
+        }
         draggingFrom = -1
         dragTargetIdx = -1
+        dragStartX = 0f
+        dragStartY = 0f
+        dragFingerX = 0f
         dragFingerY = 0f
         dragOver = null
+    }
+
+    LaunchedEffect(draggingFrom) {
+        if (draggingFrom < 0) return@LaunchedEffect
+        val scrollZone = with(density) { 48.dp.toPx() }
+        val maxScrollStep = with(density) { 14.dp.toPx() }
+        val minDragDistanceToScroll = with(density) { 32.dp.toPx() }
+        while (isActive && draggingFrom >= 0) {
+            val inHorizontalRange = dragFingerX >= listLeft - with(density) { 40.dp.toPx() } &&
+                dragFingerX <= listLeft + listWidth + with(density) { 40.dp.toPx() }
+            val startY = if (dragStartY != 0f) dragStartY else (vm.activeLayerDrag?.startY ?: 0f)
+            val hasMovedFromStart = startY > 0f && abs(dragFingerY - startY) > minDragDistanceToScroll
+            if (inHorizontalRange && hasMovedFromStart && dragFingerY > 0f) {
+                val topDist = dragFingerY - listTop
+                val bottomDist = (listTop + listHeight) - dragFingerY
+                var scrollDelta = 0f
+                if (topDist in 0f..scrollZone && listState.canScrollBackward) {
+                    val ratio = 1f - (topDist / scrollZone).coerceIn(0f, 1f)
+                    scrollDelta = -maxScrollStep * ratio
+                } else if (bottomDist in 0f..scrollZone && listState.canScrollForward) {
+                    val ratio = 1f - (bottomDist / scrollZone).coerceIn(0f, 1f)
+                    scrollDelta = maxScrollStep * ratio
+                }
+                if (scrollDelta != 0f) {
+                    listState.scrollBy(scrollDelta)
+                    updateDragPos(dragFingerX, dragFingerY)
+                }
+            }
+            delay(16L)
+        }
     }
 
     var showNewLayerMenu by remember { mutableStateOf(false) }
@@ -477,7 +637,6 @@ internal fun LayerListView(
 
         Spacer(Modifier.height(4.dp))
 
-        var listTop by remember { mutableStateOf(0f) }
         // Adaptive height: grows with the layer count, capped at
         // screen*3/4 minus the panel header (~56dp); scrolls beyond that
         val cfg = LocalConfiguration.current
@@ -489,7 +648,13 @@ internal fun LayerListView(
                 Modifier
                     .fillMaxWidth()
                     .height(listH)
-                    .onGloballyPositioned { listTop = it.boundsInRoot().top }
+                    .onGloballyPositioned { coords ->
+                        val b = coords.boundsInRoot()
+                        listLeft = b.left
+                        listTop = b.top
+                        listWidth = b.width
+                        listHeight = b.height
+                    }
                     .pointerInput(displayList) {
                         awaitPointerEventScope {
                             var pinchStartDist = 0f
@@ -548,154 +713,267 @@ internal fun LayerListView(
                         }
                     },
         ) {
-            LazyColumn(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .onGloballyPositioned { columnTop = it.boundsInRoot().top }
-                        // Panel-level drag handler: once a row's long press activated
-                        // dragging (draggingFrom >= 0), this consumes the following
-                        // moves for drop-position calculation. Consuming also stops
-                        // the lazy scroll from hijacking the drag.
-                        .pointerInput(draggingFrom) {
-                            if (draggingFrom < 0) return@pointerInput
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val pressed = event.changes.firstOrNull { it.pressed }
-                                    if (pressed == null) {
-                                        endDrag()
-                                        break
-                                    }
-                                    pressed.consume()
-                                    updateDragPos(columnTop + pressed.position.y)
-                                }
-                            }
-                        },
+            CompositionLocalProvider(
+                LocalOverscrollFactory provides null,
             ) {
-                // Key by a unique combination of depth, name, and index to ensure
-                // stability while preventing duplicate key crashes even with duplicate names
-                items(displayList, key = { "${it.depth}:${it.name}:${it.index}" }) { layer ->
-                    LayerRow(
-                        vm = vm,
-                        layer = layer,
-                        selected = layer.index == selectedIndex,
-                        collapsed = layer.name in collapsedGroupNames,
-                        onToggleCollapse = {
-                            revealedIndex = null
-                            collapsedGroupNames =
-                                if (layer.name in collapsedGroupNames) {
-                                    collapsedGroupNames - layer.name
-                                } else {
-                                    collapsedGroupNames + layer.name
+                LazyColumn(
+                    state = listState,
+                    userScrollEnabled = draggingFrom < 0,
+                    overscrollEffect = null,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
+                    items(displayList, key = { it.id }) { layer ->
+                        LayerRow(
+                            vm = vm,
+                            layer = layer,
+                            selected = layer.index == selectedIndex,
+                            collapsed = layer.name in collapsedGroupNames,
+                            onToggleCollapse = {
+                                revealedIndex = null
+                                collapsedGroupNames =
+                                    if (layer.name in collapsedGroupNames) {
+                                        collapsedGroupNames - layer.name
+                                    } else {
+                                        collapsedGroupNames + layer.name
+                                    }
+                            },
+                            revealed = layer.index == revealedIndex,
+                            onReveal = { revealedIndex = layer.index },
+                            onRevealClose = { revealedIndex = null },
+                            onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
+                            onDragStart = { startX, startY ->
+                                revealedIndex = null
+                                if (layer.index !in vm.selectedLayerIndices) {
+                                    vm.clearLayerSelection()
                                 }
-                        },
-                        revealed = layer.index == revealedIndex,
-                        onReveal = { revealedIndex = layer.index },
-                        onRevealClose = { revealedIndex = null },
-                        onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
-                        onDragStart = {
-                            revealedIndex = null
-                            pendingOrder = null
-                            draggingFrom = layer.index
-                        },
-                        onDragPosition = { updateDragPos(it) },
-                        onDragEnd = { endDrag() },
-                        dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
-                        isDragging = draggingFrom == layer.index,
-                        dragFingerY = dragFingerY,
-                        multiSelected = layer.index in vm.selectedLayerIndices,
-                        onSelect = {
-                            revealedIndex = null
-                            vm.toggleLayerSelection(layer.index)
-                        },
-                        onClick = {
-                            revealedIndex = null
-                            if (layer.index !in vm.selectedLayerIndices) {
-                                // Tapping an unselected row switches the
-                                // target (standard behaviour) and clears the
-                                // multi-selection
-                                vm.clearLayerSelection()
-                            }
-                            // NOTE: tapping a row that IS part of the multi-
-                            // selection keeps the set - the old unconditional
-                            // clear silently nuked the whole selection after
-                            // the user had swiped several rows
-                            if (layer.index == selectedIndex) {
-                                onOpenDetail(layer.index)
-                            } else {
-                                // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
-                                vm.cancelSoloIfSwitchingLayer()
-                                selectedIndex = layer.index
-                                vm.setCurrentLayer(layer.index)
-                            }
-                        },
-                        modifier =
-                            Modifier.animateItem(
-                                // Smooth non-bouncy parting animation
-                                // (the drag flicker was the thumbnail
-                                // index cache going empty after moves,
-                                // not this animation)
-                                placementSpec = tween(220),
-                                fadeInSpec = tween(120),
-                                fadeOutSpec = tween(120),
-                            ),
-                    )
+                                draggingFrom = layer.index
+                                dragStartX = startX
+                                dragStartY = startY
+
+                                val isMulti = layer.index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                                val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(layer.index)
+                                val draggedLayers = vm.layers.filter { it.index in batch }
+                                val draggedIds = draggedLayers.map { it.id }.toSet()
+
+                                val b = rowBounds[layer.index]
+                                val rowScreenTop = b?.first ?: (listTop + displayRows.indexOfFirst { it.index == layer.index }.coerceAtLeast(0) * rowPx)
+                                val grabOffsetX = (startX - listLeft).coerceIn(0f, listWidth.coerceAtLeast(1f))
+                                val grabOffsetY = (startY - rowScreenTop).coerceIn(0f, rowPx.toFloat())
+
+                                vm.layerDragFingerX = startX
+                                vm.layerDragFingerY = startY
+                                vm.isLayerDragSettling = false
+                                vm.isLayerDragGroupSettle = false
+                                vm.layerDragSettleTo = null
+                                vm.layerDragSettleFrom = null
+
+                                vm.activeLayerDrag = PaintViewModel.LayerDragState(
+                                    layer = layer,
+                                    draggedIds = draggedIds,
+                                    isMulti = isMulti,
+                                    multiCount = batch.size,
+                                    startX = startX,
+                                    startY = startY,
+                                    grabOffsetX = grabOffsetX,
+                                    grabOffsetY = grabOffsetY,
+                                    cardWidthPx = if (listWidth > 0f) listWidth else with(density) { 280.dp.toPx() },
+                                    cardHeightPx = rowPx.toFloat(),
+                                )
+
+                                updateDragPos(startX, startY)
+                            },
+                            onDragPosition = { x, y -> updateDragPos(x, y) },
+                            onDragEnd = { endDrag() },
+                            dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
+                            isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
+                                draggingFrom == layer.index ||
+                                (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
+                            multiSelected = layer.index in vm.selectedLayerIndices,
+                            onSelect = {
+                                revealedIndex = null
+                                vm.toggleLayerSelection(layer.index)
+                            },
+                            onClick = {
+                                revealedIndex = null
+                                if (layer.index !in vm.selectedLayerIndices) {
+                                    // Tapping an unselected row switches the
+                                    // target (standard behaviour) and clears the
+                                    // multi-selection
+                                    vm.clearLayerSelection()
+                                }
+                                // NOTE: tapping a row that IS part of the multi-
+                                // selection keeps the set - the old unconditional
+                                // clear silently nuked the whole selection after
+                                // the user had swiped several rows
+                                if (layer.index == selectedIndex) {
+                                    onOpenDetail(layer.index)
+                                } else {
+                                    // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.setCurrentLayer(layer.index)
+                                }
+                            },
+                            modifier =
+                                Modifier.animateItem(
+                                    placementSpec = spring(
+                                        dampingRatio = 0.85f,
+                                        stiffness = 500f,
+                                    ),
+                                    fadeInSpec = tween(150),
+                                    fadeOutSpec = tween(150),
+                                ),
+                        )
+                    }
                 }
             }
 
-            // After release the overlay glides into the drop slot (settleTo)
-            LaunchedEffect(settling, settleTo, settleFrom) {
-                if (settling && settleTo != null && settleFrom != null) {
-                    settleAnim.snapTo(settleFrom ?: 0f)
-                    val target = (settleTo ?: 0f) - listTop - rowPx / 2f
-                    settleAnim.animateTo(target, tween(160))
-                    settling = false
-                    settleTo = null
-                    settleFrom = null
+            // Insertion indicator line with start dot and hierarchy indentation
+            val showIndicator = draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0
+            val targetInfo = if (showIndicator) listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx } else null
+            val rawLineY = if (targetInfo != null) {
+                targetInfo.offset.toFloat()
+            } else if (showIndicator) {
+                val lastInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == dragTargetIdx - 1 }
+                lastInfo?.let { (it.offset + it.size).toFloat() }
+            } else {
+                null
+            }
+
+            val isMultiDrag = (draggingFrom in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
+            val batch = if (isMultiDrag) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
+            val draggedSet = batch.toSet()
+            val remaining = displayRows.filter { it.index !in draggedSet }
+
+            val nonDraggedPrev = if (showIndicator) remaining.take(dragTargetIdx).lastOrNull() else null
+            val nonDraggedNext = if (showIndicator) remaining.drop(dragTargetIdx).firstOrNull() else null
+            val panelX = dragFingerX - listLeft
+            val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
+                panelX >= with(density) { 130.dp.toPx() }
+
+            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
+            val fromIsNested = (fromLayer?.depth ?: 0) > 0
+            val parentGroup = if (fromIsNested && fromLayer != null) {
+                vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
+            } else null
+
+            val targetDepth = when {
+                nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
+                nonDraggedNext == null -> nonDraggedPrev.depth
+                nonDraggedPrev.depth > nonDraggedNext.depth -> {
+                    if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
+                }
+                nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                    if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
+                }
+                !isIndented && fromIsNested -> 0
+                nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index -> 0
+                else -> nonDraggedNext?.depth ?: 0
+            }
+
+            var lastValidLineY by remember { mutableFloatStateOf(0f) }
+            LaunchedEffect(rawLineY) {
+                if (rawLineY != null) {
+                    lastValidLineY = rawLineY
                 }
             }
-            // Floating drag overlay: the dragged row rendered on top of the
-            // list, following the finger, so it is never occluded by other rows.
-            // After release it stays for 160ms, gliding into the drop slot
-            // (settleTo) so the visual landing matches the real landing.
-            if (draggingFrom >= 0 || settleTo != null) {
-                val dragged = vm.layers.firstOrNull { it.index == draggingFrom }
-                if (dragged != null) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .offset {
-                                    val y =
-                                        if (settling && settleTo != null) {
-                                            settleAnim.value
-                                        } else {
-                                            dragFingerY - listTop - rowPx / 2f
-                                        }
-                                    IntOffset(0, y.roundToInt())
-                                }.fillMaxWidth()
-                                .height(rowHeight)
-                                .graphicsLayer {
-                                    scaleX = 1.05f
-                                    scaleY = 1.05f
-                                    shadowElevation = with(density) { 16.dp.toPx() }
-                                },
-                    ) {
-                        LayerRowContent(
-                            vm = vm,
-                            layer = dragged,
-                            selected = dragged.index == selectedIndex,
-                            collapsed = dragged.name in collapsedGroupNames,
-                            index = dragged.index,
-                            onToggleCollapse = {},
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Morandi.panelHi)
-                                    .padding(horizontal = 8.dp),
-                        )
-                    }
+
+            var lastHapticSlot by remember { mutableIntStateOf(-1) }
+            LaunchedEffect(dragTargetIdx, dragOver) {
+                if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0 && dragTargetIdx != lastHapticSlot) {
+                    lastHapticSlot = dragTargetIdx
+                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                } else if (dragOver != null && lastHapticSlot != -999) {
+                    lastHapticSlot = -999
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+            }
+
+            val animatedLineY by animateFloatAsState(
+                targetValue = rawLineY ?: lastValidLineY,
+                animationSpec = spring(
+                    dampingRatio = 0.85f,
+                    stiffness = 650f,
+                ),
+                label = "animatedLineY",
+            )
+
+            val animatedDepth by animateFloatAsState(
+                targetValue = targetDepth.toFloat(),
+                animationSpec = spring(
+                    dampingRatio = 0.85f,
+                    stiffness = 550f,
+                ),
+                label = "animatedDepth",
+            )
+
+            val lineAlpha by animateFloatAsState(
+                targetValue = if (showIndicator && rawLineY != null) 1f else 0f,
+                animationSpec = tween(120),
+                label = "lineAlpha",
+            )
+
+            if (lineAlpha > 0.01f) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(5f)
+                ) {
+                    val y = animatedLineY.coerceIn(0f, size.height)
+                    val dotRadius = 4.5.dp.toPx()
+                    val haloRadius = 7.5.dp.toPx()
+                    val lineStroke = 2.5.dp.toPx()
+                    val startX = (16 + animatedDepth * 20).dp.toPx()
+                    val endX = size.width - 16.dp.toPx()
+
+                    // 1. Soft glowing outer beam
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Morandi.accent.copy(alpha = lineAlpha * 0.35f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.15f),
+                                Color.Transparent,
+                            ),
+                            startX = startX,
+                            endX = endX,
+                        ),
+                        start = Offset(startX, y),
+                        end = Offset(endX, y),
+                        strokeWidth = lineStroke * 2.2f,
+                        cap = StrokeCap.Round,
+                    )
+
+                    // 2. Crisp foreground beam
+                    drawLine(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Morandi.accent.copy(alpha = lineAlpha),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.85f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.45f),
+                            ),
+                            startX = startX,
+                            endX = endX,
+                        ),
+                        start = Offset(startX + dotRadius, y),
+                        end = Offset(endX, y),
+                        strokeWidth = lineStroke,
+                        cap = StrokeCap.Round,
+                    )
+
+                    // 3. Glowing dot outer halo
+                    drawCircle(
+                        color = Morandi.accent.copy(alpha = lineAlpha * 0.35f),
+                        radius = haloRadius,
+                        center = Offset(startX, y),
+                    )
+
+                    // 4. Glowing dot inner core
+                    drawCircle(
+                        color = Morandi.accent.copy(alpha = lineAlpha),
+                        radius = dotRadius,
+                        center = Offset(startX, y),
+                    )
                 }
             }
         }
