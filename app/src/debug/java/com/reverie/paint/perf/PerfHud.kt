@@ -15,6 +15,7 @@ import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
+import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.ui.home.SettingCategoryTitle
 import com.reverie.paint.ui.home.SettingGroup
 import com.reverie.paint.ui.home.SettingSwitchGroupItem
@@ -78,6 +79,71 @@ internal object PerfHud {
         for (line in cachedLines) {
             canvas.drawText(line, x, y, textPaint)
             y += lineHeight
+        }
+        canvas.restoreToCount(save)
+    }
+
+    // ---- 液化网格可视化 (Phase 2 自检用, 见 docs/RENDER-OPTIMIZATION.md §9.1) ----
+    /** 是否把当前液化网格叠加到画布上: `setprop debug.reverie.lqgrid 1` */
+    val gridOverlayEnabled: Boolean get() = enabled && PerfTrace.gridOverlayByProp
+
+    private var gridData: FloatArray? = null
+
+    /** 由引擎线程每秒取一次的快照 (见 PaintViewModel.pollLiquifyGrid) */
+    fun setLiquifyGrid(data: FloatArray?) {
+        gridData = data
+    }
+
+    private val gridLinkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.2f
+        color = 0xFFFFC107.toInt() // 琥珀: 位移方向
+    }
+    private val gridDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF4FC3F7.toInt() // 浅蓝: 位移后的位置
+    }
+    private val gridScratch = FloatArray(2)
+
+    /**
+     * 把当前液化网格画成位移场: 每个采样点从 `original` 画一条线到 `original + offset`, 终点画点。
+     * 用途是在写 CPU/GPU Preview 之前, 肉眼确认三件事与最终结果一致:
+     * ① 网格几何(单元格步长与 bounds) ② 位移方向(向右拖 ⇒ dx > 0) ③ 文档→屏幕的坐标映射。
+     *
+     * 直接画在屏幕坐标系(复用与手势/光标同一套 [CanvasViewTransform.docToScreen]), 且**只画采样点**
+     * (最多约 40×40), 避免标尺自己成为掉帧来源。
+     */
+    fun drawLiquifyGrid(canvas: Canvas, vt: CanvasViewTransform) {
+        val g = gridData ?: return
+        if (g.size < 8) return
+        val cols = g[4].toInt()
+        val rows = g[5].toInt()
+        val count = g[7].toInt()
+        if (cols <= 0 || rows <= 0 || count <= 0) return
+        val step = maxOf(1, maxOf(cols, rows) / 40)
+        val save = canvas.save()
+        canvas.setMatrix(null) // 屏幕坐标系
+        var i = 0
+        while (i < count) {
+            val base = 8 + i * 4
+            if (base + 3 < g.size) {
+                val col = i % cols
+                val row = i / cols
+                if (col % step == 0 && row % step == 0) {
+                    val ox = g[base]
+                    val oy = g[base + 1]
+                    val dx = g[base + 2]
+                    val dy = g[base + 3]
+                    vt.docToScreen(ox, oy, gridScratch)
+                    val sx = gridScratch[0]
+                    val sy = gridScratch[1]
+                    if (dx != 0f || dy != 0f) {
+                        vt.docToScreen(ox + dx, oy + dy, gridScratch)
+                        canvas.drawLine(sx, sy, gridScratch[0], gridScratch[1], gridLinkPaint)
+                        canvas.drawCircle(gridScratch[0], gridScratch[1], 2f, gridDotPaint)
+                    }
+                }
+            }
+            i++
         }
         canvas.restoreToCount(save)
     }

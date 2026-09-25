@@ -729,6 +729,44 @@ object ReverieCoreBridge {
      */
     external fun liquifyStats(): LongArray?
 
+    /**
+     * 当前液化网格的只读导出(row-major, 点坐标为文档坐标):
+     * `[bx, by, bw, bh, columns, rows, precision, count, (origX, origY, dx, dy) × count]`,
+     * 其中 `dx/dy = transformed - original` —— 与 Krita `run()` 做分段线性 warping 用的是同一份网格。
+     * 供标尺的网格可视化与后续"交互态预览"原型使用; 无活动网格时 `count = 0`。
+     */
+    external fun liquifyGrid(): FloatArray?
+
+    /**
+     * 交互态预览元数据: `[previewW, previewH, docX, docY, docW, docH, seq]`。
+     * 仅当打开诊断开关 (`setprop debug.reverie.liquifyPreview 1`) 且手势进行中时 `previewW > 0`
+     * (手势结束/取消后归 0); `seq` 单调递增, 供调用方判断是否有新预览帧。正常使用时恒为 0,
+     * 因为预览默认由引擎在渲染时直接叠加进显示缓冲, Kotlin 侧不需要读像素。
+     */
+    external fun liquifyPreviewMeta(): IntArray?
+
+    /**
+     * 当前预览像素 (RGBA8888, `previewW × previewH`), 与 [liquifyPreviewMeta] 配套。
+     * 引擎内部已经把它混进显示缓冲, 这个入口只留给调试时把预览单独导出来比对。
+     */
+    external fun liquifyPreviewPixels(): ByteArray?
+
+    /**
+     * Phase 2B 主机侧(AGSL)绘制的输入元信息: `[cropW, cropH, docX, docY, docW, docH, seq]`。
+     * `cropW = 0` 表示当前没有可用源裁剪(不在预览态 / 非 8bit BGRA 文档 / 超出面积预算),
+     * 调用方据此回退到引擎侧 CPU 预览; 裁剪内容只在 rebase 时变, 因此源纹理整段手势只上传一次。
+     */
+    external fun liquifyPreviewSourceMeta(): IntArray?
+
+    /** 未形变的 bounds 裁剪(RGBA8888, 1 像素 = 1 文档像素)。只在 rebase 后取一次。 */
+    external fun liquifyPreviewSourcePixels(): ByteArray?
+
+    /**
+     * 覆盖引擎的"主机侧绘制"判定: -1 跟随 system property(默认), 0 强制引擎侧 CPU 叠加,
+     * 1 强制主机侧绘制。AGSL 不可用/初始化失败时用 0 回退, 保证"要么 GPU 画, 要么引擎画"。
+     */
+    external fun setLiquifyPreviewHostDrawMode(mode: Int)
+
     external fun saveRevpAsync(
         path: String,
         extraMetaJson: String = "",

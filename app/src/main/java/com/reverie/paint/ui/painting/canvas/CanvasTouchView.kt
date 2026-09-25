@@ -784,6 +784,22 @@ class CanvasTouchView(context: Context) : View(context) {
             canvas.restore()
         }
 
+        // Phase 2B: AGSL 形变预览覆盖层。引擎在"主机侧绘制"模式下不生成也不叠加 CPU 预览,
+        // 由这里在显示分辨率上做位移采样 —— 因此缩放/旋转/平移都自动跟随, 且不用改画布位图。
+        // 开关关闭时 active 恒为 false, 这段在正式使用中不会执行。
+        if (LiquifyGpuPreview.active) {
+            ensureViewTransform()
+            LiquifyGpuPreview.draw(canvas, viewTransform)
+        }
+
+        // 标尺的液化网格可视化(debug 专属; release 侧 PerfHud 为恒 false 的空实现, 不进这个分支):
+        // 把 Krita 网格的"原始点 → 位移后点"画成箭头, 用于在实现 Preview 之前确认
+        // 网格几何、位移方向与文档→屏幕映射与最终结果一致。
+        if (PerfHud.gridOverlayEnabled) {
+            ensureViewTransform()
+            PerfHud.drawLiquifyGrid(canvas, viewTransform)
+        }
+
         // =========================================================================
         // 1.5 硬件笔尖前向超前预测延伸 (OEM Hardware Stroke Prediction)
         // 实时预测未来 15~20ms 笔尖切线，微羽化延伸消除 144Hz 屏幕 1~2 帧物理上屏延迟

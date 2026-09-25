@@ -958,13 +958,21 @@ internal fun PaintViewModel.liquifyBegin() {
         recorder.toolOp(T_LIQUIFY_BEGIN)
     }
     val arr = if (multi) layers.toIntArray() else null
-    runCore(render = false) { ReverieCoreBridge.liquifyBegin(arr) }
+    // Phase 2B: 每次手势开始时定一次"预览由谁画"(GPU 覆盖层 / 引擎侧 CPU 叠加), 并显式写进
+    // 引擎 —— 这样 property 与 Kotlin 侧判定即使不一致, 也不会两边都不画。
+    val hostDrawMode = LiquifyGpuPreview.decideForGesture()
+    runCore(render = false) {
+        ReverieCoreBridge.setLiquifyPreviewHostDrawMode(hostDrawMode)
+        ReverieCoreBridge.liquifyBegin(arr)
+    }
 }
 
 internal fun PaintViewModel.liquifyEnd() {
     if (recorder.recording) {
         recorder.toolOp(T_LIQUIFY_END)
     }
+    // 先摘覆盖层: 抬笔后的精确结果由下面的 materialize + 立即渲染给出, 不能与旧预览同帧共存
+    LiquifyGpuPreview.clear()
     runCore(after = {
         scheduleRender(immediate = true)
         refreshLayerThumbs()
@@ -977,6 +985,7 @@ internal fun PaintViewModel.liquifyCancel() {
     if (recorder.recording) {
         recorder.toolOp(T_LIQUIFY_CANCEL)
     }
+    LiquifyGpuPreview.clear()
     runCore(after = { scheduleRender(immediate = true) }) {
         ReverieCoreBridge.liquifyCancel()
     }

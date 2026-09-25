@@ -178,6 +178,12 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 m_lastWrittenRect = QRect();
             }
         }
+        // Phase 2A-2: 预览叠加 (只有在 debug 开关打开且预览有内容时才非空) —— 把低分辨率形变
+        // 预览混进刚写好的缓冲区域, 于是旋转/缩放/平移都沿用画布自身的变换。
+        // Phase 2B: 主机侧(AGSL)绘制时引擎不叠加, 否则会和 GPU 覆盖层叠两次。
+        if (!m_liquifyPreviewOut.isEmpty() && !m_lastWrittenRect.isNull() && !liquifyPreviewHostDraw()) {
+            blendLiquifyPreview(buffer, w, h, m_lastWrittenRect);
+        }
         m_dirtyRect = QRect();
         return true;
     }
@@ -248,6 +254,9 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                            size_t(clip.width()) * 4);
                 }
                 m_lastWrittenRect = clip;
+                if (!m_liquifyPreviewOut.isEmpty() && !liquifyPreviewHostDraw()) {
+                    blendLiquifyPreview(buffer, w, h, clip);
+                }
             } else {
                 m_lastWrittenRect = QRect();
             }

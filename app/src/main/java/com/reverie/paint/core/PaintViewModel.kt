@@ -143,6 +143,7 @@ class PaintViewModel : ViewModel() {
                             runCore(render = false) {
                                 pollSaveStats()
                                 pollLiquifyStats()
+                                if (PerfHud.gridOverlayEnabled) pollLiquifyGrid()
                             }
                         }
                     }
@@ -262,6 +263,57 @@ class PaintViewModel : ViewModel() {
         val s = ReverieCoreBridge.liquifyStats() ?: return
         if (s.size < 10 || s[7] <= 0L) return // 还没做过液化
         PerfTrace.liquifyApply(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9])
+    }
+
+    /**
+     * 取一次液化网格快照 (仅"网格可视化"打开时调用, 每秒一次; **引擎线程**)。
+     * 摘要进标尺 HUD 第 5 行, 原始网格交给 `PerfHud` 叠加绘制 —— 正式版里两者都不存在。
+     */
+    internal fun pollLiquifyGrid() {
+        val g = ReverieCoreBridge.liquifyGrid() ?: return
+        if (g.size < 8) return
+        val count = g[7].toInt()
+        if (count <= 0) return
+        PerfTrace.liquifyGrid(g[4].toInt(), g[5].toInt(), g[6].toInt(), count, g)
+        PerfHud.setLiquifyGrid(g)
+    }
+
+    // Phase 2B: 上次取到的预览版本与裁剪指纹(只在引擎线程读写, 无需加锁)
+    private var lqGpuPreviewSeq = -1L
+    private var lqGpuCropKey = Long.MIN_VALUE
+
+    /**
+     * Phase 2B: 取一次 AGSL 预览所需的"源裁剪 + 位移网格" (**引擎线程**, 调用点见 `doRender`)。
+     *
+     * 只有 GPU 诊断开关打开时才有内容, 且引擎此时既不生成也不叠加 CPU 预览:
+     *  - 源裁剪(未形变)只在 rebase 时变 ⇒ 整段手势只上传一次纹理;
+     *  - 位移网格每个 dab 都变 ⇒ 每次取(6~25KB 级小数组, 不做差分)。
+     */
+    internal fun pollLiquifyGpuPreview() {
+        if (!LiquifyGpuPreview.requested) return
+        val crop = ReverieCoreBridge.liquifyPreviewSourceMeta() ?: return
+        if (crop.size < 7) return
+        if (crop[0] <= 0) {
+            // 没有源裁剪(超出面积预算 / 非 8bit BGRA / 手势结束): 摘掉覆盖层, 由引擎侧
+            // CPU 预览兜底 —— 不能两边都不画
+            LiquifyGpuPreview.clear()
+            return
+        }
+        val seq = crop[6].toLong()
+        if (seq == lqGpuPreviewSeq) return
+        lqGpuPreviewSeq = seq
+        val key = LiquifyGpuPreview.cropKeyOf(crop)
+        val src =
+            if (key != lqGpuCropKey) {
+                lqGpuCropKey = key
+                ReverieCoreBridge.liquifyPreviewSourcePixels()
+            } else {
+                null
+            }
+        LiquifyGpuPreview.update(crop, src, ReverieCoreBridge.liquifyGrid())
+        // 主机侧绘制模式下引擎不写显示缓冲(没有脏区), 所以"该重绘了"必须由这里发起。
+        // 手势期间 canPartialInvalidate 恒为 false, postInvalidate() 与既有语义一致。
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidate()
     }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false
@@ -2986,6 +3038,10 @@ class PaintViewModel : ViewModel() {
         }
 
         val forceFull = reallocated
+        // Phase 2B: 先取 AGSL 预览数据再渲染 —— 放在 renderToBuffer 之前, 免得
+        // "无脏区 ⇒ 直接 return" 的分支把这帧的预览更新吞掉(GPU 模式下缓冲本来就不变)。
+        pollLiquifyGpuPreview()
+
         // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
         // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答
         // "到底走的是哪条路径、值不值得动它", 单看总耗时看不出来。

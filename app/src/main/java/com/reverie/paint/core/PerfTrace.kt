@@ -57,6 +57,10 @@ object PerfTrace {
     @Volatile
     var isEnabledByProp: Boolean = false
 
+    /** 是否叠加"液化网格"可视化 (`setprop debug.reverie.lqgrid 1`; 只有 debug 构建会用到) */
+    @Volatile
+    var gridOverlayByProp: Boolean = false
+
     /** 慢操作阈值 (ms), 超过才打日志 */
     var slowMs: Long = 4L
 
@@ -107,6 +111,14 @@ object PerfTrace {
     private var lqTargets = 0L
     private var lqPrecision = 0L
     private var lqCells = 0L
+
+    // 液化网格快照的摘要 (由 liquifyGrid 填入; 见 PerfHud 的网格可视化)
+    private var gridCols = 0
+    private var gridRows = 0
+    private var gridPrec = 0
+    private var gridCount = 0
+    private var gridMax = 0f
+    private var gridMean = 0f
 
     private var windowStart = 0L
     private var hudCache = ""
@@ -280,6 +292,33 @@ object PerfTrace {
     }
 
     // ------------------------------------------------------------------
+    /**
+     * 引擎侧回报的液化网格快照摘要 (见 `liquifyGrid`) —— 只喂标尺: HUD 第 5 行显示网格规模、
+     * 精度与位移量级, 用来判断"网格几何 / 位移方向"是否符合预期(实现 Preview 前的自检)。
+     */
+    @Synchronized
+    fun liquifyGrid(columns: Int, rows: Int, precision: Int, count: Int, data: FloatArray) {
+        if (!enabled) return
+        var maxAbs = 0f
+        var sum = 0.0
+        var i = 8
+        while (i + 3 < 8 + count * 4 && i + 3 < data.size) {
+            val dx = data[i + 2]
+            val dy = data[i + 3]
+            val d = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (d > maxAbs) maxAbs = d
+            sum += d.toDouble()
+            i += 4
+        }
+        gridCols = columns
+        gridRows = rows
+        gridPrec = precision
+        gridCount = count
+        gridMax = maxAbs
+        gridMean = if (count > 0) (sum / count).toFloat() else 0f
+        hudCacheMs = 0L
+    }
+
     // 窗口汇总 / 输出
     // ------------------------------------------------------------------
 
@@ -409,6 +448,15 @@ object PerfTrace {
                 .append("层 ").append("%.0f".format(lqAreaPx / 1024.0)).append("K px")
                 .append(" 精度").append(lqPrecision).append("/单元").append(lqCells)
         }
+
+        // 第 5 行: 液化网格快照 (setprop debug.reverie.lqgrid 1 时才有)
+        if (gridCount > 0) {
+            sb.append('\n')
+            sb.append("网格 ").append(gridCols).append('x').append(gridRows)
+                .append(" 精度").append(gridPrec)
+                .append(" Δmax ").append("%.1f".format(gridMax))
+                .append(" Δmean ").append("%.1f".format(gridMean)).append("px")
+        }
         hudCache = sb.toString()
         return hudCache
     }
@@ -417,6 +465,9 @@ object PerfTrace {
     fun refreshFromSystemProp() {
         isEnabledByProp = runCatching {
             SystemPropertiesCompat.getBoolean("debug.reverie.perf", false)
+        }.getOrDefault(false)
+        gridOverlayByProp = runCatching {
+            SystemPropertiesCompat.getBoolean("debug.reverie.lqgrid", false)
         }.getOrDefault(false)
         // 只负责"打开", 不负责关闭: 设置页里的开关可能已经把它打开了
         if (isEnabledByProp) {

@@ -14,6 +14,9 @@
 | 保存 | 流式管线: 图层/关键帧 COW 快照 + 按块并行"取图→编码"+ 逐块释放; PNG 档位 70; 预压缩资产跳过 deflate | 已落地 | `setprop debug.reverie.pngq <1..89>` |
 | 保存 | 阶段计时(快照/编码/写盘/体积) → HUD 与 logcat | 已落地 | 见 §6 |
 | 液化 | 多目标 warp 并行; 白线伪影修复; 三个闪退成因修复; 大笔刷精度档 32 + 分辨率保底 | 已落地 | `kLiquifyParallelTargets`(编译期) |
+| 液化 | 四段耗时打点(总/形变/补洞/回写/合成) + 网格导出与箭头可视化 | 已落地 | `setprop debug.reverie.lqprec` / `debug.reverie.lqgrid` |
+| 液化预览 | 手势期间不 `run()`/不写图层/不触投影, 由显示层叠加低分辨率形变预览; 抬笔仍精确 materialize | 原型已落地, 待真机 | `setprop debug.reverie.liquifyPreview 1` |
+| 液化预览 | AGSL 版: 同一份位移场交给 GPU 在显示分辨率上采样(引擎只给源裁剪 + 网格) | 原型已落地, 待真机 | `setprop debug.reverie.liquifyPreviewGpu 1` |
 | 内存 | 帧缓存按字节预算淘汰 + `ComponentCallbacks2` 内存压力释放; 缩略图给笔画让路 | 已落地 | 无(自动) |
 | 量测 | `PerfTrace`(Kotlin, 分桶统计) + `revpSaveStats`(C++ 阶段计时) + debug 专属 HUD | 已落地 | `setprop debug.reverie.perf 1` / debug 包设置页 |
 | 未做 | tile 化显示缓冲(整张纹理重传是最大带宽项) · 视口尺寸渲染缓冲 · 液化按 tile 增量 `run()` | 待立项 | 见 §9 |
@@ -277,6 +280,94 @@ while (precision > resolutionFloor && precision > 4) precision /= 2;
 > (因为 `round(size/8)` 落在 5~6 只能吸附到 4), 单元数约 9.2K; 而 200px 用精度 32 只有 576 单元,
 > 相差 16 倍。这解释了"小笔刷也卡", 也正是 `lqprec` 开关要量的那条曲线。
 
+### 4.8 Phase 2 · Commit 1: 网格导出与可视化 (已落地)
+
+写 Preview 之前必须先确认"网格 → 位移场 → 屏幕"这条链路的几何与方向, 所以先只做导出:
+
+- **C++**: [`liquifyGridExport()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:559) 直接读 worker 自己的
+  `originalPoints()` / `transformedPoints()` —— 也就是 `run()` 做分段线性 warping 用的**同一份网格**。
+  - **row-major**: `index = row * columns + col`, 顺序与 Krita `GridIterationTools::processGrid` 的迭代
+    顺序一致(`AllPointsFetcherOp` 逐行逐列 append; worker 内另有 `numPoints == cols * rows` 的断言);
+  - 点坐标是**文档坐标**, `offset = transformed - original`;
+  - 多目标图层的位移由同一批操作算出, 因此只导出第一个目标即可代表全部;
+  - 数据不完整(无 worker / 尺寸不匹配)时 `count = 0` —— 宁可没有预览, 也不给上层一份错位的位移场。
+- **JNI**: [`liquifyGrid()`](../app/src/main/cpp/reverie_jni_tools.cpp:279) 返回 float 数组
+  `[bx, by, bw, bh, columns, rows, precision, count, (origX, origY, dx, dy) × count]`。
+- **可视化/量测**(仅 debug 标尺, 见 §6.2):
+  - `setprop debug.reverie.lqgrid 1` 打开后, 画布叠加**位移场箭头**(琥珀=位移方向, 浅蓝=位移后位置;
+    用 `CanvasViewTransform.docToScreen`, 与手势/光标同一套映射), 最多采样约 40×40 个点;
+  - HUD 追加第 5 行: `网格 47x47 精度16 Δmax 12.4 Δmean 3.1px`;
+  - 正式版里这条链路不存在(`PerfHud` release 空实现 + `gridOverlayEnabled = false`), 包内亦无标尺文案。
+
+**目视自检清单(写 CPU Preview 之前先过一遍)**:
+
+1. 箭头只在笔刷邻域非零, 覆盖范围 ≈ `bounds`(不是整幅画布);
+2. 向右拖动后, 笔刷中心的 `dx > 0` 且量级与 `strength × 拖动位移` 相符;
+3. 位移沿拖动方向平滑衰减(高斯), 不应出现指向随机的孤立箭头;
+4. 网格步长在屏幕上看起来 = `precision × 当前缩放`;
+5. 松手或重开液化后网格清空(随 worker 重建)。
+
+### 4.9 Phase 2A-2: CPU 低分辨率预览原型 (已落地, 待真机)
+
+目的只有一个: 证明"**把 worker 的网格状态拿出来, 在显示层独立预览**"这条路成立 —— 手势期间
+不 `run()`、不写图层、不触投影合成, 也能得到几何与方向正确的形变画面。**不追求画质, 也不追求速度**
+(2B 才把采样核换成 GPU)。开关: `setprop debug.reverie.liquifyPreview 1`(默认关, 关闭时整条路径不可见)。
+
+| 环节 | 实现 | 关键约束 |
+|---|---|---|
+| 缓存源像素 | [`liquifyPreviewCaptureLocked()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:598) 在每次 rebase 后 `readBytes` 一次 bounds 原始像素 | 整段手势只读一次; 只支持 8bit RGBA/BGRA 文档(`pixelSize ≤ 16`), 其它色彩空间直接放弃预览 |
+| 生成预览 | [`liquifyPreviewBuildLocked()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:629) 每次 dab 后用**网格点双线性插值**得到位移场, 再**反向采样** `dst(p) = src(p - offset(p))` | 最长边 ≤ 192px([`LIQUIFY_PREVIEW_MAX_EDGE`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:210)); 位移场与 `run()` 同源(同一批网格点), **几何一致、只有采样核是近似** |
+| 叠加显示 | [`blendLiquifyPreview()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:757) 在 `renderToBuffer` 写完缓冲后, 把预览按显示缩放映射进缓冲并 source-over | 复用现有缩放/旋转/双缓冲; 只处理 `written ∩ 预览矩形`, 成本与脏区同阶(1:1 路径见 [`ReverieCoreRender.cpp:183`](../app/src/main/cpp/ReverieCoreRender.cpp:183)) |
+| 收口 | 抬笔时 `liquifyEnd()` 强制按整个 `workerBounds` materialize; rebase 与预算分支同样落回完整 Krita 路径 | **预览近似、提交精确**: 撤销仍是"一次手势一条 `KisTransaction`" |
+| 旁路 | 预览态下 `liquifyApplyLocked()` 不会因"超预算/脱开"被触发(位移只留在网格里) | 避免手势期间意外写盘, 否则"不触投影"的前提就没了 |
+
+三个容易踩的坑(代码注释里已写明, 后续做 2B 时别再踩):
+
+1. **预览区必须进脏区**: `renderToBuffer` 的增量路径只重读脏区, 不标脏则预览永远叠不上去;
+2. **预览失效时必须再标一次脏**: 否则旧预览永久留在显示缓冲里(看起来像"形变没提交");
+3. `m_liquifyPreviewSeq` **只增不减**(归零会被调用方误判成"没有新数据"), 用 `meta[0] == 0` 表示预览结束。
+
+**与 2B 的衔接**: 这条链路把"位移场 → 显示"的接口固定下来了 —— 开关、生命周期、失效/收口语义都不必再改,
+2B 只需把 `liquifyPreviewBuildLocked()` 的 CPU 采样换成 AGSL `RuntimeShader`(API 33+; 低版本自动退回
+Krita 原路径)。**在 2A-2 的真机结论(几何是否正确、手感是否改善)出来之前不要动 2B。**
+
+### 4.10 Phase 2B: AGSL(RuntimeShader)预览原型 (已落地, 待真机)
+
+2A-2 已经证明"交互态可以脱离 Krita `run()`", 2B 只换一件事: **把同一个预览的采样核从 CPU 换成 GPU**。
+网格生成 / rebase / 抬笔 materialize / undo / JNI 契约一律不动。开关:
+`setprop debug.reverie.liquifyPreviewGpu 1`(关掉 = 2A-2 的引擎侧 CPU 预览; API < 33 自动回退)。
+
+| 角色 | 谁做 | 说明 |
+|---|---|---|
+| 给料 | 引擎(C++) | rebase 后给出**未形变**的 bounds 裁剪(1 纹素 = 1 文档像素, RGBA8888)与网格 |
+| 采样 | UI 侧 AGSL | `dst(p) = src(p - offset(p))` 在**显示分辨率**上做: 预览清晰度不再受 192px 上限约束 |
+| 收口 | 引擎(C++) | 抬笔仍按整个 `workerBounds` materialize; 撤销仍是"一次手势一条 `KisTransaction`" |
+
+- shader 只有两张纹理 + 8 个 uniform: 源裁剪、位移纹理(R = dx, G = dy, `RGBA_F16`)、文档→屏幕仿射
+  (由 [`CanvasViewTransform.docToScreen()`](../app/src/main/java/com/reverie/paint/model/CanvasViewTransform.kt:121)
+  取三个点得到: 原点 + 两个基向量)以及网格原点/步长。**不上传整幅文档的位移场** ——
+  位移纹理只有 `cols × rows`(≤40×40 ≈ 12KB)。
+- 双线性插值两处都由硬件完成: 位移纹理的线性过滤 = 网格插值, 源纹理的线性过滤 = 采样。网格原点与步长
+  取自**真实网格点**([`liquifyPreviewSourceMeta()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:817) 与 `liquifyGrid`
+  的第一、相邻点), 所以几何与 CPU 版同源。
+- 绘制范围只有裁剪区的屏幕包围盒(+8px): shader 用绝对坐标取值, 缩小绘制范围只省填充率。
+- 回退链(任何一环失败都不允许"两边都不画"): property 未开 → 引擎 CPU 叠加; 开了但 Kotlin 判定不可用
+  (API < 33 / shader 编译抛错 / 源裁剪超预算 `> 4M px`, 见 [`LIQUIFY_HOST_DRAW_MAX_PX`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:236))
+  → 显式把引擎绘制模式置 0, 回到 CPU 预览。
+
+数据通路(逐帧): `doRender`(引擎线程) 先取 `liquifyPreviewSourceMeta` / `SourcePixels`(源裁剪只在 rebase 时取)
+与 `liquifyGrid`(每 dab 6~25KB)刷新资源, 再 `postInvalidate()`; UI 线程在 `drawCanvas` 里用
+[`LiquifyGpuPreview.draw()`](../app/src/main/java/com/reverie/paint/core/LiquifyGpuPreview.kt:277) 叠一层。
+取数入口 [`pollLiquifyGpuPreview()`](../app/src/main/java/com/reverie/paint/core/PaintViewModel.kt:292) 放在 `renderToBuffer`
+**之前**, 免得"无脏区 ⇒ 直接 return"的分支把这帧的预览更新吞掉。
+
+已知代价与近似(与"原型"定位相符, 后续再收):
+- 主机侧绘制模式下引擎不写显示缓冲 ⇒ 没有脏区 ⇒ **重绘由预览更新驱动**, 每个 dab 触发一次整屏重绘;
+  按视口裁剪/分区失效留作后续优化(需要一个 doc 矩形 → 屏幕包围盒的失效入口)。
+- 半透明内容会与底层未形变像素叠加(source-over 语义, 与 CPU 版一致); 多图层的精确混合顺序仍由 Krita 决定。
+- 每 dab 会新建一张小位图(位移纹理)而不是原地覆写: `copyPixelsFromBuffer` 不保证推进 generation id,
+  原地改内容可能让 GPU 继续用旧纹理。
+
 ## 5. 内存与线程
 
 ### 5.1 帧缓存预算 + 内存压力
@@ -410,13 +501,18 @@ Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / �
 |---|---|---|---|
 | 0 | 四段打点(§4.7), 用数据定位瓶颈 | 决定后续投哪一步 | 无(纯诊断) |
 | 1 | 手势期间 **Document 冻结**: 收笔开始时把"非目标图层的合成结果"缓存一次; 拖拽只更新"液化预览 Overlay", 不写 `KisPaintDevice`、不触发投影 | 砍掉"回写 + 合成"(通常最大的一环) | 中: 预览要正确复现 图层不透明度 / 混合模式 / Alpha 锁 / 选区 |
-| 2 | 复用 Krita 网格点(`originalPoints()` / `transformedPoints()`)导出位移场, 做 **AGSL 预览**(API 33+; 低版本自动退回现路径) | 预览成本与笔刷尺寸解耦 | 中: 采样核与坐标系统须与最终一致(允许"几何一致、采样近似") |
+| 2 | **分 3 步走, 每步可独立回退**: **2A-1** 网格导出与可视化(§4.8, 已完成) → **2A-2** CPU 低分辨率 Preview(§4.9, 真机已验收) → **2B** AGSL `RuntimeShader` 替换 CPU warp(§4.10, 已落地待真机; API 33+ 才启用) | 预览成本与笔刷尺寸解耦 | 中: 采样核与坐标系统须与最终一致(允许"几何一致、采样近似"); 预览期若写文档/触发投影, 收益会被吃掉(见 Phase 1) |
 | 3 | 预览分辨率随视口/缩放降级 | 计算与上传量按面积下降 | 低 |
 | 4 | 抬笔后**同线程后台预计算 + 无感切换**, 用户一动即丢弃 | 消除"松手卡一下" | 低(仓库已有 `engineBusy` 让路模式可照搬) |
 | 5 | tile 化 / 更深 GPU 化 | 超大画布的固定开销 | 高: 需碰 Krita tile 内部, **不建议提前做** |
 
 铁律约束: 文档操作仍只能串行在唯一的引擎线程上, 所以 Phase 4 的"后台"指**同一引擎线程上的低优先级
 任务**, 不是第二条线程; 撤销仍保持"一次手势一条 `KisTransaction`"; 每一步都要留"退回旧路径"的开关。
+
+**当前状态**: Phase 0 已取到数据(§4.7: 形变占 96%, 回写与合成合计 ~1ms ⇒ 优先级下调); 2A-1 已落地且
+2A-2 已通过真机验收(预览跟手、长拖稳定、rebase 正确、抬笔不跳变、开关 ON/OFF 最终图逐像素一致、
+撤销完全回退、多层独立正确); 2B(§4.10)已落地, 待真机对比"CPU 预览 vs AGSL 预览"。**默认路径
+(开关关闭)与上游逐像素一致, 因此这些原型即使不复用, 也不会给正式版带来风险。**
 
 ## 10. 附录: 真机对照包
 
@@ -438,6 +534,12 @@ Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / �
 | `12-final-release` | 与 #11 同源的 release | 与 #11 逐项一致 |
 | `13-liquify-precision-floor-debug` | 精度保底(`min(档, max(16, R/8))`) | 待真机确认 132~134px 窗口 |
 | `14-liquify-precision-floor-release` | 同上 release | 同上 |
+| `15/16-liquify-final-{debug,release}` | 合入前终审版 | 提交前基线 |
+| `17/18-liquify-prof-{debug,release}` | +液化四段打点(§4.7) | Phase 0 首次取数: 29ms = 形变 28 + 补洞 0 + 回写 1 + 合成 0 |
+| `19/20-liquify-knob-{debug,release}` | +`lqprec` 强制档与 precision/cells 上报 | 用于量"单元数 → 耗时"曲线 |
+| `21/22-liquify-grid-{debug,release}` | +网格导出与箭头可视化(§4.8) | 目视核对位移场几何/方向 |
+| `23/24-liquify-preview-{debug,release}` | +CPU 低分辨率预览(§4.9) | **真机验收通过**(几何/手感/rebase/抬笔/撤销/多层全部正确) |
+| `25/26-liquify-gpu-preview-{debug,release}` | +AGSL 预览(§4.10) | 待真机对比 CPU 预览的清晰度与开销 |
 
 ### 旧编号对照(供检索引擎/历史提交使用)
 
@@ -499,6 +601,14 @@ Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / �
       记录 HUD 第 4 行的 `液化 总/形变/补洞/回写/合成`(§4.7 的判读依据)
 - [ ] 真机: 若多图层液化出现异常, 把 [`kLiquifyParallelTargets`](../app/src/main/cpp/ReverieCoreMiscTools.cpp:151)
       置 false 重编, 对照逐层串行的结果与耗时
+- [ ] 真机: 开 `setprop debug.reverie.liquifyPreview 1` 推拉拖动 —— 画面应跟手出现形变预览, 且**抬笔后
+      与关掉开关时的最终结果逐像素一致**(预览只是近似, 提交必须精确; 不一致说明收口有漏)
+- [ ] 真机: 同一次手势里把笔刷移出 rebase 边界继续拖(多次 rebase), 预览不应出现错位/撕裂
+- [ ] 真机: 预览态下取消手势(撤销), 图层应完全回到手势前(预览像素不得进图层)
+- [ ] 真机: 关掉 `liquifyPreviewGpu` 再画同一段, 与开启时的最终结果一致(GPU 只换采样核, 不改提交路径)
+- [ ] 真机: 开启 `liquifyPreviewGpu` 后预览应比 192px 版更清晰(不再有低分辨率块感), 且拖动手感不劣于 CPU 版
+- [ ] 真机: API 33 以下设备(或把开关打开后强制 shader 失败)应自动回到 CPU 预览, 不能出现"没有预览"
+- [ ] 真机: 大笔刷(200px+)开启 AGSL 后不应出现花屏/错位(源裁剪纹理会到 MB 级; 超预算时应自动回退)
 - [ ] 真机: `setprop debug.reverie.trace 0` 确认填充/液化不再刷 logcat, 置 1 后日志恢复
 
 **内存与启动**
@@ -515,3 +625,4 @@ Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / �
 - [ ] 真机: 标尺关闭时画布手感与开启前一致
 - [ ] 真机(取数): 大画布连续绘制一段, 记录 `脏比 / 重传 MB/帧 / draw p95` 与 logcat 窗口行
 - [ ] 真机(取数): 保存一次大项目, 记录 `save 总/快照/编码/写盘` 与 `PNG→体积`
+

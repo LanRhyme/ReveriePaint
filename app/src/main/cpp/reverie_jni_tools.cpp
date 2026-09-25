@@ -275,6 +275,106 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyStats(JNIEnv *env, jobject)
     return arr;
 }
 
+JNIEXPORT jfloatArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyGrid(JNIEnv *env, jobject)
+{
+    // 当前液化网格的只读导出:
+    //   [bx, by, bw, bh, columns, rows, precision, count,
+    //    (origX, origY, offsetX, offsetY) × count]
+    // row-major, 点坐标为文档坐标; 无活动网格时 count = 0(只返回 8 个表头值)。
+    // 仅供性能标尺的网格可视化与后续 Preview 原型使用, 不参与任何渲染/提交路径。
+    const ReverieCore::LiquifyGridExport g = core()->liquifyGridExport();
+    const int total = 8 + g.count * 4;
+    QVector<float> buf(total, 0.0f);
+    buf[0] = float(g.bounds.x());
+    buf[1] = float(g.bounds.y());
+    buf[2] = float(g.bounds.width());
+    buf[3] = float(g.bounds.height());
+    buf[4] = float(g.columns);
+    buf[5] = float(g.rows);
+    buf[6] = float(g.precision);
+    buf[7] = float(g.count);
+    for (int i = 0; i < g.count; ++i) {
+        const int base = 8 + i * 4;
+        buf[base + 0] = float(g.original[i].x());
+        buf[base + 1] = float(g.original[i].y());
+        buf[base + 2] = float(g.offset[i].x());
+        buf[base + 3] = float(g.offset[i].y());
+    }
+    jfloatArray arr = env->NewFloatArray(total);
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, total, reinterpret_cast<const jfloat *>(buf.constData()));
+    return arr;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewMeta(JNIEnv *env, jobject)
+{
+    // Phase 2A-2 预览元信息: [w, h, docX, docY, docW, docH, seq] —— w = 0 表示当前没有预览。
+    // 只有 `setprop debug.reverie.liquifyPreview 1` 且处于括号手势时才会有非零 w。
+    jint meta[7] = {0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyPreviewMeta(reinterpret_cast<int *>(meta));
+    jintArray arr = env->NewIntArray(7);
+    if (!arr) return nullptr;
+    env->SetIntArrayRegion(arr, 0, 7, meta);
+    return arr;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewPixels(JNIEnv *env, jobject)
+{
+    // 预览像素 (RGBA8888, 自上而下)。调用方先取 meta 决定是否需要重新取(seq 变化)。
+    jint meta[7] = {0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyPreviewMeta(reinterpret_cast<int *>(meta));
+    const int bytes = meta[0] * meta[1] * 4;
+    if (bytes <= 0) return nullptr;
+    QVector<quint8> buf(bytes);
+    core()->liquifyPreviewPixels(buf.data());
+    jbyteArray arr = env->NewByteArray(bytes);
+    if (!arr) return nullptr;
+    env->SetByteArrayRegion(arr, 0, bytes, reinterpret_cast<const jbyte *>(buf.constData()));
+    return arr;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourceMeta(JNIEnv *env, jobject)
+{
+    // Phase 2B 主机侧(AGSL)绘制的输入元信息: [cropW, cropH, docX, docY, docW, docH, seq]。
+    // cropW = 0 表示当前没有可用源裁剪(不在预览态 / 非 8bit BGRA 文档 / 超出预算),
+    // 调用方据此回退到引擎侧 CPU 预览。
+    jint meta[7] = {0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyPreviewSourceMeta(reinterpret_cast<int *>(meta));
+    jintArray arr = env->NewIntArray(7);
+    if (!arr) return nullptr;
+    env->SetIntArrayRegion(arr, 0, 7, meta);
+    return arr;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourcePixels(JNIEnv *env, jobject)
+{
+    // 未形变的 bounds 裁剪(RGBA8888, 1 像素 = 1 文档像素)。只在 rebase 时变,
+    // 调用方按 seq 缓存, 不必每个 dab 都取。
+    jint meta[7] = {0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyPreviewSourceMeta(reinterpret_cast<int *>(meta));
+    const int bytes = meta[0] * meta[1] * 4;
+    if (bytes <= 0) return nullptr;
+    QVector<quint8> buf(bytes);
+    core()->liquifyPreviewSourcePixels(buf.data());
+    jbyteArray arr = env->NewByteArray(bytes);
+    if (!arr) return nullptr;
+    env->SetByteArrayRegion(arr, 0, bytes, reinterpret_cast<const jbyte *>(buf.constData()));
+    return arr;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyPreviewHostDrawMode(
+    JNIEnv *, jobject, jint mode)
+{
+    // -1 跟随 system property / 0 强制引擎侧叠加(AGSL 初始化失败时的回退入口) / 1 强制主机侧绘制。
+    core()->setLiquifyPreviewHostDrawMode(int(mode));
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyBrushSize(JNIEnv *, jobject, jdouble size)
 {

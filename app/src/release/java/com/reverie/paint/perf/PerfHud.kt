@@ -29,6 +29,13 @@ internal object PerfHud {
 
     fun draw(canvas: Canvas, view: View) {}
 
+    /** 液化网格可视化在正式版不存在(恒关, 也没有网格数据) */
+    val gridOverlayEnabled: Boolean = false
+
+    fun setLiquifyGrid(data: FloatArray?) {}
+
+    fun drawLiquifyGrid(canvas: Canvas, vt: com.reverie.paint.model.CanvasViewTransform) {}
+
     @Composable
     fun SettingsSection(vm: PaintViewModel) {
         // 正式版不提供该入口
