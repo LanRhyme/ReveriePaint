@@ -590,6 +590,70 @@ HUD 第 4.5 行追加 `rebase<n>/<ms> max<ms> 重建<ms> 因<原因> 越界<px> 
 `third_party/android-native-libs` 与 `app/src/main/jniLibs/arm64-v8a`, JNI 导出符号集与 `NEEDED`
 闭包与基线**逐条一致**;`:app:compileDebugKotlin` + `:app:testDebugUnitTest` + `:app:assembleDebug` 通过。
 
+### 4.19 V2 Phase 3 · Commit 2(已落地): 拖动期不再因 rebase 物化
+
+真机读数(HUD, 184px 笔刷):
+
+```
+调用0/0ms max71.7ms   rebase0/0ms max71ms  因越内框 越界234px
+液化 39ms 形变 37/补洞 1/回写 0/合成 1  重建0ms
+节流0/0ms  物化0        frame 16.6ms p95 16.0ms n256
+```
+
+判读:
+
+1. **拖动期节流那条 apply 边根本不跑** —— AGSL 预览模式下 [`liquify()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp)
+   直接走 `if (m_liquifyPreview)` 的预览分支 ⇒ 拖动中 **100% 的 `run()` 都来自 rebase 的 flush**;
+2. 单次 `liquify()` 调用峰值 **71.7ms**, 其中 `形变 37ms` 而 `重建 0ms` ⇒ 尖峰就是 Krita 网格 `run()`;
+3. 触发原因恒为"越内框"、越界 **234px** —— 与调查 §3 推出的 `R − margin = 221px` 量级吻合;
+4. `frame 16.6ms p95 16.0ms`(不拖动时满帧)⇒ 卡顿是 **burst**:快速拖动约 13 次 rebase/s × 每次 40~71ms
+   ⇒ **单核被吃掉 0.5~1s/s**,与 GPU / 脏区 / 绘制无关。
+
+| 项 | 内容 |
+|---|---|
+| 改动 | rebase 时若处于预览态且已有未落盘补点: 把窗口**扩**到"旧窗口 ∪ 新邻域"(上限 3M px, 仍留在 `LIQUIFY_HOST_DRAW_MAX_PX` 之下), 重建 src/dst/网格后**重放**待落盘补点(纯网格点运算, µs 级) —— **不跑 `run()`、不回写、不触发同步合成** |
+| 关键实现 | 补点参数表 `m_liquifyPendingDabs`(每 6 个 float) + `applyLiquifyDab()` 抽成一处: **实时施加与重放共用同一段逻辑**, 语义严格一致 |
+| 上限/回退 | 窗口 > 3M px、待重放补点 > 512、或不在预览态 ⇒ 退回旧路径(flush + 收紧窗口); 抬笔仍做唯一一次物化; `setprop debug.reverie.liquifyNoRebase 0` 一键回退 |
+| 语义变化 | 窗口变大 ⇒ 网格原点/步长改变 ⇒ 分段线性插值结果与旧路径**不再逐像素一致**(形变边缘有细微差异); 内存峰值随窗口增长(src/dst/预览裁剪各一份, 3M px 级) |
+| 预期 | 拖动期 `调用 max` 从 71.7ms 降到 **ms 级**(只剩网格运算); 代价是抬笔那一次物化覆盖更大窗口(一次, 而非每秒十几次) |
+
+**机械验证**:`ninja` 增量编译通过; `.so` strip 后同步进 `third_party/android-native-libs` 与
+`app/src/main/jniLibs/arm64-v8a`;`:app:testDebugUnitTest` + `:app:assembleDebug` 通过。
+
+**真机待验证**:① 拖动期 `调用 max` 是否降到 ms 级;② 是否只剩"抬笔一次卡顿";
+③ 形变边缘是否可接受;④ 撤销/取消是否完全回退(取消仍走 `liquifyCancel` → 事务 revert)。
+
+### 4.20 V2 Phase 3 · Commit 3(已落地): 网格原点对齐 + 用位移场替代 `run()`
+
+真机读数(200px 笔刷):
+
+```
+调用0/0ms max3110.3ms   rebase0/0ms max3108ms  因越内框 越界488px  重建0ms
+液化 1469ms 形变 1459/补洞 5/回写 0/合成 4  1层 998K px 精度32/单元1092
+节流0/0ms  物化0        frame 8.1ms p95 13.1ms n256
+```
+
+**拖动已经顺了**(`frame 8.1ms` 满帧、拖动期无尖峰),但 §4.19 把 `run()` 推迟之后暴露出两个新问题,
+本节一并修掉:
+
+| 问题 | 成因 | 修法 |
+|---|---|---|
+| **越涂越糊 / 马赛克** | 网格原点 = `bounds` 左上角; 每次重锚定的原点不对齐 ⇒ 同一个位移场在新旧网格上落在**不同格点** ⇒ "重放"等于对位移场**反复重采样**, 误差逐次累积 | 把 `bounds` 的 left/top **向下吸附到 `precision` 的整数倍**, 让所有窗口共享同一格点阵 ⇒ 重叠区位移逐点一致 |
+| **单次调用 3110ms / 形变 1459ms** | 被推迟的那一次 `run()` 覆盖 998K px 窗口;`run()` 每格做多边形填充 + 补集拷贝, 成本随面积非线性膨胀(实测 ~1.4s / 1M px) | `warpFromGrid()`: 用网格位移场做**反向双线性采样**, 且**只处理真正要回写的 `deltaRect`** —— 同面积几十 ms 量级 |
+
+| 项 | 内容 |
+|---|---|
+| 语义 | 采样核 = 双线性, 与已验收的交互态预览是**同一套数学** ⇒ 所见即所得; 与 Krita 的前向多边形填充不再逐像素一致 |
+| 兜底 | 非 8bit BGRA 文档 / 网格不完整 / `setprop debug.reverie.lqfastwarp 0` ⇒ 退回 `run()` |
+| 其余不变 | 选区约束、Alpha 锁、`COMPOSITE_COPY` 回写、`seedTransparentFromSource` 补洞、同步合成、撤销事务**全部原样** —— 只替换了"生成 dst"这一步 |
+| 精度档 | 从循环内提到循环外(所有目标共用一档), 顺带避免每目标重复算 |
+
+**机械验证**:`ninja` 通过; `.so` strip 后同步进 `third_party/android-native-libs` 与
+`app/src/main/jniLibs/arm64-v8a`;`:app:testDebugUnitTest` + `:app:assembleDebug` 通过。
+
+**真机待验证**:① 是否不再"越涂越糊";② `调用 max` 是否从 3110ms 掉到几十 ms;
+③ 形变边缘观感(双线性 vs 多边形填充);④ 撤销/取消完全回退。
+
 ## 5. 内存与线程
 
 ### 5.1 帧缓存预算 + 内存压力

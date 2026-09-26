@@ -899,6 +899,9 @@ private:
     qint64 m_liquifyLastApplyMs = 0;
     // Union of dab influence rects not yet written back to the layer
     QRect m_liquifyPendingDelta;
+    // Phase 3 · Commit 2: 尚未落盘的补点参数(每 6 个 float: fx, fy, tx, ty, strength, mode)。
+    // rebase 时若决定"不物化", 就用它把位移**重放**到新窗口的网格上, 从而把 run() 推迟到抬笔。
+    QVector<float> m_liquifyPendingDabs;
     // Adaptive writeback pacing (grows when a single apply overruns)
     qint64 m_liquifyApplyIntervalMs = 20;
     QColor m_brushColor = Qt::black;

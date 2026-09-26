@@ -211,12 +211,24 @@ C++ 已有脏区预算(`LIQUIFY_DELTA_BUDGET_*`, [`ReverieCoreMiscTools.cpp:145`
 | [`core/PerfTrace.kt`](../app/src/main/java/com/reverie/paint/core/PerfTrace.kt) | 修改 | 新增 `liquifyRebase(...)`;HUD 第 4.5 行追加 `rebase<n>/<ms> max<ms> 因<reason>` |
 | `app/src/debug/java/.../perf/PerfHud.kt` | 修改 | 上述读数渲染(debug 专属,release 侧保持空实现) |
 
-**Commit 2(埋点读数出来之后再定):路线 B+C**
+**Commit 2(已落地):路线 B+C —— 拖动期不再因 rebase 物化**
 
-| 路线 | 内容 | 前提 |
-|---|---|---|
-| C. 逻辑 rebase / 扩网格 | 需重锚定时构造**更大** worker,把旧网格位移场按双线性采样写进新网格;**不跑 `run()`、不落盘** | 待调查 §7 三条(尤其 `transformedPoints()` 是否可写) |
-| B. 延迟 rebase | 交互期只置 `rebasePending`,永不 flush;抬笔一次 | **必须与 C 配对**,否则笔尖出窗口后新 dab 形变静默失效 |
+真机读数(`调用 max 71.7ms` / `rebase flush max 71ms` / `形变 37ms` / `重建 0ms` / `因越内框 越界234px` /
+`节流 0` / `frame 16.6ms`)把因果钉死:预览态下节流边不跑 ⇒ 拖动中全部 `run()` 来自 rebase flush。
+详见 [RENDER-OPTIMIZATION.md §4.19](RENDER-OPTIMIZATION.md)。
+
+| 路线 | 落地内容 |
+|---|---|
+| C. 逻辑 rebase / 扩网格 | rebase 时把窗口扩到"旧窗口 ∪ 新邻域"(上限 3M px),重建网格后**重放**待落盘补点;不跑 `run()`、不回写、不触发同步合成 |
+| B. 延迟 rebase | 预览态下不再 flush;仅当超出窗口上限 / 补点上限 / 非预览态才回退旧路径;抬笔做**唯一一次**物化 |
+| 回退 | `setprop debug.reverie.liquifyNoRebase 0` |
+
+> 与调查 §7 的结论一致:`transformedPoints()` 虽可写, 但 worker 内部的两个 `KisSpatialContainer`
+> 是私有的 —— 所以这里**不直接改格点**, 而是复用公开的 `translatePoints/scalePoints/rotatePoints`
+> 重放补点, 让空间索引由 Krita 自己维持一致(避免"笔刷静默失效"这类最难查的问题)。
+>
+> **已知代价**:窗口变大 ⇒ 网格原点/步长改变 ⇒ 最终像素与旧路径**不再逐像素一致**(形变边缘细微差异);
+> 内存峰值随窗口增长。若真机上边缘观感不可接受, 回退开关或缩短窗口上限(3M px)即可。
 
 风险:高(碰 Krita 网格生命周期)。必须"一键回退到当前 rebase 行为",并真机回归
 "抬笔后与开关关闭时逐像素一致"(§11 液化清单)。
