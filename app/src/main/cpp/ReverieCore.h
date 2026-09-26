@@ -542,6 +542,32 @@ public:
     void liquifyEnd();
     void liquifyCancel();
 
+    // -----------------------------------------------------------------------
+    // Phase 5 · C3-2: "GPU 常驻位移场"的落盘通路 (docs/LIQUIFY-C3-FIELD-PLAN.md §3)
+    //
+    // 拖动期**完全不进引擎解算**: 位移只在 GPU 的浮点位移场里累加(Kotlin 侧), 引擎一个 dab
+    // 都不收 —— 于是 `调用/rebase/物化` 全部归零(真机实测 200px 笔刷拖动期引擎线程要 1.07s/s,
+    // 全是 per-dab 网格形变与 rebase 物化)。抬笔时把 GPU 已经算好的像素结果**一次性**写回图层,
+    // 选区 / Alpha 锁 / 脏区 / 撤销事务语义与 liquifyApplyLocked 完全一致。
+    // -----------------------------------------------------------------------
+
+    /** 取一份"未形变的源像素"给 GPU 场预览用(每次手势一次; 需要更大范围时再调一次即可)。
+     *  与 liquify() 无关: 只读目标图层**当前**的像素(手势期间它不会被改写 ⇒ 天然是未形变源),
+     *  不做网格、不形变、不写回、不生成低分辨率预览。结果走既有的 liquifyPreviewSourceMeta /
+     *  liquifyPreviewSourcePixels 通道, 因此 Kotlin 侧取数链路无需新增。
+     *  @return false = 不可用(无目标图层 / 非 8bit BGRA / 超预算), 调用方应回退经典路径。 */
+    bool liquifyFieldSource(int x, int y, int w, int h);
+
+    /** 把 GPU 算好的形变结果一次性写回图层。
+     *  @param rgba     RGBA8888(预乘)像素, 至少 `w * h * 4` 字节
+     *  @param bottomUp true = 首行是矩形的**最后一行**(GL 读回的原始行序, 引擎内部翻正) */
+    void liquifyFieldCommit(int x, int y, int w, int h, const QVector<quint8> &rgba, bool bottomUp);
+
+    /** 本次手势是否走 C3-2 的场落盘通路(纯读数, 供 HUD/诊断)。 */
+    bool liquifyFieldMode() const { return m_liquifyFieldMode; }
+    /** 标记/清除"本次手势走场落盘"(由 liquifyFieldSource 自动置位, 由 liquifyEnd/Cancel 清除)。 */
+    void setLiquifyFieldMode(bool on) { m_liquifyFieldMode = on; }
+
     /** 上一次液化 apply 的分段耗时(ms)与规模, 供性能标尺显示 —— 用来判断液化到底卡在
      *  "Krita 网格形变 / 补洞内存流量 / 图层回写 / 投影合成"哪一段。
      *  out 至少 8 个 qint64: [total, warp, seed, blit, composite, areaPx, targets, count]。 */
@@ -899,6 +925,9 @@ private:
     qint64 m_liquifyLastApplyMs = 0;
     // Union of dab influence rects not yet written back to the layer
     QRect m_liquifyPendingDelta;
+    // Phase 5 · C3-2: 本次手势是否走"GPU 场一次性落盘"(拖动期不收 dab)。由 Kotlin 侧在
+    // liquifyFieldSource 成功后置位; liquifyEnd / liquifyCancel 复位。纯状态, 不改任何几何。
+    bool m_liquifyFieldMode = false;
     // Phase 3 · Commit 2: 尚未落盘的补点参数(每 6 个 float: fx, fy, tx, ty, strength, mode)。
     // rebase 时若决定"不物化", 就用它把位移**重放**到新窗口的网格上, 从而把 run() 推迟到抬笔。
     QVector<float> m_liquifyPendingDabs;

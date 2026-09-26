@@ -213,6 +213,13 @@ internal class LiquifyGlesOverlay(context: Context) :
                 // 手势结束/取消: 场与计数一起作废, 免得下一段手势接着上一段的世代继续累加
                 renderer.onFrameIdle()
             }
+            // C3-2: 抬笔回读(C3-2 的"一次性提交")—— 必须排在 render 之后: 本帧的补点刚累加进场,
+            // 离屏渲染出来的才是"用户最后看到的那份形变"。
+            val commitReq = LiquifyGlesPreview.takeCommitRequest()
+            if (commitReq != null) {
+                val pixels = if (frame.valid) renderer.commitPixels(frame, commitReq) else null
+                LiquifyGlesPreview.completeCommit(pixels)
+            }
             if (!egl.swapBuffers()) {
                 bailOut("swapBuffers 失败")
                 break
@@ -250,6 +257,8 @@ internal class LiquifyGlesOverlay(context: Context) :
         private var uUseField = -1
         private var uFieldOrigin = -1
         private var uFieldSize = -1
+        private var uDrawOrigin = -1
+        private var uDrawSize = -1
 
         private var srcTex = 0
         private var gridTex = 0
@@ -298,6 +307,13 @@ internal class LiquifyGlesOverlay(context: Context) :
 
         /** 全视口 NDC 矩形 —— dab 累加 pass 的视口已经就是该 dab 的包围盒。 */
         private val fullRect = floatArrayOf(-1f, -1f, 1f, 1f)
+
+        /** C3-2 · 抬笔回读: bbox 大小的离屏 RGBA8 纹理 + FBO(抬笔一次, 复用)。 */
+        private var commitTex = 0
+        private var commitFbo = 0
+        private var commitW = 0
+        private var commitH = 0
+        private var commitBuf: ByteBuffer? = null
 
         private var quad: FloatBuffer? = null
 
@@ -351,6 +367,8 @@ internal class LiquifyGlesOverlay(context: Context) :
             uUseField = GLES20.glGetUniformLocation(p, "uUseField")
             uFieldOrigin = GLES20.glGetUniformLocation(p, "uFieldOrigin")
             uFieldSize = GLES20.glGetUniformLocation(p, "uFieldSize")
+            uDrawOrigin = GLES20.glGetUniformLocation(p, "uDrawOrigin")
+            uDrawSize = GLES20.glGetUniformLocation(p, "uDrawSize")
             if (aPos < 0) {
                 failReason = "aPos 缺失"
                 return false
@@ -401,6 +419,17 @@ internal class LiquifyGlesOverlay(context: Context) :
                 GLES30.glDeleteFramebuffers(1, intArrayOf(fieldFbo), 0)
                 fieldFbo = 0
             }
+            if (commitTex != 0) {
+                GLES20.glDeleteTextures(1, intArrayOf(commitTex), 0)
+                commitTex = 0
+            }
+            if (commitFbo != 0) {
+                GLES30.glDeleteFramebuffers(1, intArrayOf(commitFbo), 0)
+                commitFbo = 0
+            }
+            commitBuf = null
+            commitW = 0
+            commitH = 0
             fieldReady = false
             quad = null
             srcBytes = null
@@ -473,6 +502,9 @@ internal class LiquifyGlesOverlay(context: Context) :
             GLES20.glUniform2f(uGridSize, f.gridCols.toFloat(), f.gridRows.toFloat())
             GLES20.glUniform1f(uUseField, if (fieldActive) 1f else 0f)
             GLES20.glUniform2f(uFieldOrigin, f.cropOriginX, f.cropOriginY)
+            // C3-2: 绘制矩形(0 = 不做这个裁剪, 网格路径就是这种情形)
+            GLES20.glUniform2f(uDrawOrigin, f.drawX, f.drawY)
+            GLES20.glUniform2f(uDrawSize, f.drawW, f.drawH)
             // 场的文档尺寸 = 场纹素 × 降采样比(场与裁剪逐像素对齐, 所以原点就是裁剪原点)
             val res = fieldRes.toFloat()
             GLES20.glUniform2f(uFieldSize, (fieldW * res).coerceAtLeast(1f), (fieldH * res).coerceAtLeast(1f))
@@ -484,6 +516,124 @@ internal class LiquifyGlesOverlay(context: Context) :
             GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, q)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GLES20.glDisableVertexAttribArray(aPos)
+        }
+
+        /**
+         * C3-2: 抬笔时把"已经算好的形变结果"渲染到离屏 RGBA8 并读回 CPU。
+         *
+         * 与呈现 pass **同一支着色器、同一套采样口径**, 只改三件事: 目标换成 bbox 大小的 FBO、
+         * 仿射取 identity(1 纹素 = 1 文档像素)、关掉混合(要的是结果而不是叠加)。于是"屏幕上看到的"
+         * 与"写回图层的"是同一份数学 —— 不需要在 CPU 上再实现一遍位移场重采样。
+         *
+         * @return RGBA8888(预乘)像素, 行序 = GL 原始(自下而上); 失败返回 null(调用方回退重放补点)
+         */
+        fun commitPixels(f: LiquifyGlesPreview.Frame, req: IntArray): ByteArray? {
+            val x = req[0]
+            val y = req[1]
+            val w = req[2]
+            val h = req[3]
+            if (w <= 0 || h <= 0) return null
+            if (program == 0 || srcTex == 0 || srcTexW <= 0 || srcTexH <= 0) return null
+            if (fieldTex == 0 || !fieldReady) return null
+            if (!ensureCommitTarget(w, h)) return null
+
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, commitFbo)
+            GLES20.glDisable(GLES20.GL_BLEND)
+            GLES20.glViewport(0, 0, w, h)
+            GLES20.glClearColor(0f, 0f, 0f, 0f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            GLES20.glUseProgram(program)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + TEX_UNIT_SRC)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, srcTex)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + TEX_UNIT_GRID)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gridTex)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + TEX_UNIT_FIELD)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fieldTex)
+            GLES20.glUniform2f(uViewSize, w.toFloat(), h.toFloat())
+            // identity: 视口内像素坐标 = doc - (x, y)(y 的翻转由 shader 里那句 uViewSize 处理,
+            // 读回时按 GL 原始行序交回, 由引擎侧翻正)
+            GLES20.glUniform2f(uOrigin, -x.toFloat(), -y.toFloat())
+            GLES20.glUniform2f(uEx, 1f, 0f)
+            GLES20.glUniform2f(uEy, 0f, 1f)
+            GLES20.glUniform2f(uCropOrigin, f.cropOriginX, f.cropOriginY)
+            GLES20.glUniform2f(uCropSize, f.cropW.toFloat(), f.cropH.toFloat())
+            GLES20.glUniform2f(uGridOrigin, f.gridOriginX, f.gridOriginY)
+            GLES20.glUniform2f(uGridStep, f.gridStepX, f.gridStepY)
+            GLES20.glUniform2f(uGridSize, f.gridCols.toFloat(), f.gridRows.toFloat())
+            GLES20.glUniform1f(uUseField, 1f)
+            GLES20.glUniform2f(uFieldOrigin, f.cropOriginX, f.cropOriginY)
+            val res = fieldRes.toFloat()
+            GLES20.glUniform2f(uFieldSize, (fieldW * res).coerceAtLeast(1f), (fieldH * res).coerceAtLeast(1f))
+            // 提交**不做**"绘制矩形"裁剪: 那只用于显示分流(整篇文档的裁剪会让覆盖层盖住整屏)
+            GLES20.glUniform2f(uDrawOrigin, 0f, 0f)
+            GLES20.glUniform2f(uDrawSize, 0f, 0f)
+            GLES20.glUniform4f(uRect, -1f, -1f, 1f, 1f)
+
+            var out: ByteArray? = null
+            val q = quad
+            if (q != null) {
+                GLES20.glEnableVertexAttribArray(aPos)
+                q.position(0)
+                GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, q)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                GLES20.glDisableVertexAttribArray(aPos)
+                val need = w * h * 4
+                var buf = commitBuf
+                if (buf == null || buf.capacity() < need) {
+                    buf = ByteBuffer.allocateDirect(need).order(ByteOrder.nativeOrder())
+                    commitBuf = buf
+                }
+                buf.clear()
+                GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
+                val bytes = ByteArray(need)
+                buf.position(0)
+                buf.get(bytes)
+                out = bytes
+            }
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            GLES20.glEnable(GLES20.GL_BLEND)
+            return out
+        }
+
+        /** 建/复用 bbox 大小的离屏 RGBA8 目标(抬笔一次; 尺寸随受影响范围变化)。 */
+        private fun ensureCommitTarget(w: Int, h: Int): Boolean {
+            if (commitTex != 0 && commitFbo != 0 && commitW == w && commitH == h) return true
+            if (commitTex == 0) {
+                val t = IntArray(1)
+                GLES20.glGenTextures(1, t, 0)
+                if (t[0] == 0) return false
+                commitTex = t[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, commitTex)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            }
+            if (commitFbo == 0) {
+                val fb = IntArray(1)
+                GLES30.glGenFramebuffers(1, fb, 0)
+                if (fb[0] == 0) return false
+                commitFbo = fb[0]
+            }
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, commitTex)
+            GLES20.glTexImage2D(
+                GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+            )
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, commitFbo)
+            GLES30.glFramebufferTexture2D(
+                GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
+                GLES20.GL_TEXTURE_2D, commitTex, 0,
+            )
+            val status = GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER)
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+            if (status != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                Log.w(TAG, "liquifyGles 提交 FBO 不完整(0x${Integer.toHexString(status)})")
+                return false
+            }
+            commitW = w
+            commitH = h
+            return true
         }
 
         /** 源裁剪 → RGBA8 纹理(整段手势只上传一次, 见 [LiquifyGlesPreview]). */
@@ -820,10 +970,12 @@ internal class LiquifyGlesOverlay(context: Context) :
         private fun computeQuad(f: LiquifyGlesPreview.Frame, w: Int, h: Int): Boolean {
             val ox = f.affineOx
             val oy = f.affineOy
-            val x0 = f.cropOriginX
-            val y0 = f.cropOriginY
-            val x1 = f.cropOriginX + f.cropW
-            val y1 = f.cropOriginY + f.cropH
+            // C3-2: 有"绘制矩形"时按它算 NDC —— 场通路的裁剪是整篇文档, 照裁剪铺满会盖住整屏
+            val useDraw = f.drawW > 0f && f.drawH > 0f
+            val x0 = if (useDraw) f.drawX else f.cropOriginX
+            val y0 = if (useDraw) f.drawY else f.cropOriginY
+            val x1 = if (useDraw) f.drawX + f.drawW else f.cropOriginX + f.cropW
+            val y1 = if (useDraw) f.drawY + f.drawH else f.cropOriginY + f.cropH
             corners[0] = ox + x0 * f.exX + y0 * f.eyX
             corners[1] = oy + x0 * f.exY + y0 * f.eyY
             corners[2] = ox + x1 * f.exX + y0 * f.eyX
@@ -975,6 +1127,8 @@ internal class LiquifyGlesOverlay(context: Context) :
             uniform vec2 uGridSize;
             uniform vec2 uFieldOrigin;
             uniform vec2 uFieldSize;
+            uniform vec2 uDrawOrigin;
+            uniform vec2 uDrawSize;
 
             void main() {
                 // gl_FragCoord 的 y 向上, 画布坐标 y 向下 ⇒ 翻回画布坐标
@@ -984,6 +1138,14 @@ internal class LiquifyGlesOverlay(context: Context) :
                 if (abs(det) < 1e-6) { gl_FragColor = vec4(0.0); return; }
                 vec2 doc = vec2((uEy.y * d.x - uEy.x * d.y) / det,
                                 (uEx.x * d.y - uEx.y * d.x) / det);
+                // C3-2: 把绘制范围收窄到"受影响矩形"(场通路的裁剪可能是整篇文档, 照裁剪铺满会盖住整屏)
+                if (uDrawSize.x > 0.0 && uDrawSize.y > 0.0) {
+                    vec2 dq = (doc - uDrawOrigin) / uDrawSize;
+                    if (dq.x < 0.0 || dq.y < 0.0 || dq.x > 1.0 || dq.y > 1.0) {
+                        gl_FragColor = vec4(0.0);
+                        return;
+                    }
+                }
                 vec2 off;
                 if (uUseField > 0.5) {
                     // 场与裁剪对齐: 归一化坐标就是"场纹素中心"(v=0 两侧都是文档 top)

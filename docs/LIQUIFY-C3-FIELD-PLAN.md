@@ -224,3 +224,58 @@ frame 33.5ms p95 15.9ms n256      draw p95 0.08ms      重传 3.9MB/帧  脏比 
    `scheduleLiquifyInvalidate()`。每次局部重绘都把整块标尺刷新一遍, 同一帧的读数不再新旧混拼;
    正式版该函数恒返回 false(零成本), 标尺关闭时同样零成本。
 4. `frame` 行移到"GLES 首帧快照"之前: 快照行只在 GLES 路径出现, 排在其前面就不会被它挤走。
+
+## 8. C3-2 实现注记: 拖动期零引擎解算 + 抬笔一次性提交(已落地)
+
+### 8.1 第二张真机标尺(`test12.jpg`, 200px 笔刷 / 强度 90% / 推拉)说明了什么
+
+```
+液化 22ms 形变 19/补洞 1/回写 0/合成 2  1层 402K px 精度16/单元1750
+预览 引擎  场 --
+泵 输入25/推进25/补点39 物化24/70ms max26ms rebase23/517ms max39ms 重建15ms 因越内框 越界314px
+   节流0/0ms 调用90/550ms max40.4ms 暂存…
+frame 83.6ms p95 16.1ms n256
+```
+
+- **rebase 23 次 / 517ms + 调用 90 次 / 550ms ≈ 1.07s/s**: 引擎线程一秒里干了超过一秒的活 ⇒ 必卡。
+  工作量的构成是"每次 dab 在 CPU 网格上形变一次"(平均 0.65ms)与"窗口重锚定时把整窗重新
+  形变 + 回写 + 同步合成"(平均 22ms、峰值 39ms) —— 与语言无关, 是**数据流**问题。
+- `frame p95 16.1ms` / `draw p95 0.09ms` ⇒ 帧循环与 UI 绘制都没问题, 卡的是提交路径上的原生尖峰。
+- 结论: 参考实现之所以"不卡", 是因为它的形变**从不落在 CPU 网格上**。C3-1 已经把"预览"这一半
+  搬到了 GPU 场; C3-2 把"提交"这一半也搬走 —— 拖动期一个 dab 都不进引擎。
+
+### 8.2 实现(一条新通路, 与既有路径完全并存)
+
+```
+拖动期:  CanvasTouchView 的补点循环
+           → 不再 v.liquify()(引擎零解算)
+           → LiquifyGlesPreview.pushDab()  → GPU 场逐 dab 累加
+           → 本地补点列表 + 受影响矩形(acc) → 覆盖层绘制范围 + 局部失效范围
+抬笔:    覆盖层离屏渲染 bbox(与呈现同一支着色器) → glReadPixels
+           → ReverieCoreBridge.liquifyFieldCommit(rect, rgba, bottomUp)
+           → 引擎按既有语义一次写回(选区 / Alpha 锁 / 脏区 / 同步合成 / 一条撤销)
+           → liquifyEnd() 提交事务
+失败回退: 回读超时 / 覆盖层不在 / 范围为空 ⇒ 把本地补点按序重放给引擎再 materialize(形变不丢)
+```
+
+| 文件 | 改动 |
+|---|---|
+| `ReverieCoreMiscTools.cpp` | 新增 [`liquifyFieldSource()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp) (只读图层像素当源, 不碰网格) 与 `liquifyFieldCommit()` (GPU 结果一次写回; 写回语义与 `liquifyApplyLocked` 逐条一致) |
+| `ReverieCore.h` / `reverie_jni_tools.cpp` / `ReverieCoreBridge.kt` | 三个新入口: `liquifyFieldSource` / `liquifyFieldCommit` / `liquifyFieldMode` |
+| `CanvasTouchView.kt` | 手势开始试进"场通路"; 拖动期只记补点 + 推场 + 局部失效; 抬笔回读提交, 失败自动重放 |
+| `LiquifyGlesOverlay.kt` | 场改为**整篇文档对齐**(不再随 rebase 重建)、呈现 pass 加"绘制矩形"分流、新增离屏提交 pass + 回读 |
+| `LiquifyGlesPreview.kt` | 绘制矩形通道 + 抬笔回读的 rendezvous(渲染线程离屏渲染 + 读回) |
+| `PaintViewModelTools.kt` | `liquifyFieldSource()` / `liquifyFieldEnd()`(覆盖层在提交之后才摘, 避免"预览→旧像素"闪一下) |
+
+关键取舍:
+- **源纹理 = 整篇文档**(每段手势一次 4B/px 拷贝 + 上传, 上限沿用 `LIQUIFY_HOST_DRAW_MAX_PX` = 4M px)。
+  这样场与源都不需要重锚定, 也就没有"窗口接缝"; 代价是超大画布直接回退经典路径(不冒险)。
+- **提交用 GPU 结果而不是回读位移场**: 与屏幕上看到的是**同一支着色器、同一套采样口径**,
+  不必在 CPU 上再实现一遍位移场重采样, 传输量也从 8B/px 降到 4B/px。
+- 拖动期 `调用 / rebase / 物化` 三格预期归零(标尺可验): 场通路的失效改由**补点**驱动,
+  `scheduleLiquifyInvalidate` 在该路径直接让路(它拿不到网格差分, 照旧算只会退化成每帧整屏)。
+- 撤销/取消语义不变: 取消 = 图层从未被改写(拖动期零解算), 直接回滚事务即可。
+
+验证: `ninja -j2`(WSL `~/reverie-deps/jni-build`)重编原生库 ✅ + `llvm-strip` 刷新
+`third_party/android-native-libs/libreverie_jni.so` 与 `app/src/main/jniLibs/arm64-v8a/` ✅ +
+`compileDebugKotlin` / `testDebugUnitTest` / `assembleDebug` ✅。真机 A/B 待出包后按 §7.3 步骤验。

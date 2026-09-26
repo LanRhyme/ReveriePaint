@@ -349,6 +349,17 @@ class PaintViewModel : ViewModel() {
     private var lqGpuPreviewSeq = -1L
     private var lqGpuCropKey = Long.MIN_VALUE
 
+    /**
+     * Phase 5 · C3-2: 作废"源裁剪指纹", 让下一次取数**重新取一份源像素**。
+     *
+     * 为什么需要: 场通路的裁剪就是**整篇文档** ⇒ 两段手势的几何完全相同, 指纹也一样, 于是第二次
+     * 手势会沿用上一段手势的源纹理 —— 而那份源早已被上一段手势的提交改过(画面会整体错位)。
+     * 经典路径的裁剪每段手势都不同, 所以只在场通路里调它。
+     */
+    internal fun invalidateLiquifySourceKey() {
+        lqGpuCropKey = Long.MIN_VALUE
+    }
+
     /** Phase 5 · C2: GLES 覆盖层失败后的"一次性交回引擎 CPU 预览"标记(只在引擎线程读写)。 */
     private var lqGlesRecovered = false
 

@@ -204,6 +204,19 @@ internal object LiquifyGlesPreview {
     /** 数据或仿射任一变化 +1; 渲染线程据此判断"要不要重画"。 */
     private var revision = 0L
 
+    // C3-2: 覆盖层要绘制的文档矩形(受影响区并集)。0 尺寸 = 用整块裁剪(经典路径的语义)。
+    // 场通路的"裁剪"是**整篇文档**(源像素必须覆盖被拉进来的区域), 若覆盖层照旧按裁剪铺满,
+    // 整屏都会被目标图层盖住(其它图层的合成就看不见了) ⇒ 由 UI 侧给出真正受影响的矩形。
+    private var drawX = 0f
+    private var drawY = 0f
+    private var drawW = 0f
+    private var drawH = 0f
+
+    // C3-2: 抬笔回读的 rendezvous(UI 线程请求 → 渲染线程离屏渲染 + glReadPixels → 唤醒 UI)。
+    private var commitReq: IntArray? = null
+    private var commitPixels: ByteArray? = null
+    private var commitDone = true
+
     // C3: 补点缓冲 (UI 线程追加, 渲染线程 [takeDabs] 取走) + 源裁剪世代。
     // srcGen 的作用只有一个: 告诉渲染线程"源换了 ⇒ 场要按新裁剪重建并清零"。它同时表示
     // "此前的补点已经物化进源像素"(rebase 的语义), 所以渲染线程在清零后才累加本帧拿到的补点。
@@ -274,6 +287,12 @@ internal object LiquifyGlesPreview {
         /** C3: 本帧是否走常驻场([fieldArmed] 的快照)。 */
         var fieldArmed = false
 
+        /** C3-2: 本帧要绘制的文档矩形([pushDrawRect]; 0 宽高 = 退回用整块裁剪)。 */
+        var drawX = 0f
+        var drawY = 0f
+        var drawW = 0f
+        var drawH = 0f
+
         /** C3: 源裁剪世代(snapshot)。与渲染线程自己记的场世代不一致 ⇒ 先重建/清零场。 */
         var srcGen = 0L
 
@@ -311,9 +330,13 @@ internal object LiquifyGlesPreview {
             cropH = 0
             gridCols = 0
             gridRows = 0
+            drawW = 0f
+            drawH = 0f
             pendingSrc = null
             pendingGrid = null
             pendingDabCount = 0
+            commitReq = null
+            commitDone = true
             bumpLocked()
         }
     }
@@ -328,9 +351,13 @@ internal object LiquifyGlesPreview {
             cropH = 0
             gridCols = 0
             gridRows = 0
+            drawW = 0f
+            drawH = 0f
             pendingSrc = null
             pendingGrid = null
             pendingDabCount = 0
+            commitReq = null
+            commitDone = true
             bumpLocked()
         }
     }
@@ -430,6 +457,74 @@ internal object LiquifyGlesPreview {
     }
 
     /**
+     * C3-2: 喂一次"这一帧要绘制的文档矩形"(受影响区并集; 调用点: `CanvasTouchView` 的补点循环)。
+     *
+     * 不喂(0 宽高)时覆盖层退回"整块裁剪"的经典语义(网格路径就是这样: 裁剪本身就是影响范围)。
+     * 只有场通路的裁剪 = 整篇文档, 才必须靠这个矩形把绘制范围收窄。
+     */
+    fun pushDrawRect(x: Float, y: Float, w: Float, h: Float) {
+        synchronized(lock) {
+            if (x == drawX && y == drawY && w == drawW && h == drawH) return
+            drawX = x
+            drawY = y
+            drawW = w
+            drawH = h
+            bumpLocked()
+        }
+    }
+
+    /**
+     * C3-2: 抬笔回读 —— 让渲染线程把"已经算好的形变结果"渲染到离屏 FBO 并读成 RGBA8888。
+     *
+     * **只在抬笔时调用**(不在拖动热路径上): 阻塞等到渲染线程做完(最长 [timeoutMs] 毫秒),
+     * 超时/覆盖层不在 ⇒ 返回 null, 调用方改走经典路径重放补点(绝不丢形变)。
+     */
+    fun readbackCommit(x: Int, y: Int, w: Int, h: Int, timeoutMs: Long): ByteArray? {
+        if (x < 0 || y < 0 || w <= 0 || h <= 0) return null
+        synchronized(lock) {
+            if (!alive || failed) return null
+            commitReq = intArrayOf(x, y, w, h)
+            commitPixels = null
+            commitDone = false
+            requested = true
+            bumpLocked()
+            val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+            while (!commitDone) {
+                val left = (deadline - System.nanoTime()) / 1_000_000L
+                if (left <= 0L) break
+                try {
+                    (lock as Object).wait(left)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+            commitReq = null
+            val out = if (commitDone) commitPixels else null
+            commitPixels = null
+            commitDone = true
+            return out
+        }
+    }
+
+    /** 渲染线程: 取走待处理的回读请求(没有则返回 null)。 */
+    fun takeCommitRequest(): IntArray? {
+        synchronized(lock) {
+            val r = commitReq ?: return null
+            commitReq = null
+            return r
+        }
+    }
+
+    /** 渲染线程: 回读完成(或失败)后交回结果并唤醒等待的 UI 线程。 */
+    fun completeCommit(pixels: ByteArray?) {
+        synchronized(lock) {
+            commitPixels = pixels
+            commitDone = true
+            (lock as Object).notifyAll()
+        }
+    }
+
+    /**
      * 每帧喂一次"文档 → 视图像素"的仿射 (调用点: `CanvasTouchView.drawCanvas`)。
      *
      * 用"原点 + 两个基向量"表达: `screen = O + docX * Ex + docY * Ey`, 于是缩放/旋转/平移
@@ -513,7 +608,10 @@ internal object LiquifyGlesPreview {
             }
             if (out.taken == revision) return false
             out.taken = revision
-            out.valid = cropW > 0 && cropH > 0 && gridCols >= 2 && gridRows >= 2
+            // C3-2: 场通路的裁剪是整篇文档、且**没有网格** —— 有效性判定不能再看网格; 同时还要求
+            // "绘制矩形"已经就位: 否则第一帧会按整篇文档铺满屏幕(盖住其它图层的合成)。
+            out.valid = cropW > 0 && cropH > 0 &&
+                if (fieldArmed) (drawW > 0f && drawH > 0f) else (gridCols >= 2 && gridRows >= 2)
             out.cropW = cropW
             out.cropH = cropH
             out.cropOriginX = cropOriginX
@@ -526,6 +624,10 @@ internal object LiquifyGlesPreview {
             // C3: 补点**不在这里取** —— 渲染线程真正要累加时再调 [takeDabs](无效帧不会吞掉它们)
             out.fieldArmed = fieldArmed
             out.srcGen = srcGen
+            out.drawX = drawX
+            out.drawY = drawY
+            out.drawW = drawW
+            out.drawH = drawH
             out.dabCount = 0
             out.gridCols = gridCols
             out.gridRows = gridRows

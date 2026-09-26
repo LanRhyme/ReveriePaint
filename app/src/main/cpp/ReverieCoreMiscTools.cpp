@@ -869,6 +869,8 @@ void ReverieCore::liquifyEnd()
             markRegionDirty(previewBounds.intersected(QRect(0, 0, m_document->width(), m_document->height())));
         }
     }
+    // Phase 5 · C3-2: 场通路随手势结束复位(像素已由 liquifyFieldCommit 写回, 或本就没提交)
+    m_liquifyFieldMode = false;
     // Collect the per-target transactions as ONE composite undo step
     // (Krita's adapter pushes every addCommand separately)
     QVector<KUndo2Command *> children;
@@ -911,9 +913,155 @@ void ReverieCore::liquifyCancel()
         recompositeProjection();
         markDirty();
     }
+    // Phase 5 · C3-2: 取消 = 图层从未被改写(拖动期零引擎解算), 只需复位场通路标记
+    m_liquifyFieldMode = false;
+    m_liquifyPreview = false;
     m_liquifyTargets.clear();
     m_liquifyTxnActive = false;
     resetLiquifyWorker();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 · C3-2: GPU 常驻位移场的引擎侧收口 (docs/LIQUIFY-C3-FIELD-PLAN.md §3)
+//
+// 拖动期**零解算**: 位移全部留在 GPU 的浮点场里(Kotlin 侧逐 dab 累加), 引擎只在这里做两件事:
+//   ① 手势开始/需要更大范围时, 把目标图层的**未形变**像素交给覆盖层当源纹理;
+//   ② 抬笔时把 GPU 已经算好的像素结果**一次性**写回图层。
+// 于是拖动期的 `调用 / rebase / 物化` 三格归零(真机实测: 200px 笔刷原本拖动期要 1.07s/s,
+// 其中 rebase 物化 517ms、逐 dab 网格形变 550ms)。
+//
+// 写回语义与 liquifyApplyLocked 逐条一致(选区冻结 / Alpha 锁只动颜色 / 脏区 + 立即投影合成 /
+// 一条撤销) —— 那是所有液化路径的公共底线, 这里刻意复制而不改既有函数(AGENTS.md §5 扩而不改)。
+// ---------------------------------------------------------------------------
+
+bool ReverieCore::liquifyFieldSource(int x, int y, int w, int h)
+{
+    if (!m_document || m_liquifyTargets.isEmpty()) return false;
+    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect b = QRect(x, y, w, h).intersected(docRect);
+    if (b.isEmpty() || b.width() <= 0 || b.height() <= 0) return false;
+    const qint64 px = qint64(b.width()) * qint64(b.height());
+    // 与主机侧绘制的源裁剪同一预算口径: 超大范围的复制 + 上传得不偿失, 宁可不做(调用方回退)
+    if (px > LIQUIFY_HOST_DRAW_MAX_PX) return false;
+    KisPaintDeviceSP src = m_liquifyTargets[0].device;
+    if (!src) return false;
+    const KoColorSpace *cs = src->colorSpace();
+    const int ps = cs ? cs->pixelSize() : 0;
+    if (ps != 4) return false;
+
+    m_liquifyPreviewSrc.resize(int(px) * ps);
+    src->readBytes(m_liquifyPreviewSrc.data(), b.x(), b.y(), b.width(), b.height());
+    m_liquifyPreviewSrcRgba.resize(int(px) * 4);
+    const quint8 *s = m_liquifyPreviewSrc.constData();
+    quint8 *d = m_liquifyPreviewSrcRgba.data();
+    for (qint64 i = 0; i < px; ++i) {
+        d[i * 4 + 0] = s[i * 4 + 2]; // BGRA -> RGBA(预乘; 与既有主机侧绘制同一假设)
+        d[i * 4 + 1] = s[i * 4 + 1];
+        d[i * 4 + 2] = s[i * 4 + 0];
+        d[i * 4 + 3] = s[i * 4 + 3];
+    }
+    m_liquifyWorkerBounds = b;
+    // 让既有链路原样工作: Kotlin 侧照旧走 liquifyPreviewSourceMeta / Pixels 取数;
+    // 引擎自己不生成 CPU 预览像素(W/H = 0), 也从不进入网格/物化分支。
+    m_liquifyPreview = true;
+    m_liquifyPreviewW = 0;
+    m_liquifyPreviewH = 0;
+    m_liquifyPreviewOut = QVector<quint8>();
+    ++m_liquifyPreviewSeq;
+    m_liquifyFieldMode = true;
+    RPC_TRACE("liquify fieldSource %dx%d@(%d,%d) px=%d",
+              b.width(), b.height(), b.x(), b.y(), int(px));
+    return true;
+}
+
+void ReverieCore::liquifyFieldCommit(int x, int y, int w, int h, const QVector<quint8> &rgba,
+                                     bool bottomUp)
+{
+    if (!m_document || m_liquifyTargets.isEmpty() || w <= 0 || h <= 0) return;
+    if (rgba.size() < qint64(w) * qint64(h) * 4) return;
+    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect area = QRect(x, y, w, h).intersected(docRect);
+    if (area.isEmpty()) return;
+
+    const qint64 t0 = QDateTime::currentMSecsSinceEpoch();
+    QRect clipRect = docRect;
+    if (m_selection) {
+        clipRect &= m_selection->selectedExactRect();
+    }
+    QRect dirtyUnion;
+    qint64 tBlitMs = 0;
+    qint64 tCompositeMs = 0;
+    const int ps = 4;
+    thread_local QVector<quint8> rowBuf;
+    const qint64 areaPx = qint64(area.width()) * qint64(area.height());
+
+    for (LiquifyTarget &t : m_liquifyTargets) {
+        if (!t.device) continue;
+        const QRect a = area.intersected(clipRect);
+        if (a.isEmpty()) continue;
+        if (!t.dst) t.dst = new KisPaintDevice(t.device->colorSpace());
+        // RGBA(预乘) -> 设备字节序(BGRA, 也是预乘): 逐行转换后写进 dst, 再按选区分块回写。
+        // bottomUp = GL 读回的原始行序(首行是矩形最后一行), 在这里翻正 —— 免得 Kotlin 侧
+        // 再走一遍整块像素。
+        const int rowBytes = a.width() * ps;
+        if (rowBuf.size() < rowBytes) rowBuf.resize(rowBytes);
+        for (int r = 0; r < a.height(); ++r) {
+            const int dstRow = a.y() + r;
+            const int relRow = dstRow - y;
+            const int srcRow = bottomUp ? (h - 1 - relRow) : relRow;
+            if (srcRow < 0 || srcRow >= h) continue;
+            const quint8 *srow = rgba.constData() + (qint64(srcRow) * w + (a.x() - x)) * ps;
+            quint8 *drow = rowBuf.data();
+            for (int c = 0; c < a.width(); ++c) {
+                drow[c * 4 + 0] = srow[c * 4 + 2];
+                drow[c * 4 + 1] = srow[c * 4 + 1];
+                drow[c * 4 + 2] = srow[c * 4 + 0];
+                drow[c * 4 + 3] = srow[c * 4 + 3];
+            }
+            t.dst->writeBytes(drow, a.x(), dstRow, a.width(), 1);
+        }
+        const qint64 tb0 = QDateTime::currentMSecsSinceEpoch();
+        KisPainter p(t.device);
+        p.setCompositeOpId(COMPOSITE_COPY);
+        if (m_selection) {
+            p.setSelection(m_selection);
+        }
+        // Alpha 锁图层只跟颜色通道走, 保持轮廓不变(与 liquifyApplyLocked / 笔画路径同一 flags)
+        p.setChannelFlags(t.layer && t.layer->alphaLocked() ? t.layer->channelLockFlags() : QBitArray());
+        p.bitBlt(a.topLeft(), t.dst, a);
+        p.end();
+        t.device->setDirty(a);
+        tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
+        dirtyUnion = dirtyUnion.isNull() ? a : dirtyUnion.united(a);
+    }
+
+    if (!dirtyUnion.isEmpty()) {
+        const qint64 tc0 = QDateTime::currentMSecsSinceEpoch();
+        markRegionDirty(dirtyUnion);
+        // 与 liquifyApplyLocked 逐行同义: 让后台调度器之外的那次同步合成立刻发生, 否则渲染
+        // 路径此刻读投影会拿到半更新像素(白线/撕裂的第二个成因)
+        if (!m_soloedNode && m_document) {
+            KisPaintDeviceSP proj = m_document->projection();
+            const QRect c = dirtyUnion.intersected(
+                QRect(0, 0, m_document->width(), m_document->height()));
+            if (proj && !c.isEmpty()) {
+                proj->clear(c);
+                compositeLayersRange(proj, 0, m_layers.size(), c);
+            }
+        }
+        tCompositeMs = QDateTime::currentMSecsSinceEpoch() - tc0;
+    }
+
+    const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - t0;
+    // 复用既有的分段读数: 形变段为 0(GPU 已经算完), 回写/合成段照旧上报 ⇒ 标尺的"液化"一行
+    // 在抬笔时会显示这一次 bulk 提交的真实成本。
+    const qint64 lqPrec = qMax(1, m_liquifyPrecision);
+    const qint64 lqCells = qint64(area.width() / lqPrec + 2) * qint64(area.height() / lqPrec + 2);
+    publishLiquifyStats(elapsed, 0, 0, tBlitMs, tCompositeMs, areaPx,
+                        m_liquifyTargets.size(), m_liquifyPrecision, lqCells);
+    RPC_TRACE("liquify fieldCommit %dx%d@(%d,%d) total=%dms blit=%d comp=%d targets=%d",
+              area.width(), area.height(), area.x(), area.y(),
+              int(elapsed), int(tBlitMs), int(tCompositeMs), int(m_liquifyTargets.size()));
 }
 
 void ReverieCore::liquifyStats(qint64 *out)

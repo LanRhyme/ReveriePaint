@@ -261,6 +261,39 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyCancel(JNIEnv *, jobject)
     core()->liquifyCancel();
 }
 
+// Phase 5 · C3-2 (docs/LIQUIFY-C3-FIELD-PLAN.md §3): 拖动期零引擎解算的两端。
+// ① 取"未形变的源像素"给 GPU 场当源纹理 —— 只读图层, 不碰网格/不形变/不写回;
+// ② 抬笔把 GPU 算好的像素结果一次性写回 —— 选区/Alpha 锁/脏区/撤销语义与经典路径一致。
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyFieldSource(JNIEnv *, jobject, jint x, jint y,
+                                                                 jint w, jint h)
+{
+    return core()->liquifyFieldSource(x, y, w, h) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyFieldCommit(JNIEnv *env, jobject, jint x,
+                                                                 jint y, jint w, jint h,
+                                                                 jbyteArray pixels,
+                                                                 jboolean bottomUp)
+{
+    if (pixels == nullptr || w <= 0 || h <= 0) return JNI_FALSE;
+    const qint64 need = qint64(w) * qint64(h) * 4;
+    if (qint64(env->GetArrayLength(pixels)) < need) return JNI_FALSE;
+    // 注意: `QVector<quint8> buf(int(need))` 会被当成函数声明(vexing parse), 必须用 resize 形式
+    QVector<quint8> buf;
+    buf.resize(int(need));
+    env->GetByteArrayRegion(pixels, 0, jsize(need), reinterpret_cast<jbyte *>(buf.data()));
+    core()->liquifyFieldCommit(x, y, w, h, buf, bottomUp == JNI_TRUE);
+    return JNI_TRUE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyFieldMode(JNIEnv *, jobject)
+{
+    return core()->liquifyFieldMode() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jlongArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_liquifyStats(JNIEnv *env, jobject)
 {

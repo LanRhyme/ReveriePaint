@@ -600,6 +600,37 @@ object ReverieCoreBridge {
     /** Revert the whole liquify drag. */
     external fun liquifyCancel()
 
+    /**
+     * Phase 5 · C3-2: 取一份"未形变的源像素"给 GPU 常驻位移场当源纹理。
+     *
+     * 与 [liquify] 无关 —— 只读目标图层**当前**的像素(拖动期图层不会被改写 ⇒ 天然未形变),
+     * 不做网格/形变/写回, 也不生成 CPU 预览。结果走既有 [liquifyPreviewSourceMeta] /
+     * [liquifyPreviewSourcePixels] 通道, 因此覆盖层的取数链路无需新增。
+     *
+     * @return false = 不可用(无目标图层 / 非 8bit BGRA / 超预算 / 空矩形), 调用方回退经典路径
+     */
+    external fun liquifyFieldSource(x: Int, y: Int, w: Int, h: Int): Boolean
+
+    /**
+     * Phase 5 · C3-2: 抬笔时把 GPU 已经算好的形变结果**一次性**写回图层。
+     *
+     * 选区冻结 / Alpha 锁只动颜色 / 脏区 + 立即投影合成 / 一条撤销, 语义与经典 liquefy 路径一致。
+     *
+     * @param pixels   RGBA8888(预乘)像素, 至少 `w * h * 4` 字节
+     * @param bottomUp true = 首行是矩形的最后一行(GL 读回的原始行序, 引擎内部翻正)
+     */
+    external fun liquifyFieldCommit(
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+        pixels: ByteArray,
+        bottomUp: Boolean,
+    ): Boolean
+
+    /** Phase 5 · C3-2: 当前手势是否走"场一次性落盘"通路(纯读数)。 */
+    external fun liquifyFieldMode(): Boolean
+
     external fun setLiquifyBrushSize(size: Double)
 
     /** Move several layers' content at once (one undo step). */

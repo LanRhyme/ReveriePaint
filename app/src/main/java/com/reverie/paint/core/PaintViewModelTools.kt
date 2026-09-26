@@ -981,6 +981,50 @@ internal fun PaintViewModel.liquifyEnd() {
     }
 }
 
+/**
+ * Phase 5 · C3-2: 取"未形变的源像素"给 GPU 常驻位移场当源纹理(**引擎线程**)。
+ *
+ * 拖动期完全不调 [liquify] ⇒ 引擎侧零解算; 代价是覆盖层要自己找引擎要一次源像素
+ * (整篇文档, 每段手势只取一次)。返回 false 表示这条路走不通(超预算 / 非 8bit BGRA),
+ * 调用方必须回退经典路径 —— 绝不允许"场也不画、引擎也没动"。
+ */
+internal fun PaintViewModel.liquifyFieldSource(x: Int, y: Int, w: Int, h: Int): Boolean {
+    // 场通路的裁剪 = 整篇文档 ⇒ 两段手势的几何完全相同, 必须显式作废源指纹, 否则第二次手势
+    // 会沿用上一段手势的源纹理(那份源已经被上一段提交改过)。
+    invalidateLiquifySourceKey()
+    var ok = false
+    runCore(render = false) {
+        ok = ReverieCoreBridge.liquifyFieldSource(x, y, w, h)
+    }
+    return ok
+}
+
+/**
+ * Phase 5 · C3-2: 抬笔一次性落盘 —— 把 GPU 已经算好的形变结果写回图层。
+ *
+ * 与 [liquifyEnd] 的差别只有"谁来算形变": 这里传的是覆盖层离屏渲染出来的像素
+ * (与屏幕上的预览同一支着色器)。选区 / Alpha 锁 / 脏区 / 撤销语义全部复用经典写回实现,
+ * 所以提交结果与经典路径同源。
+ *
+ * 覆盖层的清理放在**提交之后**: 拖动期屏幕上一直是预览, 直到真实像素就位才切回去
+ * (否则会出现"预览消失 → 旧像素 → 新像素"的闪一下)。
+ */
+internal fun PaintViewModel.liquifyFieldEnd(rect: IntArray, pixels: ByteArray): Boolean {
+    if (recorder.recording) {
+        recorder.toolOp(T_LIQUIFY_END)
+    }
+    var ok = false
+    runCore(after = {
+        LiquifyGpuPreview.clear()
+        scheduleRender(immediate = true)
+        refreshLayerThumbs()
+    }) {
+        ok = ReverieCoreBridge.liquifyFieldCommit(rect[0], rect[1], rect[2], rect[3], pixels, true)
+        ReverieCoreBridge.liquifyEnd()
+    }
+    return ok
+}
+
 internal fun PaintViewModel.liquifyCancel() {
     if (recorder.recording) {
         recorder.toolOp(T_LIQUIFY_CANCEL)
