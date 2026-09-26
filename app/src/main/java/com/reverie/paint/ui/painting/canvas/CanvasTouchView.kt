@@ -2787,6 +2787,10 @@ class CanvasTouchView(context: Context) : View(context) {
             val nx = px + stepX
             val ny = py + stepY
             v.liquify(px, py, nx, ny, liquifyMode, strength.toDouble())
+            // Phase 5 · C3: 同一个补点再推一份给 GLES 常驻位移场 (docs/LIQUIFY-C3-FIELD-PLAN.md §2.2)。
+            // 这里**不新增任何 JNI** —— 参数本来就在手上, 场与引擎网格因此逐 dab 同源;
+            // 场未 armed(开关关/由别的路径画)时 pushDab 只是一次 volatile 读, 不进热路径。
+            LiquifyGlesPreview.pushDab(px, py, nx, ny, liquifyMode, strength, liquifyBrushSize)
             px = nx
             py = ny
         }

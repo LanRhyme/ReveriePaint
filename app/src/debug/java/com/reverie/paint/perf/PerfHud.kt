@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
+import com.reverie.paint.core.LiquifyGlesPreview
 import com.reverie.paint.core.LiquifyGpuPreview
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
@@ -54,6 +55,10 @@ internal object PerfHud {
     /** Phase 5 · C2: 应用内"预览由谁画"档位 (0 = 自动, 见 LiquifyGpuPreview.HOST_OVERRIDE_*) */
     fun readLiquifyHostDraw(prefs: SharedPreferences): Int =
         prefs.getInt("liquifyHostDraw", 0)
+
+    /** Phase 5 · C3: 应用内"位移场来源"档位 (0 = 自动, 见 LiquifyGlesPreview.FIELD_OVERRIDE_*) */
+    fun readLiquifyField(prefs: SharedPreferences): Int =
+        prefs.getInt("liquifyField", 0)
 
     /** 记录一次 onDraw 的耗时, 汇总成 p95 */
     fun recordDraw(nanos: Long) = PerfTrace.drawFrame(nanos)
@@ -176,6 +181,13 @@ internal object PerfHud {
         LiquifyGpuPreview.HOST_OVERRIDE_GLES,
     )
 
+    /** Phase 5 · C3: 位移场来源的可选值(与下拉项一一对应): 自动 / 常驻浮点场 / Krita 网格 */
+    private val FIELD_VALUES = intArrayOf(
+        LiquifyGlesPreview.FIELD_OVERRIDE_AUTO,
+        LiquifyGlesPreview.FIELD_OVERRIDE_ON,
+        LiquifyGlesPreview.FIELD_OVERRIDE_OFF,
+    )
+
     /** 设置页"诊断"分组: 标尺开关 + 液化实验档位 (debug 构建才有这个入口) */
     @Composable
     fun SettingsSection(vm: PaintViewModel) {
@@ -196,7 +208,7 @@ internal object PerfHud {
                 summary = stringResource(R.string.settings_liquify_proxy_sub),
                 currentText = if (vm.liquifyProxyPercent <= 0) autoText else "${vm.liquifyProxyPercent}%",
                 options = listOf(autoText, "100%", "75%", "50%", "25%"),
-                shape = settingGroupShape(1, 4),
+                shape = settingGroupShape(1, 5),
                 onSelect = { idx -> vm.updateLiquifyProxyPercent(PROXY_VALUES[idx]) },
             )
             SettingDropdownGroupItem(
@@ -208,7 +220,7 @@ internal object PerfHud {
                     else -> vm.liquifyCoalesceSteps.toString()
                 },
                 options = listOf(autoText, offText, "2", "4", "8"),
-                shape = settingGroupShape(2, 4),
+                shape = settingGroupShape(2, 5),
                 onSelect = { idx -> vm.updateLiquifyCoalesceSteps(COALESCE_VALUES[idx]) },
             )
             // Phase 5 · C2: 预览由谁画 —— **没有数据线时**做 AGSL↔GLES A/B 的唯一入口。
@@ -226,8 +238,24 @@ internal object PerfHud {
                     else -> autoText
                 },
                 options = listOf(autoText, engineText, agslText, glesText),
-                shape = settingGroupShape(3, 4),
+                shape = settingGroupShape(3, 5),
                 onSelect = { idx -> vm.updateLiquifyHostDraw(HOST_VALUES[idx]) },
+            )
+            // Phase 5 · C3: 位移场来源 —— "常驻浮点场"与"Krita 网格"的同笔 A/B 入口。
+            // 标尺 4.5 行的"场"一格会显示实际生效的场规模(或"已回退网格"), 切完拖一笔即可确认。
+            val fieldText = stringResource(R.string.settings_liquify_field_field)
+            val gridText = stringResource(R.string.settings_liquify_field_grid)
+            SettingDropdownGroupItem(
+                title = stringResource(R.string.settings_liquify_field),
+                summary = stringResource(R.string.settings_liquify_field_sub),
+                currentText = when (vm.liquifyField) {
+                    LiquifyGlesPreview.FIELD_OVERRIDE_ON -> fieldText
+                    LiquifyGlesPreview.FIELD_OVERRIDE_OFF -> gridText
+                    else -> autoText
+                },
+                options = listOf(autoText, fieldText, gridText),
+                shape = settingGroupShape(4, 5),
+                onSelect = { idx -> vm.updateLiquifyField(FIELD_VALUES[idx]) },
             )
         }
     }

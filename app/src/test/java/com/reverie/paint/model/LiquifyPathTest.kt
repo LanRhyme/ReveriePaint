@@ -118,4 +118,39 @@ class LiquifyPathTest {
             assertTrue("cap=$cap 时至少推进 1 步", n >= 1)
         }
     }
+
+    // ---- Phase 5 · C3: 常驻位移场的 dab 增益与影响半径 (docs/LIQUIFY-C3-FIELD-PLAN.md §4) ----
+
+    @Test
+    fun `push dab gain ignores the amplitude curve`() {
+        // 推拉模式的位移就是 delta × 强度, 引擎不乘幅度曲线 ⇒ 场增益必须恒为 1
+        for (dist in intArrayOf(0, 5, 60, 600)) {
+            assertEquals(1f, LiquifyPath.fieldDabGain(LiquifyPath.MODE_PUSH, dist.toFloat(), 60f), 1e-6f)
+        }
+    }
+
+    @Test
+    fun `radial dab gains follow the engine coefficients and amplitude curve`() {
+        val size = 60f
+        val dist = 30f
+        val amp = engineAmplitude(dist, size)
+        assertEquals(0.35f * amp, LiquifyPath.fieldDabGain(LiquifyPath.MODE_INFLATE, dist, size), 1e-6f)
+        assertEquals(0.35f * amp, LiquifyPath.fieldDabGain(LiquifyPath.MODE_SHRINK, dist, size), 1e-6f)
+        assertEquals(0.6f * amp, LiquifyPath.fieldDabGain(LiquifyPath.MODE_TWIRL_CW, dist, size), 1e-6f)
+        assertEquals(0.6f * amp, LiquifyPath.fieldDabGain(LiquifyPath.MODE_TWIRL_CCW, dist, size), 1e-6f)
+    }
+
+    @Test
+    fun `dab gain saturates at the full amplitude for long moves`() {
+        // dist >= size 时 rate 被夹到 1 ⇒ amp = 1.0, 增益等于纯系数
+        assertEquals(0.35f, LiquifyPath.fieldDabGain(LiquifyPath.MODE_INFLATE, 500f, 60f), 1e-6f)
+        assertEquals(0.6f, LiquifyPath.fieldDabGain(LiquifyPath.MODE_TWIRL_CW, 500f, 60f), 1e-6f)
+    }
+
+    @Test
+    fun `field dab radius covers the visible deformation and respects the brush floor`() {
+        assertEquals(60f * LiquifyPath.FIELD_DAB_RADIUS_RATIO, LiquifyPath.fieldDabRadius(60f), 1e-4f)
+        // 引擎侧笔刷下限 8px: 更小的尺寸一律按 8px 算, 否则场的覆盖范围会先塌成 0
+        assertEquals(8f * LiquifyPath.FIELD_DAB_RADIUS_RATIO, LiquifyPath.fieldDabRadius(1f), 1e-4f)
+    }
 }

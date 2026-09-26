@@ -8,6 +8,8 @@ import android.os.Build
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.model.LiquifyGridMeta
+import com.reverie.paint.model.LiquifyPath
+import kotlin.math.hypot
 
 /**
  * Phase 5 · C2: 液化 GLES 覆盖层的**数据转发层** (见 docs/LIQUIFY-PHASE5-GLES-PLAN.md §4 · C2-1)。
@@ -24,6 +26,12 @@ import com.reverie.paint.model.LiquifyGridMeta
  *     于是缩放/旋转/平移自动跟随, 且与 AGSL 版是同一套公式;
  *  3. 渲染线程 [awaitFrame]: 阻塞取一帧快照 (零分配: 写进调用方复用的 [Frame])。
  *
+ * Phase 5 · C3 追加的第四条通道: [pushDab] —— 液化提交点 (`CanvasTouchView.liquifyFlushNow`) 在跑
+ * JNI 循环时**多推一份同样的补点参数**给 GLES 层, 覆盖层据此在自己的**常驻浮点位移场**上逐 dab
+ * 局部累加 (见 docs/LIQUIFY-C3-FIELD-PLAN.md §2)。它不新增任何 JNI, 也不参与引擎网格; 目的是让
+ * 屏幕上的形变不再被 Krita 的 16px 网格量化 —— 台阶感 / 窗口重锚定接缝 / 拖动期 rebase 尖峰
+ * 三者的共同根源都在那次量化上。
+ *
  * 线程与生命周期约定:
  *  - 所有字段读写都在 [lock] 下, 或明确标注单写者;
  *  - 手势开始 [beginGesture] → 结束/取消 [clear] (由 [LiquifyGpuPreview] 转发), `clear` 之后
@@ -36,6 +44,24 @@ import com.reverie.paint.model.LiquifyGridMeta
 internal object LiquifyGlesPreview {
 
     private const val PROP_GLES = "debug.reverie.liquifyGles"
+
+    /** C3: 常驻位移场开关 (**默认关**; 关掉即回到 C2 的网格路径)。 */
+    private const val PROP_FIELD = "debug.reverie.lqfield"
+
+    /** C3: 场的降采样比(1/2/4, 默认 1)。内存/带宽不够时下压。 */
+    private const val PROP_FIELD_RES = "debug.reverie.lqfieldRes"
+
+    /** C3: 场纹理的像素预算 —— 2M px × 8B = 16MB。超预算先提高降采样比, 再超则回退网格。 */
+    const val FIELD_MAX_PX = 2_000_000
+
+    /** C3: 补点参数缓冲的步长与容量(每补点 7 个 float, 见 [Frame.dabs])。 */
+    const val DAB_STRIDE = 7
+    const val DAB_CAPACITY = 256
+
+    /** C3: [fieldOverride] 的取值 —— 跟随 property / 强制常驻场 / 强制网格。 */
+    const val FIELD_OVERRIDE_AUTO = 0
+    const val FIELD_OVERRIDE_ON = 1
+    const val FIELD_OVERRIDE_OFF = 2
 
     /**
      * 开关 (**默认关**)。诊断 property 只读一次, 避免每帧反射。
@@ -50,17 +76,48 @@ internal object LiquifyGlesPreview {
         get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
 
     val enabled: Boolean by lazy {
-        try {
-            if (!platformSupported) return@lazy false
-            if (BuildConfig.LQ_TEST_PROFILE == 4) return@lazy true
-            val cls = Class.forName("android.os.SystemProperties")
-            val get = cls.getMethod("get", String::class.java, String::class.java)
-            val raw = get.invoke(null, PROP_GLES, "") as? String
-            (raw?.trim()?.toIntOrNull() ?: 0) != 0
-        } catch (_: Throwable) {
-            false
-        }
+        if (!platformSupported) return@lazy false
+        if (BuildConfig.LQ_TEST_PROFILE == 4) return@lazy true
+        propInt(PROP_GLES, 0) != 0
     }
+
+    /**
+     * C3: 应用内"位移场来源"覆盖 (0 = 自动 / 1 = 常驻场 / 2 = Krita 网格)。
+     *
+     * 与 [LiquifyGpuPreview.hostDrawOverride] 同性质: **没有数据线时**做"场 vs 网格"A/B 的唯一入口
+     * (判定在**手势开始**, 见 [fieldArmed]); 正式版没有该设置项, 恒为"自动"。
+     */
+    @Volatile
+    var fieldOverride: Int = FIELD_OVERRIDE_AUTO
+
+    /** C3: property 是否要求常驻场(只读一次, 避免每帧反射)。 */
+    private val fieldByProp: Boolean by lazy { propInt(PROP_FIELD, 0) != 0 }
+
+    /** C3: 常驻场是否启用(读 [fieldOverride] 与 property)。 */
+    val fieldEnabled: Boolean
+        get() = when (fieldOverride) {
+            FIELD_OVERRIDE_ON -> true
+            FIELD_OVERRIDE_OFF -> false
+            else -> fieldByProp
+        }
+
+    /** C3: 场的降采样比(property, 只读一次; 1..4)。 */
+    val fieldRes: Int by lazy { propInt(PROP_FIELD_RES, 1).coerceIn(1, 4) }
+
+    /**
+     * C3: 本段手势是否走常驻场 —— **在手势开始时冻结** (与"预览由谁画"同理)。
+     *
+     * 为什么必须冻结: 场是从 0 开始逐 dab 累加的, 半路切换会让已经累加的形变凭空消失
+     * (网格路径没有这个累积过程, 因为它每次都从 Krita 重取完整位移)。
+     */
+    @Volatile
+    var fieldArmed = false
+        private set
+
+    /** C3: 补点缓冲溢出的丢弃数 (HUD 读数; 渲染线程跟得上时应恒为 0)。 */
+    @Volatile
+    var dabsDropped = 0L
+        private set
 
     /** GLES 侧已确认不可用 (EGL/着色器/交换失败)。置上之后本次会话不再尝试, 由引擎 CPU 预览兜底。 */
     @Volatile
@@ -147,6 +204,13 @@ internal object LiquifyGlesPreview {
     /** 数据或仿射任一变化 +1; 渲染线程据此判断"要不要重画"。 */
     private var revision = 0L
 
+    // C3: 补点缓冲 (UI 线程追加, 渲染线程 [takeDabs] 取走) + 源裁剪世代。
+    // srcGen 的作用只有一个: 告诉渲染线程"源换了 ⇒ 场要按新裁剪重建并清零"。它同时表示
+    // "此前的补点已经物化进源像素"(rebase 的语义), 所以渲染线程在清零后才累加本帧拿到的补点。
+    private val pendingDabs = FloatArray(DAB_CAPACITY * DAB_STRIDE)
+    private var pendingDabCount = 0
+    private var srcGen = 0L
+
     // 引擎线程写: 最新的源裁剪 + 位移网格
     private var cropW = 0
     private var cropH = 0
@@ -206,6 +270,25 @@ internal object LiquifyGlesPreview {
         var exY = 0f
         var eyX = 0f
         var eyY = 0f
+
+        /** C3: 本帧是否走常驻场([fieldArmed] 的快照)。 */
+        var fieldArmed = false
+
+        /** C3: 源裁剪世代(snapshot)。与渲染线程自己记的场世代不一致 ⇒ 先重建/清零场。 */
+        var srcGen = 0L
+
+        /** C3: 本帧待累加的补点数 (0 = 无; 由 [takeDabs] 填)。 */
+        var dabCount = 0
+
+        /**
+         * C3: 补点参数缓冲 (复用 ⇒ 零分配), 有效数据是前 `dabCount * DAB_STRIDE` 个 float。
+         * 每个补点 7 个: `px, py, nx, ny, mode, gain, radius` —— gain 已含模式系数与幅度曲线
+         * (见 [LiquifyPath.fieldDabGain]), 渲染线程只负责几何与光栅化。
+         *
+         * 注意: 补点**不在 [awaitFrame] 里取走**, 而是由渲染线程在真正要累加前调 [takeDabs]
+         * —— 无效帧(手势结束瞬间 / 裁剪还没到)不会把补点吞掉。
+         */
+        val dabs = FloatArray(DAB_CAPACITY * DAB_STRIDE)
     }
 
     // ---------------- 手势生命周期 (由 LiquifyGpuPreview 转发, 见其 decideForGesture/clear) ----------------
@@ -218,8 +301,11 @@ internal object LiquifyGlesPreview {
         renderedFrames = 0L
         textureWidth = 0
         textureHeight = 0
+        dabsDropped = 0L
         active = false
         requested = true
+        // C3: 场判定与"预览由谁画"同口径 —— 手势开始时冻结, 之后改开关只影响下一段手势
+        fieldArmed = fieldEnabled
         synchronized(lock) {
             cropW = 0
             cropH = 0
@@ -227,6 +313,7 @@ internal object LiquifyGlesPreview {
             gridRows = 0
             pendingSrc = null
             pendingGrid = null
+            pendingDabCount = 0
             bumpLocked()
         }
     }
@@ -235,6 +322,7 @@ internal object LiquifyGlesPreview {
     fun clear() {
         requested = false
         active = false
+        fieldArmed = false
         synchronized(lock) {
             cropW = 0
             cropH = 0
@@ -242,6 +330,7 @@ internal object LiquifyGlesPreview {
             gridRows = 0
             pendingSrc = null
             pendingGrid = null
+            pendingDabCount = 0
             bumpLocked()
         }
     }
@@ -271,7 +360,12 @@ internal object LiquifyGlesPreview {
             cropOriginX = crop[2].toFloat()
             cropOriginY = crop[3].toFloat()
             // 长度不符的源像素一律丢弃: 宁可这一帧不画, 也不能把错的长度当纹理传上去
-            if (src != null && src.size >= need) pendingSrc = src
+            if (src != null && src.size >= need) {
+                pendingSrc = src
+                // C3: 源像素一变 ⇒ rebase 已经把这些补点的形变物化进像素, 引擎网格也重置了。
+                // 场必须同期归零并从新世代重新累加(渲染线程据 srcGen 丢弃跨世代的补点)。
+                srcGen++
+            }
             if (grid != null && LiquifyGridMeta.of(grid, gridMeta)) {
                 gridCols = gridMeta[0].toInt()
                 gridRows = gridMeta[1].toInt()
@@ -288,6 +382,52 @@ internal object LiquifyGlesPreview {
     }
 
     // ---------------- UI 线程 ----------------
+
+    /**
+     * Phase 5 · C3: 推一个补点给 GLES 常驻位移场 (调用点: `CanvasTouchView.liquifyFlushNow`)。
+     *
+     * 与 `PaintViewModel.liquify()` 是**同一次循环里的同一份参数** ⇒ 场与引擎网格逐 dab 同源;
+     * 场没有 armed 时这里只有一次 volatile 读, 不产生任何工作(热路径零分配: 全部写进复用缓冲)。
+     *
+     * 增益在这里算完(模式系数 × 幅度曲线), 渲染线程只做几何; 影响半径同理由
+     * [LiquifyPath.fieldDabRadius] 给出。缓冲溢出(渲染线程落后 256 个补点以上)只丢**新**补点
+     * 并在标尺上计数 —— 宁可少画一点, 也不能在热路径上阻塞。
+     *
+     * @param px,py      dab 起笔点(文档坐标, 引擎侧 `translatePoints` 的 base)
+     * @param nx,ny      dab 终点(文档坐标; 推拉模式的方向与幅度都由它决定)
+     * @param strength   本补点的强度(已含分段折算, 见 `LiquifyInteractionSession.planStrengthScale`)
+     */
+    fun pushDab(
+        px: Float,
+        py: Float,
+        nx: Float,
+        ny: Float,
+        mode: Int,
+        strength: Float,
+        brushSize: Float,
+    ) {
+        if (!fieldArmed) return
+        if (!px.isFinite() || !py.isFinite() || !nx.isFinite() || !ny.isFinite()) return
+        val distance = hypot(nx - px, ny - py)
+        val gain = strength * LiquifyPath.fieldDabGain(mode, distance, brushSize)
+        val radius = LiquifyPath.fieldDabRadius(brushSize)
+        synchronized(lock) {
+            if (pendingDabCount >= DAB_CAPACITY) {
+                dabsDropped++
+                return
+            }
+            val base = pendingDabCount * DAB_STRIDE
+            pendingDabs[base] = px
+            pendingDabs[base + 1] = py
+            pendingDabs[base + 2] = nx
+            pendingDabs[base + 3] = ny
+            pendingDabs[base + 4] = mode.toFloat()
+            pendingDabs[base + 5] = gain
+            pendingDabs[base + 6] = radius
+            pendingDabCount++
+            bumpLocked()
+        }
+    }
 
     /**
      * 每帧喂一次"文档 → 视图像素"的仿射 (调用点: `CanvasTouchView.drawCanvas`)。
@@ -334,6 +474,29 @@ internal object LiquifyGlesPreview {
     }
 
     /**
+     * C3: 取走当前待累加的补点(渲染线程, **只在确实要累加时调用**)。
+     *
+     * 为什么不在 [awaitFrame] 里一起取: 渲染线程可能先于"裁剪到达"醒过来(手势刚开始那几帧
+     * `valid = false`), 那时取走的补点既没地方画、又已经离开缓冲 ⇒ 首笔形变会凭空少一截。
+     * 取走即清, 所以调用方拿到之后必须真的把它们画进场里。
+     *
+     * @return 本次取到的补点数(同时写进 [Frame.dabCount])
+     */
+    fun takeDabs(out: Frame): Int {
+        synchronized(lock) {
+            val n = pendingDabCount
+            if (n <= 0) {
+                out.dabCount = 0
+                return 0
+            }
+            System.arraycopy(pendingDabs, 0, out.dabs, 0, n * DAB_STRIDE)
+            pendingDabCount = 0
+            out.dabCount = n
+            return n
+        }
+    }
+
+    /**
      * 阻塞直到有新状态 (最长 [timeoutMs] 毫秒), 把快照拷进 [out] (零分配)。
      *
      * @return true = 取到新帧 (即使 [Frame.valid] 为 false, 也必须清一帧); false = 超时无变化
@@ -360,6 +523,10 @@ internal object LiquifyGlesPreview {
             out.grid = pendingGrid
             pendingSrc = null
             pendingGrid = null
+            // C3: 补点**不在这里取** —— 渲染线程真正要累加时再调 [takeDabs](无效帧不会吞掉它们)
+            out.fieldArmed = fieldArmed
+            out.srcGen = srcGen
+            out.dabCount = 0
             out.gridCols = gridCols
             out.gridRows = gridRows
             out.gridOriginX = gridOriginX
@@ -396,5 +563,14 @@ internal object LiquifyGlesPreview {
     private fun bumpLocked() {
         revision++
         (lock as Object).notifyAll()
+    }
+
+    /** 读一个诊断 property 的整数 (未设/不可读/非 root 时返回 [def])。 */
+    private fun propInt(key: String, def: Int): Int = try {
+        val cls = Class.forName("android.os.SystemProperties")
+        val get = cls.getMethod("get", String::class.java, String::class.java)
+        ((get.invoke(null, key, "") as? String)?.trim()?.toIntOrNull() ?: def)
+    } catch (_: Throwable) {
+        def
     }
 }

@@ -145,3 +145,50 @@ C3-1 完成后, 屏幕上的形变已经完全不依赖 Krita 网格 ⇒ 可以�
 | 场内存(4M px → 64MB) | §2.1 的上限 + 降采样旋钮 |
 | `pushDab` 与 `pushAffine` 的时序 | 都在同一把锁下 + `revision` 单调;渲染线程只在 `revision` 变化时工作 |
 | 抬笔物化面积变大 | C3-2 保留"超上限就中途落一次盘"的分支 |
+
+## 7. C3-1 实现注记 (已落地)
+
+代码落点(全部 Kotlin/GLSL, **不改 C++、不加 JNI**):
+
+| 文件 | 改动 |
+|---|---|
+| [`model/LiquifyPath.kt`](../app/src/main/java/com/reverie/paint/model/LiquifyPath.kt) | 新增 `MODE_INFLATE/SHRINK/TWIRL_CW/TWIRL_CCW`、`fieldDabRadius()`、`fieldDabGain()`(模式系数 × `0.2+0.8·min(1,dist/size)`, 与 `applyLiquifyDab` 逐项对齐) |
+| [`core/LiquifyGlesPreview.kt`](../app/src/main/java/com/reverie/paint/core/LiquifyGlesPreview.kt) | 新增 `pushDab()` 补点缓冲(7 float/补点, 容量 256, 热路径零分配)、`Frame.{fieldArmed,srcGen,dabCount,dabs}`、`takeDabs()`、场开关与降采样旋钮、`FIELD_MAX_PX = 2M` |
+| [`canvas/CanvasTouchView.kt`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt) | `liquifyFlushNow()` 的 JNI 循环里多推一份补点(场未 armed 时只有一次 volatile 读) |
+| [`canvas/LiquifyGlesOverlay.kt`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/LiquifyGlesOverlay.kt) | 常驻 RGBA16F 场 + FBO、dab 累加 pass(`DAB_FS`)、呈现 pass 的场分支(`uUseField`)、自动回退、标尺读数 |
+| [`core/PerfTrace.kt`](../app/src/main/java/com/reverie/paint/core/PerfTrace.kt) | 第 4.5 行新增"场"一格: `场 3200x2400/1 (16MB) dab=128` / `场 已回退网格(原因)` / `场 关` |
+| debug 源集 | 设置 → 诊断 → `液化位移场`(自动 / 常驻浮点场 / Krita 网格), 写偏好持久化(无数据线也能 A/B) |
+
+验证(机械): `compileDebugKotlin` ✅ / `testDebugUnitTest` 17 项(含 4 项新增: dab 增益三态 + 影响半径) ✅ /
+`assembleDebug` ✅。`lintDebug` 在本仓库本就是红的(129 errors, 全是既有项:
+`NewApi`/`LocalContextGetResourceValueCall`/`RestrictedApi`/C2 的 `HalfFloat` 等), 本次新增代码**未产生任何新条目**。
+
+### 7.1 与本文档 §2 的三处实现差异(均为实测约束下的取舍)
+
+1. **单张场 + 加性混合, 不做 ping/pong**(§2.3 原文): 位移增量只由 `gl_FragCoord` 推出的文档坐标决定,
+   着色器**不采样旧场** ⇒ 用 `GL_ONE/GL_ONE` 输出增量即可, 既没有"同纹理读写"的反馈环,
+   也省掉了"每个 dab 把未绘制部分拷到另一张纹理"那份 O(场) 搬运(全分辨率时 4M px/dab,
+   恰好会把局部化的收益吃光)。内存也从 `2×` 降到 `1×`(2M px = 16MB)。
+2. **补点"用多少取多少"**(§2.2 原文"取走即清"): 补点不在 `awaitFrame` 里取, 而是渲染线程
+   真正要累加前调 `takeDabs()`。原因是渲染线程可能先于"裁剪到达"醒过来(手势刚开始的帧
+   `valid = false`), 那时取走的补点既没地方画、又已经离开缓冲 ⇒ **每段手势首笔的形变会凭空少一截**。
+3. **影响半径取 `2.5 × brushSize`**(§2.3 未给数值): 引擎的 dab 包围盒是 `3.2 × size`(含几乎无位移的高斯尾),
+   预览场按 2.5 倍铺开既覆盖可见形变又省填充率;真机 A/B 若发现形变范围与网格路径不符, **只调这一个常数**
+   (`LiquifyPath.FIELD_DAB_RADIUS_RATIO`)。
+
+### 7.2 已知残余(留给 C3-2)
+
+手势**中途** rebase 的那一批补点里, 早于 rebase 的几个(dab 已被物化进新源像素)会在场重建后
+再累加一次 ⇒ rebase 瞬间笔尖处可能有一次轻微"重了一下"。原因: 场的清零时刻由"引擎发布新源"
+决定, 而补点的推送发生在同一个 `liquifyFlushNow` 循环里,**边界在推送时无法得知**(引擎侧
+`m_liquifyPendingDabs` 能给出精确边界, 但要新增 JNI 取数, 与 §2.2 的"不加 JNI"冲突)。
+C3-2 把拖动期的 rebase 整条停掉后, 这个窗口自然消失。
+
+### 7.3 下一步
+
+- **真机 A/B**(出包后): 设置 → 诊断 → 开"性能标尺" + `预览方式 = GLES`, 再切 `液化位移场`;
+  同一笔刷/同一方向各拖一笔对照, 标尺 4.5 行应出现/消失"场 …"一格。
+- **C3-2**: `liquifyRebaseNoFlush()` 默认开(需重编 C++, `scripts/build_native.sh`),
+  拖动期只留覆盖层;同时消掉 7.2 的残余。
+- **C3-3**: 补齐 `recreate`(乘法衰减, 单张场也能做: `dst *= (1-k)`)与 `sharpen`
+  (需在呈现 pass 里对源纹理做 3×3 反锐化)。

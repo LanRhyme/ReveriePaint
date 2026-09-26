@@ -16,6 +16,10 @@
     <string name="settings_liquify_host_engine">Engine CPU</string>
     <string name="settings_liquify_host_agsl">AGSL overlay</string>
     <string name="settings_liquify_host_gles">GLES overlay</string>
+    <string name="settings_liquify_field">Liquify displacement field</string>
+    <string name="settings_liquify_field_sub">Where the warp field comes from: a persistent float field (full resolution, no stepping or window seams) or the Krita grid (applies to the next gesture; the decision is frozen at gesture start; the HUD "field" cell shows which one is in use)</string>
+    <string name="settings_liquify_field_field">Persistent float field</string>
+    <string name="settings_liquify_field_grid">Krita grid</string>
     <string name="settings_experiment_auto">Auto</string>
     <string name="settings_experiment_off">Off</string>
 </resources>

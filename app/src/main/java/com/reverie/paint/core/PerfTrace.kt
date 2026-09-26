@@ -339,6 +339,7 @@ object PerfTrace {
     private var lqHostTag = HOST_ENGINE
     private var lqGlesState = ""
     private var lqGlesSnapshot = ""
+    private var lqGlesField = ""
     // 干预实验(§4.16): 物化(Krita apply)耗时累计 —— 本窗口内的 总耗时 / 峰值耗时。
     private var lqMatTotalMs = 0L
     private var lqMatMaxMs = 0L
@@ -452,6 +453,22 @@ object PerfTrace {
     }
 
     /** GLES 首帧喂给 shader 的全套 uniform 快照(每段手势一次), 直接附在 HUD 上供截图判读。 */
+    /**
+     * Phase 5 · C3: 常驻位移场的读数 (`场 3200x2400/1 (16MB) dab=128` / `场 已回退网格(原因)` /
+     * `场 关`)。由 GLES 覆盖层的渲染线程在**状态变化**或每 32 个补点时推一次 (见
+     * `LiquifyGlesOverlay.Renderer.reportField`) —— 没有数据线时, 这一格是判断"场到底生效了没"
+     * 的唯一依据, 也是"场 vs 网格" A/B 的对照读数。
+     */
+    @Synchronized
+    fun liquifyGlesField(text: String?) {
+        if (!enabled) return
+        val t = text ?: ""
+        if (t != lqGlesField) {
+            lqGlesField = t
+            hudCacheMs = 0L
+        }
+    }
+
     @Synchronized
     fun liquifyGlesSnapshot(text: String?) {
         if (!enabled) return
@@ -800,6 +817,8 @@ object PerfTrace {
                 // Phase 5 · C2: 预览由谁画 + GLES 侧状态(无数据线时判断"开关生效了没"的读数)
                 .append(" 预览").append(HOST_NAMES[lqHostTag.coerceIn(0, 2)])
                 .append(if (lqGlesState.isEmpty()) "" else "($lqGlesState)")
+                // Phase 5 · C3: 位移场来源与规模("场 vs 网格" A/B 的对照读数)
+                .append(if (lqGlesField.isEmpty()) "" else " ").append(lqGlesField)
         }
 
         // 第 4.55 行: GLES 首帧 uniform 快照(仅 GLES 路径在画时显示) —— 坐标系/仿射/网格口径

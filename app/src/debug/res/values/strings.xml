@@ -16,6 +16,10 @@
     <string name="settings_liquify_host_engine">引擎 CPU</string>
     <string name="settings_liquify_host_agsl">AGSL 覆盖层</string>
     <string name="settings_liquify_host_gles">GLES 覆盖层</string>
+    <string name="settings_liquify_field">液化位移场</string>
+    <string name="settings_liquify_field_sub">形变位移场的来源：常驻浮点场（全分辨率、无台阶感与窗口接缝）或 Krita 网格（下一段手势生效；判定在手势开始时冻结；标尺的"场"一格显示实际生效的那个）</string>
+    <string name="settings_liquify_field_field">常驻浮点场</string>
+    <string name="settings_liquify_field_grid">Krita 网格</string>
     <string name="settings_experiment_auto">自动</string>
     <string name="settings_experiment_off">关闭</string>
 </resources>

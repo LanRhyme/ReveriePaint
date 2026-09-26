@@ -283,6 +283,24 @@ class PaintViewModel : ViewModel() {
     }
 
     /**
+     * Phase 5 · C3: 液化位移场的来源 (0 = 自动 / 1 = 常驻浮点场 / 2 = Krita 网格)。
+     *
+     * debug 设置页可改 —— **没有数据线时**做"场 vs 网格"A/B 的唯一入口(正式版没有该入口,
+     * 读取器恒返回 0)。判定在**手势开始**冻结(场是从 0 逐 dab 累加的, 半路切换会让已累加的
+     * 形变凭空消失), 所以改完下一段手势生效。
+     */
+    var liquifyField by mutableIntStateOf(LiquifyGlesPreview.FIELD_OVERRIDE_AUTO)
+
+    fun updateLiquifyField(mode: Int) {
+        liquifyField = mode
+        LiquifyGlesPreview.fieldOverride = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyField", mode).apply()
+        }
+    }
+
+    /**
      * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
      * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
      *
@@ -2067,6 +2085,9 @@ class PaintViewModel : ViewModel() {
             // Phase 5 · C2: 预览方式的持久化档位(没有数据线时的 A/B 入口)
             liquifyHostDraw = PerfHud.readLiquifyHostDraw(prefs)
             LiquifyGpuPreview.hostDrawOverride = liquifyHostDraw
+            // Phase 5 · C3: 位移场来源的持久化档位("场 vs 网格" A/B 入口)
+            liquifyField = PerfHud.readLiquifyField(prefs)
+            LiquifyGlesPreview.fieldOverride = liquifyField
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
