@@ -941,6 +941,14 @@ object ReverieCoreBridge {
         opacity: Int,
     ): Boolean
 
+    external fun setLayerStrokeParamsDirect(
+        index: Int,
+        size: Int,
+        color: Int,
+        position: Int,
+        opacity: Int,
+    ): Boolean
+
     external fun getLayerStrokeParams(index: Int): IntArray?
 
     external fun rasterizeLayerStroke(index: Int): Boolean

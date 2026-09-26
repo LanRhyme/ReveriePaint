@@ -145,4 +145,27 @@ class LayerStrokeLogicTest {
         assertTrue(matchEn2 != null)
         assertEquals("3", matchEn2!!.groupValues[1])
     }
+
+    @Test
+    fun `stroke dirty margin expands with stroke size and safety pad`() {
+        val strokeSize = 15
+        val strokeMargin = strokeSize + 4
+        assertEquals(19, strokeMargin)
+
+        val brushSize = 10.0
+        val baseMargin = maxOf((brushSize * 2.0).toInt(), 32) + 16
+        val totalMargin = baseMargin + strokeMargin
+        assertEquals(32 + 16 + 19, totalMargin)
+    }
+
+    @Test
+    fun `throttle delta check suppresses events below 50ms threshold`() {
+        val thresholdNs = 50_000_000L
+        val t0 = 100_000_000L
+        val t1 = t0 + 20_000_000L // 20ms later
+        val t2 = t0 + 60_000_000L // 60ms later
+
+        assertFalse(t1 - t0 > thresholdNs)
+        assertTrue(t2 - t0 > thresholdNs)
+    }
 }

@@ -972,11 +972,19 @@ internal fun PaintViewModel.updateLayerStrokeParams(
     color: Int,
     position: Int,
     opacity: Int,
+    preview: Boolean = false,
 ) {
-    runCore(after = {
-        notifyLayerChanged()
-    }) {
-        ReverieCoreBridge.setLayerStrokeParams(layerIndex, size, color, position, opacity)
+    if (preview) {
+        // Fast drag preview: no undo command, no thumbnail invalidation, just immediate render
+        runCore(render = true) {
+            ReverieCoreBridge.setLayerStrokeParamsDirect(layerIndex, size, color, position, opacity)
+        }
+    } else {
+        runCore(after = {
+            notifyLayerChanged()
+        }) {
+            ReverieCoreBridge.setLayerStrokeParams(layerIndex, size, color, position, opacity)
+        }
     }
 }
 

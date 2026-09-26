@@ -144,7 +144,9 @@ public:
     // keep-set children into a temp device then apply their own opacity/blend
     void compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full);
     // Direct sub-region layer compositing for zero-latency in-stroke rendering
+    struct LayerEntry;
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r);
+    void compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,
@@ -194,6 +196,7 @@ public:
     // 描边图层属性与栅格化
     bool isLayerStroke(int index) const;
     bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);
+    bool setLayerStrokeParamsDirect(int index, int size, quint32 color, int position, int opacity);
     bool getLayerStrokeParams(int index, int &size, quint32 &color, int &position, int &opacity) const;
     bool rasterizeLayerStroke(int index);
     bool addMaskToLayer(int layerIndex, int maskType);

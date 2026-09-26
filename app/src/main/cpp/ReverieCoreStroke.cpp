@@ -193,7 +193,11 @@ void ReverieCore::touchStrokeEnd()
     // Propagate final dirty region to the layer device once upon stroke completion
     KisPaintDeviceSP endDev = pl ? pl->paintDevice() : currentPaintDevice();
     if (endDev && m_document) {
-        const int margin = qMax(int(m_brushSize * 2.0), 32) + 16;
+        int strokeMargin = 0;
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            strokeMargin = m_layers[m_currentLayer].strokeSize + 4;
+        }
+        const int margin = qMax(int(m_brushSize * 2.0), 32) + 16 + strokeMargin;
         const QRect totalDirty = m_accumulatedStrokeBounds.toAlignedRect().adjusted(
             -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
@@ -740,6 +744,11 @@ bool ReverieCore::flushStrokeBatch()
     // Hot path: propagate the dirty region for fast synchronous compositing without
     // scheduling background jobs in Krita's thread pool during active stroke
     if (!strokeDirty.isNull()) {
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            const int extra = m_layers[m_currentLayer].strokeSize + 4;
+            strokeDirty = strokeDirty.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_docWidth, m_docHeight));
+        }
         markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }

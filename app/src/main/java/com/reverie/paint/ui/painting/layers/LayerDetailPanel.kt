@@ -456,6 +456,7 @@ internal fun LayerDetailPage(
                 var localStrokeSizeFraction by remember(index, currentStrokeSize) {
                     mutableFloatStateOf(((currentStrokeSize - 1) / 99f).coerceIn(0f, 1f))
                 }
+                var lastStrokeSizeNs by remember(index) { mutableLongStateOf(0L) }
                 val displayedSize = (1 + localStrokeSizeFraction * 99f).roundToInt()
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
@@ -477,18 +478,32 @@ internal fun LayerDetailPage(
                     }
                     ReSlider(
                         value = localStrokeSizeFraction,
-                        onValue = { localStrokeSizeFraction = it },
-                        onRelease = {
-                            val sz = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
-                            if (sz != currentStrokeSize) {
+                        onValue = {
+                            localStrokeSizeFraction = it
+                            val now = System.nanoTime()
+                            if (now - lastStrokeSizeNs > 50_000_000L) {
+                                lastStrokeSizeNs = now
+                                val sz = (1 + it * 99f).roundToInt().coerceIn(1, 100)
                                 vm.updateLayerStrokeParams(
                                     index,
                                     sz,
                                     currentStrokeColor,
                                     currentStrokePos,
                                     currentStrokeOpacity,
+                                    preview = true,
                                 )
                             }
+                        },
+                        onRelease = {
+                            val sz = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
+                            vm.updateLayerStrokeParams(
+                                index,
+                                sz,
+                                currentStrokeColor,
+                                currentStrokePos,
+                                currentStrokeOpacity,
+                                preview = false,
+                            )
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -624,6 +639,7 @@ internal fun LayerDetailPage(
                 var localStrokeOpacityFraction by remember(index, currentStrokeOpacity) {
                     mutableFloatStateOf((currentStrokeOpacity / 100f).coerceIn(0f, 1f))
                 }
+                var lastStrokeOpacityNs by remember(index) { mutableLongStateOf(0L) }
                 val displayedOpacity = (localStrokeOpacityFraction * 100f).roundToInt()
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
@@ -645,18 +661,32 @@ internal fun LayerDetailPage(
                     }
                     ReSlider(
                         value = localStrokeOpacityFraction,
-                        onValue = { localStrokeOpacityFraction = it },
-                        onRelease = {
-                            val op = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
-                            if (op != currentStrokeOpacity) {
+                        onValue = {
+                            localStrokeOpacityFraction = it
+                            val now = System.nanoTime()
+                            if (now - lastStrokeOpacityNs > 50_000_000L) {
+                                lastStrokeOpacityNs = now
+                                val op = (it * 100f).roundToInt().coerceIn(0, 100)
                                 vm.updateLayerStrokeParams(
                                     index,
                                     currentStrokeSize,
                                     currentStrokeColor,
                                     currentStrokePos,
                                     op,
+                                    preview = true,
                                 )
                             }
+                        },
+                        onRelease = {
+                            val op = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
+                            vm.updateLayerStrokeParams(
+                                index,
+                                currentStrokeSize,
+                                currentStrokeColor,
+                                currentStrokePos,
+                                op,
+                                preview = false,
+                            )
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )

@@ -550,6 +550,13 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setLayerStrokeParams(
     return core()->setLayerStrokeParams(index, size, static_cast<quint32>(color), position, opacity) ? JNI_TRUE : JNI_FALSE;
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerStrokeParamsDirect(
+    JNIEnv *, jobject, jint index, jint size, jint color, jint position, jint opacity)
+{
+    return core()->setLayerStrokeParamsDirect(index, size, static_cast<quint32>(color), position, opacity) ? JNI_TRUE : JNI_FALSE;
+}
+
 extern "C" JNIEXPORT jintArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_getLayerStrokeParams(JNIEnv *env, jobject, jint index)
 {

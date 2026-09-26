@@ -91,6 +91,8 @@
 #include <kis_psd_layer_style.h>
 #include <psd.h>
 #include <commands_new/kis_set_layer_style_command.h>
+#include <resources/KisRequiredResourcesOperators.h>
+#include <KisGlobalResourcesInterface.h>
 #include <KisRenderPassFlags.h>
 #include <kis_selection_filters.h>
 #include <kis_gaussian_kernel.h>
