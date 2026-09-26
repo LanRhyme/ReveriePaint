@@ -31,6 +31,9 @@ internal object PerfHud {
     /** Phase 3B 的档位在正式版不存在: 恒返回"不覆盖" */
     fun readLiquifyCoalesceSteps(prefs: SharedPreferences): Int = -1
 
+    /** Phase 5 · C2 的预览方式档位在正式版不存在: 恒返回"自动" */
+    fun readLiquifyHostDraw(prefs: SharedPreferences): Int = 0
+
     fun recordDraw(nanos: Long) {}
 
     fun draw(canvas: Canvas, view: View) {}

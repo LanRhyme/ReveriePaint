@@ -11,6 +11,11 @@
     <string name="settings_liquify_proxy_sub">实验 A：源纹理按比例下采样，形变几何不变，纹理带宽与显存随之下降（下一段手势生效）</string>
     <string name="settings_liquify_coalesce">液化交互合并步数</string>
     <string name="settings_liquify_coalesce_sub">latest-state-wins：每帧最多推进的补点数，关闭则逐点处理（下一段手势生效）</string>
+    <string name="settings_liquify_host">液化预览方式</string>
+    <string name="settings_liquify_host_sub">形变预览由哪条路画：引擎 CPU / AGSL 覆盖层 / GLES 覆盖层（下一段手势生效；标尺里的"预览"一格显示实际生效的那条）</string>
+    <string name="settings_liquify_host_engine">引擎 CPU</string>
+    <string name="settings_liquify_host_agsl">AGSL 覆盖层</string>
+    <string name="settings_liquify_host_gles">GLES 覆盖层</string>
     <string name="settings_experiment_auto">自动</string>
     <string name="settings_experiment_off">关闭</string>
 </resources>

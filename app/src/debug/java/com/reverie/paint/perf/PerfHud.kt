@@ -13,6 +13,7 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
+import com.reverie.paint.core.LiquifyGpuPreview
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.model.CanvasViewTransform
@@ -49,6 +50,10 @@ internal object PerfHud {
     /** Phase 3B: 应用内合并步数档位 (-1 = 跟随 property/构建档位) */
     fun readLiquifyCoalesceSteps(prefs: SharedPreferences): Int =
         prefs.getInt("liquifyCoalesceSteps", -1)
+
+    /** Phase 5 · C2: 应用内"预览由谁画"档位 (0 = 自动, 见 LiquifyGpuPreview.HOST_OVERRIDE_*) */
+    fun readLiquifyHostDraw(prefs: SharedPreferences): Int =
+        prefs.getInt("liquifyHostDraw", 0)
 
     /** 记录一次 onDraw 的耗时, 汇总成 p95 */
     fun recordDraw(nanos: Long) = PerfTrace.drawFrame(nanos)
@@ -163,6 +168,14 @@ internal object PerfHud {
     /** latest-state-wins 合并步数的可选值(与下拉项一一对应) */
     private val COALESCE_VALUES = intArrayOf(-1, 0, 2, 4, 8)
 
+    /** Phase 5 · C2: 预览方式的可选值(与下拉项一一对应): 自动 / 引擎 CPU / AGSL / GLES */
+    private val HOST_VALUES = intArrayOf(
+        LiquifyGpuPreview.HOST_OVERRIDE_AUTO,
+        LiquifyGpuPreview.HOST_OVERRIDE_ENGINE,
+        LiquifyGpuPreview.HOST_OVERRIDE_AGSL,
+        LiquifyGpuPreview.HOST_OVERRIDE_GLES,
+    )
+
     /** 设置页"诊断"分组: 标尺开关 + 液化实验档位 (debug 构建才有这个入口) */
     @Composable
     fun SettingsSection(vm: PaintViewModel) {
@@ -173,7 +186,7 @@ internal object PerfHud {
                 title = stringResource(R.string.settings_perf_hud),
                 summary = stringResource(R.string.settings_perf_hud_sub),
                 checked = vm.perfHudEnabled,
-                shape = settingGroupShape(0, 3),
+                shape = settingGroupShape(0, 4),
                 onCheckedChange = { vm.updatePerfHudEnabled(it) },
             )
             val autoText = stringResource(R.string.settings_experiment_auto)
@@ -183,7 +196,7 @@ internal object PerfHud {
                 summary = stringResource(R.string.settings_liquify_proxy_sub),
                 currentText = if (vm.liquifyProxyPercent <= 0) autoText else "${vm.liquifyProxyPercent}%",
                 options = listOf(autoText, "100%", "75%", "50%", "25%"),
-                shape = settingGroupShape(1, 3),
+                shape = settingGroupShape(1, 4),
                 onSelect = { idx -> vm.updateLiquifyProxyPercent(PROXY_VALUES[idx]) },
             )
             SettingDropdownGroupItem(
@@ -195,8 +208,26 @@ internal object PerfHud {
                     else -> vm.liquifyCoalesceSteps.toString()
                 },
                 options = listOf(autoText, offText, "2", "4", "8"),
-                shape = settingGroupShape(2, 3),
+                shape = settingGroupShape(2, 4),
                 onSelect = { idx -> vm.updateLiquifyCoalesceSteps(COALESCE_VALUES[idx]) },
+            )
+            // Phase 5 · C2: 预览由谁画 —— **没有数据线时**做 AGSL↔GLES A/B 的唯一入口。
+            // 标尺里的"预览"一格会显示实际生效的那条路, 所以切完拖一笔即可确认。
+            val engineText = stringResource(R.string.settings_liquify_host_engine)
+            val agslText = stringResource(R.string.settings_liquify_host_agsl)
+            val glesText = stringResource(R.string.settings_liquify_host_gles)
+            SettingDropdownGroupItem(
+                title = stringResource(R.string.settings_liquify_host),
+                summary = stringResource(R.string.settings_liquify_host_sub),
+                currentText = when (vm.liquifyHostDraw) {
+                    LiquifyGpuPreview.HOST_OVERRIDE_ENGINE -> engineText
+                    LiquifyGpuPreview.HOST_OVERRIDE_AGSL -> agslText
+                    LiquifyGpuPreview.HOST_OVERRIDE_GLES -> glesText
+                    else -> autoText
+                },
+                options = listOf(autoText, engineText, agslText, glesText),
+                shape = settingGroupShape(3, 4),
+                onSelect = { idx -> vm.updateLiquifyHostDraw(HOST_VALUES[idx]) },
             )
         }
     }

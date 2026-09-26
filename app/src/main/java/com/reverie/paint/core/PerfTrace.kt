@@ -334,6 +334,11 @@ object PerfTrace {
     // 干预实验(§4.15): 预览"暂存 / 上传"计数(gauge, 每次手势内累计)
     private var lqPreviewUpdates = 0L
     private var lqGridUploads = 0L
+    // Phase 5 · C2: 本次手势"由谁画预览"(见 liquifyHost)、GLES 覆盖层状态、GLES 首帧快照。
+    // 没有数据线时可以只凭 HUD 截图判读"开关生效了没 / 坐标系与仿射口径对不对"。
+    private var lqHostTag = HOST_ENGINE
+    private var lqGlesState = ""
+    private var lqGlesSnapshot = ""
     // 干预实验(§4.16): 物化(Krita apply)耗时累计 —— 本窗口内的 总耗时 / 峰值耗时。
     private var lqMatTotalMs = 0L
     private var lqMatMaxMs = 0L
@@ -358,6 +363,12 @@ object PerfTrace {
      */
     @Volatile
     var liquifyCoalesceOverride: Int = -1
+
+    /** Phase 5 · C2: [liquifyHost] 的三个取值 —— 引擎侧 CPU 叠加 / AGSL 覆盖层 / GLES 覆盖层。 */
+    const val HOST_ENGINE = 0
+    const val HOST_AGSL = 1
+    const val HOST_GLES = 2
+    private val HOST_NAMES = arrayOf("引擎", "AGSL", "GLES")
 
     @Synchronized
     fun liquifySchedule(inputs: Int, dabs: Int) {
@@ -412,6 +423,43 @@ object PerfTrace {
         if (!enabled) return
         lqPreviewUpdates = previewUpdates
         lqGridUploads = gridUploads
+    }
+
+    /**
+     * Phase 5 · C2: 本次手势**实际在画预览**的那条路 ([HOST_ENGINE] / [HOST_AGSL] / [HOST_GLES])。
+     *
+     * 没有数据线时, 这一格是判断"设置里的预览方式到底生效了没"的唯一读数 —— 选了 GLES 却显示
+     * AGSL/引擎, 说明 GLES 侧没就绪(见 [liquifyGlesState])。
+     */
+    @Synchronized
+    fun liquifyHost(mode: Int) {
+        if (!enabled) return
+        if (mode != lqHostTag) {
+            lqHostTag = mode
+            hudCacheMs = 0L
+        }
+    }
+
+    /** GLES 覆盖层的状态短语(就绪 / 失败原因 / 已卸载), 由 [com.reverie.paint.ui.painting.canvas.LiquifyGlesOverlay] 上报。 */
+    @Synchronized
+    fun liquifyGlesState(text: String?) {
+        if (!enabled) return
+        val t = text ?: ""
+        if (t != lqGlesState) {
+            lqGlesState = t
+            hudCacheMs = 0L
+        }
+    }
+
+    /** GLES 首帧喂给 shader 的全套 uniform 快照(每段手势一次), 直接附在 HUD 上供截图判读。 */
+    @Synchronized
+    fun liquifyGlesSnapshot(text: String?) {
+        if (!enabled) return
+        val t = text ?: ""
+        if (t != lqGlesSnapshot) {
+            lqGlesSnapshot = t
+            hudCacheMs = 0L
+        }
     }
 
     /**
@@ -749,6 +797,15 @@ object PerfTrace {
                 .append(" 滞后").append(lqFlowBacklog).append("峰").append(lqFlowBacklogMax)
                 .append(" lag").append(lqFlowLag)
                 .append(" 代理").append(lqProxyW).append('x').append(lqProxyH)
+                // Phase 5 · C2: 预览由谁画 + GLES 侧状态(无数据线时判断"开关生效了没"的读数)
+                .append(" 预览").append(HOST_NAMES[lqHostTag.coerceIn(0, 2)])
+                .append(if (lqGlesState.isEmpty()) "" else "($lqGlesState)")
+        }
+
+        // 第 4.55 行: GLES 首帧 uniform 快照(仅 GLES 路径在画时显示) —— 坐标系/仿射/网格口径
+        // 全在这一行, 出问题(镜像/偏移)时截图即可判读, 不必连数据线抓 logcat。
+        if (lqHostTag == HOST_GLES && lqGlesSnapshot.isNotEmpty()) {
+            sb.append('\n').append(lqGlesSnapshot)
         }
 
         // 第 4.6 行: 真实帧间隔(相邻两帧 onDraw 的时间差) —— 判断"上传控制住了但仍卡"的关键。

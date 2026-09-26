@@ -15,6 +15,7 @@ import android.util.Half
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.model.LiquifyDirtyRegion
+import com.reverie.paint.model.LiquifyGridMeta
 import java.nio.ByteBuffer
 import java.nio.ShortBuffer
 
@@ -43,6 +44,22 @@ import java.nio.ShortBuffer
 internal object LiquifyGpuPreview {
 
     private const val PROP_GPU = "debug.reverie.liquifyPreviewGpu"
+
+    /** [hostDrawOverride] 的取值 —— 不改默认 / 强制引擎 CPU 叠加 / 强制 AGSL 覆盖层 / 强制 GLES 覆盖层。 */
+    const val HOST_OVERRIDE_AUTO = 0
+    const val HOST_OVERRIDE_ENGINE = 1
+    const val HOST_OVERRIDE_AGSL = 2
+    const val HOST_OVERRIDE_GLES = 3
+
+    /**
+     * 应用内覆盖(debug 设置页; **没有数据线时唯一的切换入口**, 见 `PerfHud.SettingsSection`)。
+     *
+     * 0 = 不改(跟 property / 构建期档位); 1 = 强制引擎侧 CPU 叠加; 2 = 强制 AGSL 覆盖层;
+     * 3 = 强制 GLES 覆盖层(不可用时退回默认判定, 绝不出现"没人画")。
+     * 判定发生在**手势开始**, 所以改完下一段手势生效。
+     */
+    @Volatile
+    var hostDrawOverride: Int = HOST_OVERRIDE_AUTO
 
     /** 实验 A: 代理分辨率百分比(10..100)。运行时覆盖构建期档位。 */
     private const val PROP_PROXY = "debug.reverie.lqproxy"
@@ -186,6 +203,9 @@ internal object LiquifyGpuPreview {
     private var gridOriginY = 0f
     private var gridStepX = 1f
     private var gridStepY = 1f
+
+    /** [`LiquifyGridMeta.of`] 的输出缓冲 (只在引擎线程用, 免得每个 dab 分配一次)。 */
+    private val gridMeta = FloatArray(LiquifyGridMeta.FIELD_COUNT)
     private var cropOriginX = 0f
     private var cropOriginY = 0f
     // 实验 A: 源纹理代理比例(1.0 = 全分辨率)。下面三个只读量供 HUD 对照。
@@ -207,16 +227,36 @@ internal object LiquifyGpuPreview {
     private var baseY = 0f
 
     /**
-     * 手势开始时的判定(任意线程可调用, **不碰 JNI**): 本次手势由 AGSL 还是引擎侧 CPU 画预览。
+     * 手势开始时的判定(任意线程可调用, **不碰 JNI**): 本次手势由 AGSL / GLES 还是引擎侧 CPU 画预览。
      *
      * 调用方必须在同一手势的 `runCore` 里把返回值写进引擎(`setLiquifyPreviewHostDrawMode`),
      * 这样即使 property 与 Kotlin 侧判定不一致(例如反射读属性失败), 也不会两边都不画。
      *
+     * Phase 5 · C2: **GLES 覆盖层共用这一套判定** —— 它同样要求"引擎不自己叠加 CPU 预览",
+     * 只是最终出图的是 GLES 渲染线程(见 `LiquifyGlesPreview`)。两者同时打开时 GLES 优先
+     * (绘制分流在 `CanvasTouchView.drawCanvas`)。
+     *
      * @return -1 = 跟随 property(GPU 可用且开关打开); 0 = 强制引擎侧 CPU 叠加
      */
     fun decideForGesture(): Int {
-        val wantGpu =
-            (propBool(PROP_GPU) || testProfile == 1 || testProfile == 3) && ensureSupported()
+        // 是否启用 GLES(property/构建档位, **或**设置页强制) + 覆盖层必须真的活着 ——
+        // 否则"由它画"会变成没人画(见 LiquifyGlesPreview.setAlive / isOn)
+        val glesReady =
+            LiquifyGlesPreview.isOn(hostDrawOverride) &&
+                LiquifyGlesPreview.alive &&
+                !LiquifyGlesPreview.failed
+        // 应用内覆盖优先: 没有数据线时 setprop 用不了, 只能靠设置页切换(见 hostDrawOverride)
+        val wantGles = when (hostDrawOverride) {
+            HOST_OVERRIDE_ENGINE, HOST_OVERRIDE_AGSL -> false
+            else -> glesReady
+        }
+        val wantGpu = when (hostDrawOverride) {
+            // 强制引擎侧 CPU 叠加: 连 property 都不看
+            HOST_OVERRIDE_ENGINE -> false
+            // 强制 AGSL: 仍要过 API 门槛(AGSL 本身就是 API 33 起才有)
+            HOST_OVERRIDE_AGSL -> ensureSupported()
+            else -> (if (wantGles) true else agslRequested()) && ensureSupported()
+        }
         requested = wantGpu
         sourceUploadCount = 0L
         previewUpdates = 0L
@@ -226,15 +266,29 @@ internal object LiquifyGpuPreview {
         if (!wantGpu) {
             active = false
         }
+        // GLES 侧的生命周期跟着同一次判定走: 本次由它画就开新手势, 否则确保它不再持有旧内容
+        if (wantGles) {
+            if (wantGpu) {
+                LiquifyGlesPreview.beginGesture()
+            } else {
+                LiquifyGlesPreview.clear()
+            }
+        }
         // 1 = 强制主机侧(AGSL)绘制; 0 = 强制引擎侧 CPU 叠加; -1 = 交给引擎按 property 判断。
         // 档位 2 是"CPU 预览对照", 用 0 显式打开 —— 否则"引擎要预览"这件事只能靠 property 传达,
         // 无数据线的设备就没法测。
         return when {
             wantGpu -> 1
+            // 显式选了"引擎 CPU"就显式写 0: 否则 property 还开着时引擎会自己走 AGSL, 白选
+            hostDrawOverride == HOST_OVERRIDE_ENGINE -> 0
             testProfile == 2 -> 0
             else -> -1
         }
     }
+
+    /** property / 构建期档位是否要求走 AGSL 覆盖层(与 GLES 覆盖层无关)。 */
+    private fun agslRequested(): Boolean =
+        propBool(PROP_GPU) || testProfile == 1 || testProfile == 3
 
     /** 平台是否支持(只看 API 等级; shader 编译在 [update] 里做, 失败即回退)。 */
     private fun ensureSupported(): Boolean {
@@ -270,6 +324,9 @@ internal object LiquifyGpuPreview {
     fun clear() {
         active = false
         resetDirtyBaseline()
+        // GLES 覆盖层走同一条生命周期(它自己不会收到"手势结束"的通知)。
+        // 判定用 isOn: 设置页强制 GLES(无数据线场景)时 enabled 仍为 false, 也要能清掉。
+        if (LiquifyGlesPreview.isOn(hostDrawOverride)) LiquifyGlesPreview.clear()
         synchronized(lock) {
             gridShader = null
             gridBitmap = null
@@ -464,29 +521,26 @@ internal object LiquifyGpuPreview {
 
     /** 网格 → 位移纹理(R=dx, G=dy, 半精度浮点), 并从真实网格点推原点和步长。 */
     private fun applyGridLocked(grid: FloatArray) {
-        val cols = grid[4].toInt()
-        val rows = grid[5].toInt()
-        val count = grid[7].toInt()
-        if (cols < 2 || rows < 2 || count != cols * rows || grid.size < 8 + count * 4) return
+        // 布局解析与"原点/步长"的口径见 LiquifyGridMeta —— 它与 GLES 侧(Phase 5 · C2)共用
+        // 同一个实现, 这是"两条预览路径画质等价"的前提。
+        if (!LiquifyGridMeta.of(grid, gridMeta)) return
+        val cols = gridMeta[0].toInt()
+        val rows = gridMeta[1].toInt()
+        val count = gridMeta[6].toInt()
 
         val shorts = ShortArray(count * 4)
         for (i in 0 until count) {
-            val base = 8 + i * 4
+            val base = LiquifyGridMeta.HEADER + i * LiquifyGridMeta.STRIDE
             shorts[i * 4] = Half.toHalf(grid[base + 2])     // dx
             shorts[i * 4 + 1] = Half.toHalf(grid[base + 3]) // dy
         }
         val bmp = Bitmap.createBitmap(cols, rows, Bitmap.Config.RGBA_F16)
         bmp.copyPixelsFromBuffer(ShortBuffer.wrap(shorts))
 
-        // 原点 = 第一个网格点; 步长 = 相邻网格点的实际间距(末列/末行可能被吸附到边界,
-        // 所以取前两个点, 与 CPU 版"按 original 坐标插值"的口径一致)
-        gridOriginX = grid[8]
-        gridOriginY = grid[9]
-        val stepX = grid[8 + 4] - gridOriginX
-        val stepY = grid[8 + cols * 4 + 1] - gridOriginY
-        val fallbackStep = grid[6]
-        gridStepX = if (stepX > 0.001f) stepX else fallbackStep
-        gridStepY = if (stepY > 0.001f) stepY else fallbackStep
+        gridOriginX = gridMeta[2]
+        gridOriginY = gridMeta[3]
+        gridStepX = gridMeta[4]
+        gridStepY = gridMeta[5]
         gridCols = cols
         gridRows = rows
 

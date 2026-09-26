@@ -807,11 +807,19 @@ class CanvasTouchView(context: Context) : View(context) {
         // 让 draw() 自己在帧内完成"提交(=纹理上传) + 绘制"。
         if (LiquifyGpuPreview.requested || LiquifyGpuPreview.active) {
             ensureViewTransform()
-            // Phase 3 · Commit 1b 埋点: 覆盖层"提交(纹理构建/上传) + 绘制"在 UI 线程的实际耗时。
-            // draw p95 只含绘制命令录制、不含纹理上传与 GPU, 所以要用这一项才能判断覆盖层贵不贵。
-            val lqOverlayT0 = System.nanoTime()
-            LiquifyGpuPreview.draw(canvas, viewTransform)
-            PerfTrace.liquifyOverlay(System.nanoTime() - lqOverlayT0)
+            if (LiquifyGlesPreview.requested) {
+                // Phase 5 · C2: 本次手势由 GLES 覆盖层画 —— 这里**不画 AGSL、也不上传纹理**,
+                // 只把"文档 → 屏幕"的仿射喂给它(源裁剪/位移网格由引擎线程喂, 见
+                // PaintViewModel.pollLiquifyGpuPreview), 出图在它自己的渲染线程上。
+                // 两者同时打开时 GLES 优先, 免得同一帧被画两遍。
+                LiquifyGlesPreview.pushAffine(viewTransform)
+            } else {
+                // Phase 3 · Commit 1b 埋点: 覆盖层"提交(纹理构建/上传) + 绘制"在 UI 线程的实际耗时。
+                // draw p95 只含绘制命令录制、不含纹理上传与 GPU, 所以要用这一项才能判断覆盖层贵不贵。
+                val lqOverlayT0 = System.nanoTime()
+                LiquifyGpuPreview.draw(canvas, viewTransform)
+                PerfTrace.liquifyOverlay(System.nanoTime() - lqOverlayT0)
+            }
         }
 
         // 标尺的液化网格可视化(debug 专属; release 侧 PerfHud 为恒 false 的空实现, 不进这个分支):

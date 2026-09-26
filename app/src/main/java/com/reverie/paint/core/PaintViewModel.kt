@@ -267,6 +267,22 @@ class PaintViewModel : ViewModel() {
     }
 
     /**
+     * Phase 5 · C2: 液化预览**由谁画** (0 = 自动 / 1 = 引擎侧 CPU 叠加 / 2 = AGSL 覆盖层 /
+     * 3 = GLES 覆盖层)。debug 设置页可改 —— 这是**没有数据线时**做 AGSL↔GLES A/B 的唯一入口
+     * (正式版没有该入口, 读取器恒返回 0)。判定发生在手势开始, 改完下一段手势生效。
+     */
+    var liquifyHostDraw by mutableIntStateOf(LiquifyGpuPreview.HOST_OVERRIDE_AUTO)
+
+    fun updateLiquifyHostDraw(mode: Int) {
+        liquifyHostDraw = mode
+        LiquifyGpuPreview.hostDrawOverride = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyHostDraw", mode).apply()
+        }
+    }
+
+    /**
      * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
      * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
      *
@@ -315,15 +331,35 @@ class PaintViewModel : ViewModel() {
     private var lqGpuPreviewSeq = -1L
     private var lqGpuCropKey = Long.MIN_VALUE
 
+    /** Phase 5 · C2: GLES 覆盖层失败后的"一次性交回引擎 CPU 预览"标记(只在引擎线程读写)。 */
+    private var lqGlesRecovered = false
+
     /**
-     * Phase 2B: 取一次 AGSL 预览所需的"源裁剪 + 位移网格" (**引擎线程**, 调用点见 `doRender`)。
+     * Phase 2B: 取一次预览所需的"源裁剪 + 位移网格" (**引擎线程**, 调用点见 `doRender`)。
      *
      * 只有 GPU 诊断开关打开时才有内容, 且引擎此时既不生成也不叠加 CPU 预览:
      *  - 源裁剪(未形变)只在 rebase 时变 ⇒ 整段手势只上传一次纹理;
      *  - 位移网格每个 dab 都变 ⇒ 每次取(6~25KB 级小数组, 不做差分)。
+     *
+     * Phase 5 · C2: 取数链路**不变**, 只多一个消费端 —— 本次手势由 GLES 覆盖层画时,
+     * 同一份 `crop/src/grid` 同时喂给 `LiquifyGlesPreview`(它自己的渲染线程上传纹理并出图);
+     * AGSL 侧这一份仅用于"本帧文档脏区"基线(它不再建纹理, 见 `CanvasTouchView.drawCanvas`)。
      */
     internal fun pollLiquifyGpuPreview() {
-        if (!LiquifyGpuPreview.requested) return
+        // Phase 5 · C2: GLES 侧自己躲掉了(EGL/着色器/交换失败) ⇒ **当帧**把引擎切回 CPU 预览。
+        // "要么 GPU 画, 要么引擎画"是这条线不可破的底线; 恢复动作必须在引擎线程做(JNI 时序由
+        // ViewModel 保证), 只做一次 —— 失败后 LiquifyGlesPreview.failed 会挡掉后续手势的重试。
+        if (LiquifyGlesPreview.failed && !lqGlesRecovered) {
+            lqGlesRecovered = true
+            LiquifyGlesPreview.clear()
+            ReverieCoreBridge.setLiquifyPreviewHostDrawMode(0)
+            return
+        }
+        if (!LiquifyGpuPreview.requested) {
+            // HUD 读数: 走到这里 = 预览由引擎侧 CPU 叠加(没有 GPU 覆盖层接手)
+            if (PerfTrace.enabled) PerfTrace.liquifyHost(PerfTrace.HOST_ENGINE)
+            return
+        }
         val crop = ReverieCoreBridge.liquifyPreviewSourceMeta() ?: return
         if (crop.size < 7) return
         if (crop[0] <= 0) {
@@ -343,17 +379,36 @@ class PaintViewModel : ViewModel() {
             } else {
                 null
             }
-        LiquifyGpuPreview.update(crop, src, ReverieCoreBridge.liquifyGrid())
-        // Phase 3B: 上报源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
-        PerfTrace.liquifyUpload(LiquifyGpuPreview.sourceUploadCount)
-        // 实验 A: 上报预览源纹理(代理)尺寸与占用, 便于对照不同代理分辨率
-        PerfTrace.liquifyProxy(
-            LiquifyGpuPreview.proxyWidth,
-            LiquifyGpuPreview.proxyHeight,
-            LiquifyGpuPreview.proxyUploadBytes,
-        )
-        // 干预实验(§4.15): 上报预览"暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
-        PerfTrace.liquifyPipeline(LiquifyGpuPreview.previewUpdates, LiquifyGpuPreview.gridUploads)
+        val grid = ReverieCoreBridge.liquifyGrid()
+        val useGles = LiquifyGlesPreview.requested
+        // HUD 读数: 这一行是判断"设置里的预览方式生效了没"的唯一依据(见 PerfTrace.liquifyHost)
+        if (PerfTrace.enabled) {
+            PerfTrace.liquifyHost(if (useGles) PerfTrace.HOST_GLES else PerfTrace.HOST_AGSL)
+        }
+        // 脏区基线两条路都要: GLES 接管时 AGSL 侧不会被 draw(不会建纹理), 只贡献脏区计算
+        LiquifyGpuPreview.update(crop, src, grid)
+        if (useGles) {
+            LiquifyGlesPreview.update(crop, src, grid)
+            // 上报实际在画的那条路的读数(语义与 AGSL 侧同名字段一致)
+            // Phase 3B: 源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
+            PerfTrace.liquifyUpload(LiquifyGlesPreview.sourceUploadCount)
+            val tw = LiquifyGlesPreview.textureWidth
+            val th = LiquifyGlesPreview.textureHeight
+            PerfTrace.liquifyProxy(tw, th, tw.toLong() * th.toLong() * 4L)
+            // 干预实验(§4.15): "暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
+            PerfTrace.liquifyPipeline(LiquifyGlesPreview.previewUpdates, LiquifyGlesPreview.gridUploads)
+        } else {
+            // Phase 3B: 上报源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
+            PerfTrace.liquifyUpload(LiquifyGpuPreview.sourceUploadCount)
+            // 实验 A: 上报预览源纹理(代理)尺寸与占用, 便于对照不同代理分辨率
+            PerfTrace.liquifyProxy(
+                LiquifyGpuPreview.proxyWidth,
+                LiquifyGpuPreview.proxyHeight,
+                LiquifyGpuPreview.proxyUploadBytes,
+            )
+            // 干预实验(§4.15): 上报预览"暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
+            PerfTrace.liquifyPipeline(LiquifyGpuPreview.previewUpdates, LiquifyGpuPreview.gridUploads)
+        }
         // 主机侧绘制模式下引擎不写显示缓冲(没有脏区), 所以"该重绘了"必须由这里发起。
         // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 改走 CanvasTouchView 的**局部失效**
         // 入口 —— 它回到 UI 线程, 用"本帧文档脏区 ∪ 光标环前后位置"算一个最小重绘矩形,
@@ -2009,6 +2064,9 @@ class PaintViewModel : ViewModel() {
             LiquifyGpuPreview.proxyPercentOverride = liquifyProxyPercent
             liquifyCoalesceSteps = PerfHud.readLiquifyCoalesceSteps(prefs)
             PerfTrace.liquifyCoalesceOverride = liquifyCoalesceSteps
+            // Phase 5 · C2: 预览方式的持久化档位(没有数据线时的 A/B 入口)
+            liquifyHostDraw = PerfHud.readLiquifyHostDraw(prefs)
+            LiquifyGpuPreview.hostDrawOverride = liquifyHostDraw
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)

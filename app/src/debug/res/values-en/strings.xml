@@ -11,6 +11,11 @@
     <string name="settings_liquify_proxy_sub">Experiment A: downscale the source texture; deformation geometry is unchanged while texture bandwidth and memory drop (applies to the next gesture)</string>
     <string name="settings_liquify_coalesce">Liquify coalesce steps</string>
     <string name="settings_liquify_coalesce_sub">latest-state-wins: max substeps advanced per frame; off means per-point processing (applies to the next gesture)</string>
+    <string name="settings_liquify_host">Liquify preview path</string>
+    <string name="settings_liquify_host_sub">Which path draws the warp preview: engine CPU / AGSL overlay / GLES overlay (applies to the next gesture; the HUD "preview" field shows the one actually in use)</string>
+    <string name="settings_liquify_host_engine">Engine CPU</string>
+    <string name="settings_liquify_host_agsl">AGSL overlay</string>
+    <string name="settings_liquify_host_gles">GLES overlay</string>
     <string name="settings_experiment_auto">Auto</string>
     <string name="settings_experiment_off">Off</string>
 </resources>
