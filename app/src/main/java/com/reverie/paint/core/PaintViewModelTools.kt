@@ -1009,20 +1009,85 @@ internal fun PaintViewModel.liquifyFieldSource(x: Int, y: Int, w: Int, h: Int): 
  * 覆盖层的清理放在**提交之后**: 拖动期屏幕上一直是预览, 直到真实像素就位才切回去
  * (否则会出现"预览消失 → 旧像素 → 新像素"的闪一下)。
  */
-internal fun PaintViewModel.liquifyFieldEnd(rect: IntArray, pixels: ByteArray): Boolean {
+/** Phase 5 · C3-2: 抬笔回读的最长等待(ms); 超时即改走"重放补点"的经典收口。 */
+private const val LIQUIFY_FIELD_COMMIT_TIMEOUT_MS = 250L
+
+/**
+ * Phase 5 · C3-2: 抬笔收口(场通路) —— **整段都在引擎线程上跑, UI 线程零阻塞**。
+ *
+ * ① 请 GLES 渲染线程把场的结果渲染到离屏并回读(引擎线程此刻空闲, 阻塞在这里不影响触摸/绘制);
+ * ② 成功 ⇒ 这份像素一次性写回图层(选区/Alpha 锁/脏区/撤销语义由引擎复用经典实现);
+ * ③ 失败 ⇒ 把本地补点按序重放(与拖动期逐 dab 提交的数学完全一致 ⇒ 形变一点不丢);
+ * ④ 无论走哪条, 最后都 `liquifyEnd()` 提交这一次手势的事务。
+ *
+ * 覆盖层的清理放在 `after`(提交完成之后): 拖动期屏幕上一直是预览, 直到真实像素就位才切回去,
+ * 避免"预览消失 → 旧像素 → 新像素"闪一下。
+ */
+internal fun PaintViewModel.liquifyFieldEndFromOverlay(
+    rect: IntArray,
+    dabs: FloatArray,
+    dabCount: Int,
+    dabStride: Int,
+) {
     if (recorder.recording) {
         recorder.toolOp(T_LIQUIFY_END)
     }
-    var ok = false
+    val x = rect[0]
+    val y = rect[1]
+    val w = rect[2]
+    val h = rect[3]
     runCore(after = {
         LiquifyGpuPreview.clear()
         scheduleRender(immediate = true)
         refreshLayerThumbs()
     }) {
-        ok = ReverieCoreBridge.liquifyFieldCommit(rect[0], rect[1], rect[2], rect[3], pixels, true)
+        val pixels = LiquifyGlesPreview.readbackCommit(x, y, w, h, LIQUIFY_FIELD_COMMIT_TIMEOUT_MS)
+        var ok = false
+        if (pixels != null) {
+            ok = ReverieCoreBridge.liquifyFieldCommit(x, y, w, h, pixels, true)
+        }
+        if (!ok) {
+            for (i in 0 until dabCount) {
+                val b = i * dabStride
+                // 注意 JNI 形参顺序是 (fx, fy, tx, ty, strength, mode); 本地列表存的是
+                // (…, mode, strength) —— 与 Kotlin 侧扩展函数的顺序一致, 这里必须换回来。
+                ReverieCoreBridge.liquify(
+                    dabs[b].toInt(),
+                    dabs[b + 1].toInt(),
+                    dabs[b + 2].toInt(),
+                    dabs[b + 3].toInt(),
+                    dabs[b + 5].toDouble(),
+                    dabs[b + 4].toInt(),
+                )
+            }
+        }
         ReverieCoreBridge.liquifyEnd()
     }
-    return ok
+}
+
+/**
+ * Phase 5 · C3-2: 场通路下也要把补点写进**录制流**。
+ *
+ * 拖动期引擎一个 dab 都没收到, 但回放(`PlaybackEngine`)走的是经典逐 dab 路径 ⇒ 录制流必须与
+ * 经典路径逐点一致, 否则"同一份录制, 回放出来的形变和当时不一样"。
+ */
+internal fun PaintViewModel.recordLiquifyDab(
+    fx: Float,
+    fy: Float,
+    tx: Float,
+    ty: Float,
+    mode: Int,
+    strength: Float,
+) {
+    if (!recorder.recording) return
+    recorder.toolOp(T_LIQUIFY) {
+        it.f32(fx)
+        it.f32(fy)
+        it.f32(tx)
+        it.f32(ty)
+        it.u8(mode)
+        it.f32(strength)
+    }
 }
 
 internal fun PaintViewModel.liquifyCancel() {

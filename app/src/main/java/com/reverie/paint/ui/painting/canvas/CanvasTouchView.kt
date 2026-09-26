@@ -49,8 +49,6 @@ private const val MAX_MIRROR_BRANCHES = 8
 /** Phase 5 · C3-2: 本地补点列表的步长(px, py, nx, ny, mode, strength, size)。 */
 private const val FIELD_DAB_STRIDE = 7
 
-/** Phase 5 · C3-2: 抬笔回读覆盖层结果的最长等待(ms); 超时即回退"重放补点"的经典路径。 */
-private const val FIELD_COMMIT_TIMEOUT_MS = 250L
 
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
@@ -2837,6 +2835,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 // 原本每秒要 1.07s 的原生工作: 逐 dab 网格形变 550ms + rebase 物化 517ms, 全在这里消失。
                 // 参数只记进本地列表: 抬笔回读若失败, 就靠这份列表重放给引擎, 形变一点不丢。
                 recordLiquifyFieldDab(px, py, nx, ny, liquifyMode, strength)
+                // 录制流必须与"逐 dab 提交"完全一致 —— 回放走的是经典路径
+                v.recordLiquifyDab(px, py, nx, ny, liquifyMode, strength)
             } else {
                 v.liquify(px, py, nx, ny, liquifyMode, strength.toDouble())
             }
@@ -2978,19 +2978,14 @@ class CanvasTouchView(context: Context) : View(context) {
     private fun commitLiquifyField(v: PaintViewModel) {
         liquifyFieldGesture = false
         val rect = fieldCommitRect(v)
-        val pixels = if (rect != null) {
-            LiquifyGlesPreview.readbackCommit(
-                rect[0], rect[1], rect[2], rect[3], FIELD_COMMIT_TIMEOUT_MS,
-            )
+        if (rect != null) {
+            // 回读 + 写回 + 收口整段都在引擎线程上跑(见该方法的注释), UI 线程不阻塞
+            v.liquifyFieldEndFromOverlay(rect, liquifyDabBuf, liquifyDabCount, FIELD_DAB_STRIDE)
         } else {
-            null
+            // 没有有效范围(纯点按): 走经典收口
+            v.liquifyEnd()
         }
-        if (rect != null && pixels != null) {
-            v.liquifyFieldEnd(rect, pixels)
-            return
-        }
-        replayLiquifyDabs(v)
-        v.liquifyEnd()
+        liquifyDabCount = 0
     }
 
     /** 受影响矩形 → 文档整数矩形(夹到文档内; 空 ⇒ null = 回退经典路径)。 */
@@ -3002,22 +2997,6 @@ class CanvasTouchView(context: Context) : View(context) {
         val y1 = ceil(lqAffectedB).toInt().coerceAtMost(v.docHeight)
         if (x1 <= x0 || y1 <= y0) return null
         return intArrayOf(x0, y0, x1 - x0, y1 - y0)
-    }
-
-    /** 回退: 把本段手势的补点按序重放给引擎(与拖动期逐 dab 提交的数学完全一致)。 */
-    private fun replayLiquifyDabs(v: PaintViewModel) {
-        for (i in 0 until liquifyDabCount) {
-            val b = i * FIELD_DAB_STRIDE
-            v.liquify(
-                liquifyDabBuf[b],
-                liquifyDabBuf[b + 1],
-                liquifyDabBuf[b + 2],
-                liquifyDabBuf[b + 3],
-                liquifyDabBuf[b + 4].toInt(),
-                liquifyDabBuf[b + 5].toDouble(),
-            )
-        }
-        liquifyDabCount = 0
     }
 
     /**

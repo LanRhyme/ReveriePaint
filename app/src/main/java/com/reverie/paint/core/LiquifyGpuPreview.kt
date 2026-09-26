@@ -255,7 +255,10 @@ internal object LiquifyGpuPreview {
             HOST_OVERRIDE_ENGINE -> false
             // 强制 AGSL: 仍要过 API 门槛(AGSL 本身就是 API 33 起才有)
             HOST_OVERRIDE_AGSL -> ensureSupported()
-            else -> (if (wantGles) true else agslRequested()) && ensureSupported()
+            // C3-2: 走 GLES 覆盖层时**不**受 AGSL 的 API 门槛约束 —— 它自己的门槛是
+            // API≥26 + ES3(见 LiquifyGlesPreview.platformSupported); 只有落到 AGSL 才需要 API≥33。
+            // 否则 API 26~32 的设备会被白挡在 GPU 预览之外(低端机的完整解耦仍见 C5)。
+            else -> if (wantGles) true else agslRequested() && ensureSupported()
         }
         requested = wantGpu
         sourceUploadCount = 0L

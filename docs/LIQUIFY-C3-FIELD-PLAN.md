@@ -279,3 +279,22 @@ frame 83.6ms p95 16.1ms n256
 验证: `ninja -j2`(WSL `~/reverie-deps/jni-build`)重编原生库 ✅ + `llvm-strip` 刷新
 `third_party/android-native-libs/libreverie_jni.so` 与 `app/src/main/jniLibs/arm64-v8a/` ✅ +
 `compileDebugKotlin` / `testDebugUnitTest` / `assembleDebug` ✅。真机 A/B 待出包后按 §7.3 步骤验。
+
+### 8.3 收口补丁: 一键生效 + 抬笔零阻塞 + 录制一致
+
+第三张真机标尺(`test_13.jpg`)显示: **用户其实还没走进场通路** —— `预览 引擎  场 --`(预览方式仍是
+引擎 CPU), 所以那些 `物化/rebase/调用` 还是经典路径的成本。为避免"开关看着没反应", 补三件事:
+
+1. **一个开关就够**: `位移场 = 常驻浮点场` 现在同时打开"覆盖层挂载"与"由谁画"两条判定
+   ([`LiquifyGlesPreview.isOn`]), 并让 `CanvasView` 的挂载条件读 `vm.liquifyField` 以便页内切换即时重组。
+   同时**解开了 C2 遗留的一处耦合**: GLES 覆盖层不再被 AGSL 的 API≥33 门槛挡住(它自己的门槛是
+   API≥26 + ES3) ⇒ API 26~32 的设备也能用 GPU 预览。
+2. **抬笔零阻塞**: 回读 + 写回 + `liquifyEnd()` 整段搬到**引擎线程**(`liquifyFieldEndFromOverlay`),
+   UI 线程不再等那最多 250ms;覆盖层在提交完成后才摘(不闪)。
+3. **录制一致**: 场通路拖动期引擎没收到补点, 但回放走经典路径 ⇒ 补点同时写进录制流
+   (`recordLiquifyDab`), 保证"同一份录制回放出同样的形变"。
+
+预期读数(这才是"丝滑"的判据, 用标尺逐格对):
+- 拖动期: `调用 0 / rebase 无 / 物化 0`, `暂存≈1 / 源上传 1 / 网格上传 0`, `场 … dab=N` 逐秒增长;
+- `frame` 稳定在 ~16ms(而不是偶发 83ms 尖峰), `draw p95` 仍是 0.0x ms;
+- 抬笔后: 标尺"液化"那一行出现一次提交(形变段 0, 回写 + 合成段为真实耗时), 画面换成精确结果。

@@ -1263,7 +1263,17 @@ internal class LiquifyGlesOverlay(context: Context) :
          * (没有数据线时唯一的入口, 见 `LiquifyGpuPreview.HOST_OVERRIDE_GLES`)。
          * 调用方传入 `vm.liquifyHostDraw`, 于是页内切换也会重组并重建/摘除覆盖层。
          */
-        fun enabledFor(hostOverride: Int): Boolean = LiquifyGlesPreview.isOn(hostOverride)
+        /**
+         * 覆盖层是否该挂进视图树。
+         *
+         * C3-2 追加的 [fieldOverride] 参数**只用于 Compose 的依赖追踪**: 判定本身读的是
+         * `LiquifyGlesPreview` 的全局覆盖(见 [LiquifyGlesPreview.isOn])。因为"位移场 = 常驻浮点场"
+         * 现在也会打开覆盖层(否则场没有载体), 这个 Composable 必须读那个状态 —— 不读的话页内切换
+         * 不会重组, 覆盖层就不会挂载(用户会看到"开关没反应")。
+         */
+        fun enabledFor(hostOverride: Int, fieldOverride: Int = 0): Boolean =
+            LiquifyGlesPreview.isOn(hostOverride) ||
+                (fieldOverride == LiquifyGlesPreview.FIELD_OVERRIDE_ON && LiquifyGlesPreview.platformSupported)
 
         /** 纹理单元: 0 = 源裁剪, 1 = 位移网格(C2 回退), 2 = 常驻位移场(C3)。 */
         private const val TEX_UNIT_SRC = 0

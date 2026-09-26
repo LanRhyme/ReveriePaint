@@ -134,7 +134,14 @@ internal object LiquifyGlesPreview {
      * @param hostOverride 见 [LiquifyGpuPreview.HOST_OVERRIDE_GLES]
      */
     fun isOn(hostOverride: Int): Boolean =
-        enabled || (platformSupported && hostOverride == LiquifyGpuPreview.HOST_OVERRIDE_GLES)
+        enabled ||
+            (platformSupported &&
+                (
+                    // C3-2: "位移场 = 常驻浮点场"本身就意味着必须有 GPU 覆盖层来承载它 ⇒ 它同时
+                    // 打开"挂载"与"由谁画"两条判定, 用户只需要一个开关(不必再单独选 GLES)。
+                    fieldOverride == FIELD_OVERRIDE_ON ||
+                        hostOverride == LiquifyGpuPreview.HOST_OVERRIDE_GLES
+                    ))
 
     /**
      * 覆盖层自己是否**真的活着**(SurfaceTexture 就绪 ↔ 销毁/脱离), 由 `LiquifyGlesOverlay` 置位。
