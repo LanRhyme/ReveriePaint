@@ -349,6 +349,15 @@ class PaintViewModel : ViewModel() {
     private var lqGpuPreviewSeq = -1L
     private var lqGpuCropKey = Long.MIN_VALUE
 
+    // Phase 5 · C3-2 收尾: 源像素缓冲**复用**(两块轮换)。
+    // 以前每段手势都要新分配一份 `cropW*cropH*4`(4M px 文档就是 16MB), 连续压测时是持续的
+    // 大对象垃圾; 复用后这块只在尺寸变化时才重建。用两块轮换是因为上一段手势的数组可能还被
+    // 覆盖层暂存着(等渲染线程消费), 直接复用同一块会让那张源纹理读到新一段的像素(画面错位),
+    // 轮换一块就够避开这个窗口。
+    private var lqSrcBufA: ByteArray? = null
+    private var lqSrcBufB: ByteArray? = null
+    private var lqSrcBufUseA = false
+
     /**
      * Phase 5 · C3-2: 作废"源裁剪指纹", 让下一次取数**重新取一份源像素**。
      *
@@ -404,7 +413,15 @@ class PaintViewModel : ViewModel() {
         val src =
             if (key != lqGpuCropKey) {
                 lqGpuCropKey = key
-                ReverieCoreBridge.liquifyPreviewSourcePixels()
+                val need = crop[0] * crop[1] * 4
+                lqSrcBufUseA = !lqSrcBufUseA
+                var buf = if (lqSrcBufUseA) lqSrcBufA else lqSrcBufB
+                if (buf == null || buf.size != need) {
+                    buf = ByteArray(need)
+                    if (lqSrcBufUseA) lqSrcBufA = buf else lqSrcBufB = buf
+                }
+                ReverieCoreBridge.liquifyPreviewSourcePixelsInto(buf)
+                buf
             } else {
                 null
             }

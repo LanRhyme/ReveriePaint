@@ -401,6 +401,26 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourceMeta(JNIEnv *e
     return arr;
 }
 
+// Phase 5 · C3-2 收尾: 与 liquifyPreviewSourcePixels 同一份数据, 但**填进调用方缓冲** ——
+// Kotlin 侧因此可以复用同一块 ByteArray, 每段手势不再新分配一份 16MB(4M px 文档)。
+// 直接写进 Java 数组(GetByteArrayElements), 中间不再多一次 QVector 拷贝。
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourcePixelsInto(JNIEnv *env, jobject,
+                                                                            jbyteArray out)
+{
+    if (out == nullptr) return;
+    jint meta[7] = {0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyPreviewSourceMeta(reinterpret_cast<int *>(meta));
+    const qint64 bytes = qint64(meta[0]) * qint64(meta[1]) * 4;
+    if (bytes <= 0) return;
+    if (qint64(env->GetArrayLength(out)) < bytes) return;
+    jbyte *dst = env->GetByteArrayElements(out, nullptr);
+    if (dst == nullptr) return;
+    core()->liquifyPreviewSourcePixels(reinterpret_cast<quint8 *>(dst));
+    // 0 = 回写并释放
+    env->ReleaseByteArrayElements(out, dst, 0);
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourcePixels(JNIEnv *env, jobject)
 {

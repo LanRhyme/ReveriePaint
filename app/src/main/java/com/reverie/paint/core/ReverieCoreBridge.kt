@@ -803,6 +803,14 @@ object ReverieCoreBridge {
      * `cropW = 0` 表示当前没有可用源裁剪(不在预览态 / 非 8bit BGRA 文档 / 超出面积预算),
      * 调用方据此回退到引擎侧 CPU 预览; 裁剪内容只在 rebase 时变, 因此源纹理整段手势只上传一次。
      */
+    /**
+     * Phase 5 · C3-2 收尾: 同一份源裁剪像素, 但**填进 [out]**(长度 ≥ `cropW*cropH*4`)。
+     *
+     * 调用方复用同一块缓冲 ⇒ 每段手势不再新分配一份 16MB(4M px 文档), 连续压测下没有那阵
+     * 大对象垃圾。长度不足时不做任何事(不抛异常), 调用方按"本帧没有新源"处理。
+     */
+    external fun liquifyPreviewSourcePixelsInto(out: ByteArray)
+
     external fun liquifyPreviewSourceMeta(): IntArray?
 
     /** 未形变的 bounds 裁剪(RGBA8888, 1 像素 = 1 文档像素)。只在 rebase 后取一次。 */
