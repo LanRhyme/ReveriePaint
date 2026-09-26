@@ -52,6 +52,13 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
     w.writeAttribute("x", QString::number(node ? int(node->x()) : 0));
     w.writeAttribute("y", QString::number(node ? int(node->y()) : 0));
     w.writeAttribute("background", e.background ? "1" : "0");
+    if (e.isStrokeLayer || e.nodeType == ReverieCore::NodeTypeStroke) {
+        w.writeAttribute("is_stroke", "1");
+        w.writeAttribute("stroke_size", QString::number(e.strokeSize));
+        w.writeAttribute("stroke_color", QString::number(e.strokeColor));
+        w.writeAttribute("stroke_pos", QString::number(e.strokePosition));
+        w.writeAttribute("stroke_opacity", QString::number(e.strokeOpacity));
+    }
 }
 
 // reverie 注册表滤镜配置 → XML 属性 (filter/p1..p4/lut_b64)
@@ -207,6 +214,15 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         }
         if (a.value("background") == QLatin1String("1")) {
             bg = visible;
+        }
+        if (a.value("is_stroke") == QLatin1String("1")) {
+            node->setProperty("reverie_is_stroke", true);
+            node->setProperty("reverie_stroke_size", attrInt("stroke_size", 6));
+            bool okColor = false;
+            const quint32 sCol = a.value("stroke_color").toString().toUInt(&okColor);
+            node->setProperty("reverie_stroke_color", okColor ? sCol : 0xFF000000u);
+            node->setProperty("reverie_stroke_pos", attrInt("stroke_pos", 0));
+            node->setProperty("reverie_stroke_opacity", attrInt("stroke_opacity", 100));
         }
     };
 

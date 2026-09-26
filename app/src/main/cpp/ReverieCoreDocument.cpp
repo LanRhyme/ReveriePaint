@@ -228,8 +228,10 @@ void ReverieCore::recompositeProjection()
 void ReverieCore::syncLayersFromImage()
 {
     QHash<KisNode *, LayerEntry> oldEntries;
+    QHash<QString, LayerEntry> oldEntriesByName;
     for (const LayerEntry &e : m_layers) {
         if (e.node) oldEntries.insert(e.node, e);
+        if (!e.name.isEmpty()) oldEntriesByName.insert(e.name, e);
     }
     m_layers.clear();
     KisImageSP image = m_document;
@@ -268,6 +270,26 @@ void ReverieCore::syncLayersFromImage()
                     entry.strokeColor = old.strokeColor;
                     entry.strokePosition = old.strokePosition;
                     entry.strokeOpacity = old.strokeOpacity;
+                } else if (oldEntriesByName.contains(l->name())) {
+                    const LayerEntry &old = oldEntriesByName.value(l->name());
+                    entry.isStrokeLayer = old.isStrokeLayer;
+                    entry.strokeSize = old.strokeSize;
+                    entry.strokeColor = old.strokeColor;
+                    entry.strokePosition = old.strokePosition;
+                    entry.strokeOpacity = old.strokeOpacity;
+                } else if (node->property("reverie_is_stroke").toBool()) {
+                    entry.isStrokeLayer = true;
+                    entry.strokeSize = node->property("reverie_stroke_size").toInt();
+                    entry.strokeColor = node->property("reverie_stroke_color").toUInt();
+                    entry.strokePosition = node->property("reverie_stroke_pos").toInt();
+                    entry.strokeOpacity = node->property("reverie_stroke_opacity").toInt();
+                } else if (l->name().contains(QStringLiteral("描边")) ||
+                           l->name().contains(QLatin1String("Stroke"), Qt::CaseInsensitive)) {
+                    entry.isStrokeLayer = true;
+                    entry.strokeSize = 6;
+                    entry.strokeColor = 0xFF000000;
+                    entry.strokePosition = 0;
+                    entry.strokeOpacity = 100;
                 }
 
                 if (isGroup) {
@@ -278,6 +300,8 @@ void ReverieCore::syncLayersFromImage()
                     entry.nodeType = NodeTypeFill;
                 } else if (dynamic_cast<KisCloneLayer *>(l)) {
                     entry.nodeType = NodeTypeClone;
+                } else if (entry.isStrokeLayer) {
+                    entry.nodeType = NodeTypeStroke;
                 } else {
                     KisPSDLayerStyleSP style = l->layerStyle();
                     if (style && style->stroke() && style->stroke()->effectEnabled()) {
@@ -289,11 +313,17 @@ void ReverieCore::syncLayersFromImage()
                         entry.strokeOpacity = static_cast<int>(st->opacity());
                         QColor qc = st->color().toQColor();
                         entry.strokeColor = qc.isValid() ? qc.rgba() : 0xFF000000;
-                    } else if (entry.isStrokeLayer) {
-                        entry.nodeType = NodeTypeStroke;
                     } else {
                         entry.nodeType = NodeTypePaint;
                     }
+                }
+
+                if (entry.isStrokeLayer) {
+                    node->setProperty("reverie_is_stroke", true);
+                    node->setProperty("reverie_stroke_size", entry.strokeSize);
+                    node->setProperty("reverie_stroke_color", entry.strokeColor);
+                    node->setProperty("reverie_stroke_pos", entry.strokePosition);
+                    node->setProperty("reverie_stroke_opacity", entry.strokeOpacity);
                 }
                 m_layers.append(entry);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {

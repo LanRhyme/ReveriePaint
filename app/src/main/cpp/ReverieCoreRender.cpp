@@ -978,9 +978,9 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
     if (!dev) return;
 
     const bool hasTemp = pl->hasTemporaryTarget();
-    QRect bounds = dev->extent();
+    QRect bounds = dev->exactBounds();
     if (hasTemp && pl->temporaryTarget()) {
-        bounds = bounds.united(pl->temporaryTarget()->extent());
+        bounds = bounds.united(pl->temporaryTarget()->exactBounds());
     }
     if (bounds.isEmpty()) return;
 

@@ -289,6 +289,13 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
             m_layers[idx].strokeColor = 0xFF000000;
             m_layers[idx].strokePosition = 0;
             m_layers[idx].strokeOpacity = 100;
+            if (newNode) {
+                newNode->setProperty("reverie_is_stroke", true);
+                newNode->setProperty("reverie_stroke_size", 6);
+                newNode->setProperty("reverie_stroke_color", 0xFF000000u);
+                newNode->setProperty("reverie_stroke_pos", 0);
+                newNode->setProperty("reverie_stroke_opacity", 100);
+            }
         }
     }
     markDirty();
@@ -348,6 +355,13 @@ int ReverieCore::copyLayer(int index)
             m_layers[idx].strokeColor = sCol;
             m_layers[idx].strokePosition = sPos;
             m_layers[idx].strokeOpacity = sOp;
+            if (cloned) {
+                cloned->setProperty("reverie_is_stroke", true);
+                cloned->setProperty("reverie_stroke_size", sSize);
+                cloned->setProperty("reverie_stroke_color", sCol);
+                cloned->setProperty("reverie_stroke_pos", sPos);
+                cloned->setProperty("reverie_stroke_opacity", sOp);
+            }
         }
     }
     markDirty();
@@ -803,6 +817,14 @@ void ReverieCore::applyStrokeParamsInternal(int index, int size, quint32 color, 
     e.isStrokeLayer = true;
     e.nodeType = NodeTypeStroke;
 
+    if (e.node) {
+        e.node->setProperty("reverie_is_stroke", true);
+        e.node->setProperty("reverie_stroke_size", e.strokeSize);
+        e.node->setProperty("reverie_stroke_color", e.strokeColor);
+        e.node->setProperty("reverie_stroke_pos", e.strokePosition);
+        e.node->setProperty("reverie_stroke_opacity", e.strokeOpacity);
+    }
+
     KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
     if (pl && pl->paintDevice() && m_document) {
         QRect bounds = pl->paintDevice()->exactBounds();
@@ -903,6 +925,9 @@ bool ReverieCore::rasterizeLayerStroke(int index)
 
     e.isStrokeLayer = false;
     e.nodeType = NodeTypePaint;
+    if (e.node) {
+        e.node->setProperty("reverie_is_stroke", false);
+    }
     markDirty();
     return true;
 }

@@ -1254,9 +1254,12 @@ bool ReverieCore::loadRevp(const QString &path)
         const QJsonArray layersMeta = meta["layers"].toArray();
         for (int i = 0; i < layersMeta.size(); ++i) {
             QJsonObject layerObj = layersMeta[i].toObject();
-            if (layerObj["isStrokeLayer"].toBool(false)) {
+            const bool isStrokeMeta = layerObj["isStrokeLayer"].toBool(false);
+            const QString layerName = layerObj["name"].toString();
+            const bool isStrokeName = layerName.contains(QStringLiteral("描边")) ||
+                                      layerName.contains(QLatin1String("Stroke"), Qt::CaseInsensitive);
+            if (isStrokeMeta || isStrokeName) {
                 int targetIdx = -1;
-                const QString layerName = layerObj["name"].toString();
                 if (i < m_layers.size() && m_layers[i].name == layerName) {
                     targetIdx = i;
                 } else {
@@ -1273,10 +1276,17 @@ bool ReverieCore::loadRevp(const QString &path)
                 if (targetIdx >= 0 && targetIdx < m_layers.size()) {
                     m_layers[targetIdx].isStrokeLayer = true;
                     m_layers[targetIdx].nodeType = NodeTypeStroke;
-                    m_layers[targetIdx].strokeSize = layerObj["strokeSize"].toInt(6);
-                    m_layers[targetIdx].strokeColor = static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000));
-                    m_layers[targetIdx].strokePosition = layerObj["strokePosition"].toInt(0);
-                    m_layers[targetIdx].strokeOpacity = layerObj["strokeOpacity"].toInt(100);
+                    m_layers[targetIdx].strokeSize = layerObj.contains("strokeSize") ? layerObj["strokeSize"].toInt(6) : 6;
+                    m_layers[targetIdx].strokeColor = layerObj.contains("strokeColor") ? static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000)) : 0xFF000000u;
+                    m_layers[targetIdx].strokePosition = layerObj.contains("strokePosition") ? layerObj["strokePosition"].toInt(0) : 0;
+                    m_layers[targetIdx].strokeOpacity = layerObj.contains("strokeOpacity") ? layerObj["strokeOpacity"].toInt(100) : 100;
+                    if (m_layers[targetIdx].node) {
+                        m_layers[targetIdx].node->setProperty("reverie_is_stroke", true);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_size", m_layers[targetIdx].strokeSize);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_color", m_layers[targetIdx].strokeColor);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_pos", m_layers[targetIdx].strokePosition);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_opacity", m_layers[targetIdx].strokeOpacity);
+                    }
                 }
             }
         }
