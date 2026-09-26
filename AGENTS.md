@@ -178,3 +178,34 @@ Conventional Commits, **中文描述**, 格式:
 - `local.properties` 含签名/赞助 API token, 已被 .gitignore 排除, **严禁提交或复制其内容到其他文件**。
 - 机密注入顺序: gradle property → 环境变量 → local.properties (见 `app/build.gradle.kts`); CI 通过 GitHub Secrets 写入。
 - 发布签名当前复用 debug 签名 (release buildType), 变更前需与维护者确认。
+
+## 13. 版本发布与更新自动化规范 (Release Workflow)
+
+当用户发出“提更新”、“发布新版本”、“发版”、“发布 release”等意图指令时, AI 代理须执行标准自动化发布流水线:
+
+### 1. 意图与版本号决策
+- 用户未指定目标版本号: 默认修订号递增 (即 `Z + 1`, 例如 `1.3.3` -> `1.3.4`), 同时 `versionCode` 严格递增 (`versionCode + 1`)
+- 用户显式指定目标版本号 (如“发布 1.4.0”): 采用用户指定版本号, `versionCode` 递增 1
+
+### 2. 工作区与机械检查 (门禁)
+- **严格检查工作区干净状态**: 执行 `git status`, 若存在未提交的修改或未跟踪文件, 必须立即暂停发布流程并列出未提交文件, 严禁私自打包或夹带未经验证的代码
+- **机械自检必须全绿**: 运行 `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest`, 验证通过后方可推进
+
+### 3. 版本号与更新日志撰写
+- **更新版本配置**: 修改 `app/build.gradle.kts` 中的 `versionCode` 与 `versionName`
+- **解析 Git 历史**: 执行 `git log <last_tag>..HEAD` 提取自上个正式 tag 以来的全量提交
+- **生成结构化日志并写入 CHANGELOG.md**:
+  - 在 `CHANGELOG.md` 顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
+  - 严格按 Conventional Commits 分类为两大板块: `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` (如有系统级调整可追加 `### 体验优化与工程调整`)
+  - 严禁使用句号 (。) 与任何表情符号 (emoji), 保持极简清晰
+- **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
+
+### 4. 标签与远程推送
+- **打附注标签**: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+- **推送主分支与标签**: 先 `git push origin main`, 后 `git push origin vX.Y.Z` (触发 GitHub Actions `release.yml` 构建流水线)
+
+### 5. CI 监控与 Release 同步
+- **监控 CI 构建**: 后台监控 GitHub Actions 运行状态 (`release.yml`), 等待编译与打包完成
+- **更新 GitHub Release 正文**: CI 完成创建 release 后, 提取 `CHANGELOG.md` 中对应版本的日志, 执行 `gh release edit vX.Y.Z --notes-file <临时日志路径>` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
+- **结果汇总汇报**: 向用户提供新版本号、Release 链接与 APK 产物大小
+
