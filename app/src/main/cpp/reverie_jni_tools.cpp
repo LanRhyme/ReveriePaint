@@ -275,6 +275,24 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyStats(JNIEnv *env, jobject)
     return arr;
 }
 
+JNIEXPORT jlongArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyRebaseStats(JNIEnv *env, jobject)
+{
+    // Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期
+    // + 拖动热路径的单位成本。
+    //   [rebaseCount, reason, flushMs, flushMaxMs, cloneMs, oldAreaPx, newAreaPx,
+    //    innerOverflowPx, gridPoints, throttleCount, throttleMs, throttleMaxMs,
+    //    callCount, callUs, callMaxUs]
+    // 独立于 liquifyStats(不改动它的 10 元契约); rebaseCount / throttleCount / callCount
+    // 单调递增, 供 Kotlin 侧算窗口增量。纯诊断, 不参与任何渲染/提交路径。
+    qint64 stats[15] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    core()->liquifyRebaseStats(stats);
+    jlongArray arr = env->NewLongArray(15);
+    if (!arr) return nullptr;
+    env->SetLongArrayRegion(arr, 0, 15, reinterpret_cast<const jlong *>(stats));
+    return arr;
+}
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_liquifyGrid(JNIEnv *env, jobject)
 {

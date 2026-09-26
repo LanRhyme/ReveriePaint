@@ -730,6 +730,22 @@ object ReverieCoreBridge {
     external fun liquifyStats(): LongArray?
 
     /**
+     * Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期读数。
+     *
+     * `[rebaseCount, reason, flushMs, flushMaxMs, cloneMs, oldAreaPx, newAreaPx,
+     *   innerOverflowPx, gridPoints, throttleCount, throttleMs, throttleMaxMs,
+     *   callCount, callUs, callMaxUs]`
+     *
+     * `reason`: 0 = 无, 1 = 首个 dab(worker 未创建), 2 = 笔尖走出 bounds 内框。
+     * `callCount/callUs/callMaxUs`: 一次 `liquify()` 调用的次数 / 累计 µs / 峰值 µs
+     *   —— 拖动热路径的**单位成本**。注意 `liquifyStats` 的"形变 52ms"是**单次 apply**的拆分,
+     *   AGSL 预览模式下拖动期间通常不触发 apply(`物化 0`), 因此它衡量不了拖动是否卡。
+     * `rebaseCount` / `throttleCount` / `callCount` 单调递增, 调用方按窗口取增量。
+     * 与 [liquifyStats] **互相独立**(不改动后者的 10 元契约)。
+     */
+    external fun liquifyRebaseStats(): LongArray?
+
+    /**
      * 当前液化网格的只读导出(row-major, 点坐标为文档坐标):
      * `[bx, by, bw, bh, columns, rows, precision, count, (origX, origY, dx, dy) × count]`,
      * 其中 `dx/dy = transformed - original` —— 与 Krita `run()` 做分段线性 warping 用的是同一份网格。

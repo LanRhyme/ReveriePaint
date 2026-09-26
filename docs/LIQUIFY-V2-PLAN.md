@@ -194,7 +194,12 @@ C++ 已有脏区预算(`LIQUIFY_DELTA_BUDGET_*`, [`ReverieCoreMiscTools.cpp:145`
 > 不让**尚未落盘**的网格位移丢失(新 worker 从 identity 开始)。
 > ⇒ 正确方向是"**让重锚定不需要 materialize**"(把旧网格位移场平移到新网格),不是"让 materialize 更快"。
 
-**Commit 1(本阶段第一步,已就绪待编译):只加埋点,不改行为**
+**Commit 1(已落地):只加埋点,不改行为**
+
+> 已编译验证(见 [RENDER-OPTIMIZATION.md §4.18](RENDER-OPTIMIZATION.md)):C++ 走 WSL `jni-build` 的
+> `ninja` 通过, 产物已 strip 并同步 `third_party/android-native-libs` + `app/src/main/jniLibs/arm64-v8a`,
+> `NEEDED` 闭包与基线逐条一致;Kotlin 侧 `:app:testDebugUnitTest` + `:app:assembleDebug` 通过。
+> 读数入口:HUD 第 4.5 行 `rebase<n>/<ms> max<ms> 重建<ms> 因<原因> 越界<px> 节流<n>/<ms>`。
 
 | 文件 | 动作 | 内容 |
 |---|---|---|

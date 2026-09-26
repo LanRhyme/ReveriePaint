@@ -290,6 +290,9 @@ class PaintViewModel : ViewModel() {
      */
     internal fun pollLiquifyStats() {
         if (!PerfTrace.enabled) return
+        // Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / 节流两条物化边分开读。
+        // 刻意放在下面 apply 的早退**之前** —— rebase 读数与"是否已有 apply"无关。
+        ReverieCoreBridge.liquifyRebaseStats()?.let { PerfTrace.liquifyRebase(it) }
         val s = ReverieCoreBridge.liquifyStats() ?: return
         if (s.size < 10 || s[7] <= 0L) return // 还没做过液化
         PerfTrace.liquifyApply(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9])

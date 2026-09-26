@@ -21,6 +21,7 @@
 | 液化预览 | 实验 A: 代理分辨率旋钮(源纹理按比例下采样) + HUD `/代理` 读数 | 已落地, 待测量 | `-PlqProxy=<10..100>` / `setprop debug.reverie.lqproxy` / **设置→诊断 内应用内切换** |
 | 液化预览 | 干预实验(§4.15): 预览"状态暂存"与"纹理上传"解耦, 上传 ≤ 1/帧; HUD 拆出 暂存/网格上传/源上传 + frame p95 | 已落地, 待测量 | 无(自动); 设置→诊断 内的合并步数/代理旋钮仍可用 |
 | 液化预览 | 覆盖层局部失效(V2 Phase 2, §4.17): 由前后两帧位移场差异推文档脏区, 不再每个 dab 整屏重绘 | 已落地, 待真机 | `debug.reverie.liquifyPreviewGpu` + `partialInvalidateEnabled` |
+| 液化 | V2 Phase 3 Commit 1(§4.18): rebase / materialize 生命周期埋点 —— 把"拖动中物化"拆成 rebase 边与节流边 | 已落地, 待真机取数 | HUD 第 4.5 行; 无行为变更 |
 | 内存 | 帧缓存按字节预算淘汰 + `ComponentCallbacks2` 内存压力释放; 缩略图给笔画让路 | 已落地 | 无(自动) |
 | 量测 | `PerfTrace`(Kotlin, 分桶统计) + `revpSaveStats`(C++ 阶段计时) + debug 专属 HUD | 已落地 | `setprop debug.reverie.perf 1` / debug 包设置页 |
 | 未做 | tile 化显示缓冲(整张纹理重传是最大带宽项) · 视口尺寸渲染缓冲 · 液化按 tile 增量 `run()` | 待立项 | 见 §9 |
@@ -556,6 +557,38 @@ UI 线程:   draw()(每帧一次) → commitLocked() → 构建/上传纹理 (+1
 `LiquifyDirtyRegionTest` 7 例: 无变化 / 单点变化 / 多点并集 / 阈值内抖动 / null 与规模不符判不可比 /
 截断数组不崩)。**真机待验证**: ① 开 `debug.reverie.liquifyPreviewGpu 1` 推拉拖动, 环无残影、形变区边缘
 无"未更新的旧像素块"; ② 与关闭开关时的最终结果逐像素一致(局部失效只改交互态呈现, 不改提交)。
+
+### 4.18 V2 Phase 3 · Commit 1(已落地): rebase / materialize 生命周期埋点
+
+Phase 3 的目标是把"拖动中反复 rebase 的全量物化"(§4.16)从交互热路径里拿掉。动手前先按调查结论
+([LIQUIFY-REBASE-INVESTIGATION.md](LIQUIFY-REBASE-INVESTIGATION.md))只加**埋点**、不改行为。
+
+关键前提(调查已定论):**rebase 是我们自己写的局部窗口重锚定**, 不在 `KisLiquifyTransformWorker` 里;
+触发条件只有"首个 dab"与"笔尖走出 bounds 内框"两条; materialize 的唯一目的是不让**尚未落盘**的
+网格位移丢失(新 worker 从 identity 开始)。200px 笔刷下锚点距内框边界只有 240px ⇒ 高速拖动必然频繁 rebase。
+
+| 指标(C++ 原子量) | 含义 |
+|---|---|
+| `rebaseCount` / `reason` | rebase 次数 / 最近原因(`首dab` \| `越内框`) |
+| `flushMs`(+`max`) | **rebase 前那次 flush 的耗时** —— 这一项才是"被 rebase 拖出来的物化" |
+| `cloneMs` | 重建 src/dst + worker 的耗时(§4.6.4 提到的"设备重建抖动") |
+| `oldAreaPx` / `newAreaPx` | 新旧 bounds 面积(验证"每次 0.58M px") |
+| `innerOverflowPx` | 触发时越出内框的像素数(验证调查 §3 的"锚点 240px"判据) |
+| `gridPoints` | rebase 后的网格点数(与 `形变 ms` 相除得每格成本) |
+| `throttleCount` / `throttleMs`(+`max`) | **节流**那条 apply 边 —— 与 rebase 边分开, 避免误读 |
+
+读数链路:`ReverieCore::liquifyRebaseStats()` → JNI `liquifyRebaseStats()`(12 元, **独立**于既有
+`liquifyStats` 的 10 元契约)→ [`PerfTrace.liquifyRebase()`](../app/src/main/java/com/reverie/paint/core/PerfTrace.kt) →
+HUD 第 4.5 行追加 `rebase<n>/<ms> max<ms> 重建<ms> 因<原因> 越界<px> 节流<n>/<ms>`。
+`rebaseCount` / `throttleCount` 在引擎侧单调递增, Kotlin 侧按窗口取增量;首次取数只建基线。
+
+**判读**:`rebase/flushMs` 占大头 ⇒ 确认必须做路线 B+C(逻辑 rebase / 扩网格);
+`重建` 占大头 ⇒ 该治的是设备与 worker 重建;`原因=越内框` 且 `越界 ≈ 240px` ⇒ 调查 §3 的量化成立。
+
+**行为不变**:只是若干 relaxed 原子写, 不改变任何判定与执行路径。
+**机械验证**:C++ 走 WSL `jni-build` 的 `ninja` 增量编译通过; 产物 strip 后同步进
+`third_party/android-native-libs` 与 `app/src/main/jniLibs/arm64-v8a`, JNI 导出符号集与 `NEEDED`
+闭包与基线**逐条一致**;`:app:compileDebugKotlin` + `:app:testDebugUnitTest` + `:app:assembleDebug` 通过。
 
 ## 5. 内存与线程
 

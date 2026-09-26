@@ -10,6 +10,7 @@
 #include "ReverieCoreInternal.h"
 #include "kis_liquify_transform_worker.h"
 #include <QtConcurrent/QtConcurrentMap>
+#include <chrono>
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
 {
@@ -168,6 +169,58 @@ enum LiquifyStat {
 };
 std::atomic<qint64> s_liquifyStats[LiquifyStatCount];
 
+// Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期。
+// **纯诊断** —— 每次触发若干 relaxed 原子写, 不改变任何执行路径; 读取方是引擎线程(标尺每秒取一次)。
+// 独立于 s_liquifyStats, 这样既有 liquifyStats 的 10 元契约完全不动。
+enum LiquifyRebaseReason {
+    LqRebaseNone = 0,
+    LqRebaseFirstDab = 1,     // worker 尚未创建(首个 dab / 重建之后)
+    LqRebaseLeftInnerBox = 2, // 笔尖走出 bounds 内缩 margin 后的内框
+};
+enum LiquifyRebaseStat {
+    LqrCount = 0,        // rebase 次数
+    LqrReason,           // 最近一次 rebase 的原因(LastValue)
+    LqrFlushMs,          // rebase 前 flush pendingDelta 的累计耗时 —— 这一项就是"被 rebase 拖出来的物化"
+    LqrFlushMaxMs,       // 上述耗时的峰值
+    LqrCloneMs,          // rebase 里"重建 src/dst + worker"的累计耗时
+    LqrOldAreaPx,        // 旧 bounds 面积累计(用于验证"每次 0.58M px")
+    LqrNewAreaPx,        // 新 bounds 面积累计
+    LqrInnerOverflowPx,  // 触发时越出内框的最大像素数(验证"锚点 240px"判据)
+    LqrGridPoints,       // 最近一次 rebase 后的网格点数(LastValue)
+    LqrThrottleCount,    // 节流那条 apply 边的次数(与 rebase 边分开, 避免误读)
+    LqrThrottleMs,
+    LqrThrottleMaxMs,
+    // Phase 3 · Commit 1b: 拖动热路径的**单位成本** —— 一次 `liquify()` 调用的墙钟时间(µs)。
+    // 这是"拖一笔到底在原生侧花了多少"的直接读数; 与 liquifyStats 的"单次 apply 四段拆分"互补
+    // (后者在 AGSL 预览模式下拖动期间基本不触发, 因此**不能**用来判断拖动是否卡)。
+    LqrCallCount,     // liquify() 调用次数(= 提交的补点数)
+    LqrCallUs,        // 累计 µs
+    LqrCallMaxUs,     // 单次峰值 µs
+    LiquifyRebaseStatCount
+};
+std::atomic<qint64> s_liquifyRebaseStats[LiquifyRebaseStatCount];
+
+void addRebaseStat(int idx, qint64 delta)
+{
+    if (delta == 0) return;
+    s_liquifyRebaseStats[idx].fetch_add(delta, std::memory_order_relaxed);
+}
+
+void setRebaseStat(int idx, qint64 value)
+{
+    s_liquifyRebaseStats[idx].store(value, std::memory_order_relaxed);
+}
+
+/** 只保留峰值的写入(读-改-写用 CAS 循环, 避免与其它线程的 max 更新互相覆盖)。 */
+void maxRebaseStat(int idx, qint64 value)
+{
+    qint64 cur = s_liquifyRebaseStats[idx].load(std::memory_order_relaxed);
+    while (value > cur &&
+           !s_liquifyRebaseStats[idx].compare_exchange_weak(
+               cur, value, std::memory_order_relaxed)) {
+    }
+}
+
 // 诊断: 强制网格精度 (`setprop debug.reverie.lqprec 4|8|16|32`)。用来在真机上量
 // "网格单元数 → 耗时 / 形变边缘质量"的曲线, 不需要重编译; 只接受 2 的幂的合法档,
 // 其它值一律忽略。0/未设 = 走自动档位(+ 分辨率保底)。
@@ -187,6 +240,23 @@ int liquifyForcedPrecision()
     }
 #endif
     return 0;
+}
+
+// Phase 3 · Test B (docs/LIQUIFY-REBASE-INVESTIGATION.md §11): `setprop debug.reverie.lqnodeform 1`
+// 时**不做形变** —— 不碰网格、不 apply、不生成预览; 但输入 → 补点 → JNI → 失效 → 绘制的整条链路
+// 照常运行。用来把"卡在形变"与"卡在呈现"一刀切开: 开了它若变丝滑, 主因就在原生形变。
+bool liquifyDeformSkipRequested()
+{
+#if defined(Q_OS_ANDROID)
+    char value[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.reverie.lqnodeform", value) > 0 && value[0]) {
+        return QByteArray(value).toInt() != 0;
+    }
+#else
+    const QByteArray env = qgetenv("REVERIE_LQ_NODEFORM");
+    if (!env.isEmpty()) return env.toInt() != 0;
+#endif
+    return false;
 }
 
 // 前向声明: GPU 开关的定义在下面(预览开关要先问它, 只开 GPU 开关也算开了预览)
@@ -606,6 +676,16 @@ void ReverieCore::liquifyStats(qint64 *out)
     }
 }
 
+// Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期读数。
+// 独立入口, 免得改动既有 liquifyStats 的返回长度与调用方索引。
+void ReverieCore::liquifyRebaseStats(qint64 *out)
+{
+    if (!out) return;
+    for (int i = 0; i < LiquifyRebaseStatCount; ++i) {
+        out[i] = s_liquifyRebaseStats[i].load(std::memory_order_relaxed);
+    }
+}
+
 // 导出当前液化网格状态(只读)。数据来源是 worker 自己的 originalPoints/transformedPoints ——
 // 也就是 run() 做分段线性 warping 用的那一份网格, 所以"预览用的几何"与"最终提交的几何"同源。
 // 注意 transformedPoints() 是非 const 访问器, 因此本函数不能是 const。
@@ -915,6 +995,20 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
         }
     }
 
+    // Phase 3 · Commit 1b 埋点: 一次 liquify() 调用的墙钟成本(= 拖动热路径的真实单位成本)
+    const auto lqCallT0 = std::chrono::steady_clock::now();
+
+    // Phase 3 · Test B: 只跳过形变本身, 其余链路全跑(见 liquifyDeformSkipRequested 的说明)
+    if (liquifyDeformSkipRequested()) {
+        const qint64 skipUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                  std::chrono::steady_clock::now() - lqCallT0).count();
+        addRebaseStat(LqrCallCount, 1);
+        addRebaseStat(LqrCallUs, skipUs);
+        maxRebaseStat(LqrCallMaxUs, skipUs);
+        if (ownBracket) liquifyEnd();
+        return;
+    }
+
     const qreal s = qBound<qreal>(0.05, strength, 2.0);
     // KisLiquifyPaintop passes the brush diameter as sigma (gaussian falloff)
     const qreal size = qMax<qreal>(8.0, m_liquifyBrushSize);
@@ -922,18 +1016,33 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
     // Local grid: rebase when the brush is about to leave the inner margin
     // (the worker's run() copies the whole bounds complement, so the bounds
     // must stay local or every dab costs a full-bounds copy)
+    // Phase 3 埋点: 这一次是否需要 rebase、为什么(纯诊断, 不影响判定逻辑)
+    int rebaseReason = LqRebaseNone;
+    qint64 rebaseInnerOverflowPx = 0;
     bool needRebase = m_liquifyTargets.isEmpty() || m_liquifyTargets[0].worker == nullptr;
-    if (!needRebase) {
+    if (needRebase) {
+        rebaseReason = LqRebaseFirstDab;
+    } else {
         const int margin = qMax(40, qRound(size * 0.7));
         const QRect inner = m_liquifyWorkerBounds.adjusted(margin, margin, -margin, -margin);
         if (!inner.contains(QPoint(tx, ty))) {
             needRebase = true;
+            rebaseReason = LqRebaseLeftInnerBox;
+            // 越出内框多少像素(四边取最大) —— 用来真机验证"锚点 R-margin"这条判据
+            rebaseInnerOverflowPx =
+                qMax(qMax<qint64>(qint64(inner.left()) - tx, qint64(tx) - inner.right()),
+                     qMax<qint64>(qint64(inner.top()) - ty, qint64(ty) - inner.bottom()));
         }
     }
     if (needRebase) {
+        const QRect rebaseOldBounds = m_liquifyWorkerBounds;
+        const qint64 rebaseT0 = QDateTime::currentMSecsSinceEpoch();
+        qint64 rebaseFlushMs = 0;
         if (m_liquifyTargets[0].worker) {
+            const qint64 flushT0 = QDateTime::currentMSecsSinceEpoch();
             liquifyApplyLocked(m_liquifyPendingDelta.isNull() ? m_liquifyWorkerBounds
                                                               : m_liquifyPendingDelta);
+            rebaseFlushMs = QDateTime::currentMSecsSinceEpoch() - flushT0;
             m_liquifyPendingDelta = QRect();
         }
         // Tight bounds: only the brush neighbourhood + the gaussian influence
@@ -990,6 +1099,34 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             m_liquifyPrecision = precision;
             t.worker = new KisLiquifyTransformWorker(bounds, nullptr, precision);
             t.bounds = bounds;
+        }
+        // Phase 3 埋点: 记下一次 rebase 的构成(纯诊断)。cloneMs 用"整段减去 flush 段"近似,
+        // 它覆盖 makeCloneFrom + dst 分配 + worker 重建 —— 正是 §4.6.4 提到的"设备重建抖动"。
+        {
+            const qint64 rebaseT1 = QDateTime::currentMSecsSinceEpoch();
+            const qint64 rebaseCloneMs =
+                qMax<qint64>(0, (rebaseT1 - rebaseT0) - rebaseFlushMs);
+            addRebaseStat(LqrCount, 1);
+            setRebaseStat(LqrReason, rebaseReason);
+            addRebaseStat(LqrFlushMs, rebaseFlushMs);
+            maxRebaseStat(LqrFlushMaxMs, rebaseFlushMs);
+            addRebaseStat(LqrCloneMs, rebaseCloneMs);
+            addRebaseStat(LqrOldAreaPx,
+                          qint64(rebaseOldBounds.width()) * qint64(rebaseOldBounds.height()));
+            addRebaseStat(LqrNewAreaPx, qint64(m_liquifyWorkerBounds.width()) *
+                                            qint64(m_liquifyWorkerBounds.height()));
+            maxRebaseStat(LqrInnerOverflowPx, rebaseInnerOverflowPx);
+            const QSize rebaseGrid =
+                m_liquifyTargets[0].worker ? m_liquifyTargets[0].worker->gridSize() : QSize();
+            setRebaseStat(LqrGridPoints,
+                          qint64(rebaseGrid.width()) * qint64(rebaseGrid.height()));
+            RPC_TRACE("liquify rebase #%d reason=%d flush=%dms clone=%dms old=%dx%d new=%dx%d "
+                      "overflow=%d grid=%dx%d",
+                      int(s_liquifyRebaseStats[LqrCount].load(std::memory_order_relaxed)),
+                      rebaseReason, int(rebaseFlushMs), int(rebaseCloneMs),
+                      rebaseOldBounds.width(), rebaseOldBounds.height(),
+                      m_liquifyWorkerBounds.width(), m_liquifyWorkerBounds.height(),
+                      int(rebaseInnerOverflowPx), rebaseGrid.width(), rebaseGrid.height());
         }
         // Phase 2A-2: 预览模式下 rebase 后缓存一份 bounds 的原始像素(整段手势只读这一次),
         // 之后每次 dab 只做 CPU 位移采样 —— 拖动期间不再碰 Krita device。
@@ -1072,8 +1209,24 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             liquifyPreviewBuildLocked();
         }
     } else if (ownBracket || now - m_liquifyLastApplyMs >= m_liquifyApplyIntervalMs) {
+        // Phase 3 埋点: 这条边是**节流**触发的物化, 与 rebase 边分开计 —— 否则会把两者混为一谈
+        const qint64 throttleT0 = QDateTime::currentMSecsSinceEpoch();
         liquifyApplyLocked(m_liquifyPendingDelta);
+        const qint64 throttleMs = QDateTime::currentMSecsSinceEpoch() - throttleT0;
+        addRebaseStat(LqrThrottleCount, 1);
+        addRebaseStat(LqrThrottleMs, throttleMs);
+        maxRebaseStat(LqrThrottleMaxMs, throttleMs);
         m_liquifyPendingDelta = QRect();
+    }
+
+    // Phase 3 · Commit 1b 埋点: 记下这一次调用的成本。刻意放在 liquifyEnd() **之前** ——
+    // 收口那次物化属于"手势结束", 不该算进"每个 dab 的单位成本"。
+    {
+        const qint64 callUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                  std::chrono::steady_clock::now() - lqCallT0).count();
+        addRebaseStat(LqrCallCount, 1);
+        addRebaseStat(LqrCallUs, callUs);
+        maxRebaseStat(LqrCallMaxUs, callUs);
     }
 
     if (ownBracket) {

@@ -547,6 +547,16 @@ public:
      *  out 至少 8 个 qint64: [total, warp, seed, blit, composite, areaPx, targets, count]。 */
     void liquifyStats(qint64 *out);
 
+    /**
+     * Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期读数。
+     * 纯诊断, 不改变任何行为; 独立于 liquifyStats, 不动它的 10 元契约。
+     *  out 至少 12 个 qint64:
+     *   [rebaseCount, reason(0 none / 1 firstDab / 2 leftInnerBox), flushMs, flushMaxMs, cloneMs,
+     *    oldAreaPx, newAreaPx, innerOverflowPx, gridPoints,
+     *    throttleCount, throttleMs, throttleMaxMs]
+     * 其中 rebaseCount / throttleCount 单调递增, 供调用方按窗口取增量。 */
+    void liquifyRebaseStats(qint64 *out);
+
     /** 当前液化网格的只读导出(row-major: `index = row * columns + col`, 点坐标为文档坐标,
      *  `offset = transformed - original`)。元素顺序与 Krita `GridIterationTools::processGrid`
      *  的迭代顺序一致(逐行逐列 append, 见 `AllPointsFetcherOp`)。

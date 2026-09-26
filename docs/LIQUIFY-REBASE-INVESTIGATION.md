@@ -194,3 +194,28 @@ wsl -d Debian -e bash -lc "cd /home/xuantree/reverie-deps/jni-build && ninja -j2
 > 与实际的 `~/reverie-deps/*` 不同)。改完 C++ 还必须把产物同步进 APK,否则源码与预编译库不一致
 > (AGENTS.md §9):`third_party/android-native-libs/libreverie_jni.so` 与 `app/src/main/jniLibs/arm64-v8a/`
 > (参考 `scripts/refresh-prebuilt-jni.sh`),随后做导出符号 / `NEEDED` 闭包比对。
+
+## 11. Test B 与"拖动热路径的单位成本"(Commit 1b)
+
+真机首次读数出现 `物化 0` + `液化 56ms / 形变 52ms` 的组合,极易被误读成"拖动中每帧 52ms"。
+**该结论不成立**:HUD 第 4 行(`液化 总/形变/补洞/回写/合成`)读的是 `liquifyStats`,即
+**上一次 apply** 的四段拆分,与统计窗口无关;`物化` 才是本窗口的 apply 次数。`物化 0` 说明这次拖动
+**根本没触发 apply**(AGSL 预览模式下拖动期不写文档),那 52ms 很可能是**抬笔收口**那一次。
+
+因此增加三处直接读数:
+
+| 读数 | 含义 |
+|---|---|
+| HUD 第 4 行末尾 `(上次 N.Ns前)` | 给"上一次 apply 的拆分"标注新鲜度, 从根上消除上面这类误读 |
+| `调用<n>/<ms> max<ms>` | 一次 `liquify()` 调用的次数 / 累计 µs / 峰值 µs ⇒ **拖动热路径的单位成本**(`LqrCallCount/CallUs/CallMaxUs`) |
+| `覆盖层<ms> max<ms>` | UI 线程 `LiquifyGpuPreview.draw()` 的实际耗时(含位移纹理构建 + 上传);`draw p95` 看不到这部分 |
+
+**Test B 开关**:`setprop debug.reverie.lqnodeform 1` —— C++ 在 `liquify()` 里**只跳过形变**
+(不碰网格、不 apply、不生成预览),输入 → 补点 → JNI → 失效 → 绘制的整条链路照常运行。
+
+| 开 Test B 后 | 结论 | 下一步 |
+|---|---|---|
+| 明显变丝滑 | 主因在原生形变 | 做路线 B+C(逻辑 rebase / 扩网格, 须同步 `KisSpatialContainer`) |
+| 仍然卡 | 形变不是主因 | 看 `覆盖层` 读数、JNI 取数(`liquifyGrid` 每帧新建数组)、invalidate/VSYNC |
+
+Test B 下 `调用` 会降到极小(只剩计时与属性读取),而 `覆盖层` 读数不受影响 —— 这正是它把两段分开的方式。

@@ -284,6 +284,42 @@ object PerfTrace {
     private var lqScheduleDab = 0L
     private var lqApplyPerWindow = 0L
     private var lqApplyCountLast = 0L
+    // Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / 节流两条物化边的分离读数。
+    // 引擎侧上报的是**累计量**, 这里缓存上次值取窗口增量(首次只建基线, 不把历史算进本窗口)。
+    private var lqRebaseSeen = false
+    private var lqRebaseCountLast = 0L
+    private var lqRebaseFlushMsLast = 0L
+    private var lqRebaseCloneMsLast = 0L
+    private var lqThrottleCountLast = 0L
+    private var lqThrottleMsLast = 0L
+    // 窗口内累计
+    private var lqRebasePerWindow = 0L
+    private var lqRebaseFlushMsWin = 0L
+    private var lqRebaseCloneMsWin = 0L
+    private var lqThrottlePerWindow = 0L
+    private var lqThrottleMsWin = 0L
+    // 最近一次的构成 / 全局峰值(不随窗口清零, 便于长时间观察尖峰)
+    private var lqRebaseReason = 0L
+    private var lqRebaseOverflowPx = 0L
+    private var lqRebaseNewAreaPx = 0L
+    private var lqRebaseGridPoints = 0L
+    private var lqRebaseFlushMaxMs = 0L
+    private var lqThrottleMaxMs = 0L
+    // Phase 3 · Commit 1b: 拖动热路径的单位成本 —— 一次 liquify() 调用的次数 / 累计 µs / 峰值 µs。
+    // 这是判断"拖动是否卡在原生形变"的直接读数(liquifyStats 的"形变 52ms"是单次 apply 的拆分,
+    // 拖动期间通常不触发 apply)。
+    private var lqCallCountLast = 0L
+    private var lqCallUsLast = 0L
+    private var lqCallPerWindow = 0L
+    private var lqCallUsWin = 0L
+    private var lqCallMaxUs = 0L
+    // Phase 3 · Commit 1b: UI 线程覆盖层"提交 + 绘制"的实际耗时(commitLocked + drawRect)。
+    // draw p95 只含绘制命令录制, 不含纹理上传与 GPU, 所以需要这一项才能判断覆盖层贵不贵。
+    private var lqOverlayCount = 0L
+    private var lqOverlayUsWin = 0L
+    private var lqOverlayMaxUs = 0L
+    /** 上一次 apply 的采样时刻: 用于给 HUD 第 4 行标注"这条拆分是多久以前的"。 */
+    private var lqLastApplyAtMs = 0L
     // Phase 3B: 交互态"滞后"即时值 + 窗口内的峰值 backlog。
     // backlog = 上一帧推进后仍未提交的补点数(真实"还差多少"); 若它随操作时间持续增大,
     // 就说明 latest-state-wins 没能消灭长期积压 —— 这是 200px/高速/长时间压力测试的核心读数。
@@ -410,6 +446,8 @@ object PerfTrace {
         if (delta > 0L) {
             lqMatTotalMs += totalMs
             if (totalMs > lqMatMaxMs) lqMatMaxMs = totalMs
+            // 记下采样时刻: HUD 第 4 行是"上一次 apply"的拆分, 必须能读出它的新鲜度
+            lqLastApplyAtMs = SystemClock.elapsedRealtime()
         }
         lqTotalMs = totalMs
         lqWarpMs = warpMs
@@ -421,6 +459,71 @@ object PerfTrace {
         lqPrecision = precision
         lqCells = cells
         hudCacheMs = 0L
+    }
+
+    /**
+     * Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): 引擎侧 rebase / 节流读数。
+     *
+     * 入参是 [ReverieCoreBridge.liquifyRebaseStats] 的 12 元数组:
+     * `[rebaseCount, reason, flushMs, flushMaxMs, cloneMs, oldAreaPx, newAreaPx,
+     *   innerOverflowPx, gridPoints, throttleCount, throttleMs, throttleMaxMs]`。
+     *
+     * 判读:`rebase/flushMs` 高 ⇒ 拖动中的物化确实来自 rebase(下一步做路线 B+C);
+     * `rebase/cloneMs` 高 ⇒ 该治的是 src/dst 与 worker 的重建(§4.6.4);
+     * `原因=越内框` 且 `越界 ~ 240px` ⇒ 证实调查 §3 的量化。
+     */
+    @Synchronized
+    fun liquifyRebase(s: LongArray) {
+        if (!enabled || s.size < 15) return
+        if (!lqRebaseSeen) {
+            // 首次取数只建立基线: 否则会把"标尺开启前"的历史累计全算进这一窗口
+            lqRebaseSeen = true
+            lqRebaseCountLast = s[0]
+            lqRebaseFlushMsLast = s[2]
+            lqRebaseCloneMsLast = s[4]
+            lqThrottleCountLast = s[9]
+            lqThrottleMsLast = s[10]
+            lqCallCountLast = s[12]
+            lqCallUsLast = s[13]
+        } else {
+            lqRebasePerWindow += (s[0] - lqRebaseCountLast).coerceAtLeast(0L)
+            lqRebaseFlushMsWin += (s[2] - lqRebaseFlushMsLast).coerceAtLeast(0L)
+            lqRebaseCloneMsWin += (s[4] - lqRebaseCloneMsLast).coerceAtLeast(0L)
+            lqThrottlePerWindow += (s[9] - lqThrottleCountLast).coerceAtLeast(0L)
+            lqThrottleMsWin += (s[10] - lqThrottleMsLast).coerceAtLeast(0L)
+            lqCallPerWindow += (s[12] - lqCallCountLast).coerceAtLeast(0L)
+            lqCallUsWin += (s[13] - lqCallUsLast).coerceAtLeast(0L)
+            lqRebaseCountLast = s[0]
+            lqRebaseFlushMsLast = s[2]
+            lqRebaseCloneMsLast = s[4]
+            lqThrottleCountLast = s[9]
+            lqThrottleMsLast = s[10]
+            lqCallCountLast = s[12]
+            lqCallUsLast = s[13]
+        }
+        lqRebaseReason = s[1]
+        lqRebaseOverflowPx = s[7]
+        lqRebaseNewAreaPx = s[6]
+        lqRebaseGridPoints = s[8]
+        if (s[3] > lqRebaseFlushMaxMs) lqRebaseFlushMaxMs = s[3]
+        if (s[11] > lqThrottleMaxMs) lqThrottleMaxMs = s[11]
+        if (s[14] > lqCallMaxUs) lqCallMaxUs = s[14]
+        hudCacheMs = 0L
+    }
+
+    /**
+     * Phase 3 · Commit 1b 埋点: UI 线程上一次"覆盖层提交 + 绘制"的耗时(纳秒)。
+     *
+     * 与 `draw p95` 的区别: 后者只统计绘制命令录制, **不含**纹理构建/上传与 GPU 采样;
+     * 覆盖层每帧要重建一张位移纹理(Bitmap + BitmapShader), 这一项才看得见那部分开销。
+     */
+    @Synchronized
+    fun liquifyOverlay(ns: Long) {
+        if (!enabled) return
+        val us = ns / 1000L
+        lqOverlayCount++
+        lqOverlayUsWin += us
+        if (us > lqOverlayMaxUs) lqOverlayMaxUs = us
     }
 
     // ------------------------------------------------------------------
@@ -509,6 +612,15 @@ object PerfTrace {
         lqScheduleFlush = 0L
         lqScheduleDab = 0L
         lqApplyPerWindow = 0L
+        lqRebasePerWindow = 0L
+        lqRebaseFlushMsWin = 0L
+        lqRebaseCloneMsWin = 0L
+        lqThrottlePerWindow = 0L
+        lqThrottleMsWin = 0L
+        lqCallPerWindow = 0L
+        lqCallUsWin = 0L
+        lqOverlayCount = 0L
+        lqOverlayUsWin = 0L
         lqFlowBacklogMax = 0
         lqMatTotalMs = 0L
         lqMatMaxMs = 0L
@@ -533,6 +645,9 @@ object PerfTrace {
      * HUD 文本 (屏幕左上角)。最多每 250ms 重建一次, 避免每帧拼字符串。
      * 返回空串表示暂无数据。
      */
+    /** Phase 3 埋点: rebase 原因码 → 可读名(与 C++ 的 LiquifyRebaseReason 一一对应)。 */
+    private val REBASE_REASON_NAMES = arrayOf("无", "首dab", "越内框")
+
     @Synchronized
     fun hudText(): String {
         if (!enabled) return ""
@@ -587,6 +702,12 @@ object PerfTrace {
                 .append("/合成 ").append(lqCompositeMs).append("  ").append(lqTargets)
                 .append("层 ").append("%.0f".format(lqAreaPx / 1024.0)).append("K px")
                 .append(" 精度").append(lqPrecision).append("/单元").append(lqCells)
+            // 新鲜度标注: 本行是"上一次 apply"的拆分, 而 AGSL 预览模式下拖动期间通常**不触发**
+            // apply(读数里表现为"物化 0")。不标新鲜度就极易把抬笔那一次的 52ms 误读成拖动成本。
+            if (lqLastApplyAtMs > 0L) {
+                val agoMs = (SystemClock.elapsedRealtime() - lqLastApplyAtMs).coerceAtLeast(0L)
+                sb.append(" (上次").append("%.1f".format(agoMs / 1000.0)).append("s前)")
+            }
         }
 
         // 第 4.5 行: 液化交互管线的"暂存 → 上传 → 帧"三段读数。
@@ -601,6 +722,27 @@ object PerfTrace {
             // 物化: 次数 / 本窗口累计耗时 / 单次峰值 —— 回答"lag=0 但仍卡"是否来自 apply 尖峰(§4.16)
             sb.append(" 物化").append(lqApplyPerWindow)
                 .append('/').append(lqMatTotalMs).append("ms max").append(lqMatMaxMs).append("ms")
+            // Phase 3 埋点(§8): 把 rebase 与节流**分开**读 —— 前者才是拖动中物化的真来源
+            if (lqRebaseSeen) {
+                sb.append(" rebase").append(lqRebasePerWindow)
+                    .append('/').append(lqRebaseFlushMsWin).append("ms")
+                    .append(" max").append(lqRebaseFlushMaxMs).append("ms")
+                    .append(" 重建").append(lqRebaseCloneMsWin).append("ms")
+                    .append(" 因").append(REBASE_REASON_NAMES[lqRebaseReason.toInt().coerceIn(0, 2)])
+                    .append(" 越界").append(lqRebaseOverflowPx).append("px")
+                sb.append(" 节流").append(lqThrottlePerWindow)
+                    .append('/').append(lqThrottleMsWin).append("ms")
+                // Phase 3 · Commit 1b: 拖动热路径的**单位成本**(每次 liquify() 调用)
+                sb.append(" 调用").append(lqCallPerWindow)
+                    .append('/').append("%.0f".format(lqCallUsWin / 1000.0)).append("ms")
+                    .append(" max").append("%.1f".format(lqCallMaxUs / 1000.0)).append("ms")
+                // 覆盖层的真实开销(含纹理构建/上传; draw p95 看不到这部分)
+                if (lqOverlayCount > 0L) {
+                    sb.append(" 覆盖层")
+                        .append("%.2f".format(lqOverlayUsWin / 1000.0 / lqOverlayCount))
+                        .append("ms max").append("%.2f".format(lqOverlayMaxUs / 1000.0)).append("ms")
+                }
+            }
             sb.append(" 暂存").append(lqPreviewUpdates)
                 .append("/网格上传").append(lqGridUploads)
                 .append("/源上传").append(lqUploadCount)
