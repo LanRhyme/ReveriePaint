@@ -250,6 +250,21 @@ fun keyEventToString(event: KeyEvent): String {
         Key.Seven -> "7"
         Key.Eight -> "8"
         Key.Nine -> "9"
+        Key.NumPad0 -> "0"
+        Key.NumPad1 -> "1"
+        Key.NumPad2 -> "2"
+        Key.NumPad3 -> "3"
+        Key.NumPad4 -> "4"
+        Key.NumPad5 -> "5"
+        Key.NumPad6 -> "6"
+        Key.NumPad7 -> "7"
+        Key.NumPad8 -> "8"
+        Key.NumPad9 -> "9"
+        Key.NumPadAdd, Key.Plus -> "+"
+        Key.NumPadSubtract -> "-"
+        Key.NumPadMultiply -> "*"
+        Key.NumPadDivide -> "/"
+        Key.NumPadEquals -> "="
         else -> null
     }
 
@@ -264,24 +279,93 @@ fun keyEventToString(event: KeyEvent): String {
  * Global Hardware Keyboard Event Dispatcher
  */
 internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
+    // 1. 空格键按住临时平移画布 (Spacebar Hold-to-Pan)
+    if (event.key == Key.Spacebar) {
+        if (event.type == KeyEventType.KeyDown) {
+            if (!isSpacePanning) {
+                isSpacePanning = true
+            }
+        } else if (event.type == KeyEventType.KeyUp) {
+            if (isSpacePanning) {
+                isSpacePanning = false
+            }
+        }
+        return true
+    }
+
     if (event.type != KeyEventType.KeyDown) return false
     val keyStr = keyEventToString(event)
     if (keyStr.isBlank()) return false
 
-    // Find matching action
+    // 2. 匹配注册/自定义快捷键
     for (def in ALL_SHORTCUT_DEFINITIONS) {
         val bound = getShortcutKey(def.id)
         if (bound.equals(keyStr, ignoreCase = true) ||
-            (bound == "Space(长按)" && keyStr == "Space") ||
-            (bound == "B" && keyStr == "B") ||
-            (def.id == "undo" && (keyStr == "B" || keyStr == "LeftCtrl + Z")) ||
-            (def.id == "redo" && (keyStr == "LeftCtrl + LeftShift + Z" || keyStr == "LeftCtrl + Y"))
+            (bound == "Space(长按)" && keyStr == "Space")
         ) {
             executeShortcutAction(def.id)
             return true
         }
     }
-    return false
+
+    // 3. 行业标准桌面快捷键兜底 (Photoshop / Krita 规范)
+    return when (keyStr) {
+        "LeftCtrl + Z" -> { undo(); true }
+        "LeftCtrl + LeftShift + Z", "LeftCtrl + Y" -> { redo(); true }
+        "LeftCtrl + S" -> { saveProject(docName); true }
+        "LeftCtrl + D" -> { clearSelectionAction(); true }
+        "LeftCtrl + J" -> { copyLayer(currentLayerIndex); true }
+        "LeftCtrl + E" -> { mergeDown(currentLayerIndex); true }
+        "LeftCtrl + T" -> { applyTool("transform"); true }
+        "LeftCtrl + =", "LeftCtrl + +" -> { requestUiCommand("zoom_in"); true }
+        "LeftCtrl + -" -> { requestUiCommand("zoom_out"); true }
+        "LeftCtrl + 0" -> { requestUiCommand("reset_view"); true }
+        "[" -> {
+            val minL = brushMinSizeLimit.coerceAtLeast(0.5)
+            updateBrushSize((brushSize / 1.25).coerceAtLeast(minL))
+            true
+        }
+        "]" -> {
+            val maxL = brushMaxSizeLimit.coerceAtLeast(brushMinSizeLimit)
+            updateBrushSize((brushSize * 1.25).coerceAtMost(maxL))
+            true
+        }
+        "LeftCtrl + [" -> {
+            updateBrushOpacity((brushOpacity - 0.1).coerceAtLeast(0.01))
+            true
+        }
+        "LeftCtrl + ]" -> {
+            updateBrushOpacity((brushOpacity + 0.1).coerceAtMost(1.0))
+            true
+        }
+        "B" -> { applyTool("brush"); true }
+        "E" -> { applyTool("eraser"); true }
+        "S" -> { applyTool("smudge"); true }
+        "I" -> { applyTool("picker"); isTemporaryPicker = true; true }
+        "G" -> { applyTool("fill"); true }
+        "LeftShift + G", "Shift + G" -> { applyTool("gradient"); true }
+        "M" -> { applyTool("select_rect"); true }
+        "L" -> { applyTool("lasso"); true }
+        "W" -> { applyTool("magicwand"); true }
+        "C" -> { applyTool("crop"); true }
+        "V" -> { applyTool("move"); true }
+        "X" -> {
+            val c1 = brushColor
+            val c2 = brushSecondaryColor
+            updateBrushColor(c2)
+            updateBrushSecondaryColor(c1)
+            true
+        }
+        "H" -> { flipCanvasHorizontal(); true }
+        "R" -> { requestUiCommand("rotate_cw"); true }
+        "Delete" -> { removeLayer(currentLayerIndex); true }
+        "PageDown" -> {
+            if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
+            true
+        }
+        "PageUp" -> { requestUiCommand("open_color"); true }
+        else -> false
+    }
 }
 
 /**
@@ -289,85 +373,30 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
  */
 internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): Boolean {
     if (currentPage != Page.PAINTING) return false
-    if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
 
-    val isCtrl = event.isCtrlPressed
-    val isShift = event.isShiftPressed
-    val isAlt = event.isAltPressed
-    val keyCode = event.keyCode
-
-    if (isCtrl && !isShift && keyCode == android.view.KeyEvent.KEYCODE_Z) {
-        undo()
-        return true
-    }
-    if ((isCtrl && isShift && keyCode == android.view.KeyEvent.KEYCODE_Z) ||
-        (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_Y)) {
-        redo()
-        return true
-    }
-    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_S) {
-        saveProject(docName)
-        return true
-    }
-    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_D) {
-        clearSelectionAction()
-        return true
-    }
-    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_J) {
-        copyLayer(currentLayerIndex)
-        return true
-    }
-    if (isCtrl && keyCode == android.view.KeyEvent.KEYCODE_E) {
-        mergeDown(currentLayerIndex)
-        return true
-    }
-    if (!isCtrl && !isShift && !isAlt) {
-        when (keyCode) {
-            android.view.KeyEvent.KEYCODE_B -> {
-                applyTool("brush")
-                return true
+    // 空格键长按平移：必须同时拦截 ACTION_DOWN 与 ACTION_UP
+    if (event.keyCode == android.view.KeyEvent.KEYCODE_SPACE) {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            if (!isSpacePanning) {
+                isSpacePanning = true
             }
-            android.view.KeyEvent.KEYCODE_E -> {
-                applyTool("eraser")
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_S -> {
-                applyTool("smudge")
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_I -> {
-                applyTool("picker")
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_G -> {
-                applyTool("fill")
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_X -> {
-                val c1 = brushColor
-                val c2 = brushSecondaryColor
-                updateBrushColor(c2)
-                updateBrushSecondaryColor(c1)
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_LEFT_BRACKET -> {
-                val minL = brushMinSizeLimit.coerceAtLeast(0.5)
-                val newSize = (brushSize / 1.25).coerceAtLeast(minL)
-                updateBrushSize(newSize)
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_RIGHT_BRACKET -> {
-                val maxL = brushMaxSizeLimit.coerceAtLeast(brushMinSizeLimit)
-                val newSize = (brushSize * 1.25).coerceAtMost(maxL)
-                updateBrushSize(newSize)
-                return true
-            }
-            android.view.KeyEvent.KEYCODE_PAGE_DOWN -> {
-                if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
-                return true
+        } else if (event.action == android.view.KeyEvent.ACTION_UP) {
+            if (isSpacePanning) {
+                isSpacePanning = false
             }
         }
+        return true
     }
+
+    if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+
+    // 优先通过 Compose KeyEvent 抽象分发 (全量覆盖自定义与预设快捷键)
+    try {
+        if (handleKeyEvent(KeyEvent(event))) {
+            return true
+        }
+    } catch (_: Throwable) {}
+
     return false
 }
 

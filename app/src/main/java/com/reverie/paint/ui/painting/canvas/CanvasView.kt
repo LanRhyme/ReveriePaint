@@ -274,6 +274,7 @@ fun CanvasView(
                 touchView.checkerboardPaint = checkerboardPaint
                 touchView.viewW = viewW
                 touchView.viewH = viewH
+                touchView.setSpacePanning(vm?.isSpacePanning == true)
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
                     touchView.canvasZoom = zoom.value
                     touchView.canvasRotation = rotation.value

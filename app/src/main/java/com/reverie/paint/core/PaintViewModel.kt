@@ -246,6 +246,10 @@ class PaintViewModel : ViewModel() {
     var lastToolId by mutableStateOf("brush")
     /** 是否是由手写笔侧键或快捷键临时激活的吸管工具 (取色完成后自动切回上一工具) */
     var isTemporaryPicker by mutableStateOf(false)
+    /** 是否长按空格键临时激活画布抓手平移模式 */
+    var isSpacePanning by mutableStateOf(false)
+    /** 当前是否有文本输入弹窗处于编辑聚焦状态 (聚焦时跳过物理快捷键拦截) */
+    var isTextInputActive by mutableStateOf(false)
 
     fun restorePreviousTool() {
         if (!isTemporaryPicker) return

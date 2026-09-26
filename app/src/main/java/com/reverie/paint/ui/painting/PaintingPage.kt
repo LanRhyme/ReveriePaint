@@ -218,6 +218,9 @@ fun PaintingPage(
     }
 
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    LaunchedEffect(textDialogPos) {
+        vm.isTextInputActive = textDialogPos != null
+    }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var targetFilterLayers by remember { mutableStateOf<List<Int>?>(null) }
@@ -262,6 +265,13 @@ fun PaintingPage(
             }
             "rotate_cw" -> {
                 rotation = (rotation + 90f) % 360f
+                flashIndicator()
+            }
+            "reset_view" -> {
+                zoom = 1f
+                rotation = 0f
+                panX = 0f
+                panY = 0f
                 flashIndicator()
             }
             "open_color" -> colorPanelOpen = true

@@ -366,6 +366,31 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // 空格键长按临时抓手平移状态 (Spacebar Hold-to-Pan)
+    private var spacePanStartPos = Offset.Zero
+    private var spacePanInitialPan = Offset.Zero
+    private var isSpaceDragging = false
+
+    fun setSpacePanning(active: Boolean) {
+        if (!active) {
+            isSpaceDragging = false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val targetIcon = if (active) {
+                if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
+            } else {
+                val tool = this.tool
+                val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+                    (vm?.cursorStyleMode != 4)
+                if (hideCursor && systemNullPointer != null) systemNullPointer else systemDefaultPointer
+            }
+            if (targetIcon != null && pointerIcon != targetIcon) {
+                pointerIcon = targetIcon
+            }
+        }
+        invalidate()
+    }
+
     // 画布平滑复位动画 (Procreate Smooth Reset Animation)
     private var fitAnimator: android.animation.ValueAnimator? = null
 
@@ -580,6 +605,14 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private val systemDefaultPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_DEFAULT)
+    } else null
+
+    private val systemHandPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_HAND)
+    } else null
+
+    private val systemGrabPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_GRAB)
     } else null
 
     companion object {
@@ -1235,7 +1268,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     val v = vm
                     val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                         (v?.cursorStyleMode != 4)
-                    val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
+                    val targetIcon = if (v?.isSpacePanning == true) {
+                        if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
+                    } else if (!overUi && hideCursor && systemNullPointer != null) {
                         systemNullPointer
                     } else {
                         systemDefaultPointer
@@ -1255,6 +1290,37 @@ class CanvasTouchView(context: Context) : View(context) {
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
+
+        // 空格键长按临时抓手平移 (Spacebar Hold-to-Pan)
+        if (v.isSpacePanning) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    spacePanStartPos = Offset(event.x, event.y)
+                    spacePanInitialPan = Offset(canvasPanX, canvasPanY)
+                    isSpaceDragging = true
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemGrabPointer != null) {
+                        pointerIcon = systemGrabPointer
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isSpaceDragging) {
+                        val dx = event.x - spacePanStartPos.x
+                        val dy = event.y - spacePanStartPos.y
+                        canvasPanX = spacePanInitialPan.x + dx
+                        canvasPanY = spacePanInitialPan.y + dy
+                        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isSpaceDragging = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
+                        pointerIcon = systemHandPointer
+                    }
+                }
+            }
+            return true
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val mask = event.actionMasked
             if (mask == MotionEvent.ACTION_DOWN || mask == MotionEvent.ACTION_POINTER_DOWN) {

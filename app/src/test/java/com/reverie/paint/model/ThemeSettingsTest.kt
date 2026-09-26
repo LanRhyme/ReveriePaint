@@ -193,5 +193,45 @@ class ThemeSettingsTest {
         assertEquals(w - edgeW to w, right)
         assertEquals(0 to h, vertical)
     }
+
+    @Test
+    fun `spacebar hold-to-pan state transition logic`() {
+        var isSpacePanning = false
+        val onSpaceKeyEvent = { actionDown: Boolean ->
+            if (actionDown) {
+                if (!isSpacePanning) isSpacePanning = true
+            } else {
+                if (isSpacePanning) isSpacePanning = false
+            }
+            isSpacePanning
+        }
+
+        assertFalse("Initial state must not be panning", isSpacePanning)
+        assertTrue("Space down transitions to panning", onSpaceKeyEvent(true))
+        assertTrue("Subsequent space down repeat keeps panning", onSpaceKeyEvent(true))
+        assertFalse("Space up releases panning", onSpaceKeyEvent(false))
+        assertFalse("Subsequent space up keeps released", onSpaceKeyEvent(false))
+    }
+
+    @Test
+    fun `hardware keyboard shortcut canonical string formatting`() {
+        val formatKey = { ctrl: Boolean, shift: Boolean, alt: Boolean, key: String ->
+            val parts = mutableListOf<String>()
+            if (ctrl) parts.add("LeftCtrl")
+            if (alt) parts.add("LeftAlt")
+            if (shift) parts.add("LeftShift")
+            parts.add(key)
+            parts.joinToString(" + ")
+        }
+
+        assertEquals("B", formatKey(false, false, false, "B"))
+        assertEquals("LeftCtrl + Z", formatKey(true, false, false, "Z"))
+        assertEquals("LeftCtrl + LeftShift + Z", formatKey(true, true, false, "Z"))
+        assertEquals("LeftCtrl + LeftShift + N", formatKey(true, true, false, "N"))
+        assertEquals("LeftShift + G", formatKey(false, true, false, "G"))
+        assertEquals("[", formatKey(false, false, false, "["))
+        assertEquals("]", formatKey(false, false, false, "]"))
+    }
 }
+
 

@@ -459,7 +459,8 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             if (vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
-                if (vm.handleNativeKeyEvent(event)) {
+                // 处于文本编辑/重命名对话框时跳过快捷键拦截，确保软硬件键盘正常打字
+                if (!vm.isTextInputActive && vm.handleNativeKeyEvent(event)) {
                     return true
                 }
             }
