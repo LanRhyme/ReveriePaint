@@ -123,7 +123,8 @@ fun DrawingGuidePanel(
                     selected = guide.mode == GuideMode.OFF,
                     modifier = Modifier.weight(1f),
                 ) {
-                    vm.drawingGuide = guide.copy(mode = GuideMode.OFF)
+                    vm.drawingGuide = guide.copy(mode = GuideMode.OFF, assistedDrawing = false)
+                    onDismiss()
                 }
                 GuideModeChip(
                     label = androidx.compose.ui.res.stringResource(R.string.guide_mode_2d_grid),
@@ -144,21 +145,31 @@ fun DrawingGuidePanel(
                     selected = guide.mode == GuideMode.PERSPECTIVE,
                     modifier = Modifier.weight(1f),
                 ) {
-                    val pts = if (guide.perspectiveVanishingPoints.isEmpty()) {
-                        listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
-                    } else guide.perspectiveVanishingPoints
-                    vm.drawingGuide = guide.copy(
-                        mode = GuideMode.PERSPECTIVE,
-                        assistedDrawing = true,
-                        perspectiveVanishingPoints = pts,
-                    )
+                    if (guide.mode == GuideMode.PERSPECTIVE) {
+                        vm.drawingGuide = guide.copy(mode = GuideMode.OFF, assistedDrawing = false)
+                        onDismiss()
+                    } else {
+                        val pts = if (guide.perspectiveVanishingPoints.isEmpty()) {
+                            listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
+                        } else guide.perspectiveVanishingPoints
+                        vm.drawingGuide = guide.copy(
+                            mode = GuideMode.PERSPECTIVE,
+                            assistedDrawing = true,
+                            perspectiveVanishingPoints = pts,
+                        )
+                    }
                 }
                 GuideModeChip(
                     label = androidx.compose.ui.res.stringResource(R.string.guide_mode_symmetry),
                     selected = guide.mode == GuideMode.SYMMETRY,
                     modifier = Modifier.weight(1f),
                 ) {
-                    vm.drawingGuide = guide.copy(mode = GuideMode.SYMMETRY, assistedDrawing = true)
+                    if (guide.mode == GuideMode.SYMMETRY) {
+                        vm.drawingGuide = guide.copy(mode = GuideMode.OFF, assistedDrawing = false)
+                        onDismiss()
+                    } else {
+                        vm.drawingGuide = guide.copy(mode = GuideMode.SYMMETRY, assistedDrawing = true)
+                    }
                 }
             }
 
@@ -234,7 +245,25 @@ fun DrawingGuidePanel(
 
                 // Symmetry Type Selector
                 if (guide.mode == GuideMode.SYMMETRY) {
-                    Text(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_type), color = Morandi.subText, fontSize = 12.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_type), color = Morandi.subText, fontSize = 12.sp)
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_reset_center),
+                            color = Morandi.accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    vm.drawingGuide = guide.copy(symmetryCenterX = 0.5f, symmetryCenterY = 0.5f)
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -258,7 +287,10 @@ fun DrawingGuidePanel(
                         valueText = "${(guide.symmetryCenterX * 100f).roundToInt()}%",
                         range = 0.1f..0.9f,
                         value = guide.symmetryCenterX,
-                        onValue = { vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = it) },
+                        onValue = {
+                            val newY = if (guide.symmetryType == SymmetryType.VERTICAL) 0.5f else it
+                            vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = newY)
+                        },
                     )
                 }
 

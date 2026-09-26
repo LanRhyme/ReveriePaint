@@ -55,6 +55,7 @@ import androidx.compose.ui.window.Popup
 import com.reverie.paint.R
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.GuideMode
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.liquidLean
 import com.reverie.paint.ui.components.pressScale
@@ -152,7 +153,7 @@ fun ToolRail(
                             t.displayName,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
-                                if (t == Tool.REFERENCE) {
+                                if (t == Tool.REFERENCE || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
                                     tooltipTool = null
                                     onTool(t)
                                 } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
@@ -165,7 +166,12 @@ fun ToolRail(
                                     onTool(t)
                                 }
                             },
-                            selected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t,
+                            selected = when (t) {
+                                Tool.REFERENCE -> vm.referenceWindowOpen
+                                Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
+                                Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
+                                else -> tool == t
+                            },
                         )
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }

@@ -68,4 +68,73 @@ class GuideModelsTest {
         assertTrue("Palette should have colors", palette.isNotEmpty())
         assertTrue("Palette should contain multiple distinct colors", palette.size >= 4)
     }
+
+    @Test
+    fun `computeSymmetricPoints vertical mode mirrors across center X`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.VERTICAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val symPts = config.computeSymmetricPoints(Point2D(200f, 300f), docWidth = 1000, docHeight = 1000)
+        assertEquals(1, symPts.size)
+        assertEquals(800f, symPts[0].x, 0.001f)
+        assertEquals(300f, symPts[0].y, 0.001f)
+    }
+
+    @Test
+    fun `computeSymmetricPoints horizontal mode mirrors across center Y`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.HORIZONTAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val symPts = config.computeSymmetricPoints(Point2D(200f, 300f), docWidth = 1000, docHeight = 1000)
+        assertEquals(1, symPts.size)
+        assertEquals(200f, symPts[0].x, 0.001f)
+        assertEquals(700f, symPts[0].y, 0.001f)
+    }
+
+    @Test
+    fun `computeSymmetricPoints quadrant mode mirrors across both axes`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.QUADRANT,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val symPts = config.computeSymmetricPoints(Point2D(200f, 300f), docWidth = 1000, docHeight = 1000)
+        assertEquals(3, symPts.size)
+        assertEquals(Point2D(800f, 300f), symPts[0])
+        assertEquals(Point2D(200f, 700f), symPts[1])
+        assertEquals(Point2D(800f, 700f), symPts[2])
+    }
+
+    @Test
+    fun `computeSymmetricPoints radial mode produces 7 branches`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.RADIAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val symPts = config.computeSymmetricPoints(Point2D(600f, 500f), docWidth = 1000, docHeight = 1000)
+        assertEquals(7, symPts.size)
+        // Opposite branch (k=4, 180 degrees) should be at (400, 500)
+        val opposite = symPts[3]
+        assertEquals(400f, opposite.x, 0.01f)
+        assertEquals(500f, opposite.y, 0.01f)
+    }
+
+    @Test
+    fun `computeSymmetricPoints returns empty for mode OFF or invalid coordinates`() {
+        val offConfig = DrawingGuideConfig(mode = GuideMode.OFF)
+        assertTrue(offConfig.computeSymmetricPoints(Point2D(200f, 300f), 1000, 1000).isEmpty())
+
+        val symConfig = DrawingGuideConfig(mode = GuideMode.SYMMETRY)
+        assertTrue(symConfig.computeSymmetricPoints(Point2D(Float.NaN, 300f), 1000, 1000).isEmpty())
+        assertTrue(symConfig.computeSymmetricPoints(Point2D(200f, Float.POSITIVE_INFINITY), 1000, 1000).isEmpty())
+    }
 }

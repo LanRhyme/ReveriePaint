@@ -38,6 +38,7 @@ import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.GuideMode
 import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.reverie.paint.ui.components.liquidHighlight
@@ -148,7 +149,12 @@ fun AllToolsPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 rowTools.forEach { t ->
-                                    val isSelected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t
+                                    val isSelected = when (t) {
+                                        Tool.REFERENCE -> vm.referenceWindowOpen
+                                        Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
+                                        Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
+                                        else -> tool == t
+                                    }
                                     val cellSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,

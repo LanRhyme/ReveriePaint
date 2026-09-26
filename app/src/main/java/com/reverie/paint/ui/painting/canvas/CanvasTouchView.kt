@@ -450,7 +450,6 @@ class CanvasTouchView(context: Context) : View(context) {
     private var fingerCount = 0
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
-    data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double)
     private val mirroredBranches = mutableListOf<MutableList<SymStrokeSample>>()
     private val mirroredDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -460,31 +459,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
         val v = vm ?: return emptyList()
-        val guide = v.drawingGuide
-        if (guide.mode != GuideMode.SYMMETRY) return emptyList()
-        val cx = v.docWidth * guide.symmetryCenterX
-        val cy = v.docHeight * guide.symmetryCenterY
-        return when (guide.symmetryType) {
-            SymmetryType.VERTICAL -> listOf(Point2D(2f * cx - docPt.x, docPt.y))
-            SymmetryType.HORIZONTAL -> listOf(Point2D(docPt.x, 2f * cy - docPt.y))
-            SymmetryType.QUADRANT -> listOf(
-                Point2D(2f * cx - docPt.x, docPt.y),
-                Point2D(docPt.x, 2f * cy - docPt.y),
-                Point2D(2f * cx - docPt.x, 2f * cy - docPt.y),
-            )
-            SymmetryType.RADIAL -> {
-                val dx = docPt.x - cx
-                val dy = docPt.y - cy
-                val r = hypot(dx, dy)
-                val baseAngle = atan2(dy, dx)
-                val branches = ArrayList<Point2D>(7)
-                for (k in 1..7) {
-                    val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
-                    branches.add(Point2D(cx + r * cos(ang), cy + r * sin(ang)))
-                }
-                branches
-            }
-        }
+        return v.drawingGuide.computeSymmetricPoints(docPt, v.docWidth, v.docHeight)
     }
 
     private fun applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
@@ -577,18 +552,8 @@ class CanvasTouchView(context: Context) : View(context) {
             val cx = v.docWidth * guide.symmetryCenterX
             val cy = v.docHeight * guide.symmetryCenterY
             val symScreen = docToScreen(Offset(cx, cy))
-            if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 48f * density) {
-                draggingGuideHandleIndex = 100
-                isPendingLongPress = false
-                parent?.requestDisallowInterceptTouchEvent(true)
-                return true
-            }
-            if (guide.symmetryType == SymmetryType.VERTICAL && abs(screenPos.x - symScreen.x) < 32f * density) {
-                draggingGuideHandleIndex = 100
-                isPendingLongPress = false
-                parent?.requestDisallowInterceptTouchEvent(true)
-                return true
-            } else if (guide.symmetryType == SymmetryType.HORIZONTAL && abs(screenPos.y - symScreen.y) < 32f * density) {
+            // 仅命中中心控制圆柄时才触发对称轴拖拽移动，严禁全轴线碰撞拦截（否则在轴附近画线会误将整根轴拖飞）
+            if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 36f * density) {
                 draggingGuideHandleIndex = 100
                 isPendingLongPress = false
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -1497,8 +1462,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (draggingGuideHandleIndex != -1) {
                         val g = v.drawingGuide
                         if (draggingGuideHandleIndex == 100) {
-                            val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-                            val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                            val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                            val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
                             v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
                             invalidate()
                             return true
@@ -1945,8 +1910,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (draggingGuideHandleIndex != -1) {
                     val g = v.drawingGuide
                     if (draggingGuideHandleIndex == 100) {
-                        val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-                        val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                        val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                        val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
                         v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
                         invalidate()
                         return true
@@ -2324,9 +2289,10 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return
 
         if (draggingGuideHandleIndex == 100) {
-            val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-            val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
-            v.drawingGuide = v.drawingGuide.copy(symmetryCenterX = newX, symmetryCenterY = newY)
+            val g = v.drawingGuide
+            val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+            val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+            v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
             invalidate()
             return
         } else if (draggingGuideHandleIndex in 0 until v.drawingGuide.perspectiveVanishingPoints.size) {
@@ -2339,16 +2305,26 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
                 if (!strokeStarted) {
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
                     strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation)
-                    if (strokeStarted && isStylus) {
-                        getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
-                    }
                     if (strokeStarted) {
+                        if (isStylus) {
+                            getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
+                        }
                         // 迟到的笔画起点 (首帧被历史点吞掉): 补启摩擦音效
                         getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
                         lastSoundTimeMs = 0L
+                        if (hasSymmetry) {
+                            mirroredBranches.clear()
+                            val symPts = computeAllSymmetricPoints(Point2D(firstDocPos.x, firstDocPos.y))
+                            for (symPt in symPts) {
+                                val branch = mutableListOf<SymStrokeSample>()
+                                branch.add(SymStrokeSample(symPt.x, symPt.y, pressure.toDouble()))
+                                mirroredBranches.add(branch)
+                            }
+                        }
                     }
                 }
                 if (!strokeStarted) return
@@ -2357,7 +2333,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
                 val isAssist = (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
-                val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
 
                 for (i in 0 until event.historySize) {
                     val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
@@ -2549,19 +2524,6 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-    private fun replaySymmetricBranch(branch: List<SymStrokeSample>, render: Boolean = true) {
-        val v = vm ?: return
-        if (branch.isEmpty()) return
-
-        val start = branch[0]
-        v.touchStart(start.x, start.y, start.pressure)
-        for (i in 1 until branch.size) {
-            val pt = branch[i]
-            v.touchMove(pt.x, pt.y, pt.pressure)
-        }
-        v.touchEnd(render = render)
-    }
-
     /**
      * 液化沿路径推进: 位移大于笔刷影响半径时拆成多个补点, 让相邻形变搭接,
      * 消除快速拖动时的断线。强度按 [LiquifyPath.substepStrengthScale] 折算,
@@ -2606,13 +2568,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         if (hasBranchesToReplay) {
                             safeBeginSymmetryUndoMacro()
                         }
-                        // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在最后一个分支统一渲染，消除多重组合与缩略图卡顿
+                        // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在镜像分支执行完毕后统一渲染
                         v.touchEnd(render = !hasBranchesToReplay)
                         if (hasBranchesToReplay) {
-                            for (index in validBranches.indices) {
-                                val isLast = (index == validBranches.lastIndex)
-                                replaySymmetricBranch(validBranches[index], render = isLast)
-                            }
+                            v.replaySymmetricBranches(validBranches)
                             safeEndSymmetryUndoMacro()
                         }
                     }

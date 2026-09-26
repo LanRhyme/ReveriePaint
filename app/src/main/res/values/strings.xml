@@ -1218,6 +1218,7 @@
     <string name="guide_symmetry_quadrant">四象限</string>
     <string name="guide_symmetry_radial">放射状</string>
     <string name="guide_symmetry_center">对称轴中心</string>
+    <string name="guide_symmetry_reset_center">重置居中</string>
     <string name="guide_grid_size">网格尺寸</string>
     <string name="guide_line_opacity">参考线不透明度</string>
 

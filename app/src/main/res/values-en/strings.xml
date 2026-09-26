@@ -1218,6 +1218,7 @@
     <string name="guide_symmetry_quadrant">Quadrant</string>
     <string name="guide_symmetry_radial">Radial</string>
     <string name="guide_symmetry_center">Axis Center</string>
+    <string name="guide_symmetry_reset_center">Reset Center</string>
     <string name="guide_grid_size">Grid Size</string>
     <string name="guide_line_opacity">Guide Opacity</string>
 

@@ -426,6 +426,119 @@ internal fun PaintViewModel.touchCancel() {
     }
 }
 
+internal fun PaintViewModel.replaySymmetricBranches(branches: List<List<SymStrokeSample>>) {
+    if (branches.isEmpty()) return
+    val h = renderHandler ?: return
+
+    totalStrokes += branches.size
+    isModified = true
+    onPaintingActivity()
+
+    // 录制器时间线录制 (与主笔画保持完全一致的图层/笔刷上下文)
+    if (recorder.recording) {
+        val toolMode = when (currentToolId) {
+            "brush" -> 0
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> -1
+        }
+        for (branch in branches) {
+            if (branch.isEmpty()) continue
+            recorder.captureContext(
+                toolMode = toolMode,
+                preset = brushPresetIndex,
+                size = brushSize,
+                opacity = brushOpacity,
+                flow = brushFlow,
+                compositeOp = brushCompositeOp,
+                color = brushColor,
+                layer = currentLayerIndex,
+            )
+            val isPresetCustomized = brushPresetIndex >= 0 && brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams.containsKey(it.name) } == true
+            recorder.captureContextExt(
+                softness = brushSoftness,
+                spacing = brushSpacing,
+                angle = brushAngle,
+                scatter = brushScatter,
+                rotation = brushRotation,
+                ratio = brushRatio,
+                sharpness = brushSharpness,
+                smudgeRate = brushSmudgeRate,
+                smudgeLength = brushSmudgeLength,
+                secondaryColor = brushSecondaryColor,
+                airbrushEnabled = brushAirbrush,
+                airbrushRate = brushAirbrushRate,
+                isCustomized = isPresetCustomized,
+            )
+            recorder.captureBrushFade(brushFade)
+            val start = branch[0]
+            val effStartP = computeEffectivePressure(if (start.pressure.isNaN() || start.pressure < 0.0) 1.0 else start.pressure.coerceIn(0.0, 1.0))
+            recorder.strokeStart(start.x, start.y, effStartP.toFloat())
+            for (i in 1 until branch.size) {
+                val pt = branch[i]
+                val effP = computeEffectivePressure(if (pt.pressure.isNaN() || pt.pressure < 0.0) 1.0 else pt.pressure.coerceIn(0.0, 1.0))
+                recorder.strokeMove(pt.x, pt.y, effP.toFloat())
+            }
+            recorder.strokeEnd()
+        }
+    }
+
+    val mode = when (currentToolId) {
+        "brush" -> 0
+        "eraser" -> 1
+        "smudge" -> 3
+        else -> 0
+    }
+
+    pendingCoreOps.incrementAndGet()
+    h.post {
+        pendingCoreOps.decrementPositive()
+        try {
+            val chunkBuffer = FloatArray(PaintViewModel.STROKE_BATCH_CAPACITY * PaintViewModel.STROKE_SAMPLE_STRIDE)
+            for (branch in branches) {
+                if (branch.isEmpty()) continue
+                val start = branch[0]
+                if (!start.x.isFinite() || !start.y.isFinite()) continue
+                ReverieCoreBridge.setToolMode(mode)
+                val safeStartP = if (start.pressure.isNaN() || start.pressure < 0.0) 1.0 else start.pressure.coerceIn(0.0, 1.0)
+                val effStartP = computeEffectivePressure(safeStartP)
+                ReverieCoreBridge.touchStrokeStart(start.x.toDouble(), start.y.toDouble(), effStartP)
+
+                var sampleIdx = 1
+                while (sampleIdx < branch.size) {
+                    val batchCount = minOf(PaintViewModel.STROKE_BATCH_CAPACITY, branch.size - sampleIdx)
+                    var validCount = 0
+                    for (i in 0 until batchCount) {
+                        val pt = branch[sampleIdx + i]
+                        if (!pt.x.isFinite() || !pt.y.isFinite()) continue
+                        val offset = validCount * PaintViewModel.STROKE_SAMPLE_STRIDE
+                        chunkBuffer[offset] = pt.x
+                        chunkBuffer[offset + 1] = pt.y
+                        val p = if (pt.pressure.isNaN() || pt.pressure < 0.0) 1.0 else pt.pressure.coerceIn(0.0, 1.0)
+                        val effP = computeEffectivePressure(p).toFloat().coerceIn(0f, 1f)
+                        chunkBuffer[offset + 2] = effP
+                        chunkBuffer[offset + 3] = 0f
+                        chunkBuffer[offset + 4] = 0f
+                        chunkBuffer[offset + 5] = 0f
+                        validCount++
+                    }
+                    if (validCount > 0) {
+                        ReverieCoreBridge.touchStrokeMoveBatch(chunkBuffer, validCount)
+                    }
+                    sampleIdx += batchCount
+                }
+
+                ReverieCoreBridge.touchStrokeEnd()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("ReverieCore", "replaySymmetricBranches error", t)
+        } finally {
+            scheduleRender(immediate = true)
+            mainHandler.post { refreshLayerThumbs() }
+        }
+    }
+}
+
 internal fun PaintViewModel.applyTool(toolId: String) {
     if (toolId != currentToolId) {
         lastToolId = currentToolId
