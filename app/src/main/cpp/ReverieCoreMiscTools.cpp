@@ -439,14 +439,15 @@ bool warpFromGrid(KisLiquifyTransformWorker *w, KisPaintDeviceSP src, KisPaintDe
             const qreal oy = ay * (1 - fy) + by * fy;
 
             // 反向采样: src(p - offset), 坐标换算到 need 坐标系
-            const qreal u = qreal(px) + qreal(area.left() - need.left()) - ox;
-            const qreal v = qreal(py) + qreal(area.top() - need.top()) - oy;
+            qreal u = qreal(px) + qreal(area.left() - need.left()) - ox;
+            qreal v = qreal(py) + qreal(area.top() - need.top()) - oy;
+            // 越界处**夹紧到边缘**(与 AGSL 预览的 CLAMP 采样一致), 而不是留 alpha=0。
+            // 留 alpha=0 会让补洞逻辑用"未形变"像素填回 ⇒ 形变区里嵌进大块未形变矩形,
+            // 真机表现就是"割裂成大面积像素块"(越界越多越明显, 位移 300px 时尤其刺眼)。
+            // 夹紧后与已验收的预览是同一套语义 ⇒ 提交与所见一致, 且不再需要补洞兜底。
+            u = qBound<qreal>(0.0, u, qreal(nw - 1));
+            v = qBound<qreal>(0.0, v, qreal(nh - 1));
             quint8 *o = d + (size_t(py) * bw + px) * ps;
-            if (u < 0.0 || v < 0.0 || u > qreal(nw - 1) || v > qreal(nh - 1)) {
-                // 源被位移拉出窗口: 留 alpha=0, 由调用方补洞(未形变源像素)
-                memset(o, 0, size_t(ps));
-                continue;
-            }
             const int x0 = int(u);
             const int y0 = int(v);
             const int x1 = qMin(x0 + 1, nw - 1);
