@@ -107,7 +107,14 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
-        if (m_drawing) {
+        bool hasVisibleStrokeLayer = false;
+        for (const LayerEntry &le : m_layers) {
+            if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
+                hasVisibleStrokeLayer = true;
+                break;
+            }
+        }
+        if (m_drawing || hasVisibleStrokeLayer) {
             // Non-blocking in-stroke rendering: bypass Krita background scheduler completely.
             // Synchronously composite the exact dirty sub-region across visible layers in <0.05ms.
             const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
@@ -589,23 +596,27 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
         } else {
             // Leaf: composite only if it belongs to the solo keep set
             if (e.node && m_soloKeepNodes.contains(e.node)) {
-                KisPaintDeviceSP dev = layerPaintDeviceFor(e);
-                if (dev) {
-                    KisPainter painter(out);
-                    if (m_soloRawMode && e.node == m_soloedNode) {
-                        // 取消所有效果：纯净原色（100% 不透明 + Normal 混合）
-                        painter.setOpacityF(1.0);
-                        painter.setCompositeOpId(QStringLiteral("normal"));
-                    } else {
-                        painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-                        painter.setCompositeOpId(e.node->compositeOpId());
-                        KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
-                        if (layer && !layer->channelFlags().isEmpty()) {
-                            painter.setChannelFlags(layer->channelFlags());
+                if (!m_soloRawMode && (e.isStrokeLayer || e.nodeType == NodeTypeStroke)) {
+                    compositeStrokeLayer(out, e, full);
+                } else {
+                    KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+                    if (dev) {
+                        KisPainter painter(out);
+                        if (m_soloRawMode && e.node == m_soloedNode) {
+                            // 取消所有效果：纯净原色（100% 不透明 + Normal 混合）
+                            painter.setOpacityF(1.0);
+                            painter.setCompositeOpId(QStringLiteral("normal"));
+                        } else {
+                            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                            painter.setCompositeOpId(e.node->compositeOpId());
+                            KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+                            if (layer && !layer->channelFlags().isEmpty()) {
+                                painter.setChannelFlags(layer->channelFlags());
+                            }
                         }
+                        painter.bitBlt(0, 0, dev, 0, 0, full.width(), full.height());
+                        painter.end();
                     }
-                    painter.bitBlt(0, 0, dev, 0, 0, full.width(), full.height());
-                    painter.end();
                 }
             }
             ++i;
@@ -726,26 +737,11 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                 }
             }
             ++i;
+        } else if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
+            compositeStrokeLayer(out, e, r);
+            ++i;
+            continue;
         } else {
-            KisLayer *styledLayer = dynamic_cast<KisLayer *>(e.node);
-            if (styledLayer && styledLayer->layerStyle() && !styledLayer->layerStyle()->isEmpty() && styledLayer->layerStyle()->isEnabled()) {
-                if (m_drawing) {
-                    if (i == m_currentLayer && e.isStrokeLayer) {
-                        compositeStrokeLayerPreview(out, e, r);
-                    } else {
-                        KisPainter painter(out);
-                        styledLayer->projectionPlane()->apply(&painter, r);
-                        painter.end();
-                    }
-                } else {
-                    styledLayer->projectionPlane()->recalculate(r, KisNodeSP(styledLayer), KisRenderPassFlags());
-                    KisPainter painter(out);
-                    styledLayer->projectionPlane()->apply(&painter, r);
-                    painter.end();
-                }
-                ++i;
-                continue;
-            }
 
             KisPaintDeviceSP dev = layerPaintDeviceFor(e);
             if (dev) {
@@ -890,7 +886,81 @@ KisPaintDeviceSP ReverieCore::compositeSoloProjection()
     return out;
 }
 
-void ReverieCore::compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r)
+namespace {
+// 1D squared Euclidean distance transform (Felzenszwalb & Huttenlocher, PAMI 2012)
+static inline void edt1d(const float *f, float *d, int *v, float *z, int n)
+{
+    int k = 0;
+    v[0] = 0;
+    z[0] = -1e20f;
+    z[1] = 1e20f;
+    for (int q = 1; q < n; ++q) {
+        float s = ((f[q] + float(q * q)) - (f[v[k]] + float(v[k] * v[k]))) / (2.0f * float(q - v[k]));
+        while (s <= z[k]) {
+            --k;
+            s = ((f[q] + float(q * q)) - (f[v[k]] + float(v[k] * v[k]))) / (2.0f * float(q - v[k]));
+        }
+        ++k;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = 1e20f;
+    }
+    k = 0;
+    for (int q = 0; q < n; ++q) {
+        while (z[k + 1] < float(q)) {
+            ++k;
+        }
+        float dq = float(q - v[k]);
+        d[q] = dq * dq + f[v[k]];
+    }
+}
+
+struct EdtWorkspace {
+    std::vector<float> colBuf;
+    std::vector<float> fCol;
+    std::vector<float> dCol;
+    std::vector<float> dRow;
+    std::vector<int> vBuf;
+    std::vector<float> zBuf;
+
+    void ensureCapacity(int w, int h) {
+        const int maxDim = std::max(w, h);
+        if (int(vBuf.size()) < maxDim + 2) vBuf.resize(maxDim + 2);
+        if (int(zBuf.size()) < maxDim + 2) zBuf.resize(maxDim + 2);
+        if (int(fCol.size()) < h) fCol.resize(h);
+        if (int(dCol.size()) < h) dCol.resize(h);
+        if (int(dRow.size()) < w) dRow.resize(w);
+        if (int(colBuf.size()) < w * h) colBuf.resize(w * h);
+    }
+};
+
+static void computeEDT2D(const float *fIn, float *dOut, int w, int h, EdtWorkspace &ws)
+{
+    ws.ensureCapacity(w, h);
+
+    // Pass 1: Along each column
+    for (int x = 0; x < w; ++x) {
+        for (int y = 0; y < h; ++y) {
+            ws.fCol[y] = fIn[y * w + x];
+        }
+        edt1d(ws.fCol.data(), ws.dCol.data(), ws.vBuf.data(), ws.zBuf.data(), h);
+        for (int y = 0; y < h; ++y) {
+            ws.colBuf[y * w + x] = ws.dCol[y];
+        }
+    }
+
+    // Pass 2: Along each row
+    for (int y = 0; y < h; ++y) {
+        const float *fRow = ws.colBuf.data() + y * w;
+        edt1d(fRow, ws.dRow.data(), ws.vBuf.data(), ws.zBuf.data(), w);
+        for (int x = 0; x < w; ++x) {
+            dOut[y * w + x] = ws.dRow[x];
+        }
+    }
+}
+} // namespace
+
+void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r)
 {
     KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
     if (!pl || !out || r.isEmpty() || !m_document) return;
@@ -899,19 +969,26 @@ void ReverieCore::compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerE
     if (!dev) return;
 
     const bool hasTemp = pl->hasTemporaryTarget();
+    QRect bounds = dev->exactBounds();
+    if (hasTemp && pl->temporaryTarget()) {
+        bounds = bounds.united(pl->temporaryTarget()->exactBounds());
+    }
+    if (bounds.isEmpty()) return;
+
     const int sz = qBound(1, e.strokeSize, 100);
     const int pos = qBound(0, e.strokePosition, 2);
     const int op = qBound(0, e.strokeOpacity, 100);
     const quint32 col = e.strokeColor;
 
-    // Pad dirty rect by stroke size + 2 so the dilated edge is computed smoothly without clipping
     const int margin = sz + 2;
     const QRect docRect(0, 0, m_document->width(), m_document->height());
-    const QRect work = r.adjusted(-margin, -margin, margin, margin).intersected(docRect);
+    const QRect strokeBounds = bounds.adjusted(-margin, -margin, margin, margin).intersected(docRect);
+    const QRect work = r.intersected(strokeBounds);
     if (work.isEmpty()) return;
 
     // Merge base layer + temporary in-progress stroke into a scratch device for work rect
     KisPaintDeviceSP scratch = strokeMergeScratch(work);
+    scratch->clear(work);
     {
         KisPainter basePainter(scratch);
         basePainter.setCompositeOpId(QStringLiteral("normal"));
@@ -938,12 +1015,11 @@ void ReverieCore::compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerE
     }
 
     if (sz <= 0 || op <= 0) {
-        // No stroke: bitBlt scratch directly to out
         KisPainter painter(out);
         painter.setOpacityF(qreal(pl->opacity()) / 255.0);
         painter.setCompositeOpId(pl->compositeOpId());
         if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
-        painter.bitBlt(r.topLeft(), scratch, r);
+        painter.bitBlt(work.topLeft(), scratch, work);
         painter.end();
         return;
     }
@@ -955,170 +1031,153 @@ void ReverieCore::compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerE
     QImage baseImg(ww, wh, QImage::Format_ARGB32_Premultiplied);
     scratch->readBytes(baseImg.bits(), work.x(), work.y(), ww, wh);
 
-    // Fast disk morphological alpha dilation/erosion
-    // Base image in ARGB32_Premultiplied: on Little Endian, memory is B, G, R, A (offset 3 is alpha)
+    thread_local EdtWorkspace edtWs;
+    thread_local std::vector<float> fInBuf;
+    thread_local std::vector<float> sqDistOut;
+    thread_local std::vector<float> sqDistIn;
+    if (fInBuf.size() < pixelCount) fInBuf.resize(pixelCount);
+    if (sqDistOut.size() < pixelCount) sqDistOut.resize(pixelCount);
+    if (sqDistIn.size() < pixelCount) sqDistIn.resize(pixelCount);
+
     const quint8 *baseData = baseImg.constBits();
-    QVector<quint8> alphaIn(pixelCount);
-    for (size_t k = 0; k < pixelCount; ++k) {
-        alphaIn[k] = baseData[k * 4 + 3];
-    }
 
-    QVector<quint8> alphaOut(pixelCount, 0);
-
-    const int radius = (pos == 2) ? qMax(1, sz / 2) : sz;
-    const int r2 = radius * radius;
-
-    // Use downsampling step for very large radii to stay under 0.1ms 120Hz budget
-    const int step = (radius > 32) ? 4 : ((radius > 16) ? 2 : 1);
-
+    // 1. Outside distance field (distance from background to foreground)
     if (pos == 0 || pos == 2) {
-        // Outside or Center dilation
-        for (int y = 0; y < wh; ++y) {
-            const int ymin = qMax(0, y - radius);
-            const int ymax = qMin(wh - 1, y + radius);
-            for (int x = 0; x < ww; ++x) {
-                const int xmin = qMax(0, x - radius);
-                const int xmax = qMin(ww - 1, x + radius);
-                quint8 maxA = 0;
-                for (int ny = ymin; ny <= ymax; ny += step) {
-                    const int dy = ny - y;
-                    const int dy2 = dy * dy;
-                    if (dy2 > r2) continue;
-                    for (int nx = xmin; nx <= xmax; nx += step) {
-                        const int dx = nx - x;
-                        if (dx * dx + dy2 <= r2) {
-                            const quint8 a = alphaIn[ny * ww + nx];
-                            if (a > maxA) {
-                                maxA = a;
-                                if (maxA == 255) break;
-                            }
-                        }
-                    }
-                    if (maxA == 255) break;
-                }
-                alphaOut[y * ww + x] = maxA;
-            }
+        for (size_t k = 0; k < pixelCount; ++k) {
+            fInBuf[k] = (baseData[k * 4 + 3] >= 64) ? 0.0f : 1e9f;
         }
-    } else {
-        // Inside erosion
-        for (int y = 0; y < wh; ++y) {
-            const int ymin = qMax(0, y - radius);
-            const int ymax = qMin(wh - 1, y + radius);
-            for (int x = 0; x < ww; ++x) {
-                const int xmin = qMax(0, x - radius);
-                const int xmax = qMin(ww - 1, x + radius);
-                quint8 minA = 255;
-                for (int ny = ymin; ny <= ymax; ny += step) {
-                    const int dy = ny - y;
-                    const int dy2 = dy * dy;
-                    if (dy2 > r2) continue;
-                    for (int nx = xmin; nx <= xmax; nx += step) {
-                        const int dx = nx - x;
-                        if (dx * dx + dy2 <= r2) {
-                            const quint8 a = alphaIn[ny * ww + nx];
-                            if (a < minA) {
-                                minA = a;
-                                if (minA == 0) break;
-                            }
-                        }
-                    }
-                    if (minA == 0) break;
-                }
-                alphaOut[y * ww + x] = minA;
-            }
-        }
+        computeEDT2D(fInBuf.data(), sqDistOut.data(), ww, wh, edtWs);
     }
 
-    // Blend stroke with base image
-    const quint8 sR = static_cast<quint8>((col >> 16) & 0xFF);
-    const quint8 sG = static_cast<quint8>((col >> 8) & 0xFF);
-    const quint8 sB = static_cast<quint8>(col & 0xFF);
-    const float opF = op / 100.0f;
+    // 2. Inside distance field (distance from foreground to background)
+    if (pos == 1 || pos == 2) {
+        for (size_t k = 0; k < pixelCount; ++k) {
+            fInBuf[k] = (baseData[k * 4 + 3] < 64) ? 0.0f : 1e9f;
+        }
+        computeEDT2D(fInBuf.data(), sqDistIn.data(), ww, wh, edtWs);
+    }
+
+    const float sR = float((col >> 16) & 0xFF);
+    const float sG = float((col >> 8) & 0xFF);
+    const float sB = float(col & 0xFF);
+    const float opF = float(op) / 100.0f;
+    const float radius = float(sz);
+    const float halfRadius = radius * 0.5f;
 
     QImage composited(ww, wh, QImage::Format_ARGB32_Premultiplied);
-    composited.fill(Qt::transparent);
 
     for (int y = 0; y < wh; ++y) {
         quint32 *dstP = reinterpret_cast<quint32 *>(composited.scanLine(y));
         const quint32 *srcP = reinterpret_cast<const quint32 *>(baseImg.constScanLine(y));
         for (int x = 0; x < ww; ++x) {
             const int idx = y * ww + x;
-            const quint8 origA = alphaIn[idx];
-            quint8 stA = 0;
-            if (pos == 0) { // Outside
-                stA = (origA < 255) ? static_cast<quint8>(qMin(255, qMax(0, int(alphaOut[idx]) - int(origA)))) : 0;
-            } else if (pos == 1) { // Inside
-                stA = (origA > 0) ? static_cast<quint8>(qMin(255, qMax(0, int(origA) - int(alphaOut[idx])))) : 0;
-            } else { // Center
-                stA = static_cast<quint8>(qMin(255, qMax(0, int(alphaOut[idx]) - int(origA))));
-            }
-            stA = static_cast<quint8>(qBound(0, static_cast<int>(stA * opF), 255));
-
             const quint32 basePix = srcP[x];
-            if (stA == 0) {
-                dstP[x] = basePix;
-            } else {
-                const quint32 stPremul = (stA << 24) |
-                    (static_cast<quint8>((sR * stA) / 255) << 16) |
-                    (static_cast<quint8>((sG * stA) / 255) << 8) |
-                    static_cast<quint8>((sB * stA) / 255);
+            const float baseA = float((basePix >> 24) & 0xFF) / 255.0f;
+            const float baseR = float((basePix >> 16) & 0xFF);
+            const float baseG = float((basePix >> 8) & 0xFF);
+            const float baseB = float(basePix & 0xFF);
 
-                if (pos == 0) {
-                    // Base OVER stroke: dst = base + st * (1 - baseA)
-                    const quint8 ba = origA;
-                    const quint8 invBa = 255 - ba;
-                    const quint8 br = (basePix >> 16) & 0xFF;
-                    const quint8 bg = (basePix >> 8) & 0xFF;
-                    const quint8 bb = basePix & 0xFF;
+            float stA = 0.0f;
 
-                    const quint8 str = (stPremul >> 16) & 0xFF;
-                    const quint8 stg = (stPremul >> 8) & 0xFF;
-                    const quint8 stb = stPremul & 0xFF;
-
-                    const quint8 outA = qMin(255, ba + (stA * invBa) / 255);
-                    const quint8 outR = qMin(255, br + (str * invBa) / 255);
-                    const quint8 outG = qMin(255, bg + (stg * invBa) / 255);
-                    const quint8 outB = qMin(255, bb + (stb * invBa) / 255);
-                    dstP[x] = (outA << 24) | (outR << 16) | (outG << 8) | outB;
-                } else {
-                    // Stroke OVER base: dst = st + base * (1 - stA)
-                    const quint8 invStA = 255 - stA;
-                    const quint8 ba = origA;
-                    const quint8 br = (basePix >> 16) & 0xFF;
-                    const quint8 bg = (basePix >> 8) & 0xFF;
-                    const quint8 bb = basePix & 0xFF;
-
-                    const quint8 str = (stPremul >> 16) & 0xFF;
-                    const quint8 stg = (stPremul >> 8) & 0xFF;
-                    const quint8 stb = stPremul & 0xFF;
-
-                    const quint8 outA = qMin(255, stA + (ba * invStA) / 255);
-                    const quint8 outR = qMin(255, str + (br * invStA) / 255);
-                    const quint8 outG = qMin(255, stg + (bg * invStA) / 255);
-                    const quint8 outB = qMin(255, stb + (bb * invStA) / 255);
-                    dstP[x] = (outA << 24) | (outR << 16) | (outG << 8) | outB;
+            if (pos == 0) { // Outside
+                float d = std::sqrt(sqDistOut[idx]);
+                if (d <= radius - 0.5f) {
+                    stA = 1.0f;
+                } else if (d < radius + 0.5f) {
+                    stA = radius + 0.5f - d;
                 }
+                stA *= opF;
+
+                // Base is ON TOP of outside stroke: out = base + stroke * (1 - baseA)
+                float strokeW = stA * (1.0f - baseA);
+                float outA = qBound(0.0f, (baseA + strokeW) * 255.0f, 255.0f);
+                float outR = qBound(0.0f, baseR + sR * strokeW, 255.0f);
+                float outG = qBound(0.0f, baseG + sG * strokeW, 255.0f);
+                float outB = qBound(0.0f, baseB + sB * strokeW, 255.0f);
+
+                dstP[x] = (quint32(outA + 0.5f) << 24) |
+                          (quint32(outR + 0.5f) << 16) |
+                          (quint32(outG + 0.5f) << 8) |
+                           quint32(outB + 0.5f);
+            } else if (pos == 1) { // Inside
+                if (baseA > 0.0f) {
+                    float d = std::sqrt(sqDistIn[idx]);
+                    if (d <= radius - 0.5f) {
+                        stA = 1.0f;
+                    } else if (d < radius + 0.5f) {
+                        stA = radius + 0.5f - d;
+                    }
+                    stA *= opF;
+
+                    // Inside stroke is ON TOP of base, clipped to base shape
+                    float invStA = 1.0f - stA;
+                    float outA = baseA * 255.0f;
+                    float outR = qBound(0.0f, (sR * stA * baseA) + (baseR * invStA), 255.0f);
+                    float outG = qBound(0.0f, (sG * stA * baseA) + (baseG * invStA), 255.0f);
+                    float outB = qBound(0.0f, (sB * stA * baseA) + (baseB * invStA), 255.0f);
+
+                    dstP[x] = (quint32(outA + 0.5f) << 24) |
+                              (quint32(outR + 0.5f) << 16) |
+                              (quint32(outG + 0.5f) << 8) |
+                               quint32(outB + 0.5f);
+                } else {
+                    dstP[x] = 0;
+                }
+            } else { // Center
+                float dOut = std::sqrt(sqDistOut[idx]);
+                float dIn = std::sqrt(sqDistIn[idx]);
+
+                float stAOut = 0.0f;
+                if (dOut <= halfRadius - 0.5f) stAOut = 1.0f;
+                else if (dOut < halfRadius + 0.5f) stAOut = halfRadius + 0.5f - dOut;
+                stAOut *= opF;
+
+                float stAIn = 0.0f;
+                if (baseA > 0.0f) {
+                    if (dIn <= halfRadius - 0.5f) stAIn = 1.0f;
+                    else if (dIn < halfRadius + 0.5f) stAIn = halfRadius + 0.5f - dIn;
+                    stAIn *= opF;
+                }
+
+                // Combine outer (behind) and inner (on top)
+                float strokeW = stAOut * (1.0f - baseA);
+                float blendedBaseR = (sR * stAIn * baseA) + (baseR * (1.0f - stAIn));
+                float blendedBaseG = (sG * stAIn * baseA) + (baseG * (1.0f - stAIn));
+                float blendedBaseB = (sB * stAIn * baseA) + (baseB * (1.0f - stAIn));
+
+                float outA = qBound(0.0f, (baseA + strokeW) * 255.0f, 255.0f);
+                float outR = qBound(0.0f, blendedBaseR + sR * strokeW, 255.0f);
+                float outG = qBound(0.0f, blendedBaseG + sG * strokeW, 255.0f);
+                float outB = qBound(0.0f, blendedBaseB + sB * strokeW, 255.0f);
+
+                dstP[x] = (quint32(outA + 0.5f) << 24) |
+                          (quint32(outR + 0.5f) << 16) |
+                          (quint32(outG + 0.5f) << 8) |
+                           quint32(outB + 0.5f);
             }
         }
     }
 
-    // Crop composited image back to dirty rect r and blit to out
-    const int sx = r.x() - work.x();
-    const int sy = r.y() - work.y();
-    QImage cropped(r.width(), r.height(), composited.format());
-    for (int row = 0; row < r.height(); ++row) {
-        memcpy(cropped.scanLine(row),
-               composited.constScanLine(sy + row) + sx * 4,
-               size_t(r.width()) * 4);
+    const QRect blitRect = r.intersected(work);
+    if (!blitRect.isEmpty()) {
+        const int sx = blitRect.x() - work.x();
+        const int sy = blitRect.y() - work.y();
+        QImage cropped(blitRect.width(), blitRect.height(), composited.format());
+        for (int row = 0; row < blitRect.height(); ++row) {
+            memcpy(cropped.scanLine(row),
+                   composited.constScanLine(sy + row) + sx * 4,
+                   size_t(blitRect.width()) * 4);
+        }
+
+        KisPaintDeviceSP tempDev = strokeMergeScratch(blitRect);
+        tempDev->clear(blitRect);
+        tempDev->writeBytes(cropped.constBits(), blitRect.x(), blitRect.y(), blitRect.width(), blitRect.height());
+
+        KisPainter painter(out);
+        painter.setOpacityF(qreal(pl->opacity()) / 255.0);
+        painter.setCompositeOpId(pl->compositeOpId());
+        if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
+        painter.bitBlt(blitRect.topLeft(), tempDev, blitRect);
+        painter.end();
     }
-
-    KisPaintDeviceSP tempDev(new KisPaintDevice(m_document->colorSpace()));
-    tempDev->writeBytes(cropped.constBits(), r.x(), r.y(), r.width(), r.height());
-
-    KisPainter painter(out);
-    painter.setOpacityF(qreal(pl->opacity()) / 255.0);
-    painter.setCompositeOpId(pl->compositeOpId());
-    if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
-    painter.bitBlt(r.topLeft(), tempDev, r);
-    painter.end();
 }

@@ -406,6 +406,12 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+        layerObj["isStrokeLayer"] = e.isStrokeLayer;
+        layerObj["strokeSize"] = e.strokeSize;
+        layerObj["strokeColor"] = static_cast<double>(e.strokeColor);
+        layerObj["strokePosition"] = e.strokePosition;
+        layerObj["strokeOpacity"] = e.strokeOpacity;
+        layerObj["nodeType"] = e.nodeType;
 
         // 动画轨道: 记录关键帧时间列表 (时间轴画廊标识也依赖它)
         KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
@@ -1207,6 +1213,22 @@ bool ReverieCore::loadRevp(const QString &path)
     m_docWidth = w;
     m_docHeight = h;
     syncLayersFromImage();
+
+    // 恢复描边图层属性
+    if (meta.contains("layers")) {
+        const QJsonArray layersMeta = meta["layers"].toArray();
+        for (int i = 0; i < layersMeta.size() && i < m_layers.size(); ++i) {
+            QJsonObject layerObj = layersMeta[i].toObject();
+            if (layerObj["isStrokeLayer"].toBool(false)) {
+                m_layers[i].isStrokeLayer = true;
+                m_layers[i].nodeType = NodeTypeStroke;
+                m_layers[i].strokeSize = layerObj["strokeSize"].toInt(6);
+                m_layers[i].strokeColor = static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000));
+                m_layers[i].strokePosition = layerObj["strokePosition"].toInt(0);
+                m_layers[i].strokeOpacity = layerObj["strokeOpacity"].toInt(100);
+            }
+        }
+    }
 
     // ---- 动画恢复: 帧率/播放范围/关键帧通道 (仅 revp 新格式) ----
     // 必须在图层已挂到 image 之后创建通道 (keyframeChannelHasBeenAdded

@@ -146,7 +146,8 @@ public:
     // Direct sub-region layer compositing for zero-latency in-stroke rendering
     struct LayerEntry;
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r);
-    void compositeStrokeLayerPreview(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
+    void compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
+    void applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity);
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,

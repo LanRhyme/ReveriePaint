@@ -252,17 +252,6 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     } else if (type == LayerTypeStroke) {
         const KoColorSpace *cs = image->colorSpace();
         KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
-        KisPSDLayerStyleSP style(new KisPSDLayerStyle(QStringLiteral("StrokeStyle"), KisGlobalResourcesInterface::instance()));
-        style->setUuid(QUuid::createUuid());
-        style->setEnabled(true);
-        style->stroke()->setEffectEnabled(true);
-        style->stroke()->setSize(6);
-        style->stroke()->setColor(KoColor(QColor::fromRgba(0xFF000000), cs));
-        style->stroke()->setPosition(psd_stroke_outside);
-        style->stroke()->setOpacity(100);
-        style->stroke()->setBlendMode(COMPOSITE_OVER);
-        KisRequiredResourcesOperators::createLocalResourcesSnapshot(style.data(), KisGlobalResourcesInterface::instance());
-        paintLayer->setLayerStyle(style);
         newNode = paintLayer;
     } else {
         const KoColorSpace *cs = image->colorSpace();
@@ -293,6 +282,14 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     const int idx = indexOfNode(newNode.data());
     if (idx >= 0) {
         m_currentLayer = idx;
+        if (type == LayerTypeStroke) {
+            m_layers[idx].isStrokeLayer = true;
+            m_layers[idx].nodeType = NodeTypeStroke;
+            m_layers[idx].strokeSize = 6;
+            m_layers[idx].strokeColor = 0xFF000000;
+            m_layers[idx].strokePosition = 0;
+            m_layers[idx].strokeOpacity = 100;
+        }
     }
     markDirty();
     return true;
@@ -330,6 +327,12 @@ int ReverieCore::copyLayer(int index)
     }
     cloned->setName(candidateName);
 
+    const bool wasStroke = src.isStrokeLayer || src.nodeType == NodeTypeStroke;
+    const int sSize = src.strokeSize;
+    const quint32 sCol = src.strokeColor;
+    const int sPos = src.strokePosition;
+    const int sOp = src.strokeOpacity;
+
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
     pushUndoCommand(new KisImageLayerAddCommand(image, cloned, parent, above));
@@ -338,6 +341,14 @@ int ReverieCore::copyLayer(int index)
     const int idx = indexOfNode(cloned.data());
     if (idx >= 0) {
         m_currentLayer = idx;
+        if (wasStroke) {
+            m_layers[idx].isStrokeLayer = true;
+            m_layers[idx].nodeType = NodeTypeStroke;
+            m_layers[idx].strokeSize = sSize;
+            m_layers[idx].strokeColor = sCol;
+            m_layers[idx].strokePosition = sPos;
+            m_layers[idx].strokeOpacity = sOp;
+        }
     }
     markDirty();
     return m_currentLayer;
@@ -750,105 +761,95 @@ bool ReverieCore::isLayerStroke(int index) const
 {
     if (index < 0 || index >= m_layers.size()) return false;
     const LayerEntry &e = m_layers[index];
-    if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) return true;
-    if (KisLayer *layer = dynamic_cast<KisLayer *>(e.node)) {
-        return layer->layerStyle() && layer->layerStyle()->stroke() && layer->layerStyle()->stroke()->effectEnabled();
+    return e.isStrokeLayer || e.nodeType == NodeTypeStroke;
+}
+
+namespace {
+class SetStrokeParamsCommand : public KUndo2Command {
+public:
+    SetStrokeParamsCommand(ReverieCore *core, int index,
+                           int oldSize, quint32 oldColor, int oldPos, int oldOp,
+                           int newSize, quint32 newColor, int newPos, int newOp)
+        : KUndo2Command(kundo2_i18n("Change Stroke Style"))
+        , m_core(core), m_index(index)
+        , m_oldSize(oldSize), m_oldColor(oldColor), m_oldPos(oldPos), m_oldOp(oldOp)
+        , m_newSize(newSize), m_newColor(newColor), m_newPos(newPos), m_newOp(newOp)
+    {}
+
+    void undo() override {
+        m_core->applyStrokeParamsInternal(m_index, m_oldSize, m_oldColor, m_oldPos, m_oldOp);
     }
-    return false;
+    void redo() override {
+        m_core->applyStrokeParamsInternal(m_index, m_newSize, m_newColor, m_newPos, m_newOp);
+    }
+
+private:
+    ReverieCore *m_core;
+    int m_index;
+    int m_oldSize; quint32 m_oldColor; int m_oldPos; int m_oldOp;
+    int m_newSize; quint32 m_newColor; int m_newPos; int m_newOp;
+};
+}
+
+void ReverieCore::applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity)
+{
+    if (index < 0 || index >= m_layers.size()) return;
+    LayerEntry &e = m_layers[index];
+    const int oldSize = e.strokeSize;
+    e.strokeSize = qBound(1, size, 100);
+    e.strokeColor = color;
+    e.strokePosition = qBound(0, position, 2);
+    e.strokeOpacity = qBound(0, opacity, 100);
+    e.isStrokeLayer = true;
+    e.nodeType = NodeTypeStroke;
+
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+    if (pl && pl->paintDevice() && m_document) {
+        QRect bounds = pl->paintDevice()->exactBounds();
+        if (pl->hasTemporaryTarget() && pl->temporaryTarget()) {
+            bounds = bounds.united(pl->temporaryTarget()->exactBounds());
+        }
+        if (!bounds.isEmpty()) {
+            const int extra = qMax(oldSize, e.strokeSize) + 4;
+            const QRect dirty = bounds.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_document->width(), m_document->height()));
+            markRegionDirty(dirty);
+        }
+    }
+    markDirty();
 }
 
 bool ReverieCore::setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity)
 {
     if (index < 0 || index >= m_layers.size()) return false;
-    KisImageSP image = m_document;
-    if (!image) return false;
-    KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node);
-    if (!layer) return false;
+    const LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
 
-    size = qBound(1, size, 100);
-    opacity = qBound(0, opacity, 100);
-    position = qBound(0, position, 2);
+    const int oldSize = e.strokeSize;
+    const quint32 oldColor = e.strokeColor;
+    const int oldPos = e.strokePosition;
+    const int oldOp = e.strokeOpacity;
 
-    KisPSDLayerStyleSP oldStyle = layer->layerStyle();
-    KisPSDLayerStyleSP newStyle;
-    if (oldStyle) {
-        newStyle = toQShared(new KisPSDLayerStyle(*oldStyle));
-    } else {
-        newStyle = toQShared(new KisPSDLayerStyle(QStringLiteral("StrokeStyle"), KisGlobalResourcesInterface::instance()));
-    }
-    newStyle->setUuid(QUuid::createUuid());
-    newStyle->setEnabled(true);
-    newStyle->stroke()->setEffectEnabled(true);
-    newStyle->stroke()->setSize(size);
-    newStyle->stroke()->setColor(KoColor(QColor::fromRgba(color), image->colorSpace()));
-    newStyle->stroke()->setPosition(static_cast<psd_stroke_position>(position));
-    newStyle->stroke()->setOpacity(opacity);
-    newStyle->stroke()->setBlendMode(COMPOSITE_OVER);
-    KisRequiredResourcesOperators::createLocalResourcesSnapshot(newStyle.data(), KisGlobalResourcesInterface::instance());
+    const int newSize = qBound(1, size, 100);
+    const int newPos = qBound(0, position, 2);
+    const int newOp = qBound(0, opacity, 100);
 
-    pushUndoCommand(new KisSetLayerStyleCommand(KisLayerSP(layer), oldStyle, newStyle));
+    pushUndoCommand(new SetStrokeParamsCommand(
+        this, index,
+        oldSize, oldColor, oldPos, oldOp,
+        newSize, color, newPos, newOp));
 
-    QRect bounds = layer->exactBounds();
-    if (bounds.isEmpty()) {
-        bounds = QRect(0, 0, image->width(), image->height());
-    } else {
-        bounds = bounds.adjusted(-size - 4, -size - 4, size + 4, size + 4).intersected(QRect(0, 0, image->width(), image->height()));
-    }
-    layer->setDirty(bounds);
-    recompositeProjection();
-    syncLayersFromImage();
-    markDirty();
+    applyStrokeParamsInternal(index, newSize, color, newPos, newOp);
     return true;
 }
 
 bool ReverieCore::setLayerStrokeParamsDirect(int index, int size, quint32 color, int position, int opacity)
 {
     if (index < 0 || index >= m_layers.size()) return false;
-    KisImageSP image = m_document;
-    if (!image) return false;
-    KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node);
-    if (!layer) return false;
+    const LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
 
-    size = qBound(1, size, 100);
-    opacity = qBound(0, opacity, 100);
-    position = qBound(0, position, 2);
-
-    KisPSDLayerStyleSP oldStyle = layer->layerStyle();
-    KisPSDLayerStyleSP newStyle;
-    if (oldStyle) {
-        newStyle = toQShared(new KisPSDLayerStyle(*oldStyle));
-    } else {
-        newStyle = toQShared(new KisPSDLayerStyle(QStringLiteral("StrokeStyle"), KisGlobalResourcesInterface::instance()));
-    }
-    newStyle->setUuid(QUuid::createUuid());
-    newStyle->setEnabled(true);
-    newStyle->stroke()->setEffectEnabled(true);
-    newStyle->stroke()->setSize(size);
-    newStyle->stroke()->setColor(KoColor(QColor::fromRgba(color), image->colorSpace()));
-    newStyle->stroke()->setPosition(static_cast<psd_stroke_position>(position));
-    newStyle->stroke()->setOpacity(opacity);
-    newStyle->stroke()->setBlendMode(COMPOSITE_OVER);
-    KisRequiredResourcesOperators::createLocalResourcesSnapshot(newStyle.data(), KisGlobalResourcesInterface::instance());
-
-    layer->setLayerStyle(newStyle);
-
-    QRect bounds = layer->exactBounds();
-    if (bounds.isEmpty()) {
-        bounds = QRect(0, 0, image->width(), image->height());
-    } else {
-        bounds = bounds.adjusted(-size - 4, -size - 4, size + 4, size + 4).intersected(QRect(0, 0, image->width(), image->height()));
-    }
-    layer->setDirty(bounds);
-    recompositeProjection();
-
-    m_layers[index].strokeSize = size;
-    m_layers[index].strokeColor = color;
-    m_layers[index].strokePosition = position;
-    m_layers[index].strokeOpacity = opacity;
-    m_layers[index].isStrokeLayer = true;
-    m_layers[index].nodeType = NodeTypeStroke;
-
-    markDirty();
+    applyStrokeParamsInternal(index, size, color, position, opacity);
     return true;
 }
 
@@ -856,18 +857,6 @@ bool ReverieCore::getLayerStrokeParams(int index, int &size, quint32 &color, int
 {
     if (index < 0 || index >= m_layers.size()) return false;
     const LayerEntry &e = m_layers[index];
-    if (KisLayer *layer = dynamic_cast<KisLayer *>(e.node)) {
-        KisPSDLayerStyleSP style = layer->layerStyle();
-        if (style && style->stroke() && style->stroke()->effectEnabled()) {
-            const psd_layer_effects_stroke *st = style->stroke();
-            size = static_cast<int>(st->size());
-            position = static_cast<int>(st->position());
-            opacity = static_cast<int>(st->opacity());
-            QColor qc = st->color().toQColor();
-            color = qc.isValid() ? qc.rgba() : 0xFF000000;
-            return true;
-        }
-    }
     if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
         size = e.strokeSize;
         color = e.strokeColor;
@@ -877,48 +866,43 @@ bool ReverieCore::getLayerStrokeParams(int index, int &size, quint32 &color, int
     }
     return false;
 }
+
 bool ReverieCore::rasterizeLayerStroke(int index)
 {
     if (index < 0 || index >= m_layers.size()) return false;
     if (m_layers[index].background) return false;
     KisImageSP image = m_document;
     if (!image) return false;
-    KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node);
-    if (!layer || !layer->layerStyle() || layer->layerStyle()->isEmpty()) return false;
+    LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
 
-    KisPaintDeviceSP dev = layer->paintDevice();
-    if (!dev) return false;
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+    if (!pl || !pl->paintDevice()) return false;
 
-    image->waitForDone();
-
-    const quint8 origOpacity = layer->opacity();
-    layer->setOpacity(255);
-
-    KisPaintDeviceSP styledDev(new KisPaintDevice(image->colorSpace()));
-    styledDev->clear();
-    const QRect fullRect(0, 0, image->width(), image->height());
-    layer->projectionPlane()->recalculate(fullRect, KisNodeSP(layer), KisRenderPassFlags());
-    KisPainter p(styledDev);
-    layer->projectionPlane()->apply(&p, fullRect);
-    p.end();
-
-    layer->setOpacity(origOpacity);
-
-    beginUndoMacro(QStringLiteral("栅格化描边"));
-    KisTransaction txn(kundo2_i18n("Rasterize Stroke"), dev);
-    dev->clear();
-    const QRect bounds = styledDev->exactBounds();
+    KisPaintDeviceSP dev = pl->paintDevice();
+    const QRect bounds = dev->exactBounds();
     if (!bounds.isEmpty()) {
-        KisPainter::copyAreaOptimized(bounds.topLeft(), styledDev, dev, bounds);
+        const int extra = e.strokeSize + 4;
+        const QRect dirty = bounds.adjusted(-extra, -extra, extra, extra).intersected(
+            QRect(0, 0, image->width(), image->height()));
+
+        KisPaintDeviceSP styledDev(new KisPaintDevice(image->colorSpace()));
+        styledDev->clear();
+        compositeStrokeLayer(styledDev, e, dirty);
+
+        beginUndoMacro(QStringLiteral("栅格化描边"));
+        KisTransaction txn(kundo2_i18n("Rasterize Stroke"), dev);
+        dev->clear();
+        KisPainter::copyAreaOptimized(dirty.topLeft(), styledDev, dev, dirty);
+        dev->setDirty(dirty);
+        txn.commit(image->undoAdapter());
+        endUndoMacro();
+
+        markRegionDirty(dirty);
     }
-    dev->setDirty(bounds);
-    txn.commit(image->undoAdapter());
 
-    pushUndoCommand(new KisSetLayerStyleCommand(KisLayerSP(layer), layer->layerStyle(), nullptr));
-    endUndoMacro();
-
-    recompositeProjection();
-    syncLayersFromImage();
+    e.isStrokeLayer = false;
+    e.nodeType = NodeTypePaint;
     markDirty();
     return true;
 }

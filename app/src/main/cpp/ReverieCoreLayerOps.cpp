@@ -198,18 +198,15 @@ bool ReverieCore::mergeDown(int index)
     }
     KisPaintDeviceSP src = layerPaintDeviceFor(e);
     KisPaintDeviceSP styledDev;
-    KisLayer *srcLayer = dynamic_cast<KisLayer *>(e.node);
-    if (srcLayer && srcLayer->layerStyle() && !srcLayer->layerStyle()->isEmpty() && srcLayer->layerStyle()->isEnabled()) {
+    if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
         styledDev = new KisPaintDevice(image->colorSpace());
-        const QRect fullRect(0, 0, image->width(), image->height());
-        const quint8 origOp = srcLayer->opacity();
-        srcLayer->setOpacity(255);
-        srcLayer->projectionPlane()->recalculate(fullRect, KisNodeSP(srcLayer), KisRenderPassFlags());
-        KisPainter p(styledDev);
-        srcLayer->projectionPlane()->apply(&p, fullRect);
-        p.end();
-        srcLayer->setOpacity(origOp);
-        src = styledDev;
+        const QRect exact = src->exactBounds();
+        if (!exact.isEmpty()) {
+            const int extra = e.strokeSize + 4;
+            const QRect fullRect = exact.adjusted(-extra, -extra, extra, extra).intersected(QRect(0, 0, image->width(), image->height()));
+            compositeStrokeLayer(styledDev, e, fullRect);
+            src = styledDev;
+        }
     }
     KisPaintDeviceSP dst = layerPaintDeviceFor(m_layers[ti]);
     if (!src || !dst) {
