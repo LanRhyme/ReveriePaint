@@ -1864,7 +1864,13 @@ class PaintViewModel : ViewModel() {
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
-            immersiveMode = prefs.getBoolean("immersiveMode", false)
+            val defaultImmersive = DeviceUtils.isTablet(appContext)
+            immersiveMode = if (prefs.contains("immersiveMode")) {
+                prefs.getBoolean("immersiveMode", false)
+            } else {
+                prefs.edit().putBoolean("immersiveMode", defaultImmersive).apply()
+                defaultImmersive
+            }
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
             oppoPencilModelMode = prefs.getString("oppoPencilModelMode", "AUTO") ?: "AUTO"

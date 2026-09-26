@@ -20,6 +20,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reverie.paint.core.*
 import com.reverie.paint.core.Page
@@ -75,6 +76,8 @@ class MainActivity : ComponentActivity() {
                         lp.layoutInDisplayCutoutMode = cutoutMode
                         w.attributes = lp
                     }
+                    w.statusBarColor = android.graphics.Color.TRANSPARENT
+                    w.navigationBarColor = android.graphics.Color.TRANSPARENT
                 } else {
                     androidx.core.view.WindowCompat
                         .setDecorFitsSystemWindows(w, true)
@@ -86,6 +89,11 @@ class MainActivity : ComponentActivity() {
                         val lp = w.attributes
                         lp.layoutInDisplayCutoutMode = cutoutMode
                         w.attributes = lp
+                    }
+                    currentViewModel?.let { vm ->
+                        val isDark = vm.isCurrentlyDark()
+                        val colors = if (isDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
+                        applySystemBarsTheme(colors, isDark)
                     }
                 }
             }
@@ -160,6 +168,14 @@ class MainActivity : ComponentActivity() {
         // a class-init block would cache null and KF6I18n would crash.
         com.reverie.paint.core.ReverieCoreBridge
             .ensureLoaded()
+        val vm = ViewModelProvider(this)[PaintViewModel::class.java]
+        currentViewModel = vm
+        vm.appContext = applicationContext
+        vm.syncSettingsFromPrefs()
+        applyImmersive(vm.immersiveMode, vm.extendToCutout)
+        val initialIsDark = vm.isCurrentlyDark()
+        val initialColors = if (initialIsDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
+        applySystemBarsTheme(initialColors, initialIsDark)
         setContent {
             val vm: PaintViewModel = viewModel()
             currentViewModel = vm
@@ -331,6 +347,9 @@ class MainActivity : ComponentActivity() {
         if (vm != null) {
             val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
             driver.onActivityResume(this)
+            if (vm.immersiveMode) {
+                applyImmersive(true, vm.extendToCutout)
+            }
         }
     }
 
@@ -357,6 +376,11 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) {
             applyHighRefreshRate(this)
             com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+            currentViewModel?.let { vm ->
+                if (vm.immersiveMode) {
+                    applyImmersive(true, vm.extendToCutout)
+                }
+            }
         }
         val vm = currentViewModel
         if (vm != null) {
@@ -369,6 +393,20 @@ class MainActivity : ComponentActivity() {
         super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig)
         applyHighRefreshRate(this)
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
+        currentViewModel?.let { vm ->
+            if (vm.immersiveMode) {
+                applyImmersive(true, vm.extendToCutout)
+            }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        currentViewModel?.let { vm ->
+            if (vm.immersiveMode) {
+                applyImmersive(true, vm.extendToCutout)
+            }
+        }
     }
 
     private var lastGenericMotionButtonState: Int = 0
