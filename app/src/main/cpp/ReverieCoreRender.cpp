@@ -87,6 +87,15 @@ KisPaintDeviceSP ReverieCore::strokeMergeScratch(const QRect &r)
     return m_strokeMergeScratch;
 }
 
+KisPaintDeviceSP ReverieCore::strokeOutScratch(const QRect &r)
+{
+    if (!m_strokeOutScratch || !m_document) {
+        m_strokeOutScratch = new KisPaintDevice(m_document->colorSpace());
+    }
+    m_strokeOutScratch->clear(r);
+    return m_strokeOutScratch;
+}
+
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 {
     KisImageSP image = m_document;
@@ -969,9 +978,9 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
     if (!dev) return;
 
     const bool hasTemp = pl->hasTemporaryTarget();
-    QRect bounds = dev->exactBounds();
+    QRect bounds = dev->extent();
     if (hasTemp && pl->temporaryTarget()) {
-        bounds = bounds.united(pl->temporaryTarget()->exactBounds());
+        bounds = bounds.united(pl->temporaryTarget()->extent());
     }
     if (bounds.isEmpty()) return;
 
@@ -980,19 +989,21 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
     const int op = qBound(0, e.strokeOpacity, 100);
     const quint32 col = e.strokeColor;
 
-    const int margin = sz + 2;
+    const int pad = sz + 3;
     const QRect docRect(0, 0, m_document->width(), m_document->height());
-    const QRect strokeBounds = bounds.adjusted(-margin, -margin, margin, margin).intersected(docRect);
-    const QRect work = r.intersected(strokeBounds);
-    if (work.isEmpty()) return;
+    const QRect strokeBounds = bounds.adjusted(-pad, -pad, pad, pad).intersected(docRect);
+    const QRect targetRect = r.intersected(strokeBounds);
+    if (targetRect.isEmpty()) return;
 
-    // Merge base layer + temporary in-progress stroke into a scratch device for work rect
-    KisPaintDeviceSP scratch = strokeMergeScratch(work);
-    scratch->clear(work);
+    const QRect readRect = targetRect.adjusted(-pad, -pad, pad, pad).intersected(docRect);
+    if (readRect.isEmpty()) return;
+
+    // Merge base layer + temporary in-progress stroke into a scratch device for padded read rect
+    KisPaintDeviceSP scratch = strokeMergeScratch(readRect);
     {
         KisPainter basePainter(scratch);
         basePainter.setCompositeOpId(QStringLiteral("normal"));
-        basePainter.bitBlt(work.topLeft(), dev, work);
+        basePainter.bitBlt(readRect.topLeft(), dev, readRect);
         basePainter.end();
     }
     if (hasTemp) {
@@ -1009,7 +1020,7 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
             if (m_selection) {
                 tempPainter.setSelection(m_selection);
             }
-            tempPainter.bitBlt(work.topLeft(), tempTarget, work);
+            tempPainter.bitBlt(readRect.topLeft(), tempTarget, readRect);
             tempPainter.end();
         }
     }
@@ -1019,17 +1030,17 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
         painter.setOpacityF(qreal(pl->opacity()) / 255.0);
         painter.setCompositeOpId(pl->compositeOpId());
         if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
-        painter.bitBlt(work.topLeft(), scratch, work);
+        painter.bitBlt(targetRect.topLeft(), scratch, targetRect);
         painter.end();
         return;
     }
 
-    const int ww = work.width();
-    const int wh = work.height();
-    const size_t pixelCount = size_t(ww) * wh;
+    const int rw = readRect.width();
+    const int rh = readRect.height();
+    const size_t pixelCount = size_t(rw) * rh;
 
-    QImage baseImg(ww, wh, QImage::Format_ARGB32_Premultiplied);
-    scratch->readBytes(baseImg.bits(), work.x(), work.y(), ww, wh);
+    QImage baseImg(rw, rh, QImage::Format_ARGB32_Premultiplied);
+    scratch->readBytes(baseImg.bits(), readRect.x(), readRect.y(), rw, rh);
 
     thread_local EdtWorkspace edtWs;
     thread_local std::vector<float> fInBuf;
@@ -1041,20 +1052,36 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
 
     const quint8 *baseData = baseImg.constBits();
 
-    // 1. Outside distance field (distance from background to foreground)
+    // 1. Outside distance field: sub-pixel continuous distance from background to foreground boundary
     if (pos == 0 || pos == 2) {
         for (size_t k = 0; k < pixelCount; ++k) {
-            fInBuf[k] = (baseData[k * 4 + 3] >= 64) ? 0.0f : 1e9f;
+            const float a = float(baseData[k * 4 + 3]) / 255.0f;
+            if (a >= 0.5f) {
+                fInBuf[k] = 0.0f;
+            } else if (a > 0.0f) {
+                const float diff = 0.5f - a;
+                fInBuf[k] = diff * diff;
+            } else {
+                fInBuf[k] = 1e8f;
+            }
         }
-        computeEDT2D(fInBuf.data(), sqDistOut.data(), ww, wh, edtWs);
+        computeEDT2D(fInBuf.data(), sqDistOut.data(), rw, rh, edtWs);
     }
 
-    // 2. Inside distance field (distance from foreground to background)
+    // 2. Inside distance field: sub-pixel continuous distance from foreground to background boundary
     if (pos == 1 || pos == 2) {
         for (size_t k = 0; k < pixelCount; ++k) {
-            fInBuf[k] = (baseData[k * 4 + 3] < 64) ? 0.0f : 1e9f;
+            const float a = float(baseData[k * 4 + 3]) / 255.0f;
+            if (a <= 0.5f) {
+                fInBuf[k] = 0.0f;
+            } else if (a < 1.0f) {
+                const float diff = a - 0.5f;
+                fInBuf[k] = diff * diff;
+            } else {
+                fInBuf[k] = 1e8f;
+            }
         }
-        computeEDT2D(fInBuf.data(), sqDistIn.data(), ww, wh, edtWs);
+        computeEDT2D(fInBuf.data(), sqDistIn.data(), rw, rh, edtWs);
     }
 
     const float sR = float((col >> 16) & 0xFF);
@@ -1062,122 +1089,138 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
     const float sB = float(col & 0xFF);
     const float opF = float(op) / 100.0f;
     const float radius = float(sz);
-    const float halfRadius = radius * 0.5f;
 
-    QImage composited(ww, wh, QImage::Format_ARGB32_Premultiplied);
+    const int tw = targetRect.width();
+    const int th = targetRect.height();
+    const int offsetX = targetRect.x() - readRect.x();
+    const int offsetY = targetRect.y() - readRect.y();
 
-    for (int y = 0; y < wh; ++y) {
-        quint32 *dstP = reinterpret_cast<quint32 *>(composited.scanLine(y));
-        const quint32 *srcP = reinterpret_cast<const quint32 *>(baseImg.constScanLine(y));
-        for (int x = 0; x < ww; ++x) {
-            const int idx = y * ww + x;
-            const quint32 basePix = srcP[x];
-            const float baseA = float((basePix >> 24) & 0xFF) / 255.0f;
-            const float baseR = float((basePix >> 16) & 0xFF);
-            const float baseG = float((basePix >> 8) & 0xFF);
-            const float baseB = float(basePix & 0xFF);
+    QImage composited(tw, th, QImage::Format_ARGB32_Premultiplied);
 
-            float stA = 0.0f;
+    for (int y = 0; y < th; ++y) {
+        quint8 *dstPix = composited.scanLine(y);
+        const int srcY = offsetY + y;
+        const int srcRowOffset = srcY * rw;
+        for (int x = 0; x < tw; ++x) {
+            const int srcX = offsetX + x;
+            const int srcIdx = srcRowOffset + srcX;
+            const quint8 *basePix = baseData + srcIdx * 4;
+
+            const float bB = float(basePix[0]);
+            const float bG = float(basePix[1]);
+            const float bR = float(basePix[2]);
+            const float bA = float(basePix[3]) / 255.0f;
+
+            quint8 *outP = dstPix + x * 4;
 
             if (pos == 0) { // Outside
-                float d = std::sqrt(sqDistOut[idx]);
+                const float d = std::sqrt(sqDistOut[srcIdx]);
+                float stA = 0.0f;
                 if (d <= radius - 0.5f) {
                     stA = 1.0f;
                 } else if (d < radius + 0.5f) {
-                    stA = radius + 0.5f - d;
+                    stA = (radius + 0.5f) - d;
                 }
-                stA *= opF;
+                const float a_stroke = stA * opF;
+                const float a_base = bA;
+                const float a_out = a_base + a_stroke * (1.0f - a_base);
 
-                // Base is ON TOP of outside stroke: out = base + stroke * (1 - baseA)
-                float strokeW = stA * (1.0f - baseA);
-                float outA = qBound(0.0f, (baseA + strokeW) * 255.0f, 255.0f);
-                float outR = qBound(0.0f, baseR + sR * strokeW, 255.0f);
-                float outG = qBound(0.0f, baseG + sG * strokeW, 255.0f);
-                float outB = qBound(0.0f, baseB + sB * strokeW, 255.0f);
+                if (a_out <= 0.001f) {
+                    outP[0] = 0;
+                    outP[1] = 0;
+                    outP[2] = 0;
+                    outP[3] = 0;
+                } else {
+                    const float w_base = a_base / a_out;
+                    const float w_stroke = (a_stroke * (1.0f - a_base)) / a_out;
 
-                dstP[x] = (quint32(outA + 0.5f) << 24) |
-                          (quint32(outR + 0.5f) << 16) |
-                          (quint32(outG + 0.5f) << 8) |
-                           quint32(outB + 0.5f);
+                    const float outB = bB * w_base + sB * w_stroke;
+                    const float outG = bG * w_base + sG * w_stroke;
+                    const float outR = bR * w_base + sR * w_stroke;
+
+                    outP[0] = static_cast<quint8>(qBound(0.0f, outB + 0.5f, 255.0f));
+                    outP[1] = static_cast<quint8>(qBound(0.0f, outG + 0.5f, 255.0f));
+                    outP[2] = static_cast<quint8>(qBound(0.0f, outR + 0.5f, 255.0f));
+                    outP[3] = static_cast<quint8>(qBound(0.0f, a_out * 255.0f + 0.5f, 255.0f));
+                }
             } else if (pos == 1) { // Inside
-                if (baseA > 0.0f) {
-                    float d = std::sqrt(sqDistIn[idx]);
+                const float a_base = bA;
+                if (a_base <= 0.001f) {
+                    outP[0] = 0;
+                    outP[1] = 0;
+                    outP[2] = 0;
+                    outP[3] = 0;
+                } else {
+                    const float d = std::sqrt(sqDistIn[srcIdx]);
+                    float stA = 0.0f;
                     if (d <= radius - 0.5f) {
                         stA = 1.0f;
                     } else if (d < radius + 0.5f) {
-                        stA = radius + 0.5f - d;
+                        stA = (radius + 0.5f) - d;
                     }
-                    stA *= opF;
+                    const float a_stroke = stA * opF;
 
-                    // Inside stroke is ON TOP of base, clipped to base shape
-                    float invStA = 1.0f - stA;
-                    float outA = baseA * 255.0f;
-                    float outR = qBound(0.0f, (sR * stA * baseA) + (baseR * invStA), 255.0f);
-                    float outG = qBound(0.0f, (sG * stA * baseA) + (baseG * invStA), 255.0f);
-                    float outB = qBound(0.0f, (sB * stA * baseA) + (baseB * invStA), 255.0f);
+                    const float outB = sB * a_stroke + bB * (1.0f - a_stroke);
+                    const float outG = sG * a_stroke + bG * (1.0f - a_stroke);
+                    const float outR = sR * a_stroke + bR * (1.0f - a_stroke);
 
-                    dstP[x] = (quint32(outA + 0.5f) << 24) |
-                              (quint32(outR + 0.5f) << 16) |
-                              (quint32(outG + 0.5f) << 8) |
-                               quint32(outB + 0.5f);
-                } else {
-                    dstP[x] = 0;
+                    outP[0] = static_cast<quint8>(qBound(0.0f, outB + 0.5f, 255.0f));
+                    outP[1] = static_cast<quint8>(qBound(0.0f, outG + 0.5f, 255.0f));
+                    outP[2] = static_cast<quint8>(qBound(0.0f, outR + 0.5f, 255.0f));
+                    outP[3] = static_cast<quint8>(qBound(0.0f, a_base * 255.0f + 0.5f, 255.0f));
                 }
             } else { // Center
-                float dOut = std::sqrt(sqDistOut[idx]);
-                float dIn = std::sqrt(sqDistIn[idx]);
+                const float halfRadius = radius * 0.5f;
+                const float dOut = std::sqrt(sqDistOut[srcIdx]);
+                const float dIn = std::sqrt(sqDistIn[srcIdx]);
 
                 float stAOut = 0.0f;
                 if (dOut <= halfRadius - 0.5f) stAOut = 1.0f;
-                else if (dOut < halfRadius + 0.5f) stAOut = halfRadius + 0.5f - dOut;
-                stAOut *= opF;
+                else if (dOut < halfRadius + 0.5f) stAOut = (halfRadius + 0.5f) - dOut;
+                const float a_out = stAOut * opF;
 
-                float stAIn = 0.0f;
-                if (baseA > 0.0f) {
+                const float a_base = bA;
+                float innerB = bB, innerG = bG, innerR = bR;
+                if (a_base > 0.001f) {
+                    float stAIn = 0.0f;
                     if (dIn <= halfRadius - 0.5f) stAIn = 1.0f;
-                    else if (dIn < halfRadius + 0.5f) stAIn = halfRadius + 0.5f - dIn;
-                    stAIn *= opF;
+                    else if (dIn < halfRadius + 0.5f) stAIn = (halfRadius + 0.5f) - dIn;
+                    const float a_in = stAIn * opF;
+                    innerB = sB * a_in + bB * (1.0f - a_in);
+                    innerG = sG * a_in + bG * (1.0f - a_in);
+                    innerR = sR * a_in + bR * (1.0f - a_in);
                 }
 
-                // Combine outer (behind) and inner (on top)
-                float strokeW = stAOut * (1.0f - baseA);
-                float blendedBaseR = (sR * stAIn * baseA) + (baseR * (1.0f - stAIn));
-                float blendedBaseG = (sG * stAIn * baseA) + (baseG * (1.0f - stAIn));
-                float blendedBaseB = (sB * stAIn * baseA) + (baseB * (1.0f - stAIn));
+                const float a_total = a_base + a_out * (1.0f - a_base);
+                if (a_total <= 0.001f) {
+                    outP[0] = 0;
+                    outP[1] = 0;
+                    outP[2] = 0;
+                    outP[3] = 0;
+                } else {
+                    const float w_base = a_base / a_total;
+                    const float w_stroke = (a_out * (1.0f - a_base)) / a_total;
 
-                float outA = qBound(0.0f, (baseA + strokeW) * 255.0f, 255.0f);
-                float outR = qBound(0.0f, blendedBaseR + sR * strokeW, 255.0f);
-                float outG = qBound(0.0f, blendedBaseG + sG * strokeW, 255.0f);
-                float outB = qBound(0.0f, blendedBaseB + sB * strokeW, 255.0f);
+                    const float finalB = innerB * w_base + sB * w_stroke;
+                    const float finalG = innerG * w_base + sG * w_stroke;
+                    const float finalR = innerR * w_base + sR * w_stroke;
 
-                dstP[x] = (quint32(outA + 0.5f) << 24) |
-                          (quint32(outR + 0.5f) << 16) |
-                          (quint32(outG + 0.5f) << 8) |
-                           quint32(outB + 0.5f);
+                    outP[0] = static_cast<quint8>(qBound(0.0f, finalB + 0.5f, 255.0f));
+                    outP[1] = static_cast<quint8>(qBound(0.0f, finalG + 0.5f, 255.0f));
+                    outP[2] = static_cast<quint8>(qBound(0.0f, finalR + 0.5f, 255.0f));
+                    outP[3] = static_cast<quint8>(qBound(0.0f, a_total * 255.0f + 0.5f, 255.0f));
+                }
             }
         }
     }
 
-    const QRect blitRect = r.intersected(work);
-    if (!blitRect.isEmpty()) {
-        const int sx = blitRect.x() - work.x();
-        const int sy = blitRect.y() - work.y();
-        QImage cropped(blitRect.width(), blitRect.height(), composited.format());
-        for (int row = 0; row < blitRect.height(); ++row) {
-            memcpy(cropped.scanLine(row),
-                   composited.constScanLine(sy + row) + sx * 4,
-                   size_t(blitRect.width()) * 4);
-        }
+    KisPaintDeviceSP tempDev = strokeOutScratch(targetRect);
+    tempDev->writeBytes(composited.constBits(), targetRect.x(), targetRect.y(), tw, th);
 
-        KisPaintDeviceSP tempDev = strokeMergeScratch(blitRect);
-        tempDev->clear(blitRect);
-        tempDev->writeBytes(cropped.constBits(), blitRect.x(), blitRect.y(), blitRect.width(), blitRect.height());
-
-        KisPainter painter(out);
-        painter.setOpacityF(qreal(pl->opacity()) / 255.0);
-        painter.setCompositeOpId(pl->compositeOpId());
-        if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
-        painter.bitBlt(blitRect.topLeft(), tempDev, blitRect);
-        painter.end();
-    }
+    KisPainter painter(out);
+    painter.setOpacityF(qreal(pl->opacity()) / 255.0);
+    painter.setCompositeOpId(pl->compositeOpId());
+    if (!pl->channelFlags().isEmpty()) painter.setChannelFlags(pl->channelFlags());
+    painter.bitBlt(targetRect.topLeft(), tempDev, targetRect);
+    painter.end();
 }

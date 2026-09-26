@@ -554,8 +554,12 @@ bool ReverieCore::flushStrokeBatch()
             painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         }
         // Propagate the tap dot to the projection immediately
-        const int tw = int(m_brushSize) + 2;
-        const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        int tw = int(m_brushSize) + 2;
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            tw += m_layers[m_currentLayer].strokeSize + 4;
+        }
+        const QRect tr = QRect(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw).intersected(
+            QRect(0, 0, m_docWidth, m_docHeight));
         markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         // Retain sample 0 as the starting anchor with m_strokeCarryCount = 1
@@ -991,6 +995,11 @@ bool ReverieCore::strokeAirbrushTick()
         if (tickDirty.isNull()) {
             const int tw = qMax(int(m_brushSize * 2.0), 32) + 16;
             tickDirty = QRect(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        }
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            const int extra = m_layers[m_currentLayer].strokeSize + 4;
+            tickDirty = tickDirty.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_docWidth, m_docHeight));
         }
         target->setDirty(tickDirty);
         markRegionDirty(tickDirty);
