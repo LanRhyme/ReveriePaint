@@ -380,9 +380,24 @@ bool warpFromGrid(KisLiquifyTransformWorker *w, KisPaintDeviceSP src, KisPaintDe
     // area 之外。若只读 area, 这些像素会被写成 alpha=0, 随后补洞又用**未形变**像素填回 ⇒
     // 形变区里嵌进大块"未形变补丁", 真机表现就是"画面割裂成大面积像素块"(Commit 3 的回归)。
     // 补足源区域后, 空洞只会出现在窗口自身的边界(= 位移把源拉出了窗口, 属设计内取舍)。
+    // 原点/步长取自**真实网格点**(与 AGSL 版 LiquifyGpuPreview.applyGridLocked 同一口径)
+    const qreal gx0 = orig[0].x();
+    const qreal gy0 = orig[0].y();
+    const qreal stepX = qMax<qreal>(1.0, orig[1].x() - gx0);
+    const qreal stepY = qMax<qreal>(1.0, orig[cols].y() - gy0);
+
+    // 源区域按"**写区附近**网格点的最大位移"外扩, 而不是"全网格最大位移"。
+    // 后者过于保守: 一次快拖里远端网格点早已被推走几百像素, 会把读区放大到写区的 2~3 倍,
+    // 而落盘成本里 `warpFromGrid` 的反向采样正是大头(真机: 每次 rebase 落盘 ≈21ms)。
+    // 双线性支撑只有一格, 所以离写区超过一格的网格点影响不到这里的像素, 直接跳过。
     qreal maxOff = 0.0;
     for (int i = 0; i < n; ++i) {
-        const QPointF off = trans[i] - orig[i];
+        const QPointF &o = orig[i];
+        if (o.x() < area.left() - stepX || o.x() > area.right() + stepX ||
+            o.y() < area.top() - stepY || o.y() > area.bottom() + stepY) {
+            continue;
+        }
+        const QPointF off = trans[i] - o;
         maxOff = qMax(maxOff, qMax(qAbs(off.x()), qAbs(off.y())));
     }
     const int pad = int(maxOff) + 2;
@@ -400,13 +415,6 @@ bool warpFromGrid(KisLiquifyTransformWorker *w, KisPaintDeviceSP src, KisPaintDe
     src->readBytes(reinterpret_cast<quint8 *>(srcBuf.data()), need.x(), need.y(), nw, nh);
     const quint8 *s = reinterpret_cast<const quint8 *>(srcBuf.constData());
     quint8 *d = reinterpret_cast<quint8 *>(dstBuf.data());
-
-    // 原点/步长取自**真实网格点**(与 AGSL 版 LiquifyGpuPreview.applyGridLocked 同一口径),
-    // 这样末列/末行被吸附到边界时也不会错位。
-    const qreal gx0 = orig[0].x();
-    const qreal gy0 = orig[0].y();
-    const qreal stepX = qMax<qreal>(1.0, orig[1].x() - gx0);
-    const qreal stepY = qMax<qreal>(1.0, orig[cols].y() - gy0);
 
     for (int py = 0; py < bh; ++py) {
         const qreal docY = qreal(area.top() + py) + 0.5;
@@ -1312,7 +1320,13 @@ void ReverieCore::liquify(int fx, int fy, int tx, int ty, qreal strength, int mo
             m_liquifyPendingDabs.clear();
         }
         // ---- 网格精度(2 的幂 + 分辨率保底 + 诊断覆盖)提到循环外: 所有目标共用同一档 ----
-        const int rawPrecision = qBound<int>(4, qRound(size / 8.0), 32);
+        //
+        // 除数从 8 改成 16(网格加密一倍): **老的 size/8 是为 `run()` 调的** —— 它的成本 ∝ 网格单元数
+        // (bounds/精度)², 所以大笔刷必须用粗网格(历史结论: 32 档约 4× 提速)。
+        // 但 `warpFromGrid()` 已经取代了 `run()`: 它按"写区像素"反向采样、每像素 4 次网格取值,
+        // **与网格密度无关** ⇒ 精度现在只决定"位移场的分辨率", 加密几乎不花钱, 而 30px 级折线台阶直接减半。
+        // 真机若嫌慢: `setprop debug.reverie.lqprec 32` 一键回到粗档。
+        const int rawPrecision = qBound<int>(4, qRound(size / 16.0), 32);
         int precision = rawPrecision > 16 ? 32
                         : (rawPrecision > 12 ? 16 : (rawPrecision > 6 ? 8 : 4));
         const int resolutionFloor = qMax<int>(16, R / 8);
