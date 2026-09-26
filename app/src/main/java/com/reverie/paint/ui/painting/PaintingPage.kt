@@ -800,13 +800,17 @@ fun PaintingPage(
                 }
                 colorPanelOpen -> colorPanelOpen = false
                 settingsPanelOpen -> settingsPanelOpen = false
+                drawingGuidePanelOpen -> drawingGuidePanelOpen = false
                 moreToolsOpen -> moreToolsOpen = false
                 selectionMenuOpen -> selectionMenuOpen = false
                 selectionPanelOpen -> selectionPanelOpen = false
                 selectionPropsOpen -> selectionPropsOpen = false
                 tfState.active -> cancelTransform()
                 vm.currentToolId != "brush" -> vm.applyTool("brush")
-                else -> requestExit()
+                else -> {
+                    // 全局禁用返回退出: 在绘画主界面下，忽略系统返回手势/返回键，防止误触退出画布；
+                    // 用户必须点击顶栏的关闭 (X) 按钮退出
+                }
             }
         }
 
@@ -1568,14 +1572,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = brushPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
                 Modifier
-                    .align(Alignment.CenterStart)
+                    .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                     .offset {
                         IntOffset(
-                            (brushPanelBaseStartPx + vm.brushPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -brushPanelBaseStartPx else brushPanelBaseStartPx) + vm.brushPanelOffset.x).roundToInt(),
                             vm.brushPanelOffset.y.roundToInt(),
                         )
                     }
@@ -1602,14 +1606,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = layerPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
                 Modifier
-                    .align(Alignment.TopEnd)
+                    .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
                     .offset {
                         IntOffset(
-                            (layerPanelBaseEndPx + vm.layerPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -layerPanelBaseEndPx else layerPanelBaseEndPx) + vm.layerPanelOffset.x).roundToInt(),
                             (layerPanelBaseTopPx + vm.layerPanelOffset.y).roundToInt(),
                         )
                     }
@@ -1641,8 +1645,8 @@ fun PaintingPage(
         }
         AnimatedVisibility(
             visible = settingsPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             SettingsPanel(
@@ -1666,14 +1670,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = colorPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.isColorPanelPinned) {
                 Modifier
-                    .align(Alignment.BottomStart)
+                    .align(if (vm.leftHandMode) Alignment.BottomEnd else Alignment.BottomStart)
                     .offset {
                         IntOffset(
-                            (colorPanelBaseStartPx + vm.colorPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -colorPanelBaseStartPx else colorPanelBaseStartPx) + vm.colorPanelOffset.x).roundToInt(),
                             (colorPanelBaseBottomPx + vm.colorPanelOffset.y).roundToInt(),
                         )
                     }
@@ -1839,7 +1843,13 @@ fun PaintingPage(
         if (drawingGuidePanelOpen) {
             DrawingGuidePanel(
                 vm = vm,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 12.dp),
+                modifier = Modifier
+                    .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
+                    .padding(
+                        top = 56.dp,
+                        start = if (vm.leftHandMode) 12.dp else 0.dp,
+                        end = if (vm.leftHandMode) 0.dp else 12.dp,
+                    ),
                 onDismiss = { drawingGuidePanelOpen = false },
                 hazeState = hazeState,
             )

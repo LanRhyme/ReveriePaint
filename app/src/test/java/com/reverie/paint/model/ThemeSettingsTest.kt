@@ -141,53 +141,57 @@ class ThemeSettingsTest {
             if (leftHand) -offsetDp else offsetDp
         }
 
+        val resolveBrushPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.CenterEnd else androidx.compose.ui.Alignment.CenterStart
+        }
+        val resolveLayerPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+        val resolveColorPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.BottomEnd else androidx.compose.ui.Alignment.BottomStart
+        }
+        val resolveSettingsPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+
         // Standard right-handed layout
         assertEquals(androidx.compose.ui.Alignment.TopStart, resolveToolRailAlignment(false))
         assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveTopBarAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.CenterStart, resolveBrushPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveLayerPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.BottomStart, resolveColorPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveSettingsPanelAlignment(false))
         assertEquals(52, resolvePopupOffset(false, 52))
 
         // Left-handed layout
         assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveToolRailAlignment(true))
         assertEquals(androidx.compose.ui.Alignment.TopStart, resolveTopBarAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.CenterEnd, resolveBrushPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveLayerPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.BottomEnd, resolveColorPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveSettingsPanelAlignment(true))
         assertEquals(-52, resolvePopupOffset(true, 52))
     }
 
     @Test
-    fun `system gesture exclusion calculation logic constraints`() {
-        val calculateExclusion = { height: Int, density: Float, touchY: Float? ->
-            val maxExclusionHeight = (200 * density).toInt()
-            val targetY = touchY ?: (height / 2f)
-            val halfH = maxExclusionHeight / 2
-            val top = (targetY - halfH).toInt().coerceIn(0, (height - maxExclusionHeight).coerceAtLeast(0))
-            val bottom = (top + maxExclusionHeight).coerceAtMost(height)
-            top to bottom
+    fun `painting page full-height edge gesture exclusion logic`() {
+        val calculateFullExclusion = { width: Int, height: Int, density: Float ->
+            val edgeWidth = (48 * density).toInt()
+            val left = 0 to edgeWidth
+            val right = (width - edgeWidth) to width
+            val vertical = 0 to height
+            Triple(left, right, vertical)
         }
 
+        val w = 2400
         val h = 1600
         val density = 2.0f
-        val maxH = 400 // 200 * 2.0
+        val edgeW = 96
 
-        // 1. Idle / centered
-        val (idleTop, idleBottom) = calculateExclusion(h, density, null)
-        assertEquals(600, idleTop)
-        assertEquals(1000, idleBottom)
-        assertEquals(maxH, idleBottom - idleTop)
-
-        // 2. Touch near very top edge (touchY = 10)
-        val (topTop, topBottom) = calculateExclusion(h, density, 10f)
-        assertEquals(0, topTop)
-        assertEquals(maxH, topBottom)
-
-        // 3. Touch near very bottom edge (touchY = 1590)
-        val (botTop, botBottom) = calculateExclusion(h, density, 1590f)
-        assertEquals(h - maxH, botTop)
-        assertEquals(h, botBottom)
-
-        // 4. Touch in middle
-        val (midTop, midBottom) = calculateExclusion(h, density, 500f)
-        assertEquals(300, midTop)
-        assertEquals(700, midBottom)
-        assertEquals(maxH, midBottom - midTop)
+        val (left, right, vertical) = calculateFullExclusion(w, h, density)
+        assertEquals(0 to edgeW, left)
+        assertEquals(w - edgeW to w, right)
+        assertEquals(0 to h, vertical)
     }
 }
 

@@ -626,39 +626,32 @@ class CanvasTouchView(context: Context) : View(context) {
         return false
     }
 
-    // 系统手势侧滑返回排除区状态 (API 29+ Android 10)
-    private var lastExclusionY = -1f
+    // 系统手势侧滑返回排除区状态 (API 29+ Android 10: 绘画页面全高全局排除两侧返回手势)
     private val gestureExclusionRects = mutableListOf<android.graphics.Rect>()
     private val leftExclusionRect = android.graphics.Rect()
     private val rightExclusionRect = android.graphics.Rect()
 
-    fun updateSystemGestureExclusion(touchY: Float? = null) {
+    fun updateSystemGestureExclusion() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val w = width
         val h = height
         if (w <= 0 || h <= 0) return
 
-        val maxExclusionHeight = (200 * density).toInt() // 系统限制单边最大 200dp
-        val edgeWidth = (40 * density).toInt() // 覆盖系统边缘手势感应区 (约 40dp)
+        val edgeWidth = (48 * density).toInt() // 覆盖系统边缘手势感应区 (约 48dp)
 
-        val targetY = touchY ?: (h / 2f)
-        val halfH = maxExclusionHeight / 2
-        val top = (targetY - halfH).toInt().coerceIn(0, (h - maxExclusionHeight).coerceAtLeast(0))
-        val bottom = (top + maxExclusionHeight).coerceAtMost(h)
-
-        leftExclusionRect.set(0, top, edgeWidth, bottom)
-        rightExclusionRect.set((w - edgeWidth).coerceAtLeast(0), top, w, bottom)
+        // 沉浸绘画模式下全高度排除左右边缘返回手势
+        leftExclusionRect.set(0, 0, edgeWidth, h)
+        rightExclusionRect.set((w - edgeWidth).coerceAtLeast(0), 0, w, h)
 
         gestureExclusionRects.clear()
         gestureExclusionRects.add(leftExclusionRect)
         gestureExclusionRects.add(rightExclusionRect)
         systemGestureExclusionRects = gestureExclusionRects
-        lastExclusionY = targetY
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        updateSystemGestureExclusion(null)
+        updateSystemGestureExclusion()
     }
 
     override fun onAttachedToWindow() {
@@ -666,7 +659,7 @@ class CanvasTouchView(context: Context) : View(context) {
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
         applyHighRefreshRateAndUnbuffered()
-        post { updateSystemGestureExclusion(null) }
+        post { updateSystemGestureExclusion() }
     }
 
     fun applyHighRefreshRateAndUnbuffered() {
@@ -1275,28 +1268,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     } catch (_: Throwable) {}
                 }
                 checkAndRestoreHighRefreshRate()
-            }
-        }
-
-        // 系统侧滑返回防误触 (API 29+ Android 10): 靠近屏幕左右边缘时动态将排除区域跟随到当前接触点
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val edgeThreshold = 64 * density
-            val isNearEdge = event.x < edgeThreshold || event.x > width - edgeThreshold
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    if (isNearEdge) updateSystemGestureExclusion(event.y)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (isNearEdge && kotlin.math.abs(event.y - lastExclusionY) > 24 * density) {
-                        updateSystemGestureExclusion(event.y)
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    val defaultY = height / 2f
-                    if (kotlin.math.abs(lastExclusionY - defaultY) > 1f) {
-                        updateSystemGestureExclusion(null)
-                    }
-                }
             }
         }
         val pointerCount = event.pointerCount

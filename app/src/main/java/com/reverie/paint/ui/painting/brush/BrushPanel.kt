@@ -637,10 +637,10 @@ fun BrushPanel(
             val offsetY = if (vm.panelPinningEnabled) vm.brushPanelOffset.y else 0f
             cardContent(
                 Modifier
-                    .align(Alignment.CenterStart)
+                    .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                     .offset {
                         IntOffset(
-                            (baseStartOffsetPx + offsetX).roundToInt(),
+                            (if (vm.leftHandMode) -baseStartOffsetPx + offsetX else baseStartOffsetPx + offsetX).roundToInt(),
                             offsetY.roundToInt(),
                         )
                     }
