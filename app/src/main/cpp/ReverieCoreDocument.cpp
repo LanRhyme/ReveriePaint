@@ -102,15 +102,17 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     }
     image->setResolution(72.0, 72.0);
 
-    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    m_backgroundColor = Qt::white;
+    KoColor bgKoColor(m_backgroundColor, cs);
+    image->setDefaultProjectionColor(bgKoColor);
     registerCoreFilters();
 
-    // Background layer (transparent, locked): index 0, controls projection background
+    // Background layer (solid background, locked): index 0, controls projection background
     KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
     if (!bg) {
         return false;
     }
-    bg->original()->fill(QRect(0, 0, width, height), KoColor(Qt::transparent, cs));
+    bg->original()->fill(QRect(0, 0, width, height), bgKoColor);
     bg->original()->setDirty();
     bg->setUserLocked(true);
     bg->setAlphaLocked(true);
@@ -147,7 +149,13 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
     if (!dev) return;
     const KoColorSpace *cs = image->colorSpace();
     QColor qc = QColor::fromRgba(color);
+    if (!qc.isValid()) qc = Qt::white;
+    m_backgroundColor = qc;
     KoColor koColor(qc, cs);
+
+    if (m_layers[0].visible) {
+        image->setDefaultProjectionColor(koColor);
+    }
 
     if (commit) {
         KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
@@ -233,6 +241,12 @@ void ReverieCore::recompositeProjection()
 
 void ReverieCore::syncLayersFromImage()
 {
+    QHash<KisNode *, LayerEntry> oldEntries;
+    QHash<QString, LayerEntry> oldEntriesByName;
+    for (const LayerEntry &e : m_layers) {
+        if (e.node) oldEntries.insert(e.node, e);
+        if (!e.name.isEmpty()) oldEntriesByName.insert(e.name, e);
+    }
     m_layers.clear();
     KisImageSP image = m_document;
     if (!image) {
@@ -262,6 +276,36 @@ void ReverieCore::syncLayersFromImage()
                 entry.colorLabel = l->colorLabelIndex();
                 entry.clipped = l->alphaChannelDisabled();
                 entry.background = m_layers.isEmpty();  // first layer = bg
+
+                if (oldEntries.contains(node.data())) {
+                    const LayerEntry &old = oldEntries.value(node.data());
+                    entry.isStrokeLayer = old.isStrokeLayer;
+                    entry.strokeSize = old.strokeSize;
+                    entry.strokeColor = old.strokeColor;
+                    entry.strokePosition = old.strokePosition;
+                    entry.strokeOpacity = old.strokeOpacity;
+                } else if (oldEntriesByName.contains(l->name())) {
+                    const LayerEntry &old = oldEntriesByName.value(l->name());
+                    entry.isStrokeLayer = old.isStrokeLayer;
+                    entry.strokeSize = old.strokeSize;
+                    entry.strokeColor = old.strokeColor;
+                    entry.strokePosition = old.strokePosition;
+                    entry.strokeOpacity = old.strokeOpacity;
+                } else if (node->property("reverie_is_stroke").toBool()) {
+                    entry.isStrokeLayer = true;
+                    entry.strokeSize = node->property("reverie_stroke_size").toInt();
+                    entry.strokeColor = node->property("reverie_stroke_color").toUInt();
+                    entry.strokePosition = node->property("reverie_stroke_pos").toInt();
+                    entry.strokeOpacity = node->property("reverie_stroke_opacity").toInt();
+                } else if (l->name().contains(QStringLiteral("描边")) ||
+                           l->name().contains(QLatin1String("Stroke"), Qt::CaseInsensitive)) {
+                    entry.isStrokeLayer = true;
+                    entry.strokeSize = 6;
+                    entry.strokeColor = 0xFF000000;
+                    entry.strokePosition = 0;
+                    entry.strokeOpacity = 100;
+                }
+
                 if (isGroup) {
                     entry.nodeType = NodeTypeGroup;
                 } else if (dynamic_cast<KisAdjustmentLayer *>(l)) {
@@ -270,8 +314,30 @@ void ReverieCore::syncLayersFromImage()
                     entry.nodeType = NodeTypeFill;
                 } else if (dynamic_cast<KisCloneLayer *>(l)) {
                     entry.nodeType = NodeTypeClone;
+                } else if (entry.isStrokeLayer) {
+                    entry.nodeType = NodeTypeStroke;
                 } else {
-                    entry.nodeType = NodeTypePaint;
+                    KisPSDLayerStyleSP style = l->layerStyle();
+                    if (style && style->stroke() && style->stroke()->effectEnabled()) {
+                        entry.nodeType = NodeTypeStroke;
+                        entry.isStrokeLayer = true;
+                        const psd_layer_effects_stroke *st = style->stroke();
+                        entry.strokeSize = static_cast<int>(st->size());
+                        entry.strokePosition = static_cast<int>(st->position());
+                        entry.strokeOpacity = static_cast<int>(st->opacity());
+                        QColor qc = st->color().toQColor();
+                        entry.strokeColor = qc.isValid() ? qc.rgba() : 0xFF000000;
+                    } else {
+                        entry.nodeType = NodeTypePaint;
+                    }
+                }
+
+                if (entry.isStrokeLayer) {
+                    node->setProperty("reverie_is_stroke", true);
+                    node->setProperty("reverie_stroke_size", entry.strokeSize);
+                    node->setProperty("reverie_stroke_color", entry.strokeColor);
+                    node->setProperty("reverie_stroke_pos", entry.strokePosition);
+                    node->setProperty("reverie_stroke_opacity", entry.strokeOpacity);
                 }
                 m_layers.append(entry);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {
@@ -324,6 +390,16 @@ void ReverieCore::syncLayersFromImage()
         m_layers[0].locked = true;
         m_layers[0].alphaLocked = true;
         m_layers[0].clipped = false;
+
+        // Keep default projection color in sync with background layer visibility
+        if (m_document) {
+            const KoColorSpace *cs = m_document->colorSpace();
+            if (m_layers[0].visible) {
+                m_document->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
+            } else {
+                m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
+            }
+        }
     }
     if (m_currentLayer >= m_layers.size()) {
         m_currentLayer = m_layers.isEmpty() ? 0 : m_layers.size() - 1;

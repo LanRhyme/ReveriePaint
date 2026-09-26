@@ -73,6 +73,14 @@
     <string name="blend_color">Color</string>
     <string name="blend_value">Value</string>
     <string name="blend_erase">Erase</string>
+    <string name="blend_luminosity_sai">Luminosity (SAI)</string>
+    <string name="blend_glow">Glow</string>
+    <string name="blend_category_basic">Basic</string>
+    <string name="blend_category_darken">Darken</string>
+    <string name="blend_category_lighten">Lighten</string>
+    <string name="blend_category_contrast">Contrast</string>
+    <string name="blend_category_inversion">Inversion</string>
+    <string name="blend_category_component">Component</string>
     <string name="settings_about_sub">Built on Krita native rendering engine</string>
 
     <!-- Home & Gallery -->
@@ -835,12 +843,28 @@
     <string name="layer_more_types">More Layer Types</string>
     <string name="layer_type_fill">Fill Layer</string>
     <string name="layer_type_filter">Filter Layer</string>
+    <string name="layer_type_stroke">Stroke Layer</string>
+    <string name="layer_stroke_layer">Stroke Layer</string>
     <string name="layer_stamp_visible">Stamp Visible</string>
     <string name="layer_toast_filter_cannot_merge">Filter layers cannot merge down, please rasterize</string>
     <string name="layer_toast_pinch_merged">Pinch: Merged layer down</string>
     <string name="layer_drawer_solo">Solo</string>
     <string name="layer_tag_fill_prefix">Fill · </string>
     <string name="layer_tag_filter_prefix">Filter · </string>
+    <string name="layer_tag_stroke_prefix">Stroke · </string>
+    <string name="layer_stroke_properties">Stroke Properties</string>
+    <string name="layer_stroke_size">Stroke Size</string>
+    <string name="layer_stroke_color">Stroke Color</string>
+    <string name="layer_stroke_pick_color">Pick Color</string>
+    <string name="layer_stroke_color_dialog_title">Select Stroke Color</string>
+    <string name="layer_stroke_position">Position</string>
+    <string name="layer_stroke_pos_outside">Outside</string>
+    <string name="layer_stroke_pos_inside">Inside</string>
+    <string name="layer_stroke_pos_center">Center</string>
+    <string name="layer_stroke_opacity">Stroke Opacity</string>
+    <string name="layer_stroke_rasterize">Rasterize Stroke</string>
+    <string name="layer_stroke_rasterize_desc">Bake stroke effect directly into layer pixels. This is undoable.</string>
+    <string name="layer_stroke_rasterize_confirm">Bake stroke effect into normal pixels?</string>
 
     <!-- Painting: Transform, Liquify & Selection -->
     <string name="transform_move_up">Up</string>
@@ -1210,6 +1234,7 @@
     <string name="guide_symmetry_quadrant">Quadrant</string>
     <string name="guide_symmetry_radial">Radial</string>
     <string name="guide_symmetry_center">Axis Center</string>
+    <string name="guide_symmetry_reset_center">Reset Center</string>
     <string name="guide_grid_size">Grid Size</string>
     <string name="guide_line_opacity">Guide Opacity</string>
 
@@ -1484,6 +1509,8 @@
     <string name="theme_ui_scale_desc">Scale toolbars, top bar, and floating panels around the canvas</string>
     <string name="theme_quick_slider_height_title">Side Slider Panel Length</string>
     <string name="theme_quick_slider_height_desc">Adjust the length of brush size and opacity sliders in the bottom-left panel</string>
+    <string name="theme_left_hand_mode_title">Left-Handed Mode</string>
+    <string name="theme_left_hand_mode_desc">Move the tool rail and sliders to the right side of the screen for left-handed drawing</string>
     <string name="theme_category_effects">Display &amp; Effects</string>
     <string name="theme_blur_title">Background Frosted Glass Effect</string>
     <string name="theme_blur_desc">Enable translucent background Gaussian blur for all panels and toolbars</string>

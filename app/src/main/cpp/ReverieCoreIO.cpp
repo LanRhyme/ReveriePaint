@@ -44,13 +44,34 @@ void ReverieCore::setAuthorProfile(const QString &jsonStr)
     m_authorProfile.copyright = obj.value("copyright").toString();
 }
 
-bool ReverieCore::savePng(const QString &path)
+QImage ReverieCore::renderMergedQImage()
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
-        return false;
+        return QImage();
     }
-    QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+
+    bool hasVisibleStroke = false;
+    for (const LayerEntry &le : m_layers) {
+        if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
+            hasVisibleStroke = true;
+            break;
+        }
+    }
+
+    if (hasVisibleStroke) {
+        KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
+        const QRect fullRect(0, 0, image->width(), image->height());
+        compDev->clear(fullRect);
+        compositeLayersRange(compDev, 0, m_layers.size(), fullRect);
+        return compDev->convertToQImage(nullptr, 0, 0, image->width(), image->height()).copy();
+    }
+    return image->convertToQImage(0, 0, image->width(), image->height(), nullptr).copy();
+}
+
+bool ReverieCore::savePng(const QString &path)
+{
+    QImage img = renderMergedQImage();
     if (img.isNull()) {
         return false;
     }
@@ -84,11 +105,7 @@ bool ReverieCore::savePng(const QString &path)
 
 bool ReverieCore::exportJpg(const QString &path, int quality)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return false;
-    }
-    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    const QImage img = renderMergedQImage();
     if (img.isNull()) {
         return false;
     }
@@ -558,6 +575,12 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+        layerObj["isStrokeLayer"] = e.isStrokeLayer;
+        layerObj["strokeSize"] = e.strokeSize;
+        layerObj["strokeColor"] = static_cast<double>(e.strokeColor);
+        layerObj["strokePosition"] = e.strokePosition;
+        layerObj["strokeOpacity"] = e.strokeOpacity;
+        layerObj["nodeType"] = e.nodeType;
 
         // 动画轨道: 记录关键帧时间列表 (时间轴画廊标识也依赖它)
         KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
@@ -618,7 +641,8 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     writeLayersXml(&xml);
 
     // 预览/缩略图: 只有这一项需要整幅物化 (缩略图要从它缩放), 其余条目全部流式
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    // 取图走 renderMergedQImage() (上游 1.3.3): 有描边图层时合成后才是正确画面
+    const QImage comp = renderMergedQImage();
     const int docW = image->width();
     const int docH = image->height();
 
@@ -755,6 +779,18 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         }
     }
 
+    // Author metadata
+    if (!meta.contains("author") && m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QJsonObject authorObj;
+        authorObj["name"] = m_authorProfile.name;
+        authorObj["nickname"] = m_authorProfile.nickname;
+        authorObj["organization"] = m_authorProfile.organization;
+        authorObj["email"] = m_authorProfile.email;
+        authorObj["website"] = m_authorProfile.website;
+        authorObj["copyright"] = m_authorProfile.copyright;
+        meta["author"] = authorObj;
+    }
+
     QJsonArray layersArray;
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
@@ -771,6 +807,12 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+        layerObj["isStrokeLayer"] = e.isStrokeLayer;
+        layerObj["strokeSize"] = e.strokeSize;
+        layerObj["strokeColor"] = static_cast<double>(e.strokeColor);
+        layerObj["strokePosition"] = e.strokePosition;
+        layerObj["strokeOpacity"] = e.strokeOpacity;
+        layerObj["nodeType"] = e.nodeType;
 
         // 动画轨道: 关键帧时间列表
         KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
@@ -836,7 +878,8 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
     // 常驻 (4096 画幅 15 层 ≈ 960MB), 大项目下这比 PNG 压缩贵得多。
     // 注: convertToQImage 返回的 QImage 已经是独立分配的新图, 旧代码的 .copy() 纯属
     // 多余的一次整幅拷贝 —— 这里连同内存一起省掉。
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    // 取图走 renderMergedQImage() (上游 1.3.3): 有描边图层时它负责合成, 且全流程只此一次物化。
+    const QImage comp = renderMergedQImage();
     const int docW = image->width();
     const int docH = image->height();
 
@@ -1380,14 +1423,60 @@ bool ReverieCore::loadRevp(const QString &path)
     }
     } // !treeLoaded
 
+    m_backgroundColor = Qt::white;
     if (bgLayerVisible) {
-        image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+        image->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
+    } else {
+        image->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
     }
 
     m_document = image.data();
     m_docWidth = w;
     m_docHeight = h;
     syncLayersFromImage();
+
+    // 恢复描边图层属性
+    if (meta.contains("layers")) {
+        const QJsonArray layersMeta = meta["layers"].toArray();
+        for (int i = 0; i < layersMeta.size(); ++i) {
+            QJsonObject layerObj = layersMeta[i].toObject();
+            const bool isStrokeMeta = layerObj["isStrokeLayer"].toBool(false);
+            const QString layerName = layerObj["name"].toString();
+            const bool isStrokeName = layerName.contains(QStringLiteral("描边")) ||
+                                      layerName.contains(QLatin1String("Stroke"), Qt::CaseInsensitive);
+            if (isStrokeMeta || isStrokeName) {
+                int targetIdx = -1;
+                if (i < m_layers.size() && m_layers[i].name == layerName) {
+                    targetIdx = i;
+                } else {
+                    for (int j = 0; j < m_layers.size(); ++j) {
+                        if (m_layers[j].name == layerName) {
+                            targetIdx = j;
+                            break;
+                        }
+                    }
+                    if (targetIdx == -1 && i < m_layers.size()) {
+                        targetIdx = i;
+                    }
+                }
+                if (targetIdx >= 0 && targetIdx < m_layers.size()) {
+                    m_layers[targetIdx].isStrokeLayer = true;
+                    m_layers[targetIdx].nodeType = NodeTypeStroke;
+                    m_layers[targetIdx].strokeSize = layerObj.contains("strokeSize") ? layerObj["strokeSize"].toInt(6) : 6;
+                    m_layers[targetIdx].strokeColor = layerObj.contains("strokeColor") ? static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000)) : 0xFF000000u;
+                    m_layers[targetIdx].strokePosition = layerObj.contains("strokePosition") ? layerObj["strokePosition"].toInt(0) : 0;
+                    m_layers[targetIdx].strokeOpacity = layerObj.contains("strokeOpacity") ? layerObj["strokeOpacity"].toInt(100) : 100;
+                    if (m_layers[targetIdx].node) {
+                        m_layers[targetIdx].node->setProperty("reverie_is_stroke", true);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_size", m_layers[targetIdx].strokeSize);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_color", m_layers[targetIdx].strokeColor);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_pos", m_layers[targetIdx].strokePosition);
+                        m_layers[targetIdx].node->setProperty("reverie_stroke_opacity", m_layers[targetIdx].strokeOpacity);
+                    }
+                }
+            }
+        }
+    }
 
     // ---- 动画恢复: 帧率/播放范围/关键帧通道 (仅 revp 新格式) ----
     // 必须在图层已挂到 image 之后创建通道 (keyframeChannelHasBeenAdded
@@ -1722,7 +1811,7 @@ bool ReverieCore::loadPsd(const QString &path)
         return false;
     }
 
-    image->setDefaultProjectionColor(KoColor(Qt::white, cs));
+    m_backgroundColor = Qt::white;
     m_document = image.data();
     m_docWidth = w;
     m_docHeight = h;
@@ -1939,7 +2028,7 @@ bool ReverieCore::saveKra(const QString &path)
     }
 
     // 3. Merged Preview & mergedimage.png
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    const QImage comp = renderMergedQImage();
     if (!comp.isNull()) {
         if (store->open("preview.png")) {
             QByteArray thumbBytes;

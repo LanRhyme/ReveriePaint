@@ -61,6 +61,16 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushResources(JNIEnv *env, jo
     return n;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_loadPatternResources(JNIEnv *env, jobject, jstring dirPath)
+{
+    if (!dirPath) return 0;
+    const char *p = env->GetStringUTFChars(dirPath, nullptr);
+    const int n = core()->loadPatternResources(QString::fromUtf8(p));
+    env->ReleaseStringUTFChars(dirPath, p);
+    return n;
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_loadBrushPreset(JNIEnv *, jobject, jint index)
 {
@@ -250,6 +260,14 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeStart(JNIEnv *, jobject
     core()->touchStrokeStart(x, y, pressure);
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeStartWithSensors(
+    JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure,
+    jdouble tiltX, jdouble tiltY, jdouble rotation)
+{
+    core()->touchStrokeStart(x, y, pressure, tiltX, tiltY, rotation);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMove(JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure)
 {
@@ -257,9 +275,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMove(JNIEnv *, jobject,
 }
 
 // Batched stroke transport: drains all samples accumulated by the Kotlin UI
-// thread in ONE JNI call. coords layout is [x,y,p] triplets; count is the
-// number of triplets. Returns true when any flush painted new ink, so the
-// caller only schedules a display refresh after real paint work.
+// thread in ONE JNI call. coords layout supports either [x,y,p,tiltX,tiltY,rotation]
+// (stride 6) or [x,y,p] (stride 3) for backward compatibility. count is the sample count.
+// Returns true when any flush painted new ink, so the caller only schedules a display refresh.
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, jobject, jfloatArray coords, jint count)
 {
@@ -267,7 +285,8 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, 
         return JNI_FALSE;
     }
     const jsize len = env->GetArrayLength(coords);
-    if (len < count * 3) {
+    const int stride = (len >= count * 6) ? 6 : 3;
+    if (len < count * stride) {
         return JNI_FALSE;
     }
     jfloat *c = env->GetFloatArrayElements(coords, nullptr);
@@ -275,9 +294,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, 
         return JNI_FALSE;
     }
     bool painted = false;
-    for (int i = 0; i < count; ++i) {
-        if (core()->touchStrokeMove(c[i * 3], c[i * 3 + 1], c[i * 3 + 2])) {
-            painted = true;
+    if (stride == 6) {
+        for (int i = 0; i < count; ++i) {
+            const int idx = i * 6;
+            if (core()->touchStrokeMove(c[idx], c[idx + 1], c[idx + 2], c[idx + 3], c[idx + 4], c[idx + 5])) {
+                painted = true;
+            }
+        }
+    } else {
+        for (int i = 0; i < count; ++i) {
+            if (core()->touchStrokeMove(c[i * 3], c[i * 3 + 1], c[i * 3 + 2])) {
+                painted = true;
+            }
         }
     }
     // Flush any pending stroke samples remaining at the end of the batch

@@ -52,6 +52,11 @@ data class Point2D(val x: Float, val y: Float) {
 }
 
 /**
+ * 对称绘制镜像笔画采样点
+ */
+data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double = 1.0)
+
+/**
  * QuickShape 几何拟合结果
  */
 data class QuickShapeResult(
@@ -76,7 +81,40 @@ data class DrawingGuideConfig(
     val symmetryCenterX: Float = 0.5f, // 归一化画布相对坐标
     val symmetryCenterY: Float = 0.5f,
     val perspectiveVanishingPoints: List<Point2D> = emptyList(), // 1~3 点透视点 (画布物理坐标)
-)
+) {
+    /**
+     * 计算输入点对应的对称镜像分支点列表
+     */
+    fun computeSymmetricPoints(docPt: Point2D, docWidth: Int, docHeight: Int): List<Point2D> {
+        if (mode != GuideMode.SYMMETRY) return emptyList()
+        if (!docPt.x.isFinite() || !docPt.y.isFinite()) return emptyList()
+        val scX = symmetryCenterX.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val scY = symmetryCenterY.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val cx = docWidth * scX
+        val cy = docHeight * scY
+        return when (symmetryType) {
+            SymmetryType.VERTICAL -> listOf(Point2D(2f * cx - docPt.x, docPt.y))
+            SymmetryType.HORIZONTAL -> listOf(Point2D(docPt.x, 2f * cy - docPt.y))
+            SymmetryType.QUADRANT -> listOf(
+                Point2D(2f * cx - docPt.x, docPt.y),
+                Point2D(docPt.x, 2f * cy - docPt.y),
+                Point2D(2f * cx - docPt.x, 2f * cy - docPt.y),
+            )
+            SymmetryType.RADIAL -> {
+                val dx = docPt.x - cx
+                val dy = docPt.y - cy
+                val r = hypot(dx, dy)
+                val baseAngle = atan2(dy, dx)
+                val branches = ArrayList<Point2D>(7)
+                for (k in 1..7) {
+                    val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
+                    branches.add(Point2D(cx + r * cos(ang), cy + r * sin(ang)))
+                }
+                branches
+            }
+        }.filter { it.x.isFinite() && it.y.isFinite() }
+    }
+}
 
 /**
  * 画布内富文本排版配置

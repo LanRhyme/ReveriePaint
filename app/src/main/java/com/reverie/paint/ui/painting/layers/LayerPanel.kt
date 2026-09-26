@@ -432,10 +432,10 @@ fun LayerPanel(
             val offsetY = if (vm.panelPinningEnabled) vm.layerPanelOffset.y else 0f
             cardContent(
                 Modifier
-                    .align(Alignment.TopEnd)
+                    .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
                     .offset {
                         IntOffset(
-                            (baseEndOffsetPx + offsetX).roundToInt(),
+                            ((if (vm.leftHandMode) -baseEndOffsetPx else baseEndOffsetPx) + offsetX).roundToInt(),
                             (baseTopOffsetPx + offsetY).roundToInt(),
                         )
                     }

@@ -103,8 +103,12 @@ fun FillPanel(
     val fillSampleOptions = getFillSampleOptions()
 
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.width(320.dp),
+        ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -115,7 +119,7 @@ fun FillPanel(
                     onSelect = onSampleLayers,
                     active = true,
                 )
-                Box(modifier = Modifier.width(140.dp)) {
+                Box(modifier = Modifier.weight(1f)) {
                     ToolFloatSlider(
                         label = androidx.compose.ui.res.stringResource(R.string.fill_tolerance),
                         valueText = "$tolerance",
@@ -134,7 +138,7 @@ fun FillPanel(
 
             androidx.compose.animation.AnimatedVisibility(visible = propsOpen) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 ) {
                     ToolFloatSlider(
@@ -143,6 +147,7 @@ fun FillPanel(
                         range = -16f..32f,
                         value = expand.toFloat().coerceIn(-16f, 32f),
                         onValue = { onExpand(it.toInt()) },
+                        labelWidth = 48.dp,
                     )
                     ToolFloatSlider(
                         label = androidx.compose.ui.res.stringResource(R.string.fill_feather),
@@ -150,6 +155,7 @@ fun FillPanel(
                         range = 0f..32f,
                         value = feather.toFloat().coerceIn(0f, 32f),
                         onValue = { onFeather(it.toInt()) },
+                        labelWidth = 48.dp,
                     )
                     ToolFloatSlider(
                         label = androidx.compose.ui.res.stringResource(R.string.fill_close_gap),
@@ -157,6 +163,7 @@ fun FillPanel(
                         range = 0f..16f,
                         value = closeGap.toFloat().coerceIn(0f, 16f),
                         onValue = { onCloseGap(it.toInt()) },
+                        labelWidth = 48.dp,
                     )
                 }
             }

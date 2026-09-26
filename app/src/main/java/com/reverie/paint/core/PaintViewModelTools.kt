@@ -68,7 +68,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 
-private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
+internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     if (!brushPressureEnabled) return 1.0
     val p = raw.coerceIn(0.0, 1.0)
     // Stage 1: global stylus curve (settings page; identity for the default
@@ -83,6 +83,11 @@ private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     }
     // Stage 3: brushPressureSize dynamic scaling
     return (1.0 - brushPressureSize) + brushPressureSize * curveP
+}
+
+internal fun PaintViewModel.computeStrokePressureFraction(raw: Double): Float {
+    val effP = computeEffectivePressure(raw).toFloat().coerceIn(0f, 1f)
+    return ReverieCoreBridge.brushPressureFraction(effP)
 }
 
 private fun PaintViewModel.computeDynamicColor(pressure: Double = 1.0): String {
@@ -130,7 +135,16 @@ internal fun PaintViewModel.touchStart(
     x: Float,
     y: Float,
     pressure: Double = 1.0,
+    tiltX: Double = 0.0,
+    tiltY: Double = 0.0,
+    rotation: Double = 0.0,
 ): Boolean {
+    if (x.isNaN() || y.isNaN()) return false
+    val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
+    val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
+    val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
+    val safeRotation = 0.0
+
     onPaintingActivity()
     smoothedStrokeX = x
     smoothedStrokeY = y
@@ -140,7 +154,7 @@ internal fun PaintViewModel.touchStart(
     lastStrokeDeltaY = 0f
     lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
     strokeDistanceAccumulator = 0f
-    val effPressure = computeEffectivePressure(pressure)
+    val effPressure = computeEffectivePressure(safePressure)
     val strokeColor = computeDynamicColor(pressure = effPressure)
     lastDynamicColor = strokeColor
     if (strokeColor != brushColor) {
@@ -233,7 +247,18 @@ internal fun PaintViewModel.touchStart(
             ensureKeyframeForPaintOnRenderThread()
         }
         ReverieCoreBridge.setToolMode(mode)
-        ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
+        try {
+            ReverieCoreBridge.touchStrokeStartWithSensors(
+                x.toDouble(),
+                y.toDouble(),
+                effPressure,
+                safeTiltX,
+                safeTiltY,
+                safeRotation,
+            )
+        } catch (_: UnsatisfiedLinkError) {
+            ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
+        }
     }
     // Pen-down instant ink: if the stylus stays still (or moves slower than
     // the sample-spacing gate), paint the start dot after ~1 frame instead
@@ -251,7 +276,16 @@ internal fun PaintViewModel.touchMove(
     y: Float,
     pressure: Double = 1.0,
     inputEventTimeMs: Long = 0L,
+    tiltX: Double = 0.0,
+    tiltY: Double = 0.0,
+    rotation: Double = 0.0,
 ) {
+    if (x.isNaN() || y.isNaN()) return
+    val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
+    val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
+    val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
+    val safeRotation = 0.0
+
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
     val dt = (now - lastStrokeTimeMs).coerceAtLeast(1)
@@ -263,7 +297,7 @@ internal fun PaintViewModel.touchMove(
     if (dist > 0.5) {
         disarmStrokeStartKick()
     }
-    var effPressure = computeEffectivePressure(pressure)
+    var effPressure = computeEffectivePressure(safePressure)
 
     // Velocity-based brush size dynamics (calligraphy thinning)
     if (brushSpeedSize > 0.0) {
@@ -311,10 +345,10 @@ internal fun PaintViewModel.touchMove(
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
-    queueStrokeMove(effX, effY, effP, inputEventTimeMs)
+    queueStrokeMove(effX, effY, effP, inputEventTimeMs, safeTiltX, safeTiltY, safeRotation)
 }
 
-internal fun PaintViewModel.touchEnd() {
+internal fun PaintViewModel.touchEnd(render: Boolean = true) {
     stopAirbrush()
     disarmStrokeStartKick()
     lastStrokeEndElapsedMs = android.os.SystemClock.elapsedRealtime()
@@ -364,11 +398,17 @@ internal fun PaintViewModel.touchEnd() {
     } else {
         android.util.Log.d("ReverieRec", "touchEnd: recorder NOT recording")
     }
-    runCore(after = {
-        scheduleRender(immediate = true)
-        refreshLayerThumbs()
-    }) {
-        ReverieCoreBridge.touchStrokeEnd()
+    if (render) {
+        runCore(after = {
+            scheduleRender(immediate = true)
+            refreshLayerThumbs()
+        }) {
+            ReverieCoreBridge.touchStrokeEnd()
+        }
+    } else {
+        runCore(render = false) {
+            ReverieCoreBridge.touchStrokeEnd()
+        }
     }
 }
 
@@ -388,6 +428,119 @@ internal fun PaintViewModel.touchCancel() {
         refreshLayerThumbs()
     }) {
         ReverieCoreBridge.touchStrokeCancel()
+    }
+}
+
+internal fun PaintViewModel.replaySymmetricBranches(branches: List<List<SymStrokeSample>>) {
+    if (branches.isEmpty()) return
+    val h = renderHandler ?: return
+
+    totalStrokes += branches.size
+    isModified = true
+    onPaintingActivity()
+
+    // 录制器时间线录制 (与主笔画保持完全一致的图层/笔刷上下文)
+    if (recorder.recording) {
+        val toolMode = when (currentToolId) {
+            "brush" -> 0
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> -1
+        }
+        for (branch in branches) {
+            if (branch.isEmpty()) continue
+            recorder.captureContext(
+                toolMode = toolMode,
+                preset = brushPresetIndex,
+                size = brushSize,
+                opacity = brushOpacity,
+                flow = brushFlow,
+                compositeOp = brushCompositeOp,
+                color = brushColor,
+                layer = currentLayerIndex,
+            )
+            val isPresetCustomized = brushPresetIndex >= 0 && brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams.containsKey(it.name) } == true
+            recorder.captureContextExt(
+                softness = brushSoftness,
+                spacing = brushSpacing,
+                angle = brushAngle,
+                scatter = brushScatter,
+                rotation = brushRotation,
+                ratio = brushRatio,
+                sharpness = brushSharpness,
+                smudgeRate = brushSmudgeRate,
+                smudgeLength = brushSmudgeLength,
+                secondaryColor = brushSecondaryColor,
+                airbrushEnabled = brushAirbrush,
+                airbrushRate = brushAirbrushRate,
+                isCustomized = isPresetCustomized,
+            )
+            recorder.captureBrushFade(brushFade)
+            val start = branch[0]
+            val effStartP = computeEffectivePressure(if (start.pressure.isNaN() || start.pressure < 0.0) 1.0 else start.pressure.coerceIn(0.0, 1.0))
+            recorder.strokeStart(start.x, start.y, effStartP.toFloat())
+            for (i in 1 until branch.size) {
+                val pt = branch[i]
+                val effP = computeEffectivePressure(if (pt.pressure.isNaN() || pt.pressure < 0.0) 1.0 else pt.pressure.coerceIn(0.0, 1.0))
+                recorder.strokeMove(pt.x, pt.y, effP.toFloat())
+            }
+            recorder.strokeEnd()
+        }
+    }
+
+    val mode = when (currentToolId) {
+        "brush" -> 0
+        "eraser" -> 1
+        "smudge" -> 3
+        else -> 0
+    }
+
+    pendingCoreOps.incrementAndGet()
+    h.post {
+        pendingCoreOps.decrementPositive()
+        try {
+            val chunkBuffer = FloatArray(PaintViewModel.STROKE_BATCH_CAPACITY * PaintViewModel.STROKE_SAMPLE_STRIDE)
+            for (branch in branches) {
+                if (branch.isEmpty()) continue
+                val start = branch[0]
+                if (!start.x.isFinite() || !start.y.isFinite()) continue
+                ReverieCoreBridge.setToolMode(mode)
+                val safeStartP = if (start.pressure.isNaN() || start.pressure < 0.0) 1.0 else start.pressure.coerceIn(0.0, 1.0)
+                val effStartP = computeEffectivePressure(safeStartP)
+                ReverieCoreBridge.touchStrokeStart(start.x.toDouble(), start.y.toDouble(), effStartP)
+
+                var sampleIdx = 1
+                while (sampleIdx < branch.size) {
+                    val batchCount = minOf(PaintViewModel.STROKE_BATCH_CAPACITY, branch.size - sampleIdx)
+                    var validCount = 0
+                    for (i in 0 until batchCount) {
+                        val pt = branch[sampleIdx + i]
+                        if (!pt.x.isFinite() || !pt.y.isFinite()) continue
+                        val offset = validCount * PaintViewModel.STROKE_SAMPLE_STRIDE
+                        chunkBuffer[offset] = pt.x
+                        chunkBuffer[offset + 1] = pt.y
+                        val p = if (pt.pressure.isNaN() || pt.pressure < 0.0) 1.0 else pt.pressure.coerceIn(0.0, 1.0)
+                        val effP = computeEffectivePressure(p).toFloat().coerceIn(0f, 1f)
+                        chunkBuffer[offset + 2] = effP
+                        chunkBuffer[offset + 3] = 0f
+                        chunkBuffer[offset + 4] = 0f
+                        chunkBuffer[offset + 5] = 0f
+                        validCount++
+                    }
+                    if (validCount > 0) {
+                        ReverieCoreBridge.touchStrokeMoveBatch(chunkBuffer, validCount)
+                    }
+                    sampleIdx += batchCount
+                }
+
+                ReverieCoreBridge.touchStrokeEnd()
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("ReverieCore", "replaySymmetricBranches error", t)
+        } finally {
+            scheduleRender(immediate = true)
+            mainHandler.post { refreshLayerThumbs() }
+        }
     }
 }
 
@@ -887,6 +1040,9 @@ internal fun PaintViewModel.undo() {
         showActionToast(R.string.toast_undo_lasso_point, R.drawable.ic_undo)
         return
     }
+    stopAirbrush()
+    disarmStrokeStartKick()
+    clearPendingStrokeSamples()
     showActionToast(R.string.toast_undo, R.drawable.ic_undo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
@@ -905,6 +1061,9 @@ internal fun PaintViewModel.undo() {
 }
 
 internal fun PaintViewModel.redo() {
+    stopAirbrush()
+    disarmStrokeStartKick()
+    clearPendingStrokeSamples()
     showActionToast(R.string.toast_redo, R.drawable.ic_redo)
     runCore(after = {
         notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)

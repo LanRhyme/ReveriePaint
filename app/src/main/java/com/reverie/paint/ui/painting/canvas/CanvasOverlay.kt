@@ -1377,40 +1377,51 @@ internal fun CanvasOverlay(
                                     val rayLen = maxOf(docW, docH) * 2.5f
                                     drawLine(guideCol, vpOffset, vpOffset + Offset(cos(angle) * rayLen, sin(angle) * rayLen), strokeWidth = gStroke.width)
                                 }
-                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                                if (vm.drawingGuidePanelOpen) {
+                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
+                                }
+                                drawCircle(Morandi.accent, radius = (if (vm.drawingGuidePanelOpen) 7.dp else 5.dp).toPx() / (zoom.value * fitScale), center = vpOffset)
                                 drawCircle(Color.White, radius = 3.dp.toPx() / (zoom.value * fitScale), center = vpOffset)
                             }
                         }
                         GuideMode.SYMMETRY -> {
-                            val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
-                            val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
-                            val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
-                            val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
-                            val symCol = Morandi.accent.copy(alpha = 0.85f)
-                            val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 1.5.dp.toPx() / (zoom.value * fitScale),
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
-                            )
-                            when (guide.symmetryType) {
-                                SymmetryType.VERTICAL -> {
-                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                            if (guide.assistedDrawing || vm.drawingGuidePanelOpen) {
+                                val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                                val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+                                val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
+                                val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
+                                val symCol = Morandi.accent.copy(alpha = 0.85f)
+                                val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = 1.5.dp.toPx() / (zoom.value * fitScale),
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+                                )
+                                when (guide.symmetryType) {
+                                    SymmetryType.VERTICAL -> {
+                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    }
+                                    SymmetryType.HORIZONTAL -> {
+                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    }
+                                    SymmetryType.QUADRANT -> {
+                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    }
+                                    SymmetryType.RADIAL -> {
+                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        val dMax = maxOf(docW, docH)
+                                        drawLine(symCol, Offset(cx - dMax, cy - dMax), Offset(cx + dMax, cy + dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawLine(symCol, Offset(cx - dMax, cy + dMax), Offset(cx + dMax, cy - dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                    }
                                 }
-                                SymmetryType.HORIZONTAL -> {
-                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                }
-                                SymmetryType.QUADRANT -> {
-                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                }
-                                SymmetryType.RADIAL -> {
-                                    drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                    drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                    val dMax = maxOf(docW, docH)
-                                    drawLine(symCol, Offset(cx - dMax, cy - dMax), Offset(cx + dMax, cy + dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                    drawLine(symCol, Offset(cx - dMax, cy + dMax), Offset(cx + dMax, cy - dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                if (vm.drawingGuidePanelOpen) {
+                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                    drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                    drawCircle(Color.White, radius = 2.5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                } else {
+                                    drawCircle(Morandi.accent, radius = 4.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
                                 }
                             }
-                            drawCircle(Morandi.accent, radius = 5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
                         }
                         else -> Unit
                     }

@@ -112,8 +112,13 @@ fun SettingsPanel(
         Column(
             modifier = Modifier
                 .systemHoverIcon(context)
-                .align(Alignment.TopEnd)
-                .padding(top = 44.dp, end = 8.dp, bottom = 16.dp)
+                .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
+                .padding(
+                    top = 44.dp,
+                    start = if (vm.leftHandMode) 8.dp else 0.dp,
+                    end = if (vm.leftHandMode) 0.dp else 8.dp,
+                    bottom = 16.dp,
+                )
                 .width(340.dp)
                 .heightIn(max = (LocalConfiguration.current.screenHeightDp - 60).coerceAtLeast(240).dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))

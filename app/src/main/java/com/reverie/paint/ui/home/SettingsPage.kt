@@ -92,8 +92,9 @@ fun SettingsPageContent(
     onExit: () -> Unit = {},
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isTabletLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
-            configuration.screenWidthDp >= 600
+            com.reverie.paint.core.DeviceUtils.isTablet(context)
 
     var subPage by remember {
         mutableStateOf(

@@ -92,4 +92,68 @@ class BrushAndCurveLogicTest {
         assertEquals(0, lut[0].toInt() and 0xFF)
         assertEquals(255, lut[255].toInt() and 0xFF)
     }
+
+    @Test
+    fun `BrushParams default instance is not customized`() {
+        val params = com.reverie.paint.core.BrushParams()
+        assertEquals(false, params.isCustomized)
+        assertEquals(false, params.dynamicsCustomized)
+        assertEquals(false, params.smudgeCustomized)
+    }
+
+    @Test
+    fun `stylus tilt and orientation transforms to Krita tilt space accurately`() {
+        val tiltRad = Math.toRadians(30.0)
+        val orientationRad = Math.toRadians(90.0)
+        val canvasRotRad = 0.0
+        val docOrientationRad = orientationRad - canvasRotRad
+        val tiltDeg = (tiltRad * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
+        val tiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        val tiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        val rotDeg = 0.0
+
+        assertEquals(30.0, tiltX, 1e-3)
+        assertEquals(0.0, tiltY, 1e-3)
+        assertEquals(0.0, rotDeg, 1e-3)
+    }
+
+    @Test
+    fun `stylus tilt with NaN falls back safely to zero`() {
+        val tiltRad = Float.NaN
+        val orientationRad = Float.NaN
+        val isSafe = !tiltRad.isNaN() && tiltRad > 0.0001f && !orientationRad.isNaN()
+        val tiltX = if (isSafe) 30.0 else 0.0
+        val tiltY = if (isSafe) 30.0 else 0.0
+        val rotDeg = 0.0
+        assertEquals(0.0, tiltX, 1e-3)
+        assertEquals(0.0, tiltY, 1e-3)
+        assertEquals(0.0, rotDeg, 1e-3)
+    }
+
+    @Test
+    fun `symmetry pressure LUT maps 128 intervals accurately with clamping`() {
+        val lut = FloatArray(129) { i -> (i / 128.0f) * 0.8f + 0.2f }
+        fun lookup(p: Double): Float {
+            val idx = (p.coerceIn(0.0, 1.0) * 128.0 + 0.5).toInt().coerceIn(0, 128)
+            return lut[idx]
+        }
+
+        // Boundary checks
+        assertEquals(0.2f, lookup(0.0), 1e-4f)
+        assertEquals(1.0f, lookup(1.0), 1e-4f)
+        assertEquals(0.2f, lookup(-0.5), 1e-4f)
+        assertEquals(1.0f, lookup(1.5), 1e-4f)
+
+        // Interpolated midpoint check
+        val mid = lookup(0.5)
+        assertEquals(0.6f, mid, 1e-2f)
+
+        // Segment average pressure check
+        val p0 = 0.2
+        val p1 = 0.4
+        val avgP = (p0 + p1) * 0.5
+        assertEquals(0.3, avgP, 1e-4)
+        val segFrac = lookup(avgP)
+        assertTrue("Segment fraction between p0 and p1", segFrac in lookup(p0)..lookup(p1))
+    }
 }

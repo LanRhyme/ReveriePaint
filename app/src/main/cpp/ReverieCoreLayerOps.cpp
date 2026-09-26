@@ -197,6 +197,17 @@ bool ReverieCore::mergeDown(int index)
         return false;
     }
     KisPaintDeviceSP src = layerPaintDeviceFor(e);
+    KisPaintDeviceSP styledDev;
+    if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
+        styledDev = new KisPaintDevice(image->colorSpace());
+        const QRect exact = src->exactBounds();
+        if (!exact.isEmpty()) {
+            const int extra = e.strokeSize + 4;
+            const QRect fullRect = exact.adjusted(-extra, -extra, extra, extra).intersected(QRect(0, 0, image->width(), image->height()));
+            compositeStrokeLayer(styledDev, e, fullRect);
+            src = styledDev;
+        }
+    }
     KisPaintDeviceSP dst = layerPaintDeviceFor(m_layers[ti]);
     if (!src || !dst) {
         return false;
@@ -623,6 +634,10 @@ bool ReverieCore::rasterizeLayer(int index)
     if (!image) return false;
     KisNodeSP node(m_layers[index].node);
     if (!node) return false;
+
+    if (isLayerStroke(index)) {
+        return rasterizeLayerStroke(index);
+    }
 
     if (m_layers[index].nodeType == NodeTypeAdjustment) {
         const int iw = image->width();

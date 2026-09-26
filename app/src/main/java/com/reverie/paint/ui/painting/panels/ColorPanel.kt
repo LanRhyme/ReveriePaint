@@ -252,10 +252,10 @@ fun ColorPanel(
         ) {
             cardContent(
                 Modifier
-                    .align(Alignment.BottomStart)
+                    .align(if (vm.leftHandMode) Alignment.BottomEnd else Alignment.BottomStart)
                     .offset {
                         IntOffset(
-                            (baseStartOffsetPx + vm.colorPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -baseStartOffsetPx else baseStartOffsetPx) + vm.colorPanelOffset.x).roundToInt(),
                             (baseBottomOffsetPx + vm.colorPanelOffset.y).roundToInt(),
                         )
                     }

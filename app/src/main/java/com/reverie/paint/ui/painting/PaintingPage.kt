@@ -218,6 +218,9 @@ fun PaintingPage(
     }
 
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
+    LaunchedEffect(textDialogPos) {
+        vm.isTextInputActive = textDialogPos != null
+    }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var targetFilterLayers by remember { mutableStateOf<List<Int>?>(null) }
@@ -232,6 +235,9 @@ fun PaintingPage(
     var settingsPanelOpen by remember { mutableStateOf(false) }
     var colorPanelOpen by remember { mutableStateOf(false) }
     var drawingGuidePanelOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(drawingGuidePanelOpen) {
+        vm.drawingGuidePanelOpen = drawingGuidePanelOpen
+    }
     // 快捷键打开滤镜页时预选的滤镜分类 id (LayerPanel → FiltersPage)
     var filterCategoryHint by remember { mutableStateOf<String?>(null) }
     var activeFilterSession by remember { mutableStateOf<FilterSession?>(null) }
@@ -259,6 +265,13 @@ fun PaintingPage(
             }
             "rotate_cw" -> {
                 rotation = (rotation + 90f) % 360f
+                flashIndicator()
+            }
+            "reset_view" -> {
+                zoom = 1f
+                rotation = 0f
+                panX = 0f
+                panY = 0f
                 flashIndicator()
             }
             "open_color" -> colorPanelOpen = true
@@ -642,6 +655,7 @@ fun PaintingPage(
                     (layerPanelOpen && !(vm.panelPinningEnabled && vm.isLayerPanelPinned)) ||
                     (colorPanelOpen && !vm.isColorPanelPinned) || settingsPanelOpen || moreToolsOpen ||
                     drawingGuidePanelOpen,
+                drawingGuidePanelOpen = drawingGuidePanelOpen,
                 filterSessionActive = (filterController != null),
                 onFilterSlideDelta = filterController?.let { c -> { delta -> c.onSlideDelta(delta) } },
                 onFilterHoldingCompare = filterController?.let { c -> { holding -> c.updateHoldingCompare(holding) } },
@@ -796,13 +810,17 @@ fun PaintingPage(
                 }
                 colorPanelOpen -> colorPanelOpen = false
                 settingsPanelOpen -> settingsPanelOpen = false
+                drawingGuidePanelOpen -> drawingGuidePanelOpen = false
                 moreToolsOpen -> moreToolsOpen = false
                 selectionMenuOpen -> selectionMenuOpen = false
                 selectionPanelOpen -> selectionPanelOpen = false
                 selectionPropsOpen -> selectionPropsOpen = false
                 tfState.active -> cancelTransform()
                 vm.currentToolId != "brush" -> vm.applyTool("brush")
-                else -> requestExit()
+                else -> {
+                    // 全局禁用返回退出: 在绘画主界面下，忽略系统返回手势/返回键，防止误触退出画布；
+                    // 用户必须点击顶栏的关闭 (X) 按钮退出
+                }
             }
         }
 
@@ -820,7 +838,7 @@ fun PaintingPage(
             if (filterController == null) {
                 // ---- Top bar ----
                 TopBar(
-                    modifier = Modifier.align(Alignment.TopEnd).zIndex(50f),
+                    modifier = Modifier.align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd).zIndex(50f),
                     vm = vm,
                     opacity = vm.uiOpacity,
                     hazeState = hazeState,
@@ -912,7 +930,7 @@ fun PaintingPage(
                 ToolRail(
                     modifier =
                         Modifier
-                            .align(Alignment.TopStart)
+                            .align(if (vm.leftHandMode) Alignment.TopEnd else Alignment.TopStart)
                             .padding(top = 48.dp) // Gap from top bar
                             .fillMaxHeight()
                             .zIndex(50f),
@@ -927,15 +945,32 @@ fun PaintingPage(
                                 moreToolsOpen = false
                             }
                             Tool.SYMMETRY -> {
-                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
-                                drawingGuidePanelOpen = true
-                                vm.applyTool(Tool.BRUSH.id)
+                                if (vm.drawingGuide.mode == com.reverie.paint.model.GuideMode.SYMMETRY) {
+                                    vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.OFF, assistedDrawing = false)
+                                    drawingGuidePanelOpen = false
+                                } else {
+                                    vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
+                                    drawingGuidePanelOpen = true
+                                    vm.applyTool(Tool.BRUSH.id)
+                                }
                                 moreToolsOpen = false
                             }
                             Tool.PERSPECTIVE -> {
-                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
-                                drawingGuidePanelOpen = true
-                                vm.applyTool(Tool.BRUSH.id)
+                                if (vm.drawingGuide.mode == com.reverie.paint.model.GuideMode.PERSPECTIVE) {
+                                    vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.OFF, assistedDrawing = false)
+                                    drawingGuidePanelOpen = false
+                                } else {
+                                    val pts = if (vm.drawingGuide.perspectiveVanishingPoints.isEmpty()) {
+                                        listOf(com.reverie.paint.model.Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
+                                    } else vm.drawingGuide.perspectiveVanishingPoints
+                                    vm.drawingGuide = vm.drawingGuide.copy(
+                                        mode = com.reverie.paint.model.GuideMode.PERSPECTIVE,
+                                        assistedDrawing = true,
+                                        perspectiveVanishingPoints = pts,
+                                    )
+                                    drawingGuidePanelOpen = true
+                                    vm.applyTool(Tool.BRUSH.id)
+                                }
                                 moreToolsOpen = false
                             }
                             else -> {
@@ -1564,14 +1599,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = brushPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
                 Modifier
-                    .align(Alignment.CenterStart)
+                    .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                     .offset {
                         IntOffset(
-                            (brushPanelBaseStartPx + vm.brushPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -brushPanelBaseStartPx else brushPanelBaseStartPx) + vm.brushPanelOffset.x).roundToInt(),
                             vm.brushPanelOffset.y.roundToInt(),
                         )
                     }
@@ -1598,14 +1633,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = layerPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
                 Modifier
-                    .align(Alignment.TopEnd)
+                    .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
                     .offset {
                         IntOffset(
-                            (layerPanelBaseEndPx + vm.layerPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -layerPanelBaseEndPx else layerPanelBaseEndPx) + vm.layerPanelOffset.x).roundToInt(),
                             (layerPanelBaseTopPx + vm.layerPanelOffset.y).roundToInt(),
                         )
                     }
@@ -1637,8 +1672,8 @@ fun PaintingPage(
         }
         AnimatedVisibility(
             visible = settingsPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             SettingsPanel(
@@ -1662,14 +1697,14 @@ fun PaintingPage(
 
         AnimatedVisibility(
             visible = colorPanelOpen,
-            enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { 40 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { 40 },
+            enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.isColorPanelPinned) {
                 Modifier
-                    .align(Alignment.BottomStart)
+                    .align(if (vm.leftHandMode) Alignment.BottomEnd else Alignment.BottomStart)
                     .offset {
                         IntOffset(
-                            (colorPanelBaseStartPx + vm.colorPanelOffset.x).roundToInt(),
+                            ((if (vm.leftHandMode) -colorPanelBaseStartPx else colorPanelBaseStartPx) + vm.colorPanelOffset.x).roundToInt(),
                             (colorPanelBaseBottomPx + vm.colorPanelOffset.y).roundToInt(),
                         )
                     }
@@ -1703,8 +1738,8 @@ fun PaintingPage(
             visible = moreToolsOpen,
             enter =
                 fadeIn(Motion.enterSpring()) +
-                    slideInHorizontally(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
+                    slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { if (vm.leftHandMode) 40 else -40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             AllToolsPanel(
@@ -1717,15 +1752,32 @@ fun PaintingPage(
                             moreToolsOpen = false
                         }
                         Tool.SYMMETRY -> {
-                            vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
-                            drawingGuidePanelOpen = true
-                            vm.applyTool(Tool.BRUSH.id)
+                            if (vm.drawingGuide.mode == com.reverie.paint.model.GuideMode.SYMMETRY) {
+                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.OFF, assistedDrawing = false)
+                                drawingGuidePanelOpen = false
+                            } else {
+                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.SYMMETRY, assistedDrawing = true)
+                                drawingGuidePanelOpen = true
+                                vm.applyTool(Tool.BRUSH.id)
+                            }
                             moreToolsOpen = false
                         }
                         Tool.PERSPECTIVE -> {
-                            vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.PERSPECTIVE, assistedDrawing = true)
-                            drawingGuidePanelOpen = true
-                            vm.applyTool(Tool.BRUSH.id)
+                            if (vm.drawingGuide.mode == com.reverie.paint.model.GuideMode.PERSPECTIVE) {
+                                vm.drawingGuide = vm.drawingGuide.copy(mode = com.reverie.paint.model.GuideMode.OFF, assistedDrawing = false)
+                                drawingGuidePanelOpen = false
+                            } else {
+                                val pts = if (vm.drawingGuide.perspectiveVanishingPoints.isEmpty()) {
+                                    listOf(com.reverie.paint.model.Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
+                                } else vm.drawingGuide.perspectiveVanishingPoints
+                                vm.drawingGuide = vm.drawingGuide.copy(
+                                    mode = com.reverie.paint.model.GuideMode.PERSPECTIVE,
+                                    assistedDrawing = true,
+                                    perspectiveVanishingPoints = pts,
+                                    )
+                                drawingGuidePanelOpen = true
+                                vm.applyTool(Tool.BRUSH.id)
+                            }
                             moreToolsOpen = false
                         }
                         else -> {
@@ -1835,7 +1887,13 @@ fun PaintingPage(
         if (drawingGuidePanelOpen) {
             DrawingGuidePanel(
                 vm = vm,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 12.dp),
+                modifier = Modifier
+                    .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
+                    .padding(
+                        top = 56.dp,
+                        start = if (vm.leftHandMode) 12.dp else 0.dp,
+                        end = if (vm.leftHandMode) 0.dp else 12.dp,
+                    ),
                 onDismiss = { drawingGuidePanelOpen = false },
                 hazeState = hazeState,
             )

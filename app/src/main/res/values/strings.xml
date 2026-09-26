@@ -73,6 +73,14 @@
     <string name="blend_color">颜色</string>
     <string name="blend_value">明度</string>
     <string name="blend_erase">擦除</string>
+    <string name="blend_luminosity_sai">发光 (SAI)</string>
+    <string name="blend_glow">发光</string>
+    <string name="blend_category_basic">基础</string>
+    <string name="blend_category_darken">变暗</string>
+    <string name="blend_category_lighten">变亮</string>
+    <string name="blend_category_contrast">对比</string>
+    <string name="blend_category_inversion">差值</string>
+    <string name="blend_category_component">色彩</string>
     <string name="settings_about_sub">基于 Krita 原生渲染引擎构建</string>
 
     <!-- Home & Gallery -->
@@ -835,12 +843,28 @@
     <string name="layer_more_types">更多图层类型</string>
     <string name="layer_type_fill">填充图层</string>
     <string name="layer_type_filter">滤镜图层</string>
+    <string name="layer_type_stroke">描边图层</string>
+    <string name="layer_stroke_layer">描边图层</string>
     <string name="layer_stamp_visible">盖印可见图层</string>
     <string name="layer_toast_filter_cannot_merge">滤镜图层不支持向下合并，请使用栅格化</string>
     <string name="layer_toast_pinch_merged">双指捏合：已向下合并图层</string>
     <string name="layer_drawer_solo">独显</string>
     <string name="layer_tag_fill_prefix">填充 · </string>
     <string name="layer_tag_filter_prefix">滤镜 · </string>
+    <string name="layer_tag_stroke_prefix">描边 · </string>
+    <string name="layer_stroke_properties">描边属性</string>
+    <string name="layer_stroke_size">描边粗细</string>
+    <string name="layer_stroke_color">描边颜色</string>
+    <string name="layer_stroke_pick_color">选择颜色</string>
+    <string name="layer_stroke_color_dialog_title">选择描边颜色</string>
+    <string name="layer_stroke_position">描边位置</string>
+    <string name="layer_stroke_pos_outside">外部</string>
+    <string name="layer_stroke_pos_inside">内部</string>
+    <string name="layer_stroke_pos_center">居中</string>
+    <string name="layer_stroke_opacity">描边不透明度</string>
+    <string name="layer_stroke_rasterize">栅格化描边</string>
+    <string name="layer_stroke_rasterize_desc">将描边效果固化烘焙至图层像素中，此操作可撤销</string>
+    <string name="layer_stroke_rasterize_confirm">确定将当前图层的描边效果固化为普通像素吗？</string>
 
     <!-- Painting: Transform, Liquify & Selection -->
     <string name="transform_move_up">上移</string>
@@ -1210,6 +1234,7 @@
     <string name="guide_symmetry_quadrant">四象限</string>
     <string name="guide_symmetry_radial">放射状</string>
     <string name="guide_symmetry_center">对称轴中心</string>
+    <string name="guide_symmetry_reset_center">重置居中</string>
     <string name="guide_grid_size">网格尺寸</string>
     <string name="guide_line_opacity">参考线不透明度</string>
 
@@ -1484,6 +1509,8 @@
     <string name="theme_ui_scale_desc">缩放画布四周的工具栏、顶栏及各浮动面板</string>
     <string name="theme_quick_slider_height_title">侧边滑块面板长度</string>
     <string name="theme_quick_slider_height_desc">调整绘画界面左下角笔刷大小与不透明度滑块的长度</string>
+    <string name="theme_left_hand_mode_title">左手作画模式</string>
+    <string name="theme_left_hand_mode_desc">将快捷工具栏与滑块停靠至屏幕右侧，便于左手执笔绘图</string>
     <string name="theme_category_effects">显示与效果</string>
     <string name="theme_blur_title">背景毛玻璃效果</string>
     <string name="theme_blur_desc">为所有面板与工具栏启用半透明背景高斯模糊</string>

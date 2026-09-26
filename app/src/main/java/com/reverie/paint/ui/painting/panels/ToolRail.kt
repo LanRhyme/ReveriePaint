@@ -55,6 +55,7 @@ import androidx.compose.ui.window.Popup
 import com.reverie.paint.R
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.GuideMode
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.liquidLean
 import com.reverie.paint.ui.components.pressScale
@@ -108,8 +109,16 @@ fun ToolRail(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val upperShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
-    val lowerShape = RoundedCornerShape(topEnd = 16.dp)
+    val upperShape = if (vm.leftHandMode) {
+        RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+    } else {
+        RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+    }
+    val lowerShape = if (vm.leftHandMode) {
+        RoundedCornerShape(topStart = 16.dp)
+    } else {
+        RoundedCornerShape(topEnd = 16.dp)
+    }
 
     Box(modifier = modifier.systemHoverIcon(context).fillMaxHeight().width(36.dp)) {
         Column(
@@ -144,7 +153,7 @@ fun ToolRail(
                             t.displayName,
                             modifier = Modifier.fillMaxWidth().height(32.dp),
                             onTap = {
-                                if (t == Tool.REFERENCE) {
+                                if (t == Tool.REFERENCE || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
                                     tooltipTool = null
                                     onTool(t)
                                 } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
@@ -157,17 +166,36 @@ fun ToolRail(
                                     onTool(t)
                                 }
                             },
-                            selected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t,
+                            selected = when (t) {
+                                Tool.REFERENCE -> vm.referenceWindowOpen
+                                Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
+                                Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
+                                else -> tool == t
+                            },
                         )
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
                             val popupAlpha = vm.popupPanelOpacity
+                            val isLeftHand = vm.leftHandMode
                             Popup(
-                                alignment = Alignment.CenterStart,
-                                offset = IntOffset(tooltipOffsetPx, 0)
+                                alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
+                                offset = IntOffset(if (isLeftHand) -tooltipOffsetPx else tooltipOffsetPx, 0),
+                                properties = androidx.compose.ui.window.PopupProperties(
+                                    focusable = false,
+                                    dismissOnBackPress = false,
+                                    dismissOnClickOutside = false,
+                                ),
                             ) {
                                 Box(
                                     modifier = Modifier
+                                        .noRippleClickable {
+                                            tooltipTool = null
+                                            if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                                onOpenBrush()
+                                            } else {
+                                                onTool(t)
+                                            }
+                                        }
                                         .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.panel.copy(alpha = popupAlpha))

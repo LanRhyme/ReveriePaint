@@ -8,12 +8,28 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <cmath>
 
-void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
+void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
-    if (!m_document) {
+    if (!m_document || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return;
     }
+    if (std::isnan(pressure) || !std::isfinite(pressure) || pressure < 0.0) {
+        pressure = 1.0;
+    }
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
+    // Safety cleanup: if a previous stroke was left uncommitted or unclosed, finish it now
+    if (m_strokeBatchOpen) {
+        touchStrokeEnd();
+    }
+    endStrokeBatch();
+    delete m_strokeTxn;
+    m_strokeTxn = nullptr;
+    m_strokeTxnActive = false;
+
     // Defer the undo snapshot to the first real flush: reading every layer
     // here costs a full-document read per touch-down, which is felt as lag
     // when starting strokes. Nothing is painted at down time anyway.
@@ -21,6 +37,9 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     m_drawing = true;
     m_strokeBatchOpen = true;
     m_lastPressure = pressure;
+    m_lastTiltX = tiltX;
+    m_lastTiltY = tiltY;
+    m_lastRotation = rotation;
     m_strokeColor = m_brushColor;
     m_strokeOpacity = m_brushOpacity;
     m_idleKickPainted = false;
@@ -38,21 +57,30 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure)
     StrokeSample s;
     s.imgPos = m_strokeStartImg;
     s.pressure = pressure;
+    s.tiltX = tiltX;
+    s.tiltY = tiltY;
+    s.rotation = rotation;
     m_strokeSamples.append(s);
 }
 
-bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure)
+bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
-    if (!m_drawing || !m_strokeBatchOpen) {
+    if (!m_drawing || !m_strokeBatchOpen || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return false;
     }
+    if (std::isnan(pressure) || !std::isfinite(pressure) || pressure < 0.0) {
+        pressure = 1.0;
+    }
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
     const QPointF imgPos(x, y);
     m_accumulatedStrokeBounds = m_accumulatedStrokeBounds.united(QRectF(x, y, 1.0, 1.0));
     const QPointF lastPos = m_strokeSamples.isEmpty()
             ? m_strokeStartImg
             : m_strokeSamples.last().imgPos;
     if (imgPos != lastPos) {
-        return appendStrokeSample(imgPos, pressure);
+        return appendStrokeSample(imgPos, pressure, tiltX, tiltY, rotation);
     }
     return false;
 }
@@ -85,6 +113,9 @@ void ReverieCore::touchStrokeEnd()
                 StrokeSample s;
                 s.imgPos = m_strokeStartImg;
                 s.pressure = m_lastPressure;
+                s.tiltX = m_lastTiltX;
+                s.tiltY = m_lastTiltY;
+                s.rotation = m_lastRotation;
                 m_strokeSamples.append(s);
             }
         }
@@ -110,6 +141,9 @@ void ReverieCore::touchStrokeEnd()
             }
             KisPainter gc(pl->paintDevice());
             pl->setupTemporaryPainter(&gc);
+            if (gc.compositeOpId().isEmpty()) {
+                gc.setCompositeOpId(QStringLiteral("normal"));
+            }
             if (m_toolMode == ToolEraser) {
                 gc.setCompositeOpId(QStringLiteral("erase"));
             }
@@ -159,7 +193,11 @@ void ReverieCore::touchStrokeEnd()
     // Propagate final dirty region to the layer device once upon stroke completion
     KisPaintDeviceSP endDev = pl ? pl->paintDevice() : currentPaintDevice();
     if (endDev && m_document) {
-        const int margin = qMax(int(m_brushSize * 2.0), 32) + 16;
+        int strokeMargin = 0;
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            strokeMargin = m_layers[m_currentLayer].strokeSize + 4;
+        }
+        const int margin = qMax(int(m_brushSize * 2.0), 32) + 16 + strokeMargin;
         const QRect totalDirty = m_accumulatedStrokeBounds.toAlignedRect().adjusted(
             -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
@@ -232,8 +270,12 @@ void ReverieCore::touchStrokeCancel()
     m_drawing = false;
 }
 
-bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
+bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
+    if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
+    if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
+    if (std::isnan(rotation) || !std::isfinite(rotation)) rotation = 0.0;
+
     QString opId;
     if (m_toolMode == ToolSmudge) {
         opId = QStringLiteral("colorsmudge");
@@ -255,6 +297,9 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
         const qreal dist = QLineF(last, imgPos).length();
         if (dist < spacing) {
             m_strokeSamples.last().pressure = pressure;
+            m_strokeSamples.last().tiltX = tiltX;
+            m_strokeSamples.last().tiltY = tiltY;
+            m_strokeSamples.last().rotation = rotation;
             return false;
         }
     }
@@ -262,6 +307,9 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure)
     StrokeSample s;
     s.imgPos = imgPos;
     s.pressure = pressure;
+    s.tiltX = tiltX;
+    s.tiltY = tiltY;
+    s.rotation = rotation;
     m_strokeSamples.append(s);
     // 144Hz / 120Hz 高刷新率自适应刷新门槛：4ms / 32 样本即可刷新，避免 8ms 跨帧导致 144Hz 跳帧
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -298,10 +346,15 @@ bool ReverieCore::flushStrokeBatch()
     }
     const bool erasing = (m_toolMode == ToolEraser) || ((m_toolMode != ToolSmudge) && isEraserPreset);
 
-    const QString effectiveOp = erasing ? QStringLiteral("erase") :
-        (m_brushPreset && m_brushPreset->settings() && m_brushPreset->settings()->getString("CompositeOp") != QLatin1String("erase")
-            ? m_brushPreset->settings()->getString("CompositeOp")
-            : QStringLiteral("normal"));
+    QString effectiveOp = QStringLiteral("normal");
+    if (erasing) {
+        effectiveOp = QStringLiteral("erase");
+    } else if (m_brushPreset && m_brushPreset->settings()) {
+        effectiveOp = m_brushPreset->settings()->effectivePaintOpCompositeOp();
+        if (effectiveOp.isEmpty() || effectiveOp == QLatin1String("erase")) {
+            effectiveOp = QStringLiteral("normal");
+        }
+    }
 
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(erasing);
@@ -364,7 +417,7 @@ bool ReverieCore::flushStrokeBatch()
     KoColor koBgColor(qBgColor, cs);
 
     // Krita-style: reuse one KisPainter for the whole stroke.
-    if (!m_strokePainter || m_strokeDevice != (void *)target.data()) {
+    if (m_snapshotPending || !m_strokePainter || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
         m_strokeDevice = (void *)target.data();
         // Deferred Krita undo: for direct painting, start transaction on the layer.
@@ -474,12 +527,13 @@ bool ReverieCore::flushStrokeBatch()
             m_strokeCarryCount = 0;
             return false;
         }
-        const QPointF p = m_strokeSamples.first().imgPos;
+        const StrokeSample &first = m_strokeSamples.first();
+        const QPointF p = first.imgPos;
         const qreal pressure =
-            qBound<qreal>(0.0, m_strokeSamples.first().pressure, 1.0);
+            qBound<qreal>(0.0, first.pressure, 1.0);
         if (m_brushPreset && m_strokeOp) {
             // Krita dab for a genuine tap (paintAt = single dab at pos)
-            m_strokeOp->paintAt(KisPaintInformation(p, pressure), m_strokeDistance);
+            m_strokeOp->paintAt(KisPaintInformation(p, pressure, first.tiltX, first.tiltY, first.rotation), m_strokeDistance);
             while (true) {
                 QVector<KisRunnableStrokeJobData *> jobs;
                 auto result = m_strokeOp->doAsynchronousUpdate(jobs);
@@ -500,8 +554,12 @@ bool ReverieCore::flushStrokeBatch()
             painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
         }
         // Propagate the tap dot to the projection immediately
-        const int tw = int(m_brushSize) + 2;
-        const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        int tw = int(m_brushSize) + 2;
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            tw += m_layers[m_currentLayer].strokeSize + 4;
+        }
+        const QRect tr = QRect(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw).intersected(
+            QRect(0, 0, m_docWidth, m_docHeight));
         markRegionDirty(tr);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         // Retain sample 0 as the starting anchor with m_strokeCarryCount = 1
@@ -565,8 +623,8 @@ bool ReverieCore::flushStrokeBatch()
         for (int i = firstNewSegment; i < m_strokeSamples.size(); ++i) {
             const StrokeSample &a = m_strokeSamples[i - 1];
             const StrokeSample &b = m_strokeSamples[i];
-            m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure),
-                                  KisPaintInformation(b.imgPos, b.pressure),
+            m_strokeOp->paintLine(KisPaintInformation(a.imgPos, a.pressure, a.tiltX, a.tiltY, a.rotation),
+                                  KisPaintInformation(b.imgPos, b.pressure, b.tiltX, b.tiltY, b.rotation),
                                   m_strokeDistance);
         }
         while (true) {
@@ -690,6 +748,11 @@ bool ReverieCore::flushStrokeBatch()
     // Hot path: propagate the dirty region for fast synchronous compositing without
     // scheduling background jobs in Krita's thread pool during active stroke
     if (!strokeDirty.isNull()) {
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            const int extra = m_layers[m_currentLayer].strokeSize + 4;
+            strokeDirty = strokeDirty.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_docWidth, m_docHeight));
+        }
         markRegionDirty(strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
@@ -782,6 +845,9 @@ bool ReverieCore::canUndo() const
 
 void ReverieCore::undo()
 {
+    if (m_strokeBatchOpen) {
+        touchStrokeCancel();
+    }
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
     }
@@ -790,6 +856,11 @@ void ReverieCore::undo()
     oldNodes.reserve(m_layers.size());
     for (const auto &e : m_layers) {
         oldNodes.append(e.node);
+    }
+    QVector<bool> oldVisibilities;
+    oldVisibilities.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldVisibilities.append(e.visible);
     }
 
     const KUndo2Command *cmd = m_undoStore->presentCommand();
@@ -804,7 +875,7 @@ void ReverieCore::undo()
     bool structureChanged = isStructuralCmd || oldNodes.size() != m_layers.size();
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node) {
+            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
                 structureChanged = true;
                 break;
             }
@@ -822,6 +893,9 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
+    if (m_strokeBatchOpen) {
+        touchStrokeCancel();
+    }
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
     }
@@ -831,6 +905,11 @@ void ReverieCore::redo()
     for (const auto &e : m_layers) {
         oldNodes.append(e.node);
     }
+    QVector<bool> oldVisibilities;
+    oldVisibilities.reserve(m_layers.size());
+    for (const auto &e : m_layers) {
+        oldVisibilities.append(e.visible);
+    }
 
     m_undoStore->redo();
     --m_redoCount;
@@ -839,7 +918,7 @@ void ReverieCore::redo()
     bool structureChanged = oldNodes.size() != m_layers.size();
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node) {
+            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
                 structureChanged = true;
                 break;
             }
@@ -882,16 +961,25 @@ bool ReverieCore::strokeAirbrushTick()
     if (!m_strokePainter || !m_strokeOp) {
         return false;
     }
-    const QPointF p = m_strokeSamples.isEmpty() ? m_strokeStartImg : m_strokeSamples.last().imgPos;
-    const qreal pressure = m_strokeSamples.isEmpty()
-        ? 1.0
-        : qBound<qreal>(0.0, m_strokeSamples.last().pressure, 1.0);
-    m_strokeOp->paintAt(KisPaintInformation(p, pressure), m_strokeDistance);
-    QVector<KisRunnableStrokeJobData *> jobs;
-    m_strokeOp->doAsynchronousUpdate(jobs);
-    for (auto *j : jobs) {
-        j->run();
-        delete j;
+    const StrokeSample *lastSample = m_strokeSamples.isEmpty() ? nullptr : &m_strokeSamples.last();
+    const QPointF p = lastSample ? lastSample->imgPos : m_strokeStartImg;
+    const qreal pressure = lastSample
+        ? qBound<qreal>(0.0, lastSample->pressure, 1.0)
+        : 1.0;
+    const qreal tiltX = lastSample ? lastSample->tiltX : m_lastTiltX;
+    const qreal tiltY = lastSample ? lastSample->tiltY : m_lastTiltY;
+    const qreal rotation = lastSample ? lastSample->rotation : m_lastRotation;
+    m_strokeOp->paintAt(KisPaintInformation(p, pressure, tiltX, tiltY, rotation), m_strokeDistance);
+    while (true) {
+        QVector<KisRunnableStrokeJobData *> jobs;
+        auto result = m_strokeOp->doAsynchronousUpdate(jobs);
+        for (auto *j : jobs) {
+            j->run();
+            delete j;
+        }
+        if (jobs.isEmpty() || !result.second) {
+            break;
+        }
     }
     KisPaintLayer *pl = (m_currentLayer >= 0 && m_currentLayer < m_layers.size())
         ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
@@ -899,10 +987,22 @@ bool ReverieCore::strokeAirbrushTick()
     KisPaintDeviceSP target =
         (pl && pl->hasTemporaryTarget()) ? pl->temporaryTarget() : currentPaintDevice();
     if (target) {
-        const int tw = qMax(int(m_brushSize * 2.0), 32) + 16;
-        const QRect tr(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
-        target->setDirty(tr);
-        markRegionDirty(tr);
+        const QVector<QRect> exactDirty = m_strokePainter->takeDirtyRegion();
+        QRect tickDirty;
+        for (const QRect &r : exactDirty) {
+            tickDirty = tickDirty.isNull() ? r : tickDirty.united(r);
+        }
+        if (tickDirty.isNull()) {
+            const int tw = qMax(int(m_brushSize * 2.0), 32) + 16;
+            tickDirty = QRect(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw);
+        }
+        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
+            const int extra = m_layers[m_currentLayer].strokeSize + 4;
+            tickDirty = tickDirty.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_docWidth, m_docHeight));
+        }
+        target->setDirty(tickDirty);
+        markRegionDirty(tickDirty);
     }
     return true;
 }

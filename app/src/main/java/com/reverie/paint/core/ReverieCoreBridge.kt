@@ -470,6 +470,8 @@ object ReverieCoreBridge {
 
     external fun loadBrushResources(dirPath: String): Int
 
+    external fun loadPatternResources(dirPath: String): Int
+
     external fun loadBrushPreset(index: Int): Boolean
 
     external fun brushPresetCount(): Int
@@ -528,6 +530,15 @@ object ReverieCoreBridge {
         x: Double,
         y: Double,
         pressure: Double,
+    )
+
+    external fun touchStrokeStartWithSensors(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        tiltX: Double,
+        tiltY: Double,
+        rotation: Double,
     )
 
     external fun touchStrokeMove(
@@ -1029,6 +1040,28 @@ object ReverieCoreBridge {
     external fun removeMask(layerIndex: Int): Boolean
 
     external fun rasterizeLayer(index: Int): Boolean
+
+    external fun layerIsStroke(index: Int): Boolean
+
+    external fun setLayerStrokeParams(
+        index: Int,
+        size: Int,
+        color: Int,
+        position: Int,
+        opacity: Int,
+    ): Boolean
+
+    external fun setLayerStrokeParamsDirect(
+        index: Int,
+        size: Int,
+        color: Int,
+        position: Int,
+        opacity: Int,
+    ): Boolean
+
+    external fun getLayerStrokeParams(index: Int): IntArray?
+
+    external fun rasterizeLayerStroke(index: Int): Boolean
 
     external fun flattenGroup(index: Int): Boolean
 

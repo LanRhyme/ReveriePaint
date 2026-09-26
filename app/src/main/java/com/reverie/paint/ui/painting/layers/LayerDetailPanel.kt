@@ -309,6 +309,7 @@ internal fun LayerDetailPage(
 
         val isFillLayer = (layer?.nodeType == 2) || name.contains("填充") || name.contains("Fill", ignoreCase = true)
         val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜") || name.contains("Filter", ignoreCase = true)
+        val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6) || name.contains("描边") || name.contains("Stroke", ignoreCase = true)
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }
@@ -405,6 +406,379 @@ internal fun LayerDetailPage(
                     tint = Morandi.icon,
                     modifier = Modifier.size(14.dp),
                 )
+            }
+        }
+
+        if (isStrokeLayer) {
+            var showStrokeColorPicker by remember { mutableStateOf(false) }
+            var showRasterizeConfirm by remember { mutableStateOf(false) }
+            val currentStrokeSize = layer?.strokeSize ?: 6
+            val currentStrokeColor = layer?.strokeColor ?: 0xFF000000.toInt()
+            val currentStrokePos = layer?.strokePosition ?: 0
+            val currentStrokeOpacity = layer?.strokeOpacity ?: 100
+
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panelHi)
+                        .glassBorder(RoundedCornerShape(12.dp))
+                        .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_shape_stroke),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            stringResource(R.string.layer_stroke_properties),
+                            color = Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                // Stroke live state
+                var localStrokeSizeFraction by remember(index, currentStrokeSize) {
+                    mutableFloatStateOf(((currentStrokeSize - 1) / 99f).coerceIn(0f, 1f))
+                }
+                var lastStrokeSizeNs by remember(index) { mutableLongStateOf(0L) }
+                val displayedSize = (1 + localStrokeSizeFraction * 99f).roundToInt()
+
+                var localStrokeOpacityFraction by remember(index, currentStrokeOpacity) {
+                    mutableFloatStateOf((currentStrokeOpacity / 100f).coerceIn(0f, 1f))
+                }
+                var lastStrokeOpacityNs by remember(index) { mutableLongStateOf(0L) }
+                val displayedOpacity = (localStrokeOpacityFraction * 100f).roundToInt()
+
+                val effectiveSize = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
+                val effectiveOpacity = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
+
+                // 1. Stroke Size Slider
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.layer_stroke_size),
+                            color = Morandi.subText,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            "${displayedSize} px",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    ReSlider(
+                        value = localStrokeSizeFraction,
+                        onValue = {
+                            localStrokeSizeFraction = it
+                            val now = System.nanoTime()
+                            if (now - lastStrokeSizeNs > 50_000_000L) {
+                                lastStrokeSizeNs = now
+                                val sz = (1 + it * 99f).roundToInt().coerceIn(1, 100)
+                                vm.updateLayerStrokeParams(
+                                    index,
+                                    sz,
+                                    currentStrokeColor,
+                                    currentStrokePos,
+                                    effectiveOpacity,
+                                    preview = true,
+                                )
+                            }
+                        },
+                        onRelease = {
+                            val sz = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
+                            vm.updateLayerStrokeParams(
+                                index,
+                                sz,
+                                currentStrokeColor,
+                                currentStrokePos,
+                                effectiveOpacity,
+                                preview = false,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // 2. Stroke Color Picker
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Morandi.panel)
+                            .noRippleClickable { showStrokeColorPicker = true }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(22.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(Color(currentStrokeColor))
+                                    .border(1.dp, Morandi.border, RoundedCornerShape(5.dp)),
+                        )
+                        Text(
+                            stringResource(R.string.layer_stroke_color),
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            String.format("#%06X", 0xFFFFFF and currentStrokeColor),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        Icon(
+                            painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = Morandi.subText,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+
+                if (showStrokeColorPicker) {
+                    CompactColorPickerPopup(
+                        title = stringResource(R.string.layer_stroke_color_dialog_title),
+                        initialColor = Color(currentStrokeColor),
+                        onColorSelected = { col ->
+                            val cInt =
+                                android.graphics.Color.argb(
+                                    255,
+                                    (col.red * 255).toInt(),
+                                    (col.green * 255).toInt(),
+                                    (col.blue * 255).toInt(),
+                                )
+                            vm.updateLayerStrokeParams(
+                                index,
+                                effectiveSize,
+                                cInt,
+                                currentStrokePos,
+                                effectiveOpacity,
+                            )
+                        },
+                        onDismiss = { showStrokeColorPicker = false },
+                    )
+                }
+
+                // 3. Stroke Position (Outside / Inside / Center)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.layer_stroke_position),
+                        color = Morandi.subText,
+                        fontSize = 12.sp,
+                    )
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panel)
+                                .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        val positions = listOf(
+                            0 to stringResource(R.string.layer_stroke_pos_outside),
+                            1 to stringResource(R.string.layer_stroke_pos_inside),
+                            2 to stringResource(R.string.layer_stroke_pos_center),
+                        )
+                        positions.forEach { (pos, label) ->
+                            val isSelected = currentStrokePos == pos
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) Morandi.accent else Color.Transparent)
+                                        .noRippleClickable {
+                                            if (!isSelected) {
+                                                vm.updateLayerStrokeParams(
+                                                    index,
+                                                    effectiveSize,
+                                                    currentStrokeColor,
+                                                    pos,
+                                                    effectiveOpacity,
+                                                )
+                                            }
+                                        }
+                                        .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    label,
+                                    color = if (isSelected) Color.White else Morandi.text,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Stroke Opacity Slider
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.layer_stroke_opacity),
+                            color = Morandi.subText,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            "${displayedOpacity}%",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    ReSlider(
+                        value = localStrokeOpacityFraction,
+                        onValue = {
+                            localStrokeOpacityFraction = it
+                            val now = System.nanoTime()
+                            if (now - lastStrokeOpacityNs > 50_000_000L) {
+                                lastStrokeOpacityNs = now
+                                val op = (it * 100f).roundToInt().coerceIn(0, 100)
+                                vm.updateLayerStrokeParams(
+                                    index,
+                                    effectiveSize,
+                                    currentStrokeColor,
+                                    currentStrokePos,
+                                    op,
+                                    preview = true,
+                                )
+                            }
+                        },
+                        onRelease = {
+                            val op = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
+                            vm.updateLayerStrokeParams(
+                                index,
+                                effectiveSize,
+                                currentStrokeColor,
+                                currentStrokePos,
+                                op,
+                                preview = false,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // 5. Rasterize Stroke Button
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Morandi.panel)
+                            .noRippleClickable { showRasterizeConfirm = true }
+                            .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.layer_stroke_rasterize),
+                        color = Morandi.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
+                if (showRasterizeConfirm) {
+                    Dialog(onDismissRequest = { showRasterizeConfirm = false }) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Morandi.panel)
+                                    .glassBorder(RoundedCornerShape(14.dp))
+                                    .padding(18.dp),
+                        ) {
+                            Column {
+                                Text(
+                                    stringResource(R.string.layer_stroke_rasterize),
+                                    color = Morandi.text,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    stringResource(R.string.layer_stroke_rasterize_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                )
+                                Spacer(Modifier.height(18.dp))
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Morandi.panelHi)
+                                                .clickable { showRasterizeConfirm = false }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(stringResource(R.string.common_cancel), color = Morandi.text, fontSize = 13.sp)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Morandi.accent)
+                                                .clickable {
+                                                    showRasterizeConfirm = false
+                                                    vm.rasterizeCurrentLayerStroke(index)
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.layer_rasterize_confirm),
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -834,6 +1208,38 @@ private fun OpToggle(
 // Blend modes sub page
 // ---------------------------------------------------------------------------
 
+private data class BlendModeCategory(
+    val titleRes: Int,
+    val opIds: List<String>,
+)
+
+private val blendModeCategories = listOf(
+    BlendModeCategory(
+        R.string.blend_category_basic,
+        listOf("normal", "erase"),
+    ),
+    BlendModeCategory(
+        R.string.blend_category_darken,
+        listOf("darken", "multiply", "burn", "linear_burn"),
+    ),
+    BlendModeCategory(
+        R.string.blend_category_lighten,
+        listOf("lighten", "screen", "dodge", "linear_dodge", "add", "luminosity_sai", "glow"),
+    ),
+    BlendModeCategory(
+        R.string.blend_category_contrast,
+        listOf("overlay", "soft_light", "hard_light", "vivid_light", "pin_light", "linear light"),
+    ),
+    BlendModeCategory(
+        R.string.blend_category_inversion,
+        listOf("difference", "exclusion", "subtract", "divide"),
+    ),
+    BlendModeCategory(
+        R.string.blend_category_component,
+        listOf("hue", "saturation", "color", "value"),
+    ),
+)
+
 @Composable
 internal fun BlendModesPage(
     vm: PaintViewModel,
@@ -842,40 +1248,36 @@ internal fun BlendModesPage(
 ) {
     val current = vm.layers.firstOrNull { it.index == index }?.blendMode
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val itemH = 40.dp
-    val wheelH = 240.dp
-    val padV = (wheelH - itemH) / 2
-        // 混合模式图标（语义映射到现有 drawable，便于扫视区分）
-        // GIMP ell/blending-mode-icons 分支转换的白描边专属图标（GPL 兼容）
-        val modeIcons = mapOf(
-            "normal" to R.drawable.ic_blend_normal,
-            "multiply" to R.drawable.ic_blend_multiply,
-            "screen" to R.drawable.ic_blend_screen,
-            "overlay" to R.drawable.ic_blend_hardlight,
-            "darken" to R.drawable.ic_blend_darken,
-            "lighten" to R.drawable.ic_blend_lighten,
-            "dodge" to R.drawable.ic_blend_dodge,
-            "burn" to R.drawable.ic_blend_burn,
-            "linear_burn" to R.drawable.ic_blend_darken,
-            "linear_dodge" to R.drawable.ic_blend_add,
-            "difference" to R.drawable.ic_blend_difference,
-            "add" to R.drawable.ic_blend_add,
-            "subtract" to R.drawable.ic_blend_subtract,
-            "divide" to R.drawable.ic_blend_divide,
-            "hard_light" to R.drawable.ic_blend_hardlight,
-            "soft_light" to R.drawable.ic_blend_softlight,
-            "vivid_light" to R.drawable.ic_blend_dodge,
-            "pin_light" to R.drawable.ic_blend_burn,
-            "linear light" to R.drawable.ic_blend_softlight,
-            "exclusion" to R.drawable.ic_blend_difference,
-            "hue" to R.drawable.ic_blend_hue,
-            "saturation" to R.drawable.ic_blend_saturation,
-            "color" to R.drawable.ic_blend_color,
-            "value" to R.drawable.ic_blend_value,
-        )
-        fun iconFor(opId: String) = modeIcons[opId] ?: R.drawable.ic_blend_normal
+    val listHeight = 320.dp
+    val modeIcons = mapOf(
+        "normal" to R.drawable.ic_blend_normal,
+        "multiply" to R.drawable.ic_blend_multiply,
+        "screen" to R.drawable.ic_blend_screen,
+        "overlay" to R.drawable.ic_blend_hardlight,
+        "darken" to R.drawable.ic_blend_darken,
+        "lighten" to R.drawable.ic_blend_lighten,
+        "dodge" to R.drawable.ic_blend_dodge,
+        "burn" to R.drawable.ic_blend_burn,
+        "linear_burn" to R.drawable.ic_blend_darken,
+        "linear_dodge" to R.drawable.ic_blend_add,
+        "difference" to R.drawable.ic_blend_difference,
+        "add" to R.drawable.ic_blend_add,
+        "subtract" to R.drawable.ic_blend_subtract,
+        "divide" to R.drawable.ic_blend_divide,
+        "hard_light" to R.drawable.ic_blend_hardlight,
+        "soft_light" to R.drawable.ic_blend_softlight,
+        "vivid_light" to R.drawable.ic_blend_dodge,
+        "pin_light" to R.drawable.ic_blend_burn,
+        "linear light" to R.drawable.ic_blend_softlight,
+        "exclusion" to R.drawable.ic_blend_difference,
+        "hue" to R.drawable.ic_blend_hue,
+        "saturation" to R.drawable.ic_blend_saturation,
+        "color" to R.drawable.ic_blend_color,
+        "value" to R.drawable.ic_blend_value,
+        "luminosity_sai" to R.drawable.ic_blend_dodge,
+        "glow" to R.drawable.ic_blend_add,
+    )
+    fun iconFor(opId: String) = modeIcons[opId] ?: R.drawable.ic_blend_normal
 
     fun applyMode(opId: String) {
         if (opId != vm.layers.firstOrNull { it.index == index }?.blendMode) {
@@ -884,39 +1286,25 @@ internal fun BlendModesPage(
     }
 
     val haptic = LocalHapticFeedback.current
-    var lastCenterIdx by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(listState) {
-        // 换挡轻震（不应用模式）
-        launch {
-            snapshotFlow {
-                val info = listState.layoutInfo
-                val mid = (info.viewportStartOffset + info.viewportEndOffset) / 2
-                info.visibleItemsInfo
-                    .minByOrNull { abs((it.offset + it.size / 2) - mid) }?.index ?: -1
-            }
-                .distinctUntilChanged()
-                .collect { idx ->
-                    if (idx != -1 && idx != lastCenterIdx) {
-                        lastCenterIdx = idx
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                }
-        }
-        // 滚动停止才应用当前中心项——快速甩动的中间模式不会被选中
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collect { scrolling ->
-                if (!scrolling && lastCenterIdx != -1) {
-                    vm.blendModes.getOrNull(lastCenterIdx)?.let { applyMode(it.first) }
-                }
-            }
-    }
-
-    // 打开时把当前模式滚到定位条正中（contentPadding 已保证首尾可居中）
+    // 打开时把当前模式滚动到可见区域
     LaunchedEffect(Unit) {
-        val curIdx = vm.blendModes.indexOfFirst { it.first == current }
-        if (curIdx > 0) listState.scrollToItem(curIdx)
+        var targetIndex = 0
+        var found = false
+        for ((catIdx, cat) in blendModeCategories.withIndex()) {
+            if (catIdx > 0) targetIndex++ // 分隔线
+            targetIndex++ // 标题
+            val idx = cat.opIds.indexOf(current)
+            if (idx != -1) {
+                targetIndex += idx
+                found = true
+                break
+            }
+            targetIndex += cat.opIds.size
+        }
+        if (found && targetIndex > 2) {
+            listState.scrollToItem(maxOf(0, targetIndex - 2))
+        }
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -943,88 +1331,86 @@ internal fun BlendModesPage(
             Text(stringResource(R.string.layer_blend_mode), color = Morandi.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(wheelH)
-                .clip(RoundedCornerShape(10.dp))
-                // 顶部/底部渐隐（iOS 滚轮签名效果）
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    val f = ((itemH.toPx() * 1.1f) / size.height).coerceIn(0f, 0.45f)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            0f to Color.Transparent,
-                            f to Color.Black,
-                            (1f - f) to Color.Black,
-                            1f to Color.Transparent,
-                        ),
-                        blendMode = BlendMode.DstIn,
-                    )
-                },
+                .height(listHeight)
+                .clip(RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            // 中央定位托盘：中性胶囊底
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp)
-                    .height(itemH)
-                    .background(Morandi.panelHi.copy(alpha = 0.78f), RoundedCornerShape(10.dp)),
-            )
             androidx.compose.foundation.lazy.LazyColumn(
                 state = listState,
-                flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(listState),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = padV),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 6.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(vm.blendModes) { itemIdx, (opId, _) ->
-                    val name = stringResource(blendModeResId(opId))
-                    val isSelected = opId == current
-                    val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                    val t by remember(itemIdx) {
-                        androidx.compose.runtime.derivedStateOf {
-                            val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == itemIdx }
-                            val mid = (listState.layoutInfo.viewportStartOffset + listState.layoutInfo.viewportEndOffset) / 2
-                            val dist = if (info != null) abs((info.offset + info.size / 2) - mid).toFloat() else Float.MAX_VALUE
-                            val maxDist = with(density) { (itemH * 2f).toPx() }
-                            (1f - dist / maxDist).coerceIn(0f, 1f) // 1=正中
+                blendModeCategories.forEachIndexed { catIdx, cat ->
+                    if (catIdx > 0) {
+                        item(key = "div_${cat.titleRes}") {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                                    .height(0.8.dp)
+                                    .background(Morandi.border.copy(alpha = 0.5f))
+                            )
                         }
                     }
-                    Box(
-                        modifier =
-                            Modifier
+                    item(key = "head_${cat.titleRes}") {
+                        Text(
+                            text = stringResource(cat.titleRes),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Morandi.subText.copy(alpha = 0.65f),
+                            letterSpacing = 0.5.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+                    }
+                    items(cat.opIds, key = { it }) { opId ->
+                        val name = stringResource(blendModeResId(opId))
+                        val isSelected = opId == current
+                        val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
+                        Box(
+                            modifier = Modifier
                                 .fillMaxWidth()
-                                .height(itemH)
-                                .pressScale(rowSource, pressedScale = 0.97f)
+                                .padding(horizontal = 8.dp, vertical = 1.5.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
+                                .pressScale(rowSource, pressedScale = 0.98f)
                                 .clickable(interactionSource = rowSource, indication = null) {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     applyMode(opId)
-                                    scope.launch {
-                                        listState.animateScrollToItem(
-                                            vm.blendModes.indexOfFirst { it.first == opId },
-                                        )
-                                    }
-                                },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
                         ) {
-                            Icon(
-                                painterResource(iconFor(opId)),
-                                contentDescription = null,
-                                tint = if (isSelected) Morandi.accent else Morandi.text.copy(alpha = lerp(0.35f, 0.9f, t)),
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(9.dp))
-                            Text(
-                                name,
-                                color = if (isSelected) Morandi.accent else Morandi.subText.copy(alpha = lerp(0.45f, 1f, t)),
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Icon(
+                                    painterResource(iconFor(opId)),
+                                    contentDescription = null,
+                                    tint = if (isSelected) Morandi.accent else Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    name,
+                                    color = if (isSelected) Morandi.accent else Morandi.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                                Spacer(Modifier.weight(1f))
+                                if (isSelected) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_check),
+                                        contentDescription = null,
+                                        tint = Morandi.accent,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1063,5 +1449,7 @@ internal fun blendModeResId(opId: String): Int = when (opId) {
     "color" -> R.string.blend_color
     "value" -> R.string.blend_value
     "erase" -> R.string.blend_erase
+    "luminosity_sai" -> R.string.blend_luminosity_sai
+    "glow" -> R.string.blend_glow
     else -> R.string.blend_normal
 }

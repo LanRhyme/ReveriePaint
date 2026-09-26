@@ -210,6 +210,55 @@ class CanvasTouchView(context: Context) : View(context) {
         color = android.graphics.Color.argb(255, 255, 255, 255)
     }
 
+    // 动态辅助吸附导引线 Paint
+    private val dynamicGuideGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f * density
+        color = android.graphics.Color.argb(70, 0x5A, 0x6E, 0x8A) // Morandi misty blue glow
+    }
+    private val dynamicGuideLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.4f * density
+        color = android.graphics.Color.argb(220, 0x78, 0x88, 0x9F) // Morandi accentHi crisp line
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f * density, 4f * density), 0f)
+    }
+    private val vpTargetGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f * density
+        color = android.graphics.Color.argb(140, 0x5A, 0x6E, 0x8A)
+    }
+    private val vpTargetCorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1.8f * density
+        color = android.graphics.Color.argb(255, 0x78, 0x88, 0x9F)
+    }
+    private val vpTargetCenterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = android.graphics.Color.WHITE
+    }
+
+    var drawingGuidePanelOpen = false
+    private var currentStrokeDocPos = Offset.Zero
+    private var isSymmetryUndoMacroOpen = false
+
+    private fun safeBeginSymmetryUndoMacro() {
+        if (!isSymmetryUndoMacroOpen) {
+            vm?.runCore(render = false) {
+                ReverieCoreBridge.beginUndoMacro("Symmetry Stroke")
+            }
+            isSymmetryUndoMacroOpen = true
+        }
+    }
+
+    private fun safeEndSymmetryUndoMacro() {
+        if (isSymmetryUndoMacroOpen) {
+            vm?.runCore(render = false) {
+                ReverieCoreBridge.endUndoMacro()
+            }
+            isSymmetryUndoMacroOpen = false
+        }
+    }
+
     // 绘制状态 (手写笔专属)
     private var strokeStarted = false
     private var firstDocPos = Offset.Zero
@@ -248,6 +297,56 @@ class CanvasTouchView(context: Context) : View(context) {
     private val lqPointScratch = FloatArray(2)
     private val lqInvalidateRunnable = Runnable { scheduleLiquifyInvalidate() }
     private var smoothedPressure = 0.8f
+
+    // 手写笔传感器状态 (倾斜角与朝向)
+    private var touchTiltX: Double = 0.0
+    private var touchTiltY: Double = 0.0
+    private var touchRotation: Double = 0.0
+
+    private fun updateStylusSensors(
+        event: MotionEvent,
+        pointerIndex: Int,
+        isStylus: Boolean,
+        historyPos: Int = -1,
+    ) {
+        if (!isStylus) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
+        val tiltRad = if (historyPos >= 0) {
+            event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, historyPos)
+        } else {
+            event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
+        }
+        if (tiltRad.isNaN() || tiltRad <= 0.0001f) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
+        val orientationRad = if (historyPos >= 0) {
+            event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex, historyPos)
+        } else {
+            event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
+        }
+        if (orientationRad.isNaN()) {
+            touchTiltX = 0.0
+            touchTiltY = 0.0
+            touchRotation = 0.0
+            return
+        }
+        val canvasRotRad = Math.toRadians(canvasRotation.toDouble())
+        val docOrientationRad = orientationRad.toDouble() - canvasRotRad
+        val tiltDeg = (tiltRad.toDouble() * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
+        touchTiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        touchTiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
+        // Android 手写笔（OnePlus Stylo、Apple Pencil、S-Pen 等）均无笔轴自转（Barrel Rotation）传感器；
+        // AXIS_ORIENTATION 代表的是笔身在屏幕上的方位角（指向方向），绝不能作为 Krita 笔轴自转注入，
+        // 否则将导致带自转或动态朝向计算的笔刷在画弧线、折线时 dab 剧烈扭曲撕裂。此处固定为 0.0。
+        touchRotation = 0.0
+    }
 
     // 文本交互状态
     private var activeTextHandle: Int = -1
@@ -333,6 +432,31 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // 空格键长按临时抓手平移状态 (Spacebar Hold-to-Pan)
+    private var spacePanStartPos = Offset.Zero
+    private var spacePanInitialPan = Offset.Zero
+    private var isSpaceDragging = false
+
+    fun setSpacePanning(active: Boolean) {
+        if (!active) {
+            isSpaceDragging = false
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val targetIcon = if (active) {
+                if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
+            } else {
+                val tool = this.tool
+                val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
+                    (vm?.cursorStyleMode != 4)
+                if (hideCursor && systemNullPointer != null) systemNullPointer else systemDefaultPointer
+            }
+            if (targetIcon != null && pointerIcon != targetIcon) {
+                pointerIcon = targetIcon
+            }
+        }
+        invalidate()
+    }
+
     // 画布平滑复位动画 (Procreate Smooth Reset Animation)
     private var fitAnimator: android.animation.ValueAnimator? = null
 
@@ -402,8 +526,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
     // 镜像笔迹采样缓冲: 每个分支一段扁平的 [x, y, pressure] 三元组, 容量按需翻倍。
-    // 旧实现每个采样点 new 一个 SymStrokeSample 再 add 进 MutableList —— 对称绘制
-    // 最多 7 个分支, 等于每帧几十次对象分配加列表扩容; 现在整条笔迹零分配。
+    // 上游 1.3.3 用 List<List<SymStrokeSample>> (每个采样点一个对象); 这里保留本分支的
+    // 零分配版 —— 对称绘制最多 8 个分支, 逐点 new 等于每帧几十次分配加列表扩容。
     private val mirroredSamples = ArrayList<FloatArray>(MAX_MIRROR_BRANCHES)
     private val mirroredSizes = IntArray(MAX_MIRROR_BRANCHES)
 
@@ -456,6 +580,44 @@ class CanvasTouchView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+    private val mirroredPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    // 对称实时绘制笔迹压感查找表 (128阶，热路径零分配与零 JNI 锁开销)
+    private val symmetryPressureLut = FloatArray(129)
+    private var lastLutPresetIndex = -999
+    private var lastLutCurve = -1
+    private var lastLutEnabled = false
+    private var lastLutPressureSize = -1.0
+    private var lastLutGlobalCurvePoints: List<Offset>? = null
+
+    private fun updateSymmetryPressureLut(v: PaintViewModel) {
+        val currentPreset = v.brushPresetIndex
+        val currentCurve = v.brushPressureCurve
+        val currentEnabled = v.brushPressureEnabled
+        val currentSize = v.brushPressureSize
+        val currentGlobal = v.pressureControlPoints
+
+        if (currentPreset == lastLutPresetIndex &&
+            currentCurve == lastLutCurve &&
+            currentEnabled == lastLutEnabled &&
+            currentSize == lastLutPressureSize &&
+            currentGlobal === lastLutGlobalCurvePoints
+        ) {
+            return
+        }
+
+        lastLutPresetIndex = currentPreset
+        lastLutCurve = currentCurve
+        lastLutEnabled = currentEnabled
+        lastLutPressureSize = currentSize
+        lastLutGlobalCurvePoints = currentGlobal
+
+        for (k in 0..128) {
+            val frac = v.computeStrokePressureFraction(k / 128.0)
+            symmetryPressureLut[k] = frac.coerceIn(0.01f, 1f)
+        }
+    }
 
     // ---- 视图变换缓存与热路径零分配暂存区 (AGENTS.md §4) ----
     // 绘制覆盖层时每个点都要做一次 doc->screen, 旧实现每次现算三角函数; 缓存
@@ -478,31 +640,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
         val v = vm ?: return emptyList()
-        val guide = v.drawingGuide
-        if (guide.mode != GuideMode.SYMMETRY) return emptyList()
-        val cx = v.docWidth * guide.symmetryCenterX
-        val cy = v.docHeight * guide.symmetryCenterY
-        return when (guide.symmetryType) {
-            SymmetryType.VERTICAL -> listOf(Point2D(2f * cx - docPt.x, docPt.y))
-            SymmetryType.HORIZONTAL -> listOf(Point2D(docPt.x, 2f * cy - docPt.y))
-            SymmetryType.QUADRANT -> listOf(
-                Point2D(2f * cx - docPt.x, docPt.y),
-                Point2D(docPt.x, 2f * cy - docPt.y),
-                Point2D(2f * cx - docPt.x, 2f * cy - docPt.y),
-            )
-            SymmetryType.RADIAL -> {
-                val dx = docPt.x - cx
-                val dy = docPt.y - cy
-                val r = hypot(dx, dy)
-                val baseAngle = atan2(dy, dx)
-                val branches = ArrayList<Point2D>(7)
-                for (k in 1..7) {
-                    val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
-                    branches.add(Point2D(cx + r * cos(ang), cy + r * sin(ang)))
-                }
-                branches
-            }
-        }
+        return v.drawingGuide.computeSymmetricPoints(docPt, v.docWidth, v.docHeight)
     }
 
     private fun applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
@@ -571,6 +709,41 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private var draggingGuideHandleIndex = -1 // -1: none, 100: symmetry center, 0..N: VP index
 
+    private fun checkHitGuideHandle(screenPos: Offset): Boolean {
+        val v = vm ?: return false
+        if (!drawingGuidePanelOpen && !v.drawingGuidePanelOpen) return false
+        val guide = v.drawingGuide
+        if (guide.mode == GuideMode.PERSPECTIVE) {
+            val vps = guide.perspectiveVanishingPoints
+            var hitVp = -1
+            for (i in vps.indices) {
+                val vpScreen = docToScreen(Offset(vps[i].x, vps[i].y))
+                if (hypot(screenPos.x - vpScreen.x, screenPos.y - vpScreen.y) < 48f * density) {
+                    hitVp = i
+                    break
+                }
+            }
+            if (hitVp != -1) {
+                draggingGuideHandleIndex = hitVp
+                isPendingLongPress = false
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+        } else if (guide.mode == GuideMode.SYMMETRY) {
+            val cx = v.docWidth * guide.symmetryCenterX
+            val cy = v.docHeight * guide.symmetryCenterY
+            val symScreen = docToScreen(Offset(cx, cy))
+            // 仅命中中心控制圆柄时才触发对称轴拖拽移动，严禁全轴线碰撞拦截（否则在轴附近画线会误将整根轴拖飞）
+            if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 36f * density) {
+                draggingGuideHandleIndex = 100
+                isPendingLongPress = false
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return true
+            }
+        }
+        return false
+    }
+
 
     private val systemNullPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_NULL)
@@ -578,6 +751,14 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private val systemDefaultPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_DEFAULT)
+    } else null
+
+    private val systemHandPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_HAND)
+    } else null
+
+    private val systemGrabPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_GRAB)
     } else null
 
     companion object {
@@ -624,6 +805,34 @@ class CanvasTouchView(context: Context) : View(context) {
         return false
     }
 
+    // 系统手势侧滑返回排除区状态 (API 29+ Android 10: 绘画页面全高全局排除两侧返回手势)
+    private val gestureExclusionRects = mutableListOf<android.graphics.Rect>()
+    private val leftExclusionRect = android.graphics.Rect()
+    private val rightExclusionRect = android.graphics.Rect()
+
+    fun updateSystemGestureExclusion() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val w = width
+        val h = height
+        if (w <= 0 || h <= 0) return
+
+        val edgeWidth = (48 * density).toInt() // 覆盖系统边缘手势感应区 (约 48dp)
+
+        // 沉浸绘画模式下全高度排除左右边缘返回手势
+        leftExclusionRect.set(0, 0, edgeWidth, h)
+        rightExclusionRect.set((w - edgeWidth).coerceAtLeast(0), 0, w, h)
+
+        gestureExclusionRects.clear()
+        gestureExclusionRects.add(leftExclusionRect)
+        gestureExclusionRects.add(rightExclusionRect)
+        systemGestureExclusionRects = gestureExclusionRects
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        updateSystemGestureExclusion()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         activeTouchView = this
@@ -655,6 +864,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 androidMotionPredictor = android.view.MotionPredictor(context)
             } catch (_: Throwable) {}
         }
+        post { updateSystemGestureExclusion() }
     }
 
     fun applyHighRefreshRateAndUnbuffered() {
@@ -764,6 +974,10 @@ class CanvasTouchView(context: Context) : View(context) {
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
+        if (strokeStarted) {
+            vm?.touchCancel()
+            strokeStarted = false
+        }
         // 离开绘画页: 喷枪是挂在渲染线程上的自续定时链, 不停掉会让页面之外
         // 仍周期渲染并保持笔画事务开启; 未投递的笔画样本与起笔 kick 一并丢弃
         vm?.stopAirbrush()
@@ -775,6 +989,9 @@ class CanvasTouchView(context: Context) : View(context) {
         oplusPredictor?.destroy()
         oplusPredictor = null
         androidMotionPredictor = null
+        safeEndSymmetryUndoMacro()
+        resetMirrorBranches()
+        currentStrokeDocPos = Offset.Zero
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
@@ -988,27 +1205,184 @@ class CanvasTouchView(context: Context) : View(context) {
         if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirrorBranchHasSamples()) {
             try {
                 ensureViewTransform()
-                mirroredDrawPaint.color = resolveBrushColorCached(v.brushColor)
-                mirroredDrawPaint.strokeWidth =
+                updateSymmetryPressureLut(v)
+                // 工具/颜色口径取上游 1.3.3: 橡皮与涂抹用固定灰, 其余按笔刷色 × 不透明度
+                when (effTool()) {
+                    Tool.ERASER -> mirroredDrawPaint.color = android.graphics.Color.argb(140, 240, 240, 245)
+                    Tool.SMUDGE -> mirroredDrawPaint.color = android.graphics.Color.argb(100, 180, 180, 190)
+                    else -> {
+                        val baseColor = resolveBrushColorCached(v.brushColor)
+                        val alpha = (v.brushOpacity.coerceIn(0.0, 1.0) * 255.0).toInt().coerceIn(1, 255)
+                        mirroredDrawPaint.color = (baseColor and 0x00FFFFFF) or (alpha shl 24)
+                    }
+                }
+                mirroredPointPaint.color = mirroredDrawPaint.color
+                // 宽口径取上游 1.3.3 的压感查找表(对称笔迹跟随压感), 数据仍走本分支的
+                // 零分配扁平缓冲: 一个分支一段 [x, y, pressure], 逐段只读不分配。
+                val baseStrokeWidth =
                     (v.brushSize.toFloat() * viewTransform.currentScale).coerceAtLeast(1.5f)
-                // 整条笔迹共用一份视图变换, 逐点只读扁平缓冲并写复用数组
-                // (旧实现每个点现算三角函数 + 每段重复变换前一点)
                 for (b in 0 until mirroredSamples.size) {
                     val buf = mirroredSamples[b]
                     val n = mirroredSizes[b]
-                    if (n < 2) continue
+                    if (n < 1) continue
                     viewTransform.docToScreen(buf[0], buf[1], pointScratch)
+                    if (n == 1) {
+                        val lutIdx = (buf[2].coerceIn(0f, 1f) * 128f + 0.5f).toInt().coerceIn(0, 128)
+                        val r = (baseStrokeWidth * symmetryPressureLut[lutIdx] * 0.5f)
+                            .coerceAtLeast(0.75f)
+                        canvas.drawCircle(pointScratch[0], pointScratch[1], r, mirroredPointPaint)
+                        continue
+                    }
                     var prevX = pointScratch[0]
                     var prevY = pointScratch[1]
+                    var prevP = buf[2]
                     for (i in 1 until n) {
                         val base = i * 3
                         viewTransform.docToScreen(buf[base], buf[base + 1], pointScratch)
+                        val curP = buf[base + 2]
+                        val avgP = (prevP + curP) * 0.5f
+                        val lutIdx = (avgP.coerceIn(0f, 1f) * 128f + 0.5f).toInt().coerceIn(0, 128)
+                        mirroredDrawPaint.strokeWidth =
+                            (baseStrokeWidth * symmetryPressureLut[lutIdx]).coerceAtLeast(1.5f)
                         canvas.drawLine(prevX, prevY, pointScratch[0], pointScratch[1], mirroredDrawPaint)
                         prevX = pointScratch[0]
                         prevY = pointScratch[1]
+                        prevP = curP
                     }
                 }
             } catch (_: Exception) {}
+        }
+
+        // =========================================================================
+        // 2.5 绘画中辅助吸附动态导引线 (透视灭点射线 / 等轴测 / 2D 网格高亮)
+        // =========================================================================
+        val guide = v.drawingGuide
+        // 注意: 不能复用上面 1.5 段那支 isDrawingTool(它不含 SMUDGE) —— 两者语义不同,
+        // 合并上游 1.3.3 时曾因此产生重复声明。
+        val isGuideAssistTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
+        if (guide.mode != GuideMode.OFF && guide.assistedDrawing && localIsTouching && strokeStarted && isGuideAssistTool) {
+            when (guide.mode) {
+                GuideMode.PERSPECTIVE -> {
+                    val dx = currentStrokeDocPos.x - firstDocPos.x
+                    val dy = currentStrokeDocPos.y - firstDocPos.y
+                    val dist = hypot(dx, dy)
+                    if (dist >= 6f) {
+                        val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
+                            listOf(Point2D(v.docWidth * 0.5f, v.docHeight * 0.35f))
+                        } else guide.perspectiveVanishingPoints
+
+                        var bestType = 0 // 0: horizontal, 1: vertical, 2: vp
+                        var minError = abs(dy)
+                        var bestVp: Point2D? = null
+
+                        val vertError = abs(dx)
+                        if (vertError < minError) {
+                            minError = vertError
+                            bestType = 1
+                        }
+
+                        for (vp in vps) {
+                            val vRayX = vp.x - firstDocPos.x
+                            val vRayY = vp.y - firstDocPos.y
+                            val vLen = hypot(vRayX, vRayY)
+                            if (vLen > 0.001f) {
+                                val nx = vRayX / vLen
+                                val ny = vRayY / vLen
+                                val dot = dx * nx + dy * ny
+                                val err = abs(dx * (-ny) + dy * nx)
+                                if (err < minError) {
+                                    minError = err
+                                    bestType = 2
+                                    bestVp = vp
+                                }
+                            }
+                        }
+
+                        val firstScreen = docToScreen(firstDocPos)
+                        when (bestType) {
+                            0 -> {
+                                val y = firstScreen.y
+                                canvas.drawLine(-200f, y, viewW + 200f, y, dynamicGuideGlowPaint)
+                                canvas.drawLine(-200f, y, viewW + 200f, y, dynamicGuideLinePaint)
+                            }
+                            1 -> {
+                                val x = firstScreen.x
+                                canvas.drawLine(x, -200f, x, viewH + 200f, dynamicGuideGlowPaint)
+                                canvas.drawLine(x, -200f, x, viewH + 200f, dynamicGuideLinePaint)
+                            }
+                            2 -> {
+                                if (bestVp != null) {
+                                    val vpScreen = docToScreen(Offset(bestVp.x, bestVp.y))
+                                    var vx = firstScreen.x - vpScreen.x
+                                    var vy = firstScreen.y - vpScreen.y
+                                    var vLen = hypot(vx, vy)
+                                    if (vLen <= 0.001f) {
+                                        val curScreen = docToScreen(currentStrokeDocPos)
+                                        vx = curScreen.x - vpScreen.x
+                                        vy = curScreen.y - vpScreen.y
+                                        vLen = hypot(vx, vy)
+                                    }
+                                    if (vLen > 0.001f) {
+                                        val nx = vx / vLen
+                                        val ny = vy / vLen
+                                        val maxExt = maxOf(viewW, viewH) * 3f
+                                        val startX = vpScreen.x - nx * maxExt
+                                        val startY = vpScreen.y - ny * maxExt
+                                        val endX = vpScreen.x + nx * maxExt
+                                        val endY = vpScreen.y + ny * maxExt
+                                        canvas.drawLine(startX, startY, endX, endY, dynamicGuideGlowPaint)
+                                        canvas.drawLine(startX, startY, endX, endY, dynamicGuideLinePaint)
+
+                                        // 命中灭点高亮动效光环
+                                        canvas.drawCircle(vpScreen.x, vpScreen.y, 14f * density, vpTargetGlowPaint)
+                                        canvas.drawCircle(vpScreen.x, vpScreen.y, 7f * density, vpTargetCorePaint)
+                                        canvas.drawCircle(vpScreen.x, vpScreen.y, 3.5f * density, vpTargetCenterPaint)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                GuideMode.ISOMETRIC -> {
+                    val dx = currentStrokeDocPos.x - firstDocPos.x
+                    val dy = currentStrokeDocPos.y - firstDocPos.y
+                    val dist = hypot(dx, dy)
+                    if (dist >= 6f) {
+                        val angDeg = (atan2(dy, dx) * 180f / PI.toFloat() + 360f) % 360f
+                        val isoAngles = floatArrayOf(30f, 90f, 150f, 210f, 270f, 330f)
+                        val nearest = isoAngles.minByOrNull { abs((angDeg - it + 540f) % 360f - 180f) } ?: angDeg
+                        val rad = nearest * PI.toFloat() / 180f
+                        val nx = cos(rad)
+                        val ny = sin(rad)
+                        val firstScreen = docToScreen(firstDocPos)
+                        val maxExt = maxOf(viewW, viewH) * 2.5f
+                        val startX = firstScreen.x - nx * maxExt
+                        val startY = firstScreen.y - ny * maxExt
+                        val endX = firstScreen.x + nx * maxExt
+                        val endY = firstScreen.y + ny * maxExt
+                        canvas.drawLine(startX, startY, endX, endY, dynamicGuideGlowPaint)
+                        canvas.drawLine(startX, startY, endX, endY, dynamicGuideLinePaint)
+                    }
+                }
+                GuideMode.GRID_2D -> {
+                    val dx = currentStrokeDocPos.x - firstDocPos.x
+                    val dy = currentStrokeDocPos.y - firstDocPos.y
+                    val dist = hypot(dx, dy)
+                    if (dist >= 6f) {
+                        val firstScreen = docToScreen(firstDocPos)
+                        if (abs(dx) > abs(dy)) {
+                            val y = firstScreen.y
+                            canvas.drawLine(-200f, y, viewW + 200f, y, dynamicGuideGlowPaint)
+                            canvas.drawLine(-200f, y, viewW + 200f, y, dynamicGuideLinePaint)
+                        } else {
+                            val x = firstScreen.x
+                            canvas.drawLine(x, -200f, x, viewH + 200f, dynamicGuideGlowPaint)
+                            canvas.drawLine(x, -200f, x, viewH + 200f, dynamicGuideLinePaint)
+                        }
+                    }
+                }
+                else -> Unit
+            }
         }
 
         // =========================================================================
@@ -1539,7 +1913,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     val v = vm
                     val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                         (v?.cursorStyleMode != 4)
-                    val targetIcon = if (!overUi && hideCursor && systemNullPointer != null) {
+                    val targetIcon = if (v?.isSpacePanning == true) {
+                        if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
+                    } else if (!overUi && hideCursor && systemNullPointer != null) {
                         systemNullPointer
                     } else {
                         systemDefaultPointer
@@ -1559,6 +1935,37 @@ class CanvasTouchView(context: Context) : View(context) {
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
+
+        // 空格键长按临时抓手平移 (Spacebar Hold-to-Pan)
+        if (v.isSpacePanning) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    spacePanStartPos = Offset(event.x, event.y)
+                    spacePanInitialPan = Offset(canvasPanX, canvasPanY)
+                    isSpaceDragging = true
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemGrabPointer != null) {
+                        pointerIcon = systemGrabPointer
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isSpaceDragging) {
+                        val dx = event.x - spacePanStartPos.x
+                        val dy = event.y - spacePanStartPos.y
+                        canvasPanX = spacePanInitialPan.x + dx
+                        canvasPanY = spacePanInitialPan.y + dy
+                        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isSpaceDragging = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
+                        pointerIcon = systemHandPointer
+                    }
+                }
+            }
+            return true
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val mask = event.actionMasked
             if (mask == MotionEvent.ACTION_DOWN || mask == MotionEvent.ACTION_POINTER_DOWN) {
@@ -1674,7 +2081,8 @@ class CanvasTouchView(context: Context) : View(context) {
             val y = event.getY(stylusPointerIndex)
             val screenPos = Offset(x, y)
             val docPos = screenToDoc(screenPos)
-            val pressure = event.getPressure(stylusPointerIndex).coerceIn(0f, 1f)
+            val rawPressure = event.getPressure(stylusPointerIndex)
+            val pressure = if (rawPressure.isNaN()) 1f else rawPressure.coerceIn(0f, 1f)
 
             localCursorPos = screenPos
             localIsTouching = true
@@ -1707,11 +2115,20 @@ class CanvasTouchView(context: Context) : View(context) {
                     lastPos1 = Offset.Zero
                     previousSinglePos = screenPos
                     firstDocPos = docPos
+                    currentStrokeDocPos = docPos
                     shapeEndDocPos = docPos
                     isLongPressPickerActive = false
 
+                    if (checkHitGuideHandle(screenPos)) {
+                        isPendingLongPress = false
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                        invalidate()
+                        return true
+                    }
+
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
-                    handleToolDown(screenPos, docPos, pressure, isStylus = true)
+                    updateStylusSensors(event, stylusPointerIndex, isStylus = true)
+                    handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation)
 
                     if (canEyedrop) {
                         isPendingLongPress = true
@@ -1726,6 +2143,23 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (draggingGuideHandleIndex != -1) {
+                        val g = v.drawingGuide
+                        if (draggingGuideHandleIndex == 100) {
+                            val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                            val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                            v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
+                            invalidate()
+                            return true
+                        } else if (draggingGuideHandleIndex in 0 until g.perspectiveVanishingPoints.size) {
+                            val pts = g.perspectiveVanishingPoints.toMutableList()
+                            pts[draggingGuideHandleIndex] = Point2D(docPos.x, docPos.y)
+                            v.drawingGuide = g.copy(perspectiveVanishingPoints = pts)
+                            invalidate()
+                            return true
+                        }
+                    }
+
                     if (isLongPressPickerActive) {
                         sampleColorAtScreenPos(screenPos)
                         return true
@@ -1740,23 +2174,33 @@ class CanvasTouchView(context: Context) : View(context) {
                             isPendingLongPress = false
                         }
                     }
+                    currentStrokeDocPos = docPos
                     handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                     previousSinglePos = screenPos
                     localCursorPos = screenPos
                     localIsTouching = true
-                    // 仅在非笔刷工具、光标跟随模式或激活笔尖硬件预测时在 UI 线程重绘
+                    // 仅在非笔刷工具、光标跟随模式、绘图辅助生效或激活笔尖硬件预测时在 UI 线程重绘
                     val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
                     if (!isDrawingTool) {
                         invalidate()
                     } else {
                         val isEraser = tool == Tool.ERASER
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
-                        if (cursorMode == 1 || cursorMode == 3 || (v.isCurrentBrushPredictionEligible && predictedScreenPoint != null)) {
+                        val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
+                        if (cursorMode == 1 || cursorMode == 3 || hasAssist ||
+                            (v.isCurrentBrushPredictionEligible && predictedScreenPoint != null)) {
                             invalidate()
                         }
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (draggingGuideHandleIndex != -1) {
+                        draggingGuideHandleIndex = -1
+                        isInteracting = false
+                        invalidate()
+                        return true
+                    }
+
                     predictedScreenPoint = null
                     try {
                         oplusPredictor?.reset()
@@ -1788,6 +2232,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
+                    currentStrokeDocPos = Offset.Zero
                     invalidate()
                 }
             }
@@ -1807,6 +2252,15 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(longPressRunnable)
             longPressToken++
             isPendingLongPress = false
+
+            if (strokeStarted) {
+                cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                cachedDriver?.feedbackManager?.stopStrokeSound()
+                v.touchCancel()
+                strokeStarted = false
+                safeEndSymmetryUndoMacro()
+                resetMirrorBranches()
+            }
 
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
 
@@ -2064,6 +2518,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
                     isContinuousUndoing = false
+                    if (strokeStarted) {
+                        cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                        cachedDriver?.feedbackManager?.stopStrokeSound()
+                        v.touchCancel()
+                        strokeStarted = false
+                        safeEndSymmetryUndoMacro()
+                        resetMirrorBranches()
+                    }
                     postDelayed(resetTransformRunnable, 150)
                     invalidate()
                 }
@@ -2094,50 +2556,14 @@ class CanvasTouchView(context: Context) : View(context) {
                 maxTouchPointers = 1
                 previousSinglePos = screenPos
                 firstDocPos = docPos
+                currentStrokeDocPos = docPos
                 shapeEndDocPos = docPos
                 isLongPressPickerActive = false
                 removeCallbacks(longPressRunnable)
                 longPressToken++
 
-                // Check if user is touching a Drawing Guide handle (Perspective Vanishing Point or Symmetry Center/Line)
-                val guide = v.drawingGuide
-                if (guide.mode == GuideMode.PERSPECTIVE) {
-                    val vps = guide.perspectiveVanishingPoints
-                    var hitVp = -1
-                    for (i in vps.indices) {
-                        val vpScreen = docToScreen(Offset(vps[i].x, vps[i].y))
-                        if (hypot(screenPos.x - vpScreen.x, screenPos.y - vpScreen.y) < 48f * density) {
-                            hitVp = i
-                            break
-                        }
-                    }
-                    if (hitVp != -1) {
-                        draggingGuideHandleIndex = hitVp
-                        isPendingLongPress = false
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
-                } else if (guide.mode == GuideMode.SYMMETRY) {
-                    val cx = v.docWidth * guide.symmetryCenterX
-                    val cy = v.docHeight * guide.symmetryCenterY
-                    val symScreen = docToScreen(Offset(cx, cy))
-                    if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 48f * density) {
-                        draggingGuideHandleIndex = 100
-                        isPendingLongPress = false
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
-                    if (guide.symmetryType == SymmetryType.VERTICAL && abs(screenPos.x - symScreen.x) < 32f * density) {
-                        draggingGuideHandleIndex = 100
-                        isPendingLongPress = false
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    } else if (guide.symmetryType == SymmetryType.HORIZONTAL && abs(screenPos.y - symScreen.y) < 32f * density) {
-                        draggingGuideHandleIndex = 100
-                        isPendingLongPress = false
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
+                if (checkHitGuideHandle(screenPos)) {
+                    return true
                 }
 
                 if (canEyedrop) {
@@ -2173,8 +2599,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (draggingGuideHandleIndex != -1) {
                     val g = v.drawingGuide
                     if (draggingGuideHandleIndex == 100) {
-                        val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-                        val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                        val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                        val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
                         v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
                         invalidate()
                         return true
@@ -2295,7 +2721,15 @@ class CanvasTouchView(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
-    private fun handleToolDown(screenPos: Offset, docPos: Offset, pressure: Float, isStylus: Boolean) {
+    private fun handleToolDown(
+        screenPos: Offset,
+        docPos: Offset,
+        pressure: Float,
+        isStylus: Boolean,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ) {
         val v = vm ?: return
         val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
         val t = effTool()
@@ -2317,16 +2751,12 @@ class CanvasTouchView(context: Context) : View(context) {
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
-                if (hasSymmetry) {
-                    v.runCore(render = false) {
-                        ReverieCoreBridge.beginUndoMacro("Symmetry Stroke")
-                    }
-                }
                 smoothedPressure = pressure
+                currentStrokeDocPos = docPos
                 if (isStylus) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble())
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
@@ -2336,6 +2766,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
 
                 if (hasSymmetry) {
+                    updateSymmetryPressureLut(v)
                     val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
                     ensureMirrorBranches(symPts.size)
                     for (idx in symPts.indices) {
@@ -2571,9 +3002,10 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return
 
         if (draggingGuideHandleIndex == 100) {
-            val newX = (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-            val newY = (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
-            v.drawingGuide = v.drawingGuide.copy(symmetryCenterX = newX, symmetryCenterY = newY)
+            val g = v.drawingGuide
+            val newX = if (g.symmetryType == SymmetryType.HORIZONTAL) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+            val newY = if (g.symmetryType == SymmetryType.VERTICAL) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+            v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
             invalidate()
             return
         } else if (draggingGuideHandleIndex in 0 until v.drawingGuide.perspectiveVanishingPoints.size) {
@@ -2586,30 +3018,45 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
                 if (!strokeStarted) {
-                    strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble())
-                    if (strokeStarted && isStylus) {
-                        getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
-                    }
+                    updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                    strokeStarted = v.touchStart(firstDocPos.x, firstDocPos.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation)
                     if (strokeStarted) {
+                        if (isStylus) {
+                            getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
+                        }
                         // 迟到的笔画起点 (首帧被历史点吞掉): 补启摩擦音效
                         getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
                         lastSoundTimeMs = 0L
+                        if (hasSymmetry) {
+                            updateSymmetryPressureLut(v)
+                            val symPts = computeAllSymmetricPoints(Point2D(firstDocPos.x, firstDocPos.y))
+                            ensureMirrorBranches(symPts.size)
+                            for (idx in symPts.indices) {
+                                appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
+                            }
+                        }
                     }
                 }
                 if (!strokeStarted) return
 
+                currentStrokeDocPos = docPos
+
                 val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
                 val isAssist = (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
-                val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
 
                 for (i in 0 until event.historySize) {
                     val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
                     val hDoc = screenToDoc(hScreen)
                     val hAssisted = applyAssistedDrawing(firstDocPos, hDoc)
-                    val hP = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                    val hP = if (isStylus) {
+                        val hp = event.getHistoricalPressure(pointerIndex, i)
+                        if (hp.isNaN()) 1f else hp.coerceIn(0f, 1f)
+                    } else 1f
                     val hTime = event.getHistoricalEventTime(i)
-                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime)
+                    updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
+                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, touchTiltX, touchTiltY, touchRotation)
                     if (hasSymmetry) {
                         val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                         for (idx in symPts.indices) {
@@ -2618,7 +3065,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
 
-                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime)
+                updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime, touchTiltX, touchTiltY, touchRotation)
 
                 // 纸张摩擦音效: 按文档坐标瞬时速度调制增益 (零分配, 单次 volatile 写)
                 val soundDt = event.eventTime - lastSoundTimeMs
@@ -3119,21 +3567,21 @@ class CanvasTouchView(context: Context) : View(context) {
                     cachedDriver?.feedbackManager?.stopStrokeSound()
                     if (isCancel) {
                         v.touchCancel()
-                        if (hasSymmetry) {
-                            v.runCore(render = false) {
-                                ReverieCoreBridge.endUndoMacro()
-                            }
-                        }
                     } else {
-                        v.touchEnd()
-                        if (hasSymmetry && mirrorBranchHasSamples()) {
-                            // 回放期间只读缓冲 (抬笔后不再追加采样), 无需再拷贝一份
+                        val hasBranchesToReplay = hasSymmetry && mirrorBranchHasSamples()
+                        if (hasBranchesToReplay) {
+                            safeBeginSymmetryUndoMacro()
+                        }
+                        // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在镜像分支执行完毕后统一渲染
+                        v.touchEnd(render = !hasBranchesToReplay)
+                        if (hasBranchesToReplay) {
+                            // 回放期间只读缓冲 (抬笔后不再追加采样), 无需再拷贝一份。
+                            // 上游的 replaySymmetricBranches 会按分支重建 SymStrokeSample
+                            // 对象, 这里沿用本分支的零分配扁平缓冲版, 结果语义一致。
                             for (b in 0 until mirroredSamples.size) {
                                 replaySymmetricBranch(mirroredSamples[b], mirroredSizes[b])
                             }
-                            v.runCore(render = false) {
-                                ReverieCoreBridge.endUndoMacro()
-                            }
+                            safeEndSymmetryUndoMacro()
                         }
                     }
                     strokeStarted = false
@@ -3143,6 +3591,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 try {
                     oplusPredictor?.reset()
                 } catch (_: Throwable) {}
+                // 兜底: 取消路径可能没走到重放处的 macro 收尾 (safe* 自身幂等)
+                safeEndSymmetryUndoMacro()
+                currentStrokeDocPos = Offset.Zero
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {

@@ -245,7 +245,7 @@ internal fun SelectionFloatPanel(
             androidx.compose.animation.AnimatedVisibility(visible = propsOpen && (tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR)) {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.width(260.dp).padding(vertical = 4.dp),
+                    modifier = Modifier.width(420.dp).padding(vertical = 4.dp),
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -258,6 +258,7 @@ internal fun SelectionFloatPanel(
                                 range = 1f..100f,
                                 value = vm.selectionTolerance.toFloat().coerceIn(1f, 100f),
                                 onValue = { vm.updateSelectionTolerance(it.toInt()) },
+                                labelWidth = 56.dp,
                             )
                         }
                         ToolBubbleDropdown(
@@ -278,6 +279,7 @@ internal fun SelectionFloatPanel(
                             range = 0f..16f,
                             value = vm.selectionCloseGap.toFloat().coerceIn(0f, 16f),
                             onValue = { vm.updateSelectionCloseGap(it.toInt()) },
+                            labelWidth = 56.dp,
                         )
                     }
 
@@ -292,6 +294,7 @@ internal fun SelectionFloatPanel(
                         value = featherR,
                         onValue = { featherR = it },
                         onRelease = { vm.featherSelection(featherR.toInt()) },
+                        labelWidth = 56.dp,
                     )
                     ToolFloatSlider(
                         label = stringResource(R.string.selection_expand_contract),
@@ -307,6 +310,7 @@ internal fun SelectionFloatPanel(
                                 vm.contractSelection(-r)
                             }
                         },
+                        labelWidth = 56.dp,
                     )
                     ToolFloatSlider(
                         label = stringResource(R.string.selection_smooth),
@@ -315,6 +319,7 @@ internal fun SelectionFloatPanel(
                         value = smoothR,
                         onValue = { smoothR = it },
                         onRelease = { vm.smoothSelection(smoothR.toInt()) },
+                        labelWidth = 56.dp,
                     )
                 }
             }

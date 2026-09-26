@@ -79,6 +79,7 @@ fun CanvasView(
     /** PaintingPage mirrors its overlay-panel booleans here so the touch view
      *  can restore the system pointer icon over full-screen panels. */
     overlayPanelsOpen: Boolean = false,
+    drawingGuidePanelOpen: Boolean = false,
     filterSessionActive: Boolean = false,
     onFilterSlideDelta: ((Float) -> Unit)? = null,
     onFilterHoldingCompare: ((Boolean) -> Unit)? = null,
@@ -273,6 +274,7 @@ fun CanvasView(
                 touchView.checkerboardPaint = checkerboardPaint
                 touchView.viewW = viewW
                 touchView.viewH = viewH
+                touchView.setSpacePanning(vm?.isSpacePanning == true)
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
                     touchView.canvasZoom = zoom.value
                     touchView.canvasRotation = rotation.value
@@ -308,6 +310,10 @@ fun CanvasView(
                 touchView.onFilterHoldingCompare = onFilterHoldingCompare
                 if (touchView.overlayPanelsOpen != overlayPanelsOpen) {
                     touchView.overlayPanelsOpen = overlayPanelsOpen
+                    touchView.invalidate()
+                }
+                if (touchView.drawingGuidePanelOpen != drawingGuidePanelOpen) {
+                    touchView.drawingGuidePanelOpen = drawingGuidePanelOpen
                     touchView.invalidate()
                 }
                 touchView.liquifyMode = liquifyMode

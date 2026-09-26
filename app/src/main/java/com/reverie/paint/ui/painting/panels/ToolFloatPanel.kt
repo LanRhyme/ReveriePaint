@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -204,16 +206,27 @@ fun ToolFloatSlider(
     range: ClosedFloatingPointRange<Float>,
     value: Float,
     onValue: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    labelWidth: Dp? = null,
     onRelease: (() -> Unit)? = null,
 ) {
     var showDialog by remember { mutableStateOf(false) }
     val span = maxOf(0.001f, range.endInclusive - range.start)
 
     Row(
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(label, color = Morandi.subText, fontSize = 12.sp, fontWeight = FontWeight.Normal)
+        Text(
+            text = label,
+            color = Morandi.subText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            softWrap = false,
+            modifier = if (labelWidth != null) Modifier.widthIn(min = labelWidth) else Modifier,
+        )
         com.reverie.paint.ui.components.ReSlider(
             value = ((value - range.start) / span).coerceIn(0f, 1f),
             onValue = { frac -> onValue(range.start + frac * span) },
@@ -222,6 +235,7 @@ fun ToolFloatSlider(
         )
         Box(
             modifier = Modifier
+                .widthIn(min = 36.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(Morandi.panelHi.copy(alpha = 0.7f))
                 .noRippleClickable { showDialog = true }

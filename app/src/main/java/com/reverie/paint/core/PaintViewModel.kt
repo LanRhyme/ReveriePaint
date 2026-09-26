@@ -499,6 +499,10 @@ class PaintViewModel : ViewModel() {
     var lastToolId by mutableStateOf("brush")
     /** 是否是由手写笔侧键或快捷键临时激活的吸管工具 (取色完成后自动切回上一工具) */
     var isTemporaryPicker by mutableStateOf(false)
+    /** 是否长按空格键临时激活画布抓手平移模式 */
+    var isSpacePanning by mutableStateOf(false)
+    /** 当前是否有文本输入弹窗处于编辑聚焦状态 (聚焦时跳过物理快捷键拦截) */
+    var isTextInputActive by mutableStateOf(false)
 
     fun restorePreviousTool() {
         if (!isTemporaryPicker) return
@@ -583,6 +587,7 @@ class PaintViewModel : ViewModel() {
     var favoriteBrushNames by mutableStateOf<Set<String>>(emptySet())
     var recentBrushNames by mutableStateOf<List<String>>(emptyList())
     var settingsPanelOpen by mutableStateOf(false)
+    var drawingGuidePanelOpen by mutableStateOf(false)
     var targetSettingsTab by mutableStateOf<String?>(null)
     var targetExportAnimation by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
@@ -1060,7 +1065,8 @@ class PaintViewModel : ViewModel() {
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
-    var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面左下角快捷滑块长度 (100 - 260 dp, 默认 175)
+    var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面快捷滑块长度 (100 - 260 dp, 默认 175)
+    var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
     var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 
@@ -1914,6 +1920,17 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateLeftHandMode(enabled: Boolean) {
+        leftHandMode = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("leftHandMode", enabled)
+                .apply()
+        }
+    }
+
     fun updateSelectionMaskColor(hex: String) {
         selectionMaskColorHex = hex
         if (::appContext.isInitialized) {
@@ -2151,6 +2168,7 @@ class PaintViewModel : ViewModel() {
             layerRowHeightDp = prefs.getInt("layerRowHeightDp", 52).coerceIn(40, 80)
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
+            leftHandMode = prefs.getBoolean("leftHandMode", false)
             selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
@@ -2160,7 +2178,13 @@ class PaintViewModel : ViewModel() {
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
-            immersiveMode = prefs.getBoolean("immersiveMode", false)
+            val defaultImmersive = DeviceUtils.isTablet(appContext)
+            immersiveMode = if (prefs.contains("immersiveMode")) {
+                prefs.getBoolean("immersiveMode", false)
+            } else {
+                prefs.edit().putBoolean("immersiveMode", defaultImmersive).apply()
+                defaultImmersive
+            }
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
             oppoPencilModelMode = prefs.getString("oppoPencilModelMode", "AUTO") ?: "AUTO"
@@ -2790,6 +2814,11 @@ class PaintViewModel : ViewModel() {
         val soloed: Boolean,
         val opacity: Double,
         val blendMode: String,
+        val isStrokeLayer: Boolean = false,
+        val strokeSize: Int = 6,
+        val strokeColor: Int = 0xFF000000.toInt(),
+        val strokePosition: Int = 0,
+        val strokeOpacity: Int = 100,
     )
 
     // ---- async render plumbing ----
@@ -2862,6 +2891,9 @@ class PaintViewModel : ViewModel() {
 
     // Zero-allocation reusable canvas, rect and dirty array for buffer synchronization
     private val syncCanvas = android.graphics.Canvas()
+    private val syncPaint = android.graphics.Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
+    }
     private val lastWrittenRect = android.graphics.Rect()
     private val renderDirty = IntArray(4)
     private var hasWrittenRect = false
@@ -3002,12 +3034,17 @@ class PaintViewModel : ViewModel() {
     // render thread was busy, which turned fast strokes into polylines and
     // lost pressure detail. Buffers are allocated once: zero allocation on
     // the hot path (架构铁律 §4).
+    companion object {
+        const val STROKE_BATCH_CAPACITY = 256
+        const val STROKE_SAMPLE_STRIDE = 6
+    }
+
     @Volatile private var pendingSampleX = 0.0
     @Volatile private var pendingSampleY = 0.0
     @Volatile private var pendingSampleP = 1.0
     private val strokeBatchLock = Any()
-    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
-    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * 3)
+    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
+    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
     private var strokeBatchCount = 0
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
@@ -3022,7 +3059,7 @@ class PaintViewModel : ViewModel() {
             n = strokeBatchCount
             strokeBatchCount = 0
             if (n > 0) {
-                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * 3)
+                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * STROKE_SAMPLE_STRIDE)
             }
         }
         pendingCoreOps.decrementPositive()
@@ -3050,21 +3087,36 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    internal fun queueStrokeMove(x: Float, y: Float, p: Double, inputEventTimeMs: Long = 0L) {
+    internal fun queueStrokeMove(
+        x: Float,
+        y: Float,
+        p: Double,
+        inputEventTimeMs: Long = 0L,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ) {
         val h = renderHandler ?: return
         lastQueuedInputEventTime = inputEventTimeMs
         lastQueuedUptime = android.os.SystemClock.uptimeMillis()
-        // Airbrush hold-still ticks mirror the latest sample position into
-        // their recording; keep these legacy fields in sync.
+        if (x.isNaN() || y.isNaN()) return
+        val safeP = if (p.isNaN() || p < 0.0) 1f else p.toFloat().coerceIn(0f, 1f)
+        val safeTiltX = if (tiltX.isNaN()) 0f else tiltX.toFloat().coerceIn(-60f, 60f)
+        val safeTiltY = if (tiltY.isNaN()) 0f else tiltY.toFloat().coerceIn(-60f, 60f)
+        val safeRotation = 0f
+
         pendingSampleX = x.toDouble()
         pendingSampleY = y.toDouble()
-        pendingSampleP = p
+        pendingSampleP = safeP.toDouble()
         synchronized(strokeBatchLock) {
             if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
-                val o = strokeBatchCount * 3
+                val o = strokeBatchCount * STROKE_SAMPLE_STRIDE
                 strokeBatchCoords[o] = x
                 strokeBatchCoords[o + 1] = y
-                strokeBatchCoords[o + 2] = p.toFloat()
+                strokeBatchCoords[o + 2] = safeP
+                strokeBatchCoords[o + 3] = safeTiltX
+                strokeBatchCoords[o + 4] = safeTiltY
+                strokeBatchCoords[o + 5] = safeRotation
                 strokeBatchCount++
             }
         }
@@ -3221,7 +3273,7 @@ class PaintViewModel : ViewModel() {
         // Synchronize previous frame's dirty region from front buffer to back buffer
         if (!reallocated && hasWrittenRect && !lastWrittenRect.isEmpty && front != null) {
             syncCanvas.setBitmap(back)
-            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, null)
+            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, syncPaint)
         }
 
         val forceFull = reallocated
@@ -3342,6 +3394,13 @@ class PaintViewModel : ViewModel() {
         val soloKeep = if (ReverieCoreBridge.soloActive()) ReverieCoreBridge.layerSoloKeep().toSet() else null
         val list = ArrayList<LayerUiState>(n)
         for (i in 0 until n) {
+            val nodeType = ReverieCoreBridge.layerNodeType(i)
+            val isStroke = nodeType == 6 || ReverieCoreBridge.layerIsStroke(i)
+            val strokeParams = if (isStroke) ReverieCoreBridge.getLayerStrokeParams(i) else null
+            val strokeSize = strokeParams?.getOrNull(0) ?: 6
+            val strokeColor = strokeParams?.getOrNull(1) ?: 0xFF000000.toInt()
+            val strokePosition = strokeParams?.getOrNull(2) ?: 0
+            val strokeOpacity = strokeParams?.getOrNull(3) ?: 100
             list.add(
                 LayerUiState(
                     index = i,
@@ -3351,7 +3410,7 @@ class PaintViewModel : ViewModel() {
                     locked = ReverieCoreBridge.layerLocked(i),
                     alphaLocked = ReverieCoreBridge.layerAlphaLocked(i),
                     isGroup = ReverieCoreBridge.layerIsGroup(i),
-                    nodeType = ReverieCoreBridge.layerNodeType(i),
+                    nodeType = nodeType,
                     depth = ReverieCoreBridge.layerDepth(i),
                     colorLabel = ReverieCoreBridge.layerColorLabel(i),
                     clipped = ReverieCoreBridge.layerClipped(i),
@@ -3359,11 +3418,19 @@ class PaintViewModel : ViewModel() {
                     soloed = ReverieCoreBridge.layerSoloed(i),
                     opacity = ReverieCoreBridge.layerOpacity(i),
                     blendMode = ReverieCoreBridge.layerBlendMode(i),
+                    isStrokeLayer = isStroke,
+                    strokeSize = strokeSize,
+                    strokeColor = strokeColor,
+                    strokePosition = strokePosition,
+                    strokeOpacity = strokeOpacity,
                 ),
             )
         }
         layers = list
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
+        if (selectedLayerIndices.isNotEmpty()) {
+            selectedLayerIndices = selectedLayerIndices.filter { it in 1 until n }.toSet()
+        }
 
         // 时间轴"选中轨道"与当前图层强制对齐 (修"创建帧错乱"):
         // selectedTrack 旧实现只在时间轴 tap 时写入且**永不重置** —— 用户在
@@ -3415,30 +3482,32 @@ class PaintViewModel : ViewModel() {
     val blendModes =
         listOf(
             "normal" to "正常",
-            "multiply" to "正片叠底",
-            "screen" to "滤色",
-            "overlay" to "叠加",
+            "erase" to "擦除",
             "darken" to "变暗",
-            "lighten" to "变亮",
-            "dodge" to "颜色减淡",
+            "multiply" to "正片叠底",
             "burn" to "颜色加深",
             "linear_burn" to "线性加深",
+            "lighten" to "变亮",
+            "screen" to "滤色",
+            "dodge" to "颜色减淡",
             "linear_dodge" to "线性减淡",
-            "difference" to "差值",
             "add" to "增加",
-            "subtract" to "减去",
-            "divide" to "划分",
-            "hard_light" to "强光",
+            "luminosity_sai" to "发光 (SAI)",
+            "glow" to "发光",
+            "overlay" to "叠加",
             "soft_light" to "柔光",
+            "hard_light" to "强光",
             "vivid_light" to "亮光",
             "pin_light" to "点光",
             "linear light" to "线性光",
+            "difference" to "差值",
             "exclusion" to "排除",
+            "subtract" to "减去",
+            "divide" to "划分",
             "hue" to "色相",
             "saturation" to "饱和度",
             "color" to "颜色",
             "value" to "明度",
-            "erase" to "擦除",
         )
     var pickerCurrentLayerOnly by mutableStateOf(false)
     var isFilterAdjustActive by mutableStateOf(false)
@@ -3534,6 +3603,9 @@ data class BrushParams(
     val isAuthorLocked: Boolean = false,
     val description: String = "",
     val version: String = "1.0",
+    val isCustomized: Boolean = false,
+    val dynamicsCustomized: Boolean = false,
+    val smudgeCustomized: Boolean = false,
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */

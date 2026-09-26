@@ -210,8 +210,7 @@ fun ShapeToolPanel(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(min = 240.dp)
+                        .widthIn(min = 260.dp, max = 340.dp)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
                     if (hasStrokeSlider) {
@@ -224,6 +223,7 @@ fun ShapeToolPanel(
                                 state.strokeWidth = w
                                 vm.updateShapeStrokeWidth(w.toDouble())
                             },
+                            labelWidth = 56.dp,
                         )
                     }
                     when (currentType) {
@@ -234,6 +234,7 @@ fun ShapeToolPanel(
                                 range = 0f..120f,
                                 value = state.cornerRadius,
                                 onValue = { state.cornerRadius = it },
+                                labelWidth = 56.dp,
                             )
                         }
                         ShapeType.REGULAR_POLYGON -> {
@@ -243,6 +244,7 @@ fun ShapeToolPanel(
                                 range = 3f..16f,
                                 value = state.polygonSides.toFloat(),
                                 onValue = { state.polygonSides = it.roundToInt() },
+                                labelWidth = 56.dp,
                             )
                         }
                         ShapeType.STAR -> {
@@ -252,6 +254,7 @@ fun ShapeToolPanel(
                                 range = 3f..12f,
                                 value = state.starPoints.toFloat(),
                                 onValue = { state.starPoints = it.roundToInt() },
+                                labelWidth = 56.dp,
                             )
                             ToolFloatSlider(
                                 label = androidx.compose.ui.res.stringResource(R.string.shape_star_inner_ratio),
@@ -259,6 +262,7 @@ fun ShapeToolPanel(
                                 range = 0.1f..0.9f,
                                 value = state.starInnerRatio,
                                 onValue = { state.starInnerRatio = it },
+                                labelWidth = 56.dp,
                             )
                         }
                         else -> Unit

@@ -141,7 +141,7 @@ internal fun LayerListView(
     // Local selection (synchronous, not the async JNI currentLayerIndex):
     // the async C++ sync would lag a fast double tap and block opening detail.
     var selectedIndex by remember { mutableStateOf(vm.currentLayerIndex) }
-    LaunchedEffect(vm.currentLayerIndex) {
+    LaunchedEffect(vm.currentLayerIndex, vm.layerRevision) {
         if (vm.currentLayerIndex in vm.layers.indices) {
             selectedIndex = vm.currentLayerIndex
         }
@@ -505,6 +505,7 @@ internal fun LayerListView(
                     val now = System.currentTimeMillis()
                     if (now - lastLayerOpTime > 350L) {
                         lastLayerOpTime = now
+                        vm.clearLayerSelection()
                         vm.addLayer()
                     }
                 },
@@ -516,6 +517,7 @@ internal fun LayerListView(
                     val now = System.currentTimeMillis()
                     if (now - lastLayerOpTime > 350L) {
                         lastLayerOpTime = now
+                        vm.clearLayerSelection()
                         vm.addGroupLayer()
                     }
                 },
@@ -547,6 +549,7 @@ internal fun LayerListView(
                             val now = System.currentTimeMillis()
                             if (now - lastLayerOpTime > 350L) {
                                 lastLayerOpTime = now
+                                vm.clearLayerSelection()
                                 vm.addFillLayer()
                             }
                         },
@@ -563,7 +566,28 @@ internal fun LayerListView(
                         },
                         onClick = {
                             showNewLayerMenu = false
+                            vm.clearLayerSelection()
                             onOpenCreateFilter()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.layer_type_stroke), color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_shape_stroke),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        onClick = {
+                            showNewLayerMenu = false
+                            val now = System.currentTimeMillis()
+                            if (now - lastLayerOpTime > 350L) {
+                                lastLayerOpTime = now
+                                vm.clearLayerSelection()
+                                vm.addStrokeLayer()
+                            }
                         },
                     )
                     DropdownMenuItem(
@@ -581,6 +605,7 @@ internal fun LayerListView(
                             val now = System.currentTimeMillis()
                             if (now - lastLayerOpTime > 350L) {
                                 lastLayerOpTime = now
+                                vm.clearLayerSelection()
                                 vm.stampVisibleLayers()
                             }
                         },

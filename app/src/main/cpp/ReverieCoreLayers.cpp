@@ -212,6 +212,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         case LayerTypeAdjustment: finalName = QString("调整图层 %1").arg(count); break;
         case LayerTypeVector: finalName = QString("矢量图层 %1").arg(count); break;
         case LayerTypeClone: finalName = QString("克隆图层 %1").arg(count); break;
+        case LayerTypeStroke: finalName = QString("描边图层 %1").arg(count); break;
         default: finalName = QString("图层 %1").arg(count); break;
         }
     }
@@ -248,6 +249,10 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         } else {
             newNode = new KisPaintLayer(image, finalName, 255, image->colorSpace());
         }
+    } else if (type == LayerTypeStroke) {
+        const KoColorSpace *cs = image->colorSpace();
+        KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
+        newNode = paintLayer;
     } else {
         const KoColorSpace *cs = image->colorSpace();
         KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
@@ -277,6 +282,21 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     const int idx = indexOfNode(newNode.data());
     if (idx >= 0) {
         m_currentLayer = idx;
+        if (type == LayerTypeStroke) {
+            m_layers[idx].isStrokeLayer = true;
+            m_layers[idx].nodeType = NodeTypeStroke;
+            m_layers[idx].strokeSize = 6;
+            m_layers[idx].strokeColor = 0xFF000000;
+            m_layers[idx].strokePosition = 0;
+            m_layers[idx].strokeOpacity = 100;
+            if (newNode) {
+                newNode->setProperty("reverie_is_stroke", true);
+                newNode->setProperty("reverie_stroke_size", 6);
+                newNode->setProperty("reverie_stroke_color", 0xFF000000u);
+                newNode->setProperty("reverie_stroke_pos", 0);
+                newNode->setProperty("reverie_stroke_opacity", 100);
+            }
+        }
     }
     markDirty();
     return true;
@@ -314,6 +334,12 @@ int ReverieCore::copyLayer(int index)
     }
     cloned->setName(candidateName);
 
+    const bool wasStroke = src.isStrokeLayer || src.nodeType == NodeTypeStroke;
+    const int sSize = src.strokeSize;
+    const quint32 sCol = src.strokeColor;
+    const int sPos = src.strokePosition;
+    const int sOp = src.strokeOpacity;
+
     KisNodeSP above = KisNodeSP(src.node);
     KisNodeSP parent = above ? above->parent() : KisNodeSP(image->rootLayer());
     pushUndoCommand(new KisImageLayerAddCommand(image, cloned, parent, above));
@@ -322,6 +348,21 @@ int ReverieCore::copyLayer(int index)
     const int idx = indexOfNode(cloned.data());
     if (idx >= 0) {
         m_currentLayer = idx;
+        if (wasStroke) {
+            m_layers[idx].isStrokeLayer = true;
+            m_layers[idx].nodeType = NodeTypeStroke;
+            m_layers[idx].strokeSize = sSize;
+            m_layers[idx].strokeColor = sCol;
+            m_layers[idx].strokePosition = sPos;
+            m_layers[idx].strokeOpacity = sOp;
+            if (cloned) {
+                cloned->setProperty("reverie_is_stroke", true);
+                cloned->setProperty("reverie_stroke_size", sSize);
+                cloned->setProperty("reverie_stroke_color", sCol);
+                cloned->setProperty("reverie_stroke_pos", sPos);
+                cloned->setProperty("reverie_stroke_opacity", sOp);
+            }
+        }
     }
     markDirty();
     return m_currentLayer;
@@ -520,7 +561,11 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         m_layers[index].visible = visible;
         if (m_layers[index].background && m_document) {
             const KoColorSpace *cs = m_document->colorSpace();
-            m_document->setDefaultProjectionColor(visible ? KoColor(Qt::white, cs) : KoColor(Qt::transparent, cs));
+            if (visible) {
+                m_document->setDefaultProjectionColor(KoColor(m_backgroundColor, cs));
+            } else {
+                m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
+            }
         }
         recompositeProjection();
         markDirty();
@@ -724,6 +769,167 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     }
     recompositeProjection();
     markDirty();
+}
+
+bool ReverieCore::isLayerStroke(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) return false;
+    const LayerEntry &e = m_layers[index];
+    return e.isStrokeLayer || e.nodeType == NodeTypeStroke;
+}
+
+namespace {
+class SetStrokeParamsCommand : public KUndo2Command {
+public:
+    SetStrokeParamsCommand(ReverieCore *core, int index,
+                           int oldSize, quint32 oldColor, int oldPos, int oldOp,
+                           int newSize, quint32 newColor, int newPos, int newOp)
+        : KUndo2Command(kundo2_i18n("Change Stroke Style"))
+        , m_core(core), m_index(index)
+        , m_oldSize(oldSize), m_oldColor(oldColor), m_oldPos(oldPos), m_oldOp(oldOp)
+        , m_newSize(newSize), m_newColor(newColor), m_newPos(newPos), m_newOp(newOp)
+    {}
+
+    void undo() override {
+        m_core->applyStrokeParamsInternal(m_index, m_oldSize, m_oldColor, m_oldPos, m_oldOp);
+    }
+    void redo() override {
+        m_core->applyStrokeParamsInternal(m_index, m_newSize, m_newColor, m_newPos, m_newOp);
+    }
+
+private:
+    ReverieCore *m_core;
+    int m_index;
+    int m_oldSize; quint32 m_oldColor; int m_oldPos; int m_oldOp;
+    int m_newSize; quint32 m_newColor; int m_newPos; int m_newOp;
+};
+}
+
+void ReverieCore::applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity)
+{
+    if (index < 0 || index >= m_layers.size()) return;
+    LayerEntry &e = m_layers[index];
+    const int oldSize = e.strokeSize;
+    e.strokeSize = qBound(1, size, 100);
+    e.strokeColor = color;
+    e.strokePosition = qBound(0, position, 2);
+    e.strokeOpacity = qBound(0, opacity, 100);
+    e.isStrokeLayer = true;
+    e.nodeType = NodeTypeStroke;
+
+    if (e.node) {
+        e.node->setProperty("reverie_is_stroke", true);
+        e.node->setProperty("reverie_stroke_size", e.strokeSize);
+        e.node->setProperty("reverie_stroke_color", e.strokeColor);
+        e.node->setProperty("reverie_stroke_pos", e.strokePosition);
+        e.node->setProperty("reverie_stroke_opacity", e.strokeOpacity);
+    }
+
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+    if (pl && pl->paintDevice() && m_document) {
+        QRect bounds = pl->paintDevice()->exactBounds();
+        if (pl->hasTemporaryTarget() && pl->temporaryTarget()) {
+            bounds = bounds.united(pl->temporaryTarget()->exactBounds());
+        }
+        if (!bounds.isEmpty()) {
+            const int extra = qMax(oldSize, e.strokeSize) + 4;
+            const QRect dirty = bounds.adjusted(-extra, -extra, extra, extra).intersected(
+                QRect(0, 0, m_document->width(), m_document->height()));
+            markRegionDirty(dirty);
+        }
+    }
+    markDirty();
+}
+
+bool ReverieCore::setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity)
+{
+    if (index < 0 || index >= m_layers.size()) return false;
+    const LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
+
+    const int oldSize = e.strokeSize;
+    const quint32 oldColor = e.strokeColor;
+    const int oldPos = e.strokePosition;
+    const int oldOp = e.strokeOpacity;
+
+    const int newSize = qBound(1, size, 100);
+    const int newPos = qBound(0, position, 2);
+    const int newOp = qBound(0, opacity, 100);
+
+    pushUndoCommand(new SetStrokeParamsCommand(
+        this, index,
+        oldSize, oldColor, oldPos, oldOp,
+        newSize, color, newPos, newOp));
+
+    applyStrokeParamsInternal(index, newSize, color, newPos, newOp);
+    return true;
+}
+
+bool ReverieCore::setLayerStrokeParamsDirect(int index, int size, quint32 color, int position, int opacity)
+{
+    if (index < 0 || index >= m_layers.size()) return false;
+    const LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
+
+    applyStrokeParamsInternal(index, size, color, position, opacity);
+    return true;
+}
+
+bool ReverieCore::getLayerStrokeParams(int index, int &size, quint32 &color, int &position, int &opacity) const
+{
+    if (index < 0 || index >= m_layers.size()) return false;
+    const LayerEntry &e = m_layers[index];
+    if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
+        size = e.strokeSize;
+        color = e.strokeColor;
+        position = e.strokePosition;
+        opacity = e.strokeOpacity;
+        return true;
+    }
+    return false;
+}
+
+bool ReverieCore::rasterizeLayerStroke(int index)
+{
+    if (index < 0 || index >= m_layers.size()) return false;
+    if (m_layers[index].background) return false;
+    KisImageSP image = m_document;
+    if (!image) return false;
+    LayerEntry &e = m_layers[index];
+    if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
+
+    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+    if (!pl || !pl->paintDevice()) return false;
+
+    KisPaintDeviceSP dev = pl->paintDevice();
+    const QRect bounds = dev->exactBounds();
+    if (!bounds.isEmpty()) {
+        const int extra = e.strokeSize + 4;
+        const QRect dirty = bounds.adjusted(-extra, -extra, extra, extra).intersected(
+            QRect(0, 0, image->width(), image->height()));
+
+        KisPaintDeviceSP styledDev(new KisPaintDevice(image->colorSpace()));
+        styledDev->clear();
+        compositeStrokeLayer(styledDev, e, dirty);
+
+        beginUndoMacro(QStringLiteral("栅格化描边"));
+        KisTransaction txn(kundo2_i18n("Rasterize Stroke"), dev);
+        dev->clear();
+        KisPainter::copyAreaOptimized(dirty.topLeft(), styledDev, dev, dirty);
+        dev->setDirty(dirty);
+        txn.commit(image->undoAdapter());
+        endUndoMacro();
+
+        markRegionDirty(dirty);
+    }
+
+    e.isStrokeLayer = false;
+    e.nodeType = NodeTypePaint;
+    if (e.node) {
+        e.node->setProperty("reverie_is_stroke", false);
+    }
+    markDirty();
+    return true;
 }
 
 

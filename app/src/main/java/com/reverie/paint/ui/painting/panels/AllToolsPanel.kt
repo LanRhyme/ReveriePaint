@@ -38,6 +38,7 @@ import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.GuideMode
 import com.reverie.paint.ui.components.noRippleClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.reverie.paint.ui.components.liquidHighlight
@@ -77,8 +78,13 @@ fun AllToolsPanel(
         Box(
             modifier = Modifier
                 .systemHoverIcon(context)
-                .padding(start = 52.dp, top = 48.dp, bottom = 48.dp)
-                .align(Alignment.CenterStart)
+                .padding(
+                    start = if (vm.leftHandMode) 0.dp else 52.dp,
+                    end = if (vm.leftHandMode) 52.dp else 0.dp,
+                    top = 48.dp,
+                    bottom = 48.dp,
+                )
+                .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(200.dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
@@ -143,7 +149,12 @@ fun AllToolsPanel(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 rowTools.forEach { t ->
-                                    val isSelected = if (t == Tool.REFERENCE) vm.referenceWindowOpen else tool == t
+                                    val isSelected = when (t) {
+                                        Tool.REFERENCE -> vm.referenceWindowOpen
+                                        Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
+                                        Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
+                                        else -> tool == t
+                                    }
                                     val cellSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,

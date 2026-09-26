@@ -54,7 +54,11 @@ fun TopBar(
     onRedo: () -> Unit = { vm.redo() },
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp)
+    val shape = if (vm.leftHandMode) {
+        androidx.compose.foundation.shape.RoundedCornerShape(bottomEnd = 16.dp)
+    } else {
+        androidx.compose.foundation.shape.RoundedCornerShape(bottomStart = 16.dp)
+    }
     Row(
         modifier =
             modifier

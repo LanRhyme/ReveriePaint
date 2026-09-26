@@ -123,6 +123,7 @@ internal fun PaintViewModel.autoSaveProject() {
     val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
 
     runCore(
+        render = false,
         after = {
             lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
             isAutoSaving = false
@@ -1203,6 +1204,13 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
         android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
         val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
         android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
+        val patternDir = java.io.File(appContext.filesDir, "patterns")
+        if (patternDir.exists()) {
+            try {
+                ReverieCoreBridge.loadPatternResources(patternDir.absolutePath)
+            } catch (_: Throwable) {
+            }
+        }
         val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
         android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
         val builtInNames = appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()

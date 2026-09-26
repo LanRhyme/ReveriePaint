@@ -102,6 +102,7 @@ public:
     int layerDepth(int index) const;
     bool layerBackground(int index) const;
     void setBackgroundColor(quint32 color, bool commit = true);
+    QColor backgroundColor() const { return m_backgroundColor; }
     // Clipping mask (self-implemented: Krita only has inherit-opacity):
     // content painted on a clipped layer is masked by the next layer's alpha
     bool layerClipped(int index) const;
@@ -143,7 +144,10 @@ public:
     // keep-set children into a temp device then apply their own opacity/blend
     void compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full);
     // Direct sub-region layer compositing for zero-latency in-stroke rendering
+    struct LayerEntry;
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r);
+    void compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
+    void applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity);
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,
@@ -151,7 +155,8 @@ public:
         LayerTypeFill = 2,
         LayerTypeAdjustment = 3,
         LayerTypeVector = 4,
-        LayerTypeClone = 5
+        LayerTypeClone = 5,
+        LayerTypeStroke = 6
     };
     enum MaskType {
         MaskTypeTransparency = 0,
@@ -167,6 +172,7 @@ public:
         NodeTypeAdjustment = 3, // KisAdjustmentLayer
         NodeTypeVector = 4,
         NodeTypeClone = 5,
+        NodeTypeStroke = 6,
         NodeTypeTransparencyMask = 10,
         NodeTypeFilterMask = 11,
         NodeTypeTransformMask = 12,
@@ -188,6 +194,12 @@ public:
     QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);
+    // 描边图层属性与栅格化
+    bool isLayerStroke(int index) const;
+    bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);
+    bool setLayerStrokeParamsDirect(int index, int size, quint32 color, int position, int opacity);
+    bool getLayerStrokeParams(int index, int &size, quint32 &color, int &position, int &opacity) const;
+    bool rasterizeLayerStroke(int index);
     bool addMaskToLayer(int layerIndex, int maskType);
     bool removeMask(int layerIndex);
     bool rasterizeLayer(int index);
@@ -465,6 +477,11 @@ public:
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
         bool background = false;      // background layer (index 0)
+        bool isStrokeLayer = false;   // stroke layer with layer style
+        int strokeSize = 6;
+        quint32 strokeColor = 0xFF000000;
+        int strokePosition = 0;       // 0: outside, 1: inside, 2: center
+        int strokeOpacity = 100;
         QVector<SoloBackup> soloPrev; // snapshot before solo (FolioLayers)
     };
 
@@ -658,7 +675,7 @@ public:
     void recompositeProjection();
 
     // Strokes (touch input; coordinates in document space)
-    void touchStrokeStart(qreal x, qreal y, qreal pressure);
+    void touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
 
     // Application-level undo/redo via per-stroke layer snapshots.
     // Krita's command stack needs the full KisTransaction pipeline; for the
@@ -678,7 +695,7 @@ public:
     void clearUndoHistory();
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
-    bool touchStrokeMove(qreal x, qreal y, qreal pressure);
+    bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
     // Flush the pending stroke start as an ink dot when no movement arrived
     // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
     // Returns true when a dot was painted.
@@ -700,6 +717,7 @@ public:
     // brush_definition lookups (bestMatch by filename) can resolve them.
     // Must be called before loadBrushPreset. Returns the count loaded.
     int loadBrushResources(const QString &dirPath);
+    int loadPatternResources(const QString &dirPath);
     bool loadSingleBrushResource(const QString &baseName);
     void ensureBrushForPreset(const QString &kppPath);
     bool loadBrushPreset(int index);
@@ -744,6 +762,7 @@ public:
     QString pickColorAt(int x, int y, bool currentLayerOnly = false);
 
     // Export functions
+    QImage renderMergedQImage();
     bool savePng(const QString &path);
     bool exportJpg(const QString &path, int quality = 90);
     bool exportPsd(const QString &path);
@@ -812,12 +831,15 @@ private:
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
     // Returns true when a flush painted ink in this call.
-    bool appendStrokeSample(const QPointF &imgPos, qreal pressure);
+    bool appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
     void endStrokeBatch();
 
     struct StrokeSample {
         QPointF imgPos;
         qreal pressure = 1.0;
+        qreal tiltX = 0.0;
+        qreal tiltY = 0.0;
+        qreal rotation = 0.0;
     };
 
 
@@ -946,6 +968,7 @@ private:
     KisResourcesInterfaceSP m_brushResources;
     QHash<QString, KisBrushSP> m_loadedBrushes;
     QString m_brushDir;
+    QString m_patternDir;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
@@ -984,6 +1007,9 @@ private:
     QPointF m_strokeStartImg;
     QRectF m_accumulatedStrokeBounds;
     qreal m_lastPressure = 1.0;
+    qreal m_lastTiltX = 0.0;
+    qreal m_lastTiltY = 0.0;
+    qreal m_lastRotation = 0.0;
     // Rendering: the last composited dirty region, used to copy only the
     // changed rows into the Android bitmap (m_bitmapInited gates the first
     // full copy).
@@ -1004,6 +1030,7 @@ public:
     bool renderPendingDirty() const;
 
 private:
+    QColor m_backgroundColor = Qt::white;
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;
@@ -1039,6 +1066,7 @@ private:
     // 拖出掉帧 —— 用户反馈的"绘制到洋葱皮区域就会卡"就是这里。
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
+    KisPaintDeviceSP m_strokeOutScratch;
 
     /** 取(必要时建)某图层在笔触叠加用的洋葱皮投影; 未开洋葱皮返回空 */
     KisPaintDeviceSP strokeOnionProjection(int layerIndex);
@@ -1048,6 +1076,7 @@ private:
 
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
+    KisPaintDeviceSP strokeOutScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {

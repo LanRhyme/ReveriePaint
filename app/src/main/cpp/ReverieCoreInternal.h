@@ -43,6 +43,7 @@
 #include <kis_imagepipe_brush.h>
 #include <kis_svg_brush.h>
 #include <kis_brush_option.h>
+#include <KoPattern.h>
 #include <QMutex>
 
 class QThreadPool;
@@ -132,6 +133,12 @@ QThreadPool *reverieBackgroundPool();
 #include <commands/KisNodeRenameCommand.h>
 #include <kis_painter.h>
 #include <layerstyles/kis_ls_utils.h>
+#include <kis_psd_layer_style.h>
+#include <psd.h>
+#include <commands_new/kis_set_layer_style_command.h>
+#include <resources/KisRequiredResourcesOperators.h>
+#include <KisGlobalResourcesInterface.h>
+#include <KisRenderPassFlags.h>
 #include <kis_selection_filters.h>
 #include <kis_gaussian_kernel.h>
 #include <kis_transform_worker.h>

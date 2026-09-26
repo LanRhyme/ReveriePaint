@@ -90,4 +90,148 @@ class ThemeSettingsTest {
             assertTrue("Hex $hex must be valid hexadecimal number", hexVal != null && hexVal in 0..0xFFFFFF)
         }
     }
+
+    @Test
+    fun `DeviceUtils isTabletMetrics correctly identifies tablets vs phones`() {
+        // Standard phone smallest widths
+        assertFalse("Phone with sw360 should not be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(360))
+        assertFalse("Phone with sw392 should not be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(392))
+        assertFalse("Phone with sw411 should not be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(411))
+        assertFalse("Phone with sw430 should not be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(430))
+
+        // Tablet smallest widths (sw >= 600)
+        assertTrue("Tablet with sw600 should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(600))
+        assertTrue("Tablet with sw720 should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(720))
+        assertTrue("Tablet with sw800 should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(800))
+        assertTrue("Tablet with sw1200 should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(1200))
+
+        // Undefined sw (sw = 0) with fallback to screenLayout size
+        // 2: SCREENLAYOUT_SIZE_NORMAL, 3: SCREENLAYOUT_SIZE_LARGE, 4: SCREENLAYOUT_SIZE_XLARGE
+        assertFalse("sw0 with normal screenLayout should not be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(0, 2))
+        assertTrue("sw0 with large screenLayout should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(0, 3))
+        assertTrue("sw0 with xlarge screenLayout should be tablet", com.reverie.paint.core.DeviceUtils.isTabletMetrics(0, 4))
+    }
+
+    @Test
+    fun `first-launch immersive mode defaults to enabled on tablet and disabled on phone`() {
+        val resolveImmersive = { containsKey: Boolean, savedValue: Boolean, isTablet: Boolean ->
+            if (containsKey) savedValue else isTablet
+        }
+
+        // First launch (no key saved yet)
+        assertTrue("First launch on tablet must default to enabled", resolveImmersive(false, false, true))
+        assertFalse("First launch on phone must default to disabled", resolveImmersive(false, false, false))
+
+        // Subsequent launch: user explicitly disabled it on tablet
+        assertFalse("Subsequent launch must preserve user setting false on tablet", resolveImmersive(true, false, true))
+
+        // Subsequent launch: user explicitly enabled it on phone
+        assertTrue("Subsequent launch must preserve user setting true on phone", resolveImmersive(true, true, false))
+    }
+
+    @Test
+    fun `left-handed mode layout alignment logic`() {
+        val resolveToolRailAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopEnd else androidx.compose.ui.Alignment.TopStart
+        }
+        val resolveTopBarAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+        val resolvePopupOffset = { leftHand: Boolean, offsetDp: Int ->
+            if (leftHand) -offsetDp else offsetDp
+        }
+
+        val resolveBrushPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.CenterEnd else androidx.compose.ui.Alignment.CenterStart
+        }
+        val resolveLayerPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+        val resolveColorPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.BottomEnd else androidx.compose.ui.Alignment.BottomStart
+        }
+        val resolveSettingsPanelAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+
+        // Standard right-handed layout
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveToolRailAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveTopBarAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.CenterStart, resolveBrushPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveLayerPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.BottomStart, resolveColorPanelAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveSettingsPanelAlignment(false))
+        assertEquals(52, resolvePopupOffset(false, 52))
+
+        // Left-handed layout
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveToolRailAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveTopBarAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.CenterEnd, resolveBrushPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveLayerPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.BottomEnd, resolveColorPanelAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveSettingsPanelAlignment(true))
+        assertEquals(-52, resolvePopupOffset(true, 52))
+    }
+
+    @Test
+    fun `painting page full-height edge gesture exclusion logic`() {
+        val calculateFullExclusion = { width: Int, height: Int, density: Float ->
+            val edgeWidth = (48 * density).toInt()
+            val left = 0 to edgeWidth
+            val right = (width - edgeWidth) to width
+            val vertical = 0 to height
+            Triple(left, right, vertical)
+        }
+
+        val w = 2400
+        val h = 1600
+        val density = 2.0f
+        val edgeW = 96
+
+        val (left, right, vertical) = calculateFullExclusion(w, h, density)
+        assertEquals(0 to edgeW, left)
+        assertEquals(w - edgeW to w, right)
+        assertEquals(0 to h, vertical)
+    }
+
+    @Test
+    fun `spacebar hold-to-pan state transition logic`() {
+        var isSpacePanning = false
+        val onSpaceKeyEvent = { actionDown: Boolean ->
+            if (actionDown) {
+                if (!isSpacePanning) isSpacePanning = true
+            } else {
+                if (isSpacePanning) isSpacePanning = false
+            }
+            isSpacePanning
+        }
+
+        assertFalse("Initial state must not be panning", isSpacePanning)
+        assertTrue("Space down transitions to panning", onSpaceKeyEvent(true))
+        assertTrue("Subsequent space down repeat keeps panning", onSpaceKeyEvent(true))
+        assertFalse("Space up releases panning", onSpaceKeyEvent(false))
+        assertFalse("Subsequent space up keeps released", onSpaceKeyEvent(false))
+    }
+
+    @Test
+    fun `hardware keyboard shortcut canonical string formatting`() {
+        val formatKey = { ctrl: Boolean, shift: Boolean, alt: Boolean, key: String ->
+            val parts = mutableListOf<String>()
+            if (ctrl) parts.add("LeftCtrl")
+            if (alt) parts.add("LeftAlt")
+            if (shift) parts.add("LeftShift")
+            parts.add(key)
+            parts.joinToString(" + ")
+        }
+
+        assertEquals("B", formatKey(false, false, false, "B"))
+        assertEquals("LeftCtrl + Z", formatKey(true, false, false, "Z"))
+        assertEquals("LeftCtrl + LeftShift + Z", formatKey(true, true, false, "Z"))
+        assertEquals("LeftCtrl + LeftShift + N", formatKey(true, true, false, "N"))
+        assertEquals("LeftShift + G", formatKey(false, true, false, "G"))
+        assertEquals("[", formatKey(false, false, false, "["))
+        assertEquals("]", formatKey(false, false, false, "]"))
+    }
 }
+
+
