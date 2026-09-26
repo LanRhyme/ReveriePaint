@@ -39,6 +39,9 @@ internal object PerfHud {
 
     fun recordDraw(nanos: Long) {}
 
+    /** 标尺在正式版不存在: 恒无失效矩形(局部失效路径上零成本) */
+    fun fillHudBounds(out: android.graphics.Rect): Boolean = false
+
     fun draw(canvas: Canvas, view: View) {}
 
     /** 液化网格可视化在正式版不存在(恒关, 也没有网格数据) */

@@ -147,6 +147,9 @@ class CanvasTouchView(context: Context) : View(context) {
     var isPinchMotion = false
 
     // 本地硬件光标状态 (0 Compose 开销)
+    /** 局部失效时并入标尺块(debug 标尺专用; 正式版 [PerfHud.fillHudBounds] 恒 false)。 */
+    private val hudBoundsScratch = android.graphics.Rect()
+
     private var localCursorPos: Offset? = null
     private var localIsHovering = false
     private var localIsTouching = false
@@ -1146,13 +1149,21 @@ class CanvasTouchView(context: Context) : View(context) {
             (snap[1] + dh).toFloat(),
             boundsScratch,
         )
-        val left = boundsScratch[0].coerceAtLeast(0)
-        val top = boundsScratch[1].coerceAtLeast(0)
-        val right = boundsScratch[2].coerceAtMost(viewW)
-        val bottom = boundsScratch[3].coerceAtMost(viewH)
+        var left = boundsScratch[0].coerceAtLeast(0)
+        var top = boundsScratch[1].coerceAtLeast(0)
+        var right = boundsScratch[2].coerceAtMost(viewW)
+        var bottom = boundsScratch[3].coerceAtMost(viewH)
         if (right <= left || bottom <= top) {
             postInvalidate()
             return
+        }
+        // 标尺(debug)必须整块重绘: 它的行数会随数据出现/消失, 只刷新损坏区会留下两代文本
+        // 拼接的残迹。标尺关闭时这里是纯读一次布尔(见 PerfHud.fillHudBounds)。
+        if (PerfHud.fillHudBounds(hudBoundsScratch)) {
+            if (hudBoundsScratch.left < left) left = hudBoundsScratch.left
+            if (hudBoundsScratch.top < top) top = hudBoundsScratch.top
+            if (hudBoundsScratch.right > right) right = hudBoundsScratch.right
+            if (hudBoundsScratch.bottom > bottom) bottom = hudBoundsScratch.bottom
         }
         postInvalidate(left, top, right, bottom)
     }
@@ -1274,6 +1285,14 @@ class CanvasTouchView(context: Context) : View(context) {
         if (right <= left || bottom <= top) {
             // 这一帧位移场没变、环也没动: 连重绘都不需要
             return
+        }
+        // 标尺(debug)并进失效区 —— 与 [invalidateFromRender] 同理; 放在"无需重绘"判断之后,
+        // 免得标尺把"一帧都不需要重绘"的情况变成每帧都重绘。
+        if (PerfHud.fillHudBounds(hudBoundsScratch)) {
+            if (hudBoundsScratch.left < left) left = hudBoundsScratch.left.toFloat()
+            if (hudBoundsScratch.top < top) top = hudBoundsScratch.top.toFloat()
+            if (hudBoundsScratch.right > right) right = hudBoundsScratch.right.toFloat()
+            if (hudBoundsScratch.bottom > bottom) bottom = hudBoundsScratch.bottom.toFloat()
         }
         val l = left.toInt().coerceIn(0, viewW)
         val t = top.toInt().coerceIn(0, viewH)

@@ -7,6 +7,7 @@ package com.reverie.paint.perf
 import android.content.SharedPreferences
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.view.View
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Schedule
@@ -63,11 +64,27 @@ internal object PerfHud {
     /** 记录一次 onDraw 的耗时, 汇总成 p95 */
     fun recordDraw(nanos: Long) = PerfTrace.drawFrame(nanos)
 
+    /**
+     * 标尺块的屏幕矩形(像素) —— 供 CanvasTouchView 的**局部失效**把标尺一并算进损坏区。
+     *
+     * 为什么必须带上它: 标尺的行数会随数据出现/消失(液化/泵/快照等行), 局部重绘只刷新损坏区,
+     * 于是屏幕上是"两代文本拼接"的残迹(真机表现为整行文字缺头/缺尾)。把标尺块并进失效区后,
+     * 每次局部重绘都会把整块标尺刷新一遍。未绘制过(或标尺关闭)时返回 false。
+     */
+    fun fillHudBounds(out: Rect): Boolean {
+        if (!hudBoundsValid) return false
+        out.set(hudBounds)
+        return true
+    }
+
     // 颜色刻意不取主题色: 它要压在任意画布内容上, 只有"半透明黑底 + 白字"才稳定可读
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFFFFFF.toInt() }
     private val bgPaint = Paint().apply { color = 0x88101010.toInt() }
     private var cachedText = ""
     private var cachedLines = emptyArray<String>()
+    private var cachedWidth = 0f
+    private val hudBounds = Rect()
+    private var hudBoundsValid = false
 
     /**
      * 在画布左侧偏中(避开顶栏与底部工具条)叠加标尺。
@@ -77,15 +94,30 @@ internal object PerfHud {
     fun draw(canvas: Canvas, view: View) {
         val text = PerfTrace.hudText()
         if (text.isEmpty()) return
+        val d = view.resources.displayMetrics.density
+        textPaint.textSize = 11f * d
         if (text != cachedText) {
             cachedText = text
             cachedLines = text.split('\n').toTypedArray()
+            // 文本实际宽度: 底衬仍是固定宽(不让超长行铺满整屏), 但**失效矩形**要盖住全部文字
+            var w = 0f
+            for (line in cachedLines) {
+                val lw = textPaint.measureText(line)
+                if (lw > w) w = lw
+            }
+            cachedWidth = w
         }
-        val d = view.resources.displayMetrics.density
-        textPaint.textSize = 11f * d
         val lineHeight = 14f * d
         val x = 10f * d
         var y = view.height * 0.30f
+        // 记录标尺块的矩形(文本范围), 供局部失效使用; 见 [fillHudBounds]
+        hudBounds.set(
+            (x - 6f * d).toInt(),
+            (y - lineHeight + 2f * d).toInt(),
+            (x + cachedWidth + 8f * d).toInt().coerceAtMost(view.width),
+            (y + lineHeight * (cachedLines.size - 1) + 4f * d).toInt(),
+        )
+        hudBoundsValid = true
         val save = canvas.save()
         canvas.setMatrix(null) // 忽略画布自身的缩放/旋转/平移, 固定画在屏幕坐标系
         canvas.drawRect(

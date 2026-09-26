@@ -759,9 +759,13 @@ object PerfTrace {
             if (saveWasAsync) sb.append(" async")
         }
 
-        // 第 4 行: 上一次液化 apply 的四段拆解 (做过液化才有)
-        if (lqCount >= 0L) {
-            sb.append('\n')
+        // 第 4 行: 上一次液化 apply 的四段拆解。**行位置必须稳定**: 行数一变, 后面每一行都会整体
+        // 上/下移一格, 而"局部失效重绘"只刷新损坏区 ⇒ 屏幕上会留下两代文本拼接的残迹(真机表现为
+        // 整行文字缺头/缺尾, 见 test11.jpg)。所以没数据时用 "--" 占位, 不整行省略。
+        sb.append('\n')
+        if (lqCount < 0L) {
+            sb.append("液化 --")
+        } else {
             sb.append("液化 ").append(lqTotalMs).append("ms 形变 ").append(lqWarpMs)
                 .append("/补洞 ").append(lqSeedMs).append("/回写 ").append(lqBlitMs)
                 .append("/合成 ").append(lqCompositeMs).append("  ").append(lqTargets)
@@ -775,12 +779,22 @@ object PerfTrace {
             }
         }
 
-        // 第 4.5 行: 液化交互管线的"暂存 → 上传 → 帧"三段读数。
+        // 第 4.1 行: 预览由谁画 + 位移场来源(C3) —— **单独一行且短**。
+        // 这两个读数是判断"设置里的开关生效了没""场 vs 网格"的唯一依据; 原来挤在 4.5 长行的尾部,
+        // 长行尾部在局部失效重绘里最先被截断(真机截图里根本看不到), 所以单独拎出来。
+        sb.append('\n')
+        sb.append("预览 ").append(HOST_NAMES[lqHostTag.coerceIn(0, 2)])
+            .append(if (lqGlesState.isEmpty()) "" else "($lqGlesState)")
+        sb.append(if (lqGlesField.isEmpty()) " 场 --" else " ").append(lqGlesField)
+
+        // 第 4.2 行: 液化交互管线的"暂存 → 上传 → 帧"三段读数(长行; 行位置同样固定)。
         //   输入/推进/补点 = 交互调度(上一秒窗口);
         //   暂存/网格上传 = 状态暂存与实际纹理上传(每次手势内累计; 目标 网格上传 ≤ 1/帧);
         //   源上传 = rebase 次数; 滞后 = 当前未提交补点数; 代理 = 源纹理尺寸。
-        if (lqScheduleFlush > 0L || lqPreviewUpdates > 0L) {
-            sb.append('\n')
+        sb.append('\n')
+        if (lqScheduleFlush <= 0L && lqPreviewUpdates <= 0L) {
+            sb.append("泵 --")
+        } else {
             sb.append("泵 输入").append(lqScheduleInput)
                 .append("/推进").append(lqScheduleFlush)
                 .append("/补点").append(lqScheduleDab)
@@ -814,25 +828,21 @@ object PerfTrace {
                 .append(" 滞后").append(lqFlowBacklog).append("峰").append(lqFlowBacklogMax)
                 .append(" lag").append(lqFlowLag)
                 .append(" 代理").append(lqProxyW).append('x').append(lqProxyH)
-                // Phase 5 · C2: 预览由谁画 + GLES 侧状态(无数据线时判断"开关生效了没"的读数)
-                .append(" 预览").append(HOST_NAMES[lqHostTag.coerceIn(0, 2)])
-                .append(if (lqGlesState.isEmpty()) "" else "($lqGlesState)")
-                // Phase 5 · C3: 位移场来源与规模("场 vs 网格" A/B 的对照读数)
-                .append(if (lqGlesField.isEmpty()) "" else " ").append(lqGlesField)
         }
 
-        // 第 4.55 行: GLES 首帧 uniform 快照(仅 GLES 路径在画时显示) —— 坐标系/仿射/网格口径
-        // 全在这一行, 出问题(镜像/偏移)时截图即可判读, 不必连数据线抓 logcat。
-        if (lqHostTag == HOST_GLES && lqGlesSnapshot.isNotEmpty()) {
-            sb.append('\n').append(lqGlesSnapshot)
-        }
-
-        // 第 4.6 行: 真实帧间隔(相邻两帧 onDraw 的时间差) —— 判断"上传控制住了但仍卡"的关键。
+        // 第 4.5 行: 真实帧间隔(相邻两帧 onDraw 的时间差) —— 判断"上传控制住了但仍卡"的关键。
+        // 刻意排在"GLES 首帧快照"之前: 快照行只在 GLES 路径出现, 排在它前面就不会被它挤走。
         if (frameN > 0) {
             sb.append('\n')
             sb.append("frame ").append("%.1f".format(frameIntervalLastMs))
                 .append("ms p95 ").append("%.1f".format(p95Locked(frameRing, frameSort, frameN) / 1e6))
                 .append("ms n").append(frameN)
+        }
+
+        // 第 4.6 行: GLES 首帧 uniform 快照(仅 GLES 路径在画时显示) —— 坐标系/仿射/网格/场口径
+        // 全在这一行, 出问题(镜像/偏移)时截图即可判读, 不必连数据线抓 logcat。
+        if (lqHostTag == HOST_GLES && lqGlesSnapshot.isNotEmpty()) {
+            sb.append('\n').append(lqGlesSnapshot)
         }
 
         // 第 5 行: 液化网格快照 (setprop debug.reverie.lqgrid 1 时才有)
