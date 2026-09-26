@@ -67,7 +67,8 @@ CanvasOverlay / 面板 / 光标覆盖 (Compose)        ← 不动
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| C1 | 空 `LiquifySurfaceView` + EGL 初始化 + 画一张纯色 quad(开关默认**关**) | 开关打开后画布不闪、不挡手势、覆盖层正常;关掉后逐像素与现状一致 |
+| C1a | ~~`SurfaceView`~~ 空覆盖层 + EGL + 纯色 quad | ❌ **真机黑屏**: `SurfaceView` 是**独立 surface 层**, `setZOrderMediaOverlay(true)` 让它在整个 window **之上** ⇒ 画布位图 / HUD / 面板全被盖住(连性能标尺都看不见)。**结论: 同窗口内做"夹层"用 SurfaceView 做不到。** |
+| C1b | 改用 **`TextureView`**(普通 View, EGL 挂到它的 `SurfaceTexture`) | 开关打开后: ① 画布内容能透过覆盖层;② 不吞手势;③ 覆盖层/面板不被遮;关掉后逐像素与现状一致 |
 | C2 | 上传 `uSrc`(复用 `liquifyPreviewSourcePixels()`)并用**现有网格位移场**输出, 复刻 AGSL 版画面 | 与 AGSL 路径 A/B 视觉等价 |
 | C3 | `uField` 浮点纹理 + **局部 ping/pong 累积**(每 dab 一次局部 draw), 位移场不再走 Krita 网格 | 拖动期 `ReverieCore::liquify()` 不再产生像素工作;形变边缘无 32px 块 |
 | C4 | 抬笔一次性回读 + 写回图层(事务/选区/Alpha 锁与现状一致) | 抬笔 < 100ms;撤销/取消完全回退 |

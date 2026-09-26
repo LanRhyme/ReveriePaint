@@ -326,6 +326,17 @@ fun CanvasView(
             )
         }
 
+        // Phase 5 · C1: 液化 GLES 覆盖层(**默认关**, `setprop debug.reverie.liquifyGles 1` 打开)。
+        // 位置刻意夹在"画布位图(AndroidView)"与"顶层辅助覆盖层(CanvasOverlay)"之间 ——
+        // 本阶段只画一张半透明 quad, 用来验证 SurfaceView 的 z-order / 透明 / 不吞手势。
+        // 见 docs/LIQUIFY-PHASE5-GLES-PLAN.md(C1)。
+        if (LiquifyGlesOverlay.enabled) {
+            androidx.compose.ui.viewinterop.AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx -> LiquifyGlesOverlay(ctx) },
+            )
+        }
+
         // 顶层辅助覆盖层 (选区蚂蚁线/选区蒙版/变换控制点/裁剪线/辅助线)
         CanvasOverlay(
             vm = vm,
