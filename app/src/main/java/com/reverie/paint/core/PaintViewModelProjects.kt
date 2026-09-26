@@ -123,6 +123,7 @@ internal fun PaintViewModel.autoSaveProject() {
     val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
 
     runCore(
+        render = false,
         after = {
             lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
             isAutoSaving = false

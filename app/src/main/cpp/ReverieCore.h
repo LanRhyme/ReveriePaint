@@ -673,6 +673,7 @@ public:
     QString pickColorAt(int x, int y, bool currentLayerOnly = false);
 
     // Export functions
+    QImage renderMergedQImage();
     bool savePng(const QString &path);
     bool exportJpg(const QString &path, int quality = 90);
     bool exportPsd(const QString &path);

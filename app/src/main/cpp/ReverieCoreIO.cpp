@@ -40,13 +40,34 @@ void ReverieCore::setAuthorProfile(const QString &jsonStr)
     m_authorProfile.copyright = obj.value("copyright").toString();
 }
 
-bool ReverieCore::savePng(const QString &path)
+QImage ReverieCore::renderMergedQImage()
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
-        return false;
+        return QImage();
     }
-    QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+
+    bool hasVisibleStroke = false;
+    for (const LayerEntry &le : m_layers) {
+        if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
+            hasVisibleStroke = true;
+            break;
+        }
+    }
+
+    if (hasVisibleStroke) {
+        KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
+        const QRect fullRect(0, 0, image->width(), image->height());
+        compDev->clear(fullRect);
+        compositeLayersRange(compDev, 0, m_layers.size(), fullRect);
+        return compDev->convertToQImage(nullptr, 0, 0, image->width(), image->height()).copy();
+    }
+    return image->convertToQImage(0, 0, image->width(), image->height(), nullptr).copy();
+}
+
+bool ReverieCore::savePng(const QString &path)
+{
+    QImage img = renderMergedQImage();
     if (img.isNull()) {
         return false;
     }
@@ -80,11 +101,7 @@ bool ReverieCore::savePng(const QString &path)
 
 bool ReverieCore::exportJpg(const QString &path, int quality)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
-    if (!image) {
-        return false;
-    }
-    const QImage img = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    const QImage img = renderMergedQImage();
     if (img.isNull()) {
         return false;
     }
@@ -471,7 +488,7 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     QString xml;
     writeLayersXml(&xml);
 
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    const QImage comp = renderMergedQImage();
 
     QVector<QPair<int, QImage>> layerImages;
     for (int i = 0; i < m_layers.size(); ++i) {
@@ -589,6 +606,18 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         }
     }
 
+    // Author metadata
+    if (!meta.contains("author") && m_authorProfile.enabled && !m_authorProfile.isEmpty()) {
+        QJsonObject authorObj;
+        authorObj["name"] = m_authorProfile.name;
+        authorObj["nickname"] = m_authorProfile.nickname;
+        authorObj["organization"] = m_authorProfile.organization;
+        authorObj["email"] = m_authorProfile.email;
+        authorObj["website"] = m_authorProfile.website;
+        authorObj["copyright"] = m_authorProfile.copyright;
+        meta["author"] = authorObj;
+    }
+
     QJsonArray layersArray;
     for (int i = 0; i < m_layers.size(); ++i) {
         const LayerEntry &e = m_layers[i];
@@ -605,6 +634,12 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
         layerObj["background"] = e.background;
+        layerObj["isStrokeLayer"] = e.isStrokeLayer;
+        layerObj["strokeSize"] = e.strokeSize;
+        layerObj["strokeColor"] = static_cast<double>(e.strokeColor);
+        layerObj["strokePosition"] = e.strokePosition;
+        layerObj["strokeOpacity"] = e.strokeOpacity;
+        layerObj["nodeType"] = e.nodeType;
 
         // 动画轨道: 关键帧时间列表
         KisRasterKeyframeChannel *kfCh = revpRasterChannel(e.node, false);
@@ -665,7 +700,7 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
     writeLayersXml(&xml);
 
     // Deep detached copies of images captured in ~8ms on caller thread
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr).copy();
+    const QImage comp = renderMergedQImage();
 
     QVector<QPair<int, QImage>> layerImages;
     for (int i = 0; i < m_layers.size(); ++i) {
@@ -1217,15 +1252,32 @@ bool ReverieCore::loadRevp(const QString &path)
     // 恢复描边图层属性
     if (meta.contains("layers")) {
         const QJsonArray layersMeta = meta["layers"].toArray();
-        for (int i = 0; i < layersMeta.size() && i < m_layers.size(); ++i) {
+        for (int i = 0; i < layersMeta.size(); ++i) {
             QJsonObject layerObj = layersMeta[i].toObject();
             if (layerObj["isStrokeLayer"].toBool(false)) {
-                m_layers[i].isStrokeLayer = true;
-                m_layers[i].nodeType = NodeTypeStroke;
-                m_layers[i].strokeSize = layerObj["strokeSize"].toInt(6);
-                m_layers[i].strokeColor = static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000));
-                m_layers[i].strokePosition = layerObj["strokePosition"].toInt(0);
-                m_layers[i].strokeOpacity = layerObj["strokeOpacity"].toInt(100);
+                int targetIdx = -1;
+                const QString layerName = layerObj["name"].toString();
+                if (i < m_layers.size() && m_layers[i].name == layerName) {
+                    targetIdx = i;
+                } else {
+                    for (int j = 0; j < m_layers.size(); ++j) {
+                        if (m_layers[j].name == layerName) {
+                            targetIdx = j;
+                            break;
+                        }
+                    }
+                    if (targetIdx == -1 && i < m_layers.size()) {
+                        targetIdx = i;
+                    }
+                }
+                if (targetIdx >= 0 && targetIdx < m_layers.size()) {
+                    m_layers[targetIdx].isStrokeLayer = true;
+                    m_layers[targetIdx].nodeType = NodeTypeStroke;
+                    m_layers[targetIdx].strokeSize = layerObj["strokeSize"].toInt(6);
+                    m_layers[targetIdx].strokeColor = static_cast<quint32>(layerObj["strokeColor"].toDouble(0xFF000000));
+                    m_layers[targetIdx].strokePosition = layerObj["strokePosition"].toInt(0);
+                    m_layers[targetIdx].strokeOpacity = layerObj["strokeOpacity"].toInt(100);
+                }
             }
         }
     }
@@ -1780,7 +1832,7 @@ bool ReverieCore::saveKra(const QString &path)
     }
 
     // 3. Merged Preview & mergedimage.png
-    const QImage comp = image->convertToQImage(0, 0, image->width(), image->height(), nullptr);
+    const QImage comp = renderMergedQImage();
     if (!comp.isNull()) {
         if (store->open("preview.png")) {
             QByteArray thumbBytes;

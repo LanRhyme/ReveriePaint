@@ -106,6 +106,19 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     const int iw = image->width();
     const int ih = image->height();
 
+    // The Kotlin side renders into one persistent buffer and reallocates it
+    // only on document/viewport size changes. A reallocation (forceFull, set
+    // whenever a fresh buffer is handed in) or a different buffer size
+    // invalidates the incremental state kept for the previous buffer: force
+    // a full-frame rewrite and re-init the dirty tracking.
+    const bool bufReset = forceFull || m_renderBufW != w || m_renderBufH != h;
+    if (bufReset) {
+        m_renderBufW = w;
+        m_renderBufH = h;
+        m_bitmapInited = false;
+        m_dirtyRect = QRect(0, 0, iw, ih);
+    }
+
     // Solo mode is a pure render-time filter: composite only the keep layers
     // (soloed + ancestors + descendants + background) into a fresh device and
     // read from that instead of the full projection. No layer state is ever
@@ -140,19 +153,6 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     }
     if (!proj) {
         return false;
-    }
-
-    // The Kotlin side renders into one persistent buffer and reallocates it
-    // only on document/viewport size changes. A reallocation (forceFull, set
-    // whenever a fresh buffer is handed in) or a different buffer size
-    // invalidates the incremental state kept for the previous buffer: force
-    // a full-frame rewrite and re-init the dirty tracking.
-    const bool bufReset = forceFull || m_renderBufW != w || m_renderBufH != h;
-    if (bufReset) {
-        m_renderBufW = w;
-        m_renderBufH = h;
-        m_bitmapInited = false;
-        m_dirtyRect = QRect(0, 0, iw, ih);
     }
 
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
