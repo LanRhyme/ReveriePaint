@@ -739,6 +739,7 @@ fun ReSlider(
 ) {
     val colors = Theme.current
     var interacting by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
     val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
     val glowAlpha by animateFloatAsState(if (interacting) 0.20f else 0f, Motion.springSnap, label = "sliderGlow")
     Box(
@@ -764,56 +765,62 @@ fun ReSlider(
                         var isDragging = false
                         var isScrollingVertically = false
 
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) {
-                                // 手指抬起 (Up)
-                                if (!isScrollingVertically) {
-                                    if (!isDragging) {
-                                        // 原地点击滑块
-                                        val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
-                                        onValue(tapVal)
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) {
+                                    // 手指抬起 (Up)
+                                    if (!isScrollingVertically) {
+                                        if (!isDragging) {
+                                            // 原地点击滑块
+                                            val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                            onValue(tapVal)
+                                        }
+                                        onRelease?.invoke()
                                     }
-                                    onRelease?.invoke()
-                                }
-                                break
-                            }
-
-                            if (isScrollingVertically) {
-                                // 判定为列表滚动，不拦截、不改值
-                                break
-                            }
-
-                            val dx = change.position.x - down.position.x
-                            val dy = change.position.y - down.position.y
-                            val absDx = kotlin.math.abs(dx)
-                            val absDy = kotlin.math.abs(dy)
-
-                            if (!isDragging) {
-                                if (absDy > touchSlop && absDy > absDx) {
-                                    // 纵向滚动优先，退出手势让渡给外层可滚动容器
-                                    isScrollingVertically = true
                                     break
-                                } else if (absDx > touchSlop && absDx >= absDy) {
-                                    // 横向拖拽生效
-                                    isDragging = true
-                                    interacting = true
+                                }
+
+                                if (isScrollingVertically) {
+                                    // 判定为列表滚动，不拦截、不改值
+                                    break
+                                }
+
+                                val dx = change.position.x - down.position.x
+                                val dy = change.position.y - down.position.y
+                                val absDx = kotlin.math.abs(dx)
+                                val absDy = kotlin.math.abs(dy)
+
+                                if (!isDragging) {
+                                    if (absDy > touchSlop && absDy > absDx) {
+                                        // 纵向滚动优先，退出手势让渡给外层可滚动容器
+                                        isScrollingVertically = true
+                                        break
+                                    } else if (absDx > touchSlop && absDx >= absDy) {
+                                        // 横向拖拽生效
+                                        isDragging = true
+                                        interacting = true
+                                    }
+                                }
+
+                                if (isDragging) {
+                                    change.consume()
+                                    val curVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                    dragFraction = curVal
+                                    onValue(curVal)
                                 }
                             }
-
-                            if (isDragging) {
-                                change.consume()
-                                val curVal = (change.position.x / w0).coerceIn(0f, 1f)
-                                onValue(curVal)
-                            }
+                        } finally {
+                            dragFraction = null
+                            interacting = false
                         }
-                        interacting = false
                     }
                 },
     ) {
         androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            val fillW = size.width * value.coerceIn(0f, 1f)
+            val currentFraction = (dragFraction ?: value).coerceIn(0f, 1f)
+            val fillW = size.width * currentFraction
             drawRoundRect(
                 color = colors.accent,
                 size = androidx.compose.ui.geometry.Size(fillW, size.height),

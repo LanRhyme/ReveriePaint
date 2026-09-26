@@ -452,12 +452,23 @@ internal fun LayerDetailPage(
                     }
                 }
 
-                // 1. Stroke Size Slider
+                // Stroke live state
                 var localStrokeSizeFraction by remember(index, currentStrokeSize) {
                     mutableFloatStateOf(((currentStrokeSize - 1) / 99f).coerceIn(0f, 1f))
                 }
                 var lastStrokeSizeNs by remember(index) { mutableLongStateOf(0L) }
                 val displayedSize = (1 + localStrokeSizeFraction * 99f).roundToInt()
+
+                var localStrokeOpacityFraction by remember(index, currentStrokeOpacity) {
+                    mutableFloatStateOf((currentStrokeOpacity / 100f).coerceIn(0f, 1f))
+                }
+                var lastStrokeOpacityNs by remember(index) { mutableLongStateOf(0L) }
+                val displayedOpacity = (localStrokeOpacityFraction * 100f).roundToInt()
+
+                val effectiveSize = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
+                val effectiveOpacity = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
+
+                // 1. Stroke Size Slider
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -489,7 +500,7 @@ internal fun LayerDetailPage(
                                     sz,
                                     currentStrokeColor,
                                     currentStrokePos,
-                                    currentStrokeOpacity,
+                                    effectiveOpacity,
                                     preview = true,
                                 )
                             }
@@ -501,7 +512,7 @@ internal fun LayerDetailPage(
                                 sz,
                                 currentStrokeColor,
                                 currentStrokePos,
-                                currentStrokeOpacity,
+                                effectiveOpacity,
                                 preview = false,
                             )
                         },
@@ -571,10 +582,10 @@ internal fun LayerDetailPage(
                                 )
                             vm.updateLayerStrokeParams(
                                 index,
-                                currentStrokeSize,
+                                effectiveSize,
                                 cInt,
                                 currentStrokePos,
-                                currentStrokeOpacity,
+                                effectiveOpacity,
                             )
                         },
                         onDismiss = { showStrokeColorPicker = false },
@@ -614,10 +625,10 @@ internal fun LayerDetailPage(
                                             if (!isSelected) {
                                                 vm.updateLayerStrokeParams(
                                                     index,
-                                                    currentStrokeSize,
+                                                    effectiveSize,
                                                     currentStrokeColor,
                                                     pos,
-                                                    currentStrokeOpacity,
+                                                    effectiveOpacity,
                                                 )
                                             }
                                         }
@@ -636,11 +647,6 @@ internal fun LayerDetailPage(
                 }
 
                 // 4. Stroke Opacity Slider
-                var localStrokeOpacityFraction by remember(index, currentStrokeOpacity) {
-                    mutableFloatStateOf((currentStrokeOpacity / 100f).coerceIn(0f, 1f))
-                }
-                var lastStrokeOpacityNs by remember(index) { mutableLongStateOf(0L) }
-                val displayedOpacity = (localStrokeOpacityFraction * 100f).roundToInt()
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -669,7 +675,7 @@ internal fun LayerDetailPage(
                                 val op = (it * 100f).roundToInt().coerceIn(0, 100)
                                 vm.updateLayerStrokeParams(
                                     index,
-                                    currentStrokeSize,
+                                    effectiveSize,
                                     currentStrokeColor,
                                     currentStrokePos,
                                     op,
@@ -681,7 +687,7 @@ internal fun LayerDetailPage(
                             val op = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
                             vm.updateLayerStrokeParams(
                                 index,
-                                currentStrokeSize,
+                                effectiveSize,
                                 currentStrokeColor,
                                 currentStrokePos,
                                 op,
