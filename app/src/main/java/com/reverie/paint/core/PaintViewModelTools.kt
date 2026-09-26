@@ -702,7 +702,10 @@ internal fun PaintViewModel.contentBounds(): IntArray? {
         }
     }
     try {
-        latch.await(500, java.util.concurrent.TimeUnit.MILLISECONDS)
+        // B4: 主线程有界阻塞 500ms → 120ms。引擎侧这个调用实测是毫秒级, 那 500ms 只是"引擎线程
+        // 被长任务占住"时的兜底 —— 兜底过长会把一次偶发卡顿放大成"白等半秒"。
+        // 返回 null 与超时是同一个语义(调用方按"没有内容边界"处理), 所以收窄是安全的。
+        latch.await(120, java.util.concurrent.TimeUnit.MILLISECONDS)
     } catch (_: InterruptedException) {
         return null
     }

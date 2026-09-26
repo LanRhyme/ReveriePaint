@@ -774,8 +774,21 @@ sha256sum third_party/android-native-libs/libreverie_jni.so
 | 4 | **缓存非目标层的合成结果** | 液化手势期间 N 层合成降为 1 层(见 §4.6) |
 | 5 | **动画关键帧转换并行** | 目前仍在写盘线程逐个 `convertToQImage`; 前提是先确认不同设备并发色彩转换安全 |
 | 6 | **JNI 与拷贝面** | 复核 `renderToBuffer` 是否走 direct `ByteBuffer`; 笔画已按 ~8ms 批量 flush |
-| 7 | Kotlin 侧待办 | `contentBounds()` 主线程有界阻塞 500ms 可收到 ~120ms; 参考图/调色板图片解码加降采样与字节预算; 静止时 `surface.setFrameRate` 降频 |
+| 7 | Kotlin 侧待办 | ✅ **已落地**(见 §9.2): `contentBounds()` 有界阻塞 500→120ms;参考图恢复 + 调色板导入改**采样解码**并加字节预算;静止 1.5s 后帧率请求降回 60Hz,一有输入立刻恢复面板最高 |
 | — | **已论证不做** | "推拉绕开网格做 memcpy"(§4.5); 收紧 Krita 投影瓦片回收上限(要碰 `KisTiledDataManager`, 风险高于收益) |
+
+### 9.2 B4 落地记录 (2026-09-26)
+
+三个"便宜但日常手感/耗电直接"的项(全部只改 Kotlin, 不动 C++):
+
+| 项 | 之前 | 之后 |
+|---|---|---|
+| `contentBounds()` 主线程有界阻塞 | `latch.await(500ms)` —— 引擎线程被长任务占住时, 一次偶发卡顿会被放大成"白等半秒" | 120ms(实测引擎侧这个调用是毫秒级; 超时返回 null 的语义与原先一致, 调用方按"无内容边界"处理) |
+| 参考图恢复 | `BitmapFactory.decodeFile(...)` **全尺寸**解码, 老版本存下的大图会在启动时一次分配几百 MB | 先读边界算 `inSampleSize`(最长边压到 2048), 并设 64MB 总预算 —— 超预算的图直接跳过 |
+| 调色板"从图片提取" | `decodeStream` 全尺寸解码相册图(常见 40~100MP ⇒ 数百 MB), 提取 30 个颜色根本不需要 | 采样解码到最长边 768 再交给量化器 |
+| 帧率 | 只在窗口获得焦点/可见时请求面板最高帧率, **从不下调** ⇒ 只看不画也钉在 144Hz | 输入(DOWN/MOVE/POINTER_DOWN)即请求最高并重置 1.5s 计时; 计时到点且无触摸/悬停/动画 ⇒ 请求降回 60Hz |
+
+验证: `compileDebugKotlin` / `testDebugUnitTest` / `assembleDebug` ✅。
 
 ### 9.1 交互态与文档态解耦 (Phase 0~5, 已定方向)
 

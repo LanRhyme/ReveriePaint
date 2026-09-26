@@ -789,13 +789,42 @@ class PaintViewModel : ViewModel() {
                 val dir = java.io.File(appContext.filesDir, "ref_images")
                 val count = prefs.getInt("ref_images_count", 0)
                 val list = mutableListOf<Bitmap>()
+                // B4: 参考图恢复改**有界解码** —— 最长边压到 2048, 并设总字节预算。
+                // 参考图只是"看着画"的辅助, 不需要原始分辨率; 而 decodeFile 按整张图分配,
+                // 老版本存下来的大图会让启动时一次性分配几百 MB(甚至 OOM)。
+                val maxEdge = 2048
+                val totalBudget = 64L * 1024L * 1024L
+                var loadedBytes = 0L
+                val decodeScaled: (java.io.File) -> Bitmap? = { f ->
+                    try {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(f.absolutePath, bounds)
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                            null
+                        } else {
+                            var sample = 1
+                            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+                            android.graphics.BitmapFactory.decodeFile(
+                                f.absolutePath,
+                                android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+                            )
+                        }
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
                 if (dir.exists() && count > 0) {
                     for (i in 0 until count) {
                         val file = java.io.File(dir, "ref_$i.png")
-                        if (file.exists()) {
-                            val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                            if (bmp != null) list.add(bmp)
+                        if (!file.exists()) continue
+                        val bmp = decodeScaled(file) ?: continue
+                        if (loadedBytes + bmp.byteCount > totalBudget) {
+                            // 预算用尽: 后面的图直接跳过(宁可少几张, 也不把内存打满)
+                            bmp.recycle()
+                            break
                         }
+                        loadedBytes += bmp.byteCount
+                        list.add(bmp)
                     }
                 }
                 viewModelScope.launch(Dispatchers.Main) {

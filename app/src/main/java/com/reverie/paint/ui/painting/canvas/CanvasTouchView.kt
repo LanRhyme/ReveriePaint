@@ -46,6 +46,12 @@ private const val MAX_VISIBLE_GRID_LINES = 6000
 /** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
 private const val MAX_MIRROR_BRANCHES = 8
 
+/** B4 · 静止降频: 交互结束后多久把帧率请求降回 [IDLE_FRAME_RATE_HZ]。 */
+private const val IDLE_DOWNCLOCK_MS = 1500L
+
+/** B4 · 静止时请求的帧率(Hz): 不画的时候没必要把屏幕钉在 144Hz 上。 */
+private const val IDLE_FRAME_RATE_HZ = 60f
+
 /** Phase 5 · C3-2: 本地补点列表的步长(px, py, nx, ny, mode, strength, size)。 */
 private const val FIELD_DAB_STRIDE = 7
 
@@ -153,6 +159,10 @@ class CanvasTouchView(context: Context) : View(context) {
     // 本地硬件光标状态 (0 Compose 开销)
     /** 局部失效时并入标尺块(debug 标尺专用; 正式版 [PerfHud.fillHudBounds] 恒 false)。 */
     private val hudBoundsScratch = android.graphics.Rect()
+
+    /** B4 · 静止降频: 当前是否已请求"面板最高帧率", 以及静止计时。 */
+    private var frameRateHigh = true
+    private val idleDownclockRunnable = Runnable { downclockWhenIdle() }
 
     private var localCursorPos: Offset? = null
     private var localIsHovering = false
@@ -657,12 +667,51 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (p.isValid) p.setRefreshRate(maxFps)
             } catch (_: Throwable) {}
         }
-        if (Build.VERSION.SDK_INT >= 34) {
-            try {
-                val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
-                method.invoke(this, maxFps, 1) // 1 = Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
-            } catch (_: Throwable) {}
+        // B4: 交互期请求面板最高帧率; 静止 1.5s 后由 [downclockWhenIdle] 降回 60Hz
+        frameRateHigh = true
+        requestMaxFrameRate()
+    }
+
+    /** B4: 请求"面板最高帧率"(交互期用)。拿不到就静默放弃, 不影响绘制。 */
+    private fun requestMaxFrameRate() {
+        if (Build.VERSION.SDK_INT < 34) return
+        val maxFps = try {
+            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+        } catch (_: Throwable) {
+            144f
         }
+        applyFrameRateHint(maxFps)
+    }
+
+    /** B4: 通过 `View.setFrameRate`(API 34+) 给系统一个帧率提示(反射调用, 失败即忽略)。 */
+    private fun applyFrameRateHint(fps: Float) {
+        if (Build.VERSION.SDK_INT < 34) return
+        try {
+            val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
+            method.invoke(this, fps, 1) // 1 = Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * B4 · 静止降频: 一有真实输入就把帧率请求提到最高, 并重置 1.5s 的静止计时; 计时到点若确实
+     * 没有触摸/悬停/动画, 就把请求降回 60Hz —— 只是"别让看画把屏幕钉在 144Hz 上", 不影响任何绘制。
+     */
+    private fun markInteractionFrameRate() {
+        if (!frameRateHigh) {
+            frameRateHigh = true
+            requestMaxFrameRate()
+        }
+        removeCallbacks(idleDownclockRunnable)
+        postDelayed(idleDownclockRunnable, IDLE_DOWNCLOCK_MS)
+    }
+
+    private fun downclockWhenIdle() {
+        if (!frameRateHigh) return
+        if (localIsTouching || localIsHovering || isInteracting) return
+        val v = vm
+        if (v != null && v.anim.isPlaying) return
+        frameRateHigh = false
+        applyFrameRateHint(IDLE_FRAME_RATE_HZ)
     }
 
     fun checkAndRestoreHighRefreshRate() {
@@ -688,6 +737,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (hasWindowFocus) {
             applyHighRefreshRateAndUnbuffered()
             checkAndRestoreHighRefreshRate()
+            // B4: 静止计时也从这里起算(进页面后一直不动也要降频)
+            markInteractionFrameRate()
         }
     }
 
@@ -696,6 +747,7 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isVisible) {
             applyHighRefreshRateAndUnbuffered()
             checkAndRestoreHighRefreshRate()
+            markInteractionFrameRate()
         }
     }
 
@@ -1328,6 +1380,14 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // B4: 真实输入 ⇒ 帧率请求立刻提到最高(静止 1.5s 后自动降回 60Hz)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_MOVE,
+            MotionEvent.ACTION_POINTER_DOWN,
+            -> markInteractionFrameRate()
+            else -> Unit
+        }
         return super.dispatchTouchEvent(event)
     }
 
