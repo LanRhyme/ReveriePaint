@@ -541,6 +541,10 @@ const int LIQUIFY_PREVIEW_MAX_EDGE = 192;
 // 超过就放弃源裁剪, 由调用方看到 cropW = 0 后自行回退到引擎侧 CPU 预览。
 const qint64 LIQUIFY_HOST_DRAW_MAX_PX = 4 * 1024 * 1024;
 
+// Phase 5 · C3-2 稳定性闸: "GPU 结果一次性写回"接受的文档像素上限(与 Kotlin 侧
+// FIELD_PATH_MAX_PX 同值)。超过就不是"手滑"而是异常调用, 直接拒绝而不是冒险分配。
+const qint64 LIQUIFY_FIELD_COMMIT_MAX_PX = 4 * 1024 * 1024;
+
 void publishLiquifyStats(qint64 totalMs, qint64 warpMs, qint64 seedMs, qint64 blitMs,
                          qint64 compositeMs, qint64 areaPx, qint64 targets,
                          qint64 precision, qint64 cells)
@@ -936,7 +940,8 @@ void ReverieCore::liquifyCancel()
 
 bool ReverieCore::liquifyFieldSource(int x, int y, int w, int h)
 {
-    if (!m_document || m_liquifyTargets.isEmpty()) return false;
+    // 只允许"手势进行中"取源: 这条路唯一的调用点是 liquifyBegin 之后, 手滑传进来也不该动状态
+    if (!m_document || !m_liquifyTxnActive || m_liquifyTargets.isEmpty()) return false;
     const QRect docRect(0, 0, m_document->width(), m_document->height());
     const QRect b = QRect(x, y, w, h).intersected(docRect);
     if (b.isEmpty() || b.width() <= 0 || b.height() <= 0) return false;
@@ -977,8 +982,13 @@ bool ReverieCore::liquifyFieldSource(int x, int y, int w, int h)
 void ReverieCore::liquifyFieldCommit(int x, int y, int w, int h, const QVector<quint8> &rgba,
                                      bool bottomUp)
 {
-    if (!m_document || m_liquifyTargets.isEmpty() || w <= 0 || h <= 0) return;
-    if (rgba.size() < qint64(w) * qint64(h) * 4) return;
+    // 稳定性硬闸: 只接受"手势进行中"的提交, 且范围/字节数都在明确定义的上限内。
+    // 高压连续测试下这里是这条路唯一的大块数据入口, 任何越界都会直接崩进程。
+    if (!m_document || !m_liquifyTxnActive || m_liquifyTargets.isEmpty()) return;
+    if (w <= 0 || h <= 0) return;
+    const qint64 pxIn = qint64(w) * qint64(h);
+    if (pxIn > LIQUIFY_FIELD_COMMIT_MAX_PX) return;
+    if (qint64(rgba.size()) < pxIn * 4) return;
     const QRect docRect(0, 0, m_document->width(), m_document->height());
     const QRect area = QRect(x, y, w, h).intersected(docRect);
     if (area.isEmpty()) return;

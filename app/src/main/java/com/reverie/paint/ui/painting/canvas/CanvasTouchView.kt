@@ -46,6 +46,12 @@ private const val MAX_VISIBLE_GRID_LINES = 6000
 /** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
 private const val MAX_MIRROR_BRANCHES = 8
 
+/** C3-2 · 场通路的文档像素预算上限(源纹理 + 场纹理各留一份, 4M px 文档 ≈ 16MB + 8MB)。 */
+private const val FIELD_PATH_MAX_PX = 4L * 1024L * 1024L
+
+/** C3-2 · 低内存设备的场通路预算(压到 1/4; 超预算直接走经典路径, 宁可慢也不逼近 OOM)。 */
+private const val FIELD_PATH_MAX_PX_LOW_RAM = 1L * 1024L * 1024L
+
 /** B4 · 静止降频: 交互结束后多久把帧率请求降回 [IDLE_FRAME_RATE_HZ]。 */
 private const val IDLE_DOWNCLOCK_MS = 1500L
 
@@ -2927,6 +2933,10 @@ class CanvasTouchView(context: Context) : View(context) {
         val dw = v.docWidth
         val dh = v.docHeight
         if (dw <= 0 || dh <= 0) return false
+        // 稳定性硬预算: 源纹理 + 场纹理都是"整篇文档"级别的大块内存(CPU/GPU 各留一份),
+        // 低内存设备压到 1/4; 超预算直接回经典路径 —— 宁可慢一点, 也不能一次手势把进程推到 OOM 边缘。
+        val budget = if (isLowRamDevice()) FIELD_PATH_MAX_PX_LOW_RAM else FIELD_PATH_MAX_PX
+        if (dw.toLong() * dh.toLong() > budget) return false
         if (!v.liquifyFieldSource(0, 0, dw, dh)) return false
         liquifyDabCount = 0
         lqAffectedL = Float.MAX_VALUE
@@ -3048,7 +3058,12 @@ class CanvasTouchView(context: Context) : View(context) {
         liquifyDabCount = 0
     }
 
-    /** 受影响矩形 → 文档整数矩形(夹到文档内; 空 ⇒ null = 回退经典路径)。 */
+    /**
+     * 受影响矩形 → 文档整数矩形(夹到文档内; 空 ⇒ null = 回退经典路径)。
+     *
+     * 也会挡住"回读矩形过大": 回读要一次性分配 `w*h*4` 字节并过一次 JNI, 超预算就回退
+     * **重放补点** —— 那条路是流式的, 不额外吃大块内存(体积换稳定性)。
+     */
     private fun fieldCommitRect(v: PaintViewModel): IntArray? {
         if (liquifyDabCount <= 0 || lqAffectedR <= lqAffectedL || lqAffectedB <= lqAffectedT) return null
         val x0 = floor(lqAffectedL).toInt().coerceAtLeast(0)
@@ -3056,7 +3071,17 @@ class CanvasTouchView(context: Context) : View(context) {
         val x1 = ceil(lqAffectedR).toInt().coerceAtMost(v.docWidth)
         val y1 = ceil(lqAffectedB).toInt().coerceAtMost(v.docHeight)
         if (x1 <= x0 || y1 <= y0) return null
+        if ((x1 - x0).toLong() * (y1 - y0).toLong() > FIELD_PATH_MAX_PX) return null
         return intArrayOf(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /** C3-2: 低内存设备判定(用系统自己的分级, 而不是猜总内存)。 */
+    private fun isLowRamDevice(): Boolean = try {
+        val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+            as? android.app.ActivityManager
+        am?.isLowRamDevice == true
+    } catch (_: Throwable) {
+        false
     }
 
     /**

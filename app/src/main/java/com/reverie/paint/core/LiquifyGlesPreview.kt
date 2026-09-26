@@ -90,15 +90,27 @@ internal object LiquifyGlesPreview {
     @Volatile
     var fieldOverride: Int = FIELD_OVERRIDE_AUTO
 
-    /** C3: property 是否要求常驻场(只读一次, 避免每帧反射)。 */
-    private val fieldByProp: Boolean by lazy { propInt(PROP_FIELD, 0) != 0 }
+    /**
+     * C3: property 的三态 —— **-1 = 未设(跟随默认), 0 = 强制关, 1 = 强制开**(只读一次, 避免每帧反射)。
+     *
+     * 默认值 = 平台支持就开。理由: 这条路把"每个 dab 一次 CPU 网格形变 + 每次越界重锚整窗"
+     * 整段删掉 —— 既更丝滑, 也把那条**有闪退史**的 CPU 路径从高压场景里挪开(真机 200px 连续
+     * 拖动时, 经典路径一秒要在引擎线程上干 1.07s 的活)。挂不上覆盖层时会自动回退经典路径,
+     * 所以默认开不会出现"没有预览"。
+     * 回到经典路径: 设置里选 "Krita 网格", 或 `setprop debug.reverie.lqfield 0`。
+     */
+    private val fieldByProp: Int by lazy { propInt(PROP_FIELD, -1) }
 
-    /** C3: 常驻场是否启用(读 [fieldOverride] 与 property)。 */
+    /** C3: 常驻场是否启用(读 [fieldOverride] 与 property; 自动 = 平台支持就开)。 */
     val fieldEnabled: Boolean
         get() = when (fieldOverride) {
             FIELD_OVERRIDE_ON -> true
             FIELD_OVERRIDE_OFF -> false
-            else -> fieldByProp
+            else -> when (fieldByProp) {
+                0 -> false
+                1 -> true
+                else -> platformSupported
+            }
         }
 
     /** C3: 场的降采样比(property, 只读一次; 1..4)。 */
@@ -137,9 +149,9 @@ internal object LiquifyGlesPreview {
         enabled ||
             (platformSupported &&
                 (
-                    // C3-2: "位移场 = 常驻浮点场"本身就意味着必须有 GPU 覆盖层来承载它 ⇒ 它同时
-                    // 打开"挂载"与"由谁画"两条判定, 用户只需要一个开关(不必再单独选 GLES)。
-                    fieldOverride == FIELD_OVERRIDE_ON ||
+                    // C3-2: 场通路(默认开)必须有 GPU 覆盖层来承载 ⇒ 它同时打开"挂载"与"由谁画"
+                    // 两条判定, 用户不必再单独选 GLES; 想回经典路径就选 "Krita 网格"。
+                    fieldEnabled ||
                         hostOverride == LiquifyGpuPreview.HOST_OVERRIDE_GLES
                     ))
 
