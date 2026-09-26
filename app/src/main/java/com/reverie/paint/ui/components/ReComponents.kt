@@ -218,7 +218,10 @@ fun SliderFineTunePopup(
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
-    val popupOffsetPx = with(density) { 52.dp.roundToPx() }
+    val isLeftHand = vm?.leftHandMode == true
+    val popupOffsetPx = with(density) {
+        if (isLeftHand) -52.dp.roundToPx() else 52.dp.roundToPx()
+    }
 
     val visibleState = remember { MutableTransitionState(false) }
     LaunchedEffect(Unit) {
@@ -236,7 +239,7 @@ fun SliderFineTunePopup(
     val addInteraction = remember { MutableInteractionSource() }
 
     Popup(
-        alignment = Alignment.CenterStart,
+        alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
         offset = androidx.compose.ui.unit.IntOffset(popupOffsetPx, 0),
         onDismissRequest = { visibleState.targetState = false },
         properties = androidx.compose.ui.window.PopupProperties(focusable = true),
@@ -245,10 +248,10 @@ fun SliderFineTunePopup(
             visibleState = visibleState,
             enter =
                 fadeIn(Motion.enterSpring()) +
-                    slideInHorizontally(Motion.enterSpring()) { -it / 2 } +
+                    slideInHorizontally(Motion.enterSpring()) { if (isLeftHand) it / 2 else -it / 2 } +
                     scaleIn(initialScale = 0.92f, animationSpec = Motion.enterSpring()),
             exit = fadeOut(tween(160, easing = FastOutLinearInEasing)) +
-                   slideOutHorizontally(tween(160, easing = FastOutLinearInEasing)) { -it / 2 } +
+                   slideOutHorizontally(tween(160, easing = FastOutLinearInEasing)) { if (isLeftHand) it / 2 else -it / 2 } +
                    scaleOut(targetScale = 0.92f, animationSpec = tween(160, easing = FastOutLinearInEasing))
         ) {
             Box(
@@ -687,12 +690,15 @@ fun ReVerticalSlider(
                         .background(colors.accent.copy(alpha = indicatorAlpha))
                 )
 
-                // Live floating tooltip (Fixed cleanly at Center-Start of the slider, no jumping/jittering)
+                // Live floating tooltip (Fixed cleanly at Center-Start/Center-End of the slider, no jumping/jittering)
                 if (isDragging) {
-                    val tooltipOffsetPx = with(density) { (trackWidth + 18).dp.roundToPx() }
+                    val isLeftHand = vm?.leftHandMode == true
+                    val tooltipOffsetPx = with(density) {
+                        if (isLeftHand) -(trackWidth + 18).dp.roundToPx() else (trackWidth + 18).dp.roundToPx()
+                    }
                     val popupAlpha = vm?.popupPanelOpacity ?: 0.94f
                     Popup(
-                        alignment = Alignment.CenterStart,
+                        alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
                         offset = androidx.compose.ui.unit.IntOffset(tooltipOffsetPx, 0),
                         properties = androidx.compose.ui.window.PopupProperties(
                             focusable = false,

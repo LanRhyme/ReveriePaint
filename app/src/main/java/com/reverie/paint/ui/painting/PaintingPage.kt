@@ -824,7 +824,7 @@ fun PaintingPage(
             if (filterController == null) {
                 // ---- Top bar ----
                 TopBar(
-                    modifier = Modifier.align(Alignment.TopEnd).zIndex(50f),
+                    modifier = Modifier.align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd).zIndex(50f),
                     vm = vm,
                     opacity = vm.uiOpacity,
                     hazeState = hazeState,
@@ -916,7 +916,7 @@ fun PaintingPage(
                 ToolRail(
                     modifier =
                         Modifier
-                            .align(Alignment.TopStart)
+                            .align(if (vm.leftHandMode) Alignment.TopEnd else Alignment.TopStart)
                             .padding(top = 48.dp) // Gap from top bar
                             .fillMaxHeight()
                             .zIndex(50f),
@@ -1707,8 +1707,8 @@ fun PaintingPage(
             visible = moreToolsOpen,
             enter =
                 fadeIn(Motion.enterSpring()) +
-                    slideInHorizontally(Motion.enterSpring()) { -40 },
-            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { -40 },
+                    slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { if (vm.leftHandMode) 40 else -40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             AllToolsPanel(

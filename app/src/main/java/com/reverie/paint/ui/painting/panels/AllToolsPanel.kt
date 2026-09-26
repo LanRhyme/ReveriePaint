@@ -77,8 +77,13 @@ fun AllToolsPanel(
         Box(
             modifier = Modifier
                 .systemHoverIcon(context)
-                .padding(start = 52.dp, top = 48.dp, bottom = 48.dp)
-                .align(Alignment.CenterStart)
+                .padding(
+                    start = if (vm.leftHandMode) 0.dp else 52.dp,
+                    end = if (vm.leftHandMode) 52.dp else 0.dp,
+                    top = 48.dp,
+                    bottom = 48.dp,
+                )
+                .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(200.dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))

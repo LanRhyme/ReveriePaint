@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ViewSidebar
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness4
@@ -423,7 +424,7 @@ internal fun ThemeSettingsSubPage(
                     summary = stringResource(R.string.theme_ui_scale_desc),
                     valueText = "${(vm.paintingUiScale * 100).toInt()}%",
                     sliderFraction = ((vm.paintingUiScale - 0.75f) / (1.35f - 0.75f)).coerceIn(0f, 1f),
-                    shape = settingGroupShape(0, 2),
+                    shape = settingGroupShape(0, 3),
                     onValueChange = { fraction ->
                         val newScale = 0.75f + fraction * (1.35f - 0.75f)
                         vm.updatePaintingUiScale(newScale)
@@ -436,11 +437,20 @@ internal fun ThemeSettingsSubPage(
                     summary = stringResource(R.string.theme_quick_slider_height_desc),
                     valueText = "${vm.quickSliderHeightDp} dp",
                     sliderFraction = ((vm.quickSliderHeightDp - 100f) / (260f - 100f)).coerceIn(0f, 1f),
-                    shape = settingGroupShape(1, 2),
+                    shape = settingGroupShape(1, 3),
                     onValueChange = { fraction ->
                         val newHeight = (100f + fraction * 160f).roundToInt()
                         vm.updateQuickSliderHeight(newHeight)
                     },
+                )
+
+                SettingSwitchGroupItem(
+                    icon = Icons.AutoMirrored.Rounded.ViewSidebar,
+                    title = stringResource(R.string.theme_left_hand_mode_title),
+                    summary = stringResource(R.string.theme_left_hand_mode_desc),
+                    checked = vm.leftHandMode,
+                    shape = settingGroupShape(2, 3),
+                    onCheckedChange = { vm.updateLeftHandMode(it) },
                 )
             }
 

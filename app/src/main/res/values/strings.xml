@@ -1492,6 +1492,8 @@
     <string name="theme_ui_scale_desc">缩放画布四周的工具栏、顶栏及各浮动面板</string>
     <string name="theme_quick_slider_height_title">侧边滑块面板长度</string>
     <string name="theme_quick_slider_height_desc">调整绘画界面左下角笔刷大小与不透明度滑块的长度</string>
+    <string name="theme_left_hand_mode_title">左手作画模式</string>
+    <string name="theme_left_hand_mode_desc">将快捷工具栏与滑块停靠至屏幕右侧，便于左手执笔绘图</string>
     <string name="theme_category_effects">显示与效果</string>
     <string name="theme_blur_title">背景毛玻璃效果</string>
     <string name="theme_blur_desc">为所有面板与工具栏启用半透明背景高斯模糊</string>

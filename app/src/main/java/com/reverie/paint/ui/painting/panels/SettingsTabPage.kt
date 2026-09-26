@@ -213,6 +213,32 @@ internal fun SettingsTabPage(
                         )
                     }
 
+                    // 左手作画模式 (工具栏与滑块镜像停靠在右侧)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                text = stringResource(R.string.theme_left_hand_mode_title),
+                                color = Morandi.text,
+                                fontSize = 13.sp,
+                            )
+                            Text(
+                                text = stringResource(R.string.theme_left_hand_mode_desc),
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        ReSwitch(
+                            checked = vm.leftHandMode,
+                            onChecked = { vm.updateLeftHandMode(it) },
+                        )
+                    }
+
                     // 图层项高度: 分段卡片式控件 (避免单行挤压)
                     Column(
                         modifier = Modifier

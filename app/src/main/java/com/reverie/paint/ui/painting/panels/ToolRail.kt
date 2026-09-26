@@ -108,8 +108,16 @@ fun ToolRail(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val upperShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
-    val lowerShape = RoundedCornerShape(topEnd = 16.dp)
+    val upperShape = if (vm.leftHandMode) {
+        RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+    } else {
+        RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
+    }
+    val lowerShape = if (vm.leftHandMode) {
+        RoundedCornerShape(topStart = 16.dp)
+    } else {
+        RoundedCornerShape(topEnd = 16.dp)
+    }
 
     Box(modifier = modifier.systemHoverIcon(context).fillMaxHeight().width(36.dp)) {
         Column(

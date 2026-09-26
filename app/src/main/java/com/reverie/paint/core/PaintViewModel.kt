@@ -779,7 +779,8 @@ class PaintViewModel : ViewModel() {
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
-    var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面左下角快捷滑块长度 (100 - 260 dp, 默认 175)
+    var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面快捷滑块长度 (100 - 260 dp, 默认 175)
+    var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
     var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 
@@ -1633,6 +1634,17 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateLeftHandMode(enabled: Boolean) {
+        leftHandMode = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("leftHandMode", enabled)
+                .apply()
+        }
+    }
+
     fun updateSelectionMaskColor(hex: String) {
         selectionMaskColorHex = hex
         if (::appContext.isInitialized) {
@@ -1855,6 +1867,7 @@ class PaintViewModel : ViewModel() {
             layerRowHeightDp = prefs.getInt("layerRowHeightDp", 52).coerceIn(40, 80)
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
+            leftHandMode = prefs.getBoolean("leftHandMode", false)
             selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&

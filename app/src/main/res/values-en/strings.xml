@@ -1492,6 +1492,8 @@
     <string name="theme_ui_scale_desc">Scale toolbars, top bar, and floating panels around the canvas</string>
     <string name="theme_quick_slider_height_title">Side Slider Panel Length</string>
     <string name="theme_quick_slider_height_desc">Adjust the length of brush size and opacity sliders in the bottom-left panel</string>
+    <string name="theme_left_hand_mode_title">Left-Handed Mode</string>
+    <string name="theme_left_hand_mode_desc">Move the tool rail and sliders to the right side of the screen for left-handed drawing</string>
     <string name="theme_category_effects">Display &amp; Effects</string>
     <string name="theme_blur_title">Background Frosted Glass Effect</string>
     <string name="theme_blur_desc">Enable translucent background Gaussian blur for all panels and toolbars</string>

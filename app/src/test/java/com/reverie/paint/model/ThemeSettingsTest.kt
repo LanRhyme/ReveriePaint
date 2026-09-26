@@ -128,4 +128,66 @@ class ThemeSettingsTest {
         // Subsequent launch: user explicitly enabled it on phone
         assertTrue("Subsequent launch must preserve user setting true on phone", resolveImmersive(true, true, false))
     }
+
+    @Test
+    fun `left-handed mode layout alignment logic`() {
+        val resolveToolRailAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopEnd else androidx.compose.ui.Alignment.TopStart
+        }
+        val resolveTopBarAlignment = { leftHand: Boolean ->
+            if (leftHand) androidx.compose.ui.Alignment.TopStart else androidx.compose.ui.Alignment.TopEnd
+        }
+        val resolvePopupOffset = { leftHand: Boolean, offsetDp: Int ->
+            if (leftHand) -offsetDp else offsetDp
+        }
+
+        // Standard right-handed layout
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveToolRailAlignment(false))
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveTopBarAlignment(false))
+        assertEquals(52, resolvePopupOffset(false, 52))
+
+        // Left-handed layout
+        assertEquals(androidx.compose.ui.Alignment.TopEnd, resolveToolRailAlignment(true))
+        assertEquals(androidx.compose.ui.Alignment.TopStart, resolveTopBarAlignment(true))
+        assertEquals(-52, resolvePopupOffset(true, 52))
+    }
+
+    @Test
+    fun `system gesture exclusion calculation logic constraints`() {
+        val calculateExclusion = { height: Int, density: Float, touchY: Float? ->
+            val maxExclusionHeight = (200 * density).toInt()
+            val targetY = touchY ?: (height / 2f)
+            val halfH = maxExclusionHeight / 2
+            val top = (targetY - halfH).toInt().coerceIn(0, (height - maxExclusionHeight).coerceAtLeast(0))
+            val bottom = (top + maxExclusionHeight).coerceAtMost(height)
+            top to bottom
+        }
+
+        val h = 1600
+        val density = 2.0f
+        val maxH = 400 // 200 * 2.0
+
+        // 1. Idle / centered
+        val (idleTop, idleBottom) = calculateExclusion(h, density, null)
+        assertEquals(600, idleTop)
+        assertEquals(1000, idleBottom)
+        assertEquals(maxH, idleBottom - idleTop)
+
+        // 2. Touch near very top edge (touchY = 10)
+        val (topTop, topBottom) = calculateExclusion(h, density, 10f)
+        assertEquals(0, topTop)
+        assertEquals(maxH, topBottom)
+
+        // 3. Touch near very bottom edge (touchY = 1590)
+        val (botTop, botBottom) = calculateExclusion(h, density, 1590f)
+        assertEquals(h - maxH, botTop)
+        assertEquals(h, botBottom)
+
+        // 4. Touch in middle
+        val (midTop, midBottom) = calculateExclusion(h, density, 500f)
+        assertEquals(300, midTop)
+        assertEquals(700, midBottom)
+        assertEquals(maxH, midBottom - midTop)
+    }
 }
+
