@@ -88,6 +88,10 @@
 #include <commands/KisNodeRenameCommand.h>
 #include <kis_painter.h>
 #include <layerstyles/kis_ls_utils.h>
+#include <kis_psd_layer_style.h>
+#include <psd.h>
+#include <commands_new/kis_set_layer_style_command.h>
+#include <KisRenderPassFlags.h>
 #include <kis_selection_filters.h>
 #include <kis_gaussian_kernel.h>
 #include <kis_transform_worker.h>

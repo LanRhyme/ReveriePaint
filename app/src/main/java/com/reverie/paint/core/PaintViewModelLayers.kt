@@ -219,6 +219,28 @@ internal fun PaintViewModel.generateDefaultFilterLayerName(): String {
     return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
 }
 
+internal fun PaintViewModel.generateDefaultStrokeLayerName(): String {
+    val isZh = LanguageManager.isChinese()
+    val prefix = if (isZh) "描边图层" else "Stroke Layer"
+    val existing = layers.map { it.name }
+    var idx = 1
+    val regex = Regex("""^(?:描边图层|Stroke Layer)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
+    var hasPlain = false
+    for (name in existing) {
+        val match = regex.find(name.trim())
+        if (match != null) {
+            val numStr = match.groupValues[1]
+            if (numStr.isEmpty()) {
+                hasPlain = true
+            } else {
+                val num = numStr.toIntOrNull() ?: 0
+                if (num >= idx) idx = num + 1
+            }
+        }
+    }
+    return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
+}
+
 internal fun PaintViewModel.generateDefaultGroupName(): String {
     val isZh = LanguageManager.isChinese()
     val prefix = if (isZh) "图层组" else "Group"
@@ -923,5 +945,45 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         }
     }) {
         ReverieCoreBridge.stampVisibleLayers()
+    }
+}
+
+internal fun PaintViewModel.addStrokeLayer() {
+    clearLayerSelection()
+    val strokeLayerName = generateDefaultStrokeLayerName()
+    if (recorder.recording) {
+        recorder.layerOp(
+            com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
+            0,
+            "$strokeLayerName|6|0",
+        )
+    }
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+    }) {
+        ReverieCoreBridge.addLayerWithType(strokeLayerName, 6, 0)
+    }
+}
+
+internal fun PaintViewModel.updateLayerStrokeParams(
+    layerIndex: Int,
+    size: Int,
+    color: Int,
+    position: Int,
+    opacity: Int,
+) {
+    runCore(after = {
+        notifyLayerChanged()
+    }) {
+        ReverieCoreBridge.setLayerStrokeParams(layerIndex, size, color, position, opacity)
+    }
+}
+
+internal fun PaintViewModel.rasterizeCurrentLayerStroke(layerIndex: Int) {
+    runCore(after = {
+        notifyLayerChanged()
+    }) {
+        ReverieCoreBridge.rasterizeLayerStroke(layerIndex)
     }
 }

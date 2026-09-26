@@ -2517,6 +2517,11 @@ class PaintViewModel : ViewModel() {
         val soloed: Boolean,
         val opacity: Double,
         val blendMode: String,
+        val isStrokeLayer: Boolean = false,
+        val strokeSize: Int = 6,
+        val strokeColor: Int = 0xFF000000.toInt(),
+        val strokePosition: Int = 0,
+        val strokeOpacity: Int = 100,
     )
 
     // ---- async render plumbing ----
@@ -3041,6 +3046,13 @@ class PaintViewModel : ViewModel() {
         val soloKeep = if (ReverieCoreBridge.soloActive()) ReverieCoreBridge.layerSoloKeep().toSet() else null
         val list = ArrayList<LayerUiState>(n)
         for (i in 0 until n) {
+            val nodeType = ReverieCoreBridge.layerNodeType(i)
+            val isStroke = nodeType == 6 || ReverieCoreBridge.layerIsStroke(i)
+            val strokeParams = if (isStroke) ReverieCoreBridge.getLayerStrokeParams(i) else null
+            val strokeSize = strokeParams?.getOrNull(0) ?: 6
+            val strokeColor = strokeParams?.getOrNull(1) ?: 0xFF000000.toInt()
+            val strokePosition = strokeParams?.getOrNull(2) ?: 0
+            val strokeOpacity = strokeParams?.getOrNull(3) ?: 100
             list.add(
                 LayerUiState(
                     index = i,
@@ -3050,7 +3062,7 @@ class PaintViewModel : ViewModel() {
                     locked = ReverieCoreBridge.layerLocked(i),
                     alphaLocked = ReverieCoreBridge.layerAlphaLocked(i),
                     isGroup = ReverieCoreBridge.layerIsGroup(i),
-                    nodeType = ReverieCoreBridge.layerNodeType(i),
+                    nodeType = nodeType,
                     depth = ReverieCoreBridge.layerDepth(i),
                     colorLabel = ReverieCoreBridge.layerColorLabel(i),
                     clipped = ReverieCoreBridge.layerClipped(i),
@@ -3058,6 +3070,11 @@ class PaintViewModel : ViewModel() {
                     soloed = ReverieCoreBridge.layerSoloed(i),
                     opacity = ReverieCoreBridge.layerOpacity(i),
                     blendMode = ReverieCoreBridge.layerBlendMode(i),
+                    isStrokeLayer = isStroke,
+                    strokeSize = strokeSize,
+                    strokeColor = strokeColor,
+                    strokePosition = strokePosition,
+                    strokeOpacity = strokeOpacity,
                 ),
             )
         }

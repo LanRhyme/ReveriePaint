@@ -571,6 +571,26 @@ internal fun LayerListView(
                         },
                     )
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.layer_type_stroke), color = Morandi.text, fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_shape_stroke),
+                                null,
+                                tint = Morandi.icon,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        onClick = {
+                            showNewLayerMenu = false
+                            val now = System.currentTimeMillis()
+                            if (now - lastLayerOpTime > 350L) {
+                                lastLayerOpTime = now
+                                vm.clearLayerSelection()
+                                vm.addStrokeLayer()
+                            }
+                        },
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.layer_stamp_visible), color = Morandi.text, fontSize = 13.sp) },
                         leadingIcon = {
                             Icon(

@@ -537,3 +537,45 @@ Java_com_reverie_paint_core_ReverieCoreBridge_copySelectionToNewLayer(JNIEnv *, 
     return core()->copySelectionToNewLayer(cut == JNI_TRUE);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerIsStroke(JNIEnv *, jobject, jint index)
+{
+    return core()->isLayerStroke(index) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerStrokeParams(
+    JNIEnv *, jobject, jint index, jint size, jint color, jint position, jint opacity)
+{
+    return core()->setLayerStrokeParams(index, size, static_cast<quint32>(color), position, opacity) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_getLayerStrokeParams(JNIEnv *env, jobject, jint index)
+{
+    int size = 6;
+    quint32 color = 0xFF000000;
+    int position = 0;
+    int opacity = 100;
+    if (!core()->getLayerStrokeParams(index, size, color, position, opacity)) {
+        return nullptr;
+    }
+    jintArray result = env->NewIntArray(4);
+    if (!result) return nullptr;
+    jint fill[4] = {
+        static_cast<jint>(size),
+        static_cast<jint>(color),
+        static_cast<jint>(position),
+        static_cast<jint>(opacity)
+    };
+    env->SetIntArrayRegion(result, 0, 4, fill);
+    return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_rasterizeLayerStroke(JNIEnv *, jobject, jint index)
+{
+    return core()->rasterizeLayerStroke(index) ? JNI_TRUE : JNI_FALSE;
+}
+
+

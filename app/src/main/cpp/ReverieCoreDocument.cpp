@@ -265,7 +265,19 @@ void ReverieCore::syncLayersFromImage()
                 } else if (dynamic_cast<KisCloneLayer *>(l)) {
                     entry.nodeType = NodeTypeClone;
                 } else {
-                    entry.nodeType = NodeTypePaint;
+                    KisPSDLayerStyleSP style = l->layerStyle();
+                    if (style && style->stroke() && style->stroke()->effectEnabled()) {
+                        entry.nodeType = NodeTypeStroke;
+                        entry.isStrokeLayer = true;
+                        const psd_layer_effects_stroke *st = style->stroke();
+                        entry.strokeSize = static_cast<int>(st->size());
+                        entry.strokePosition = static_cast<int>(st->position());
+                        entry.strokeOpacity = static_cast<int>(st->opacity());
+                        QColor qc = st->color().toQColor();
+                        entry.strokeColor = qc.isValid() ? qc.rgba() : 0xFF000000;
+                    } else {
+                        entry.nodeType = NodeTypePaint;
+                    }
                 }
                 m_layers.append(entry);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {

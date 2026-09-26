@@ -197,6 +197,20 @@ bool ReverieCore::mergeDown(int index)
         return false;
     }
     KisPaintDeviceSP src = layerPaintDeviceFor(e);
+    KisPaintDeviceSP styledDev;
+    KisLayer *srcLayer = dynamic_cast<KisLayer *>(e.node);
+    if (srcLayer && srcLayer->layerStyle() && !srcLayer->layerStyle()->isEmpty() && srcLayer->layerStyle()->isEnabled()) {
+        styledDev = new KisPaintDevice(image->colorSpace());
+        const QRect fullRect(0, 0, image->width(), image->height());
+        const quint8 origOp = srcLayer->opacity();
+        srcLayer->setOpacity(255);
+        srcLayer->projectionPlane()->recalculate(fullRect, KisNodeSP(srcLayer), KisRenderPassFlags());
+        KisPainter p(styledDev);
+        srcLayer->projectionPlane()->apply(&p, fullRect);
+        p.end();
+        srcLayer->setOpacity(origOp);
+        src = styledDev;
+    }
     KisPaintDeviceSP dst = layerPaintDeviceFor(m_layers[ti]);
     if (!src || !dst) {
         return false;
@@ -623,6 +637,10 @@ bool ReverieCore::rasterizeLayer(int index)
     if (!image) return false;
     KisNodeSP node(m_layers[index].node);
     if (!node) return false;
+
+    if (isLayerStroke(index)) {
+        return rasterizeLayerStroke(index);
+    }
 
     if (m_layers[index].nodeType == NodeTypeAdjustment) {
         const int iw = image->width();

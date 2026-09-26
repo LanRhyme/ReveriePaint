@@ -309,6 +309,7 @@ internal fun LayerDetailPage(
 
         val isFillLayer = (layer?.nodeType == 2) || name.contains("填充") || name.contains("Fill", ignoreCase = true)
         val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜") || name.contains("Filter", ignoreCase = true)
+        val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6) || name.contains("描边") || name.contains("Stroke", ignoreCase = true)
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }
@@ -405,6 +406,343 @@ internal fun LayerDetailPage(
                     tint = Morandi.icon,
                     modifier = Modifier.size(14.dp),
                 )
+            }
+        }
+
+        if (isStrokeLayer) {
+            var showStrokeColorPicker by remember { mutableStateOf(false) }
+            var showRasterizeConfirm by remember { mutableStateOf(false) }
+            val currentStrokeSize = layer?.strokeSize ?: 6
+            val currentStrokeColor = layer?.strokeColor ?: 0xFF000000.toInt()
+            val currentStrokePos = layer?.strokePosition ?: 0
+            val currentStrokeOpacity = layer?.strokeOpacity ?: 100
+
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panelHi)
+                        .glassBorder(RoundedCornerShape(12.dp))
+                        .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_shape_stroke),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            stringResource(R.string.layer_stroke_properties),
+                            color = Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                // 1. Stroke Size Slider
+                var localStrokeSizeFraction by remember(index, currentStrokeSize) {
+                    mutableFloatStateOf(((currentStrokeSize - 1) / 99f).coerceIn(0f, 1f))
+                }
+                val displayedSize = (1 + localStrokeSizeFraction * 99f).roundToInt()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.layer_stroke_size),
+                            color = Morandi.subText,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            "${displayedSize} px",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    ReSlider(
+                        value = localStrokeSizeFraction,
+                        onValue = { localStrokeSizeFraction = it },
+                        onRelease = {
+                            val sz = (1 + localStrokeSizeFraction * 99f).roundToInt().coerceIn(1, 100)
+                            if (sz != currentStrokeSize) {
+                                vm.updateLayerStrokeParams(
+                                    index,
+                                    sz,
+                                    currentStrokeColor,
+                                    currentStrokePos,
+                                    currentStrokeOpacity,
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // 2. Stroke Color Picker
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Morandi.panel)
+                            .noRippleClickable { showStrokeColorPicker = true }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(22.dp)
+                                    .clip(RoundedCornerShape(5.dp))
+                                    .background(Color(currentStrokeColor))
+                                    .border(1.dp, Morandi.border, RoundedCornerShape(5.dp)),
+                        )
+                        Text(
+                            stringResource(R.string.layer_stroke_color),
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            String.format("#%06X", 0xFFFFFF and currentStrokeColor),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        Icon(
+                            painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = Morandi.subText,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+
+                if (showStrokeColorPicker) {
+                    CompactColorPickerPopup(
+                        title = stringResource(R.string.layer_stroke_color_dialog_title),
+                        initialColor = Color(currentStrokeColor),
+                        onColorSelected = { col ->
+                            val cInt =
+                                android.graphics.Color.argb(
+                                    255,
+                                    (col.red * 255).toInt(),
+                                    (col.green * 255).toInt(),
+                                    (col.blue * 255).toInt(),
+                                )
+                            vm.updateLayerStrokeParams(
+                                index,
+                                currentStrokeSize,
+                                cInt,
+                                currentStrokePos,
+                                currentStrokeOpacity,
+                            )
+                        },
+                        onDismiss = { showStrokeColorPicker = false },
+                    )
+                }
+
+                // 3. Stroke Position (Outside / Inside / Center)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        stringResource(R.string.layer_stroke_position),
+                        color = Morandi.subText,
+                        fontSize = 12.sp,
+                    )
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panel)
+                                .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        val positions = listOf(
+                            0 to stringResource(R.string.layer_stroke_pos_outside),
+                            1 to stringResource(R.string.layer_stroke_pos_inside),
+                            2 to stringResource(R.string.layer_stroke_pos_center),
+                        )
+                        positions.forEach { (pos, label) ->
+                            val isSelected = currentStrokePos == pos
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isSelected) Morandi.accent else Color.Transparent)
+                                        .noRippleClickable {
+                                            if (!isSelected) {
+                                                vm.updateLayerStrokeParams(
+                                                    index,
+                                                    currentStrokeSize,
+                                                    currentStrokeColor,
+                                                    pos,
+                                                    currentStrokeOpacity,
+                                                )
+                                            }
+                                        }
+                                        .padding(vertical = 6.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    label,
+                                    color = if (isSelected) Color.White else Morandi.text,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 4. Stroke Opacity Slider
+                var localStrokeOpacityFraction by remember(index, currentStrokeOpacity) {
+                    mutableFloatStateOf((currentStrokeOpacity / 100f).coerceIn(0f, 1f))
+                }
+                val displayedOpacity = (localStrokeOpacityFraction * 100f).roundToInt()
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.layer_stroke_opacity),
+                            color = Morandi.subText,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            "${displayedOpacity}%",
+                            color = Morandi.text,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    ReSlider(
+                        value = localStrokeOpacityFraction,
+                        onValue = { localStrokeOpacityFraction = it },
+                        onRelease = {
+                            val op = (localStrokeOpacityFraction * 100f).roundToInt().coerceIn(0, 100)
+                            if (op != currentStrokeOpacity) {
+                                vm.updateLayerStrokeParams(
+                                    index,
+                                    currentStrokeSize,
+                                    currentStrokeColor,
+                                    currentStrokePos,
+                                    op,
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // 5. Rasterize Stroke Button
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Morandi.panel)
+                            .noRippleClickable { showRasterizeConfirm = true }
+                            .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(R.string.layer_stroke_rasterize),
+                        color = Morandi.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
+                if (showRasterizeConfirm) {
+                    Dialog(onDismissRequest = { showRasterizeConfirm = false }) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth(0.9f)
+                                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Morandi.panel)
+                                    .glassBorder(RoundedCornerShape(14.dp))
+                                    .padding(18.dp),
+                        ) {
+                            Column {
+                                Text(
+                                    stringResource(R.string.layer_stroke_rasterize),
+                                    color = Morandi.text,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Text(
+                                    stringResource(R.string.layer_stroke_rasterize_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 13.sp,
+                                    lineHeight = 18.sp,
+                                )
+                                Spacer(Modifier.height(18.dp))
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Morandi.panelHi)
+                                                .clickable { showRasterizeConfirm = false }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(stringResource(R.string.common_cancel), color = Morandi.text, fontSize = 13.sp)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    Box(
+                                        modifier =
+                                            Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Morandi.accent)
+                                                .clickable {
+                                                    showRasterizeConfirm = false
+                                                    vm.rasterizeCurrentLayerStroke(index)
+                                                }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.layer_rasterize_confirm),
+                                            color = Color.White,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -152,7 +152,8 @@ public:
         LayerTypeFill = 2,
         LayerTypeAdjustment = 3,
         LayerTypeVector = 4,
-        LayerTypeClone = 5
+        LayerTypeClone = 5,
+        LayerTypeStroke = 6
     };
     enum MaskType {
         MaskTypeTransparency = 0,
@@ -168,6 +169,7 @@ public:
         NodeTypeAdjustment = 3, // KisAdjustmentLayer
         NodeTypeVector = 4,
         NodeTypeClone = 5,
+        NodeTypeStroke = 6,
         NodeTypeTransparencyMask = 10,
         NodeTypeFilterMask = 11,
         NodeTypeTransformMask = 12,
@@ -189,6 +191,11 @@ public:
     QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);
+    // 描边图层属性与栅格化
+    bool isLayerStroke(int index) const;
+    bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);
+    bool getLayerStrokeParams(int index, int &size, quint32 &color, int &position, int &opacity) const;
+    bool rasterizeLayerStroke(int index);
     bool addMaskToLayer(int layerIndex, int maskType);
     bool removeMask(int layerIndex);
     bool rasterizeLayer(int index);
@@ -466,6 +473,11 @@ public:
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
         bool background = false;      // background layer (index 0)
+        bool isStrokeLayer = false;   // stroke layer with layer style
+        int strokeSize = 6;
+        quint32 strokeColor = 0xFF000000;
+        int strokePosition = 0;       // 0: outside, 1: inside, 2: center
+        int strokeOpacity = 100;
         QVector<SoloBackup> soloPrev; // snapshot before solo (FolioLayers)
     };
 

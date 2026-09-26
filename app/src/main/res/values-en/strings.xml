@@ -843,12 +843,28 @@
     <string name="layer_more_types">More Layer Types</string>
     <string name="layer_type_fill">Fill Layer</string>
     <string name="layer_type_filter">Filter Layer</string>
+    <string name="layer_type_stroke">Stroke Layer</string>
+    <string name="layer_stroke_layer">Stroke Layer</string>
     <string name="layer_stamp_visible">Stamp Visible</string>
     <string name="layer_toast_filter_cannot_merge">Filter layers cannot merge down, please rasterize</string>
     <string name="layer_toast_pinch_merged">Pinch: Merged layer down</string>
     <string name="layer_drawer_solo">Solo</string>
     <string name="layer_tag_fill_prefix">Fill · </string>
     <string name="layer_tag_filter_prefix">Filter · </string>
+    <string name="layer_tag_stroke_prefix">Stroke · </string>
+    <string name="layer_stroke_properties">Stroke Properties</string>
+    <string name="layer_stroke_size">Stroke Size</string>
+    <string name="layer_stroke_color">Stroke Color</string>
+    <string name="layer_stroke_pick_color">Pick Color</string>
+    <string name="layer_stroke_color_dialog_title">Select Stroke Color</string>
+    <string name="layer_stroke_position">Position</string>
+    <string name="layer_stroke_pos_outside">Outside</string>
+    <string name="layer_stroke_pos_inside">Inside</string>
+    <string name="layer_stroke_pos_center">Center</string>
+    <string name="layer_stroke_opacity">Stroke Opacity</string>
+    <string name="layer_stroke_rasterize">Rasterize Stroke</string>
+    <string name="layer_stroke_rasterize_desc">Bake stroke effect directly into layer pixels. This is undoable.</string>
+    <string name="layer_stroke_rasterize_confirm">Bake stroke effect into normal pixels?</string>
 
     <!-- Painting: Transform, Liquify & Selection -->
     <string name="transform_move_up">Up</string>

@@ -931,6 +931,20 @@ object ReverieCoreBridge {
 
     external fun rasterizeLayer(index: Int): Boolean
 
+    external fun layerIsStroke(index: Int): Boolean
+
+    external fun setLayerStrokeParams(
+        index: Int,
+        size: Int,
+        color: Int,
+        position: Int,
+        opacity: Int,
+    ): Boolean
+
+    external fun getLayerStrokeParams(index: Int): IntArray?
+
+    external fun rasterizeLayerStroke(index: Int): Boolean
+
     external fun flattenGroup(index: Int): Boolean
 
     external fun setGroupPassThrough(

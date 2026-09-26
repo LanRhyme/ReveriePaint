@@ -843,12 +843,28 @@
     <string name="layer_more_types">更多图层类型</string>
     <string name="layer_type_fill">填充图层</string>
     <string name="layer_type_filter">滤镜图层</string>
+    <string name="layer_type_stroke">描边图层</string>
+    <string name="layer_stroke_layer">描边图层</string>
     <string name="layer_stamp_visible">盖印可见图层</string>
     <string name="layer_toast_filter_cannot_merge">滤镜图层不支持向下合并，请使用栅格化</string>
     <string name="layer_toast_pinch_merged">双指捏合：已向下合并图层</string>
     <string name="layer_drawer_solo">独显</string>
     <string name="layer_tag_fill_prefix">填充 · </string>
     <string name="layer_tag_filter_prefix">滤镜 · </string>
+    <string name="layer_tag_stroke_prefix">描边 · </string>
+    <string name="layer_stroke_properties">描边属性</string>
+    <string name="layer_stroke_size">描边粗细</string>
+    <string name="layer_stroke_color">描边颜色</string>
+    <string name="layer_stroke_pick_color">选择颜色</string>
+    <string name="layer_stroke_color_dialog_title">选择描边颜色</string>
+    <string name="layer_stroke_position">描边位置</string>
+    <string name="layer_stroke_pos_outside">外部</string>
+    <string name="layer_stroke_pos_inside">内部</string>
+    <string name="layer_stroke_pos_center">居中</string>
+    <string name="layer_stroke_opacity">描边不透明度</string>
+    <string name="layer_stroke_rasterize">栅格化描边</string>
+    <string name="layer_stroke_rasterize_desc">将描边效果固化烘焙至图层像素中，此操作可撤销</string>
+    <string name="layer_stroke_rasterize_confirm">确定将当前图层的描边效果固化为普通像素吗？</string>
 
     <!-- Painting: Transform, Liquify & Selection -->
     <string name="transform_move_up">上移</string>

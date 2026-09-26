@@ -727,6 +727,16 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             }
             ++i;
         } else {
+            KisLayer *styledLayer = dynamic_cast<KisLayer *>(e.node);
+            if (styledLayer && styledLayer->layerStyle() && !styledLayer->layerStyle()->isEmpty() && styledLayer->layerStyle()->isEnabled()) {
+                styledLayer->projectionPlane()->recalculate(r, KisNodeSP(styledLayer), KisRenderPassFlags());
+                KisPainter painter(out);
+                styledLayer->projectionPlane()->apply(&painter, r);
+                painter.end();
+                ++i;
+                continue;
+            }
+
             KisPaintDeviceSP dev = layerPaintDeviceFor(e);
             if (dev) {
                 // 有洋葱皮时先在**复用的**临时设备里拼出"邻帧叠影 + 当前帧内容"
