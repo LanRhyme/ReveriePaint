@@ -170,12 +170,26 @@ fun ToolRail(
                         if (tooltipTool == t) {
                             val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
                             val popupAlpha = vm.popupPanelOpacity
+                            val isLeftHand = vm.leftHandMode
                             Popup(
-                                alignment = Alignment.CenterStart,
-                                offset = IntOffset(tooltipOffsetPx, 0)
+                                alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
+                                offset = IntOffset(if (isLeftHand) -tooltipOffsetPx else tooltipOffsetPx, 0),
+                                properties = androidx.compose.ui.window.PopupProperties(
+                                    focusable = false,
+                                    dismissOnBackPress = false,
+                                    dismissOnClickOutside = false,
+                                ),
                             ) {
                                 Box(
                                     modifier = Modifier
+                                        .noRippleClickable {
+                                            tooltipTool = null
+                                            if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                                onOpenBrush()
+                                            } else {
+                                                onTool(t)
+                                            }
+                                        }
                                         .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.panel.copy(alpha = popupAlpha))
