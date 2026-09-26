@@ -1708,13 +1708,20 @@ private fun PaintViewModel.animationStep(gen: Int) {
         }
     } else {
         doRender()
-        if (anim.playbackRamCache.size < 120) {
-            val front = frontBuffer
-            if (front != null && !front.isRecycled) {
-                val copy = front.copy(Bitmap.Config.ARGB_8888, false)
-                if (copy != null) {
-                    anim.playbackRamCache[next] = copy
-                }
+        // 覆盖同一帧号的旧缓存 (尺寸可能已变), 但不能回收正在显示的那张
+        val stale = anim.playbackRamCache[next]
+        if (stale != null && stale !== displayBitmap && !stale.isRecycled) {
+            stale.recycle()
+        }
+        val front = frontBuffer
+        if (front != null && !front.isRecycled) {
+            val copy = front.copy(Bitmap.Config.ARGB_8888, false)
+            if (copy != null) {
+                anim.playbackRamCache[next] = copy
+                // 按字节预算 (堆的 1/16, 上限 256MB) + 最远优先淘汰。原先写死
+                // "最多 120 帧": 4096 画幅下单帧 64MB, 120 帧就是 7.7GB, 必然
+                // 触顶甚至 OOM —— 大画幅播放发热/卡顿的元凶之一。
+                trimPlaybackRamCache(next)
             }
         }
     }

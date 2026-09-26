@@ -43,7 +43,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ## 3. 目录结构
 
 ```
-app/src/main/java/com/reverie/paint/
+app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
 ├── MainActivity.kt          # 应用入口 + 页面路由 (Page.HOME/CREATE/PAINTING/REPLAY)
 ├── core/                    # 引擎桥接层 (不含 Compose UI)
 │   ├── ReverieCoreBridge.kt #   JNI 外部函数声明 (唯一 JNI 边界)
@@ -69,6 +69,12 @@ app/src/main/java/com/reverie/paint/
         ├── layers/          #   图层树/图层详情/滤镜页/曲线图/渐变编辑器
         ├── brush/           #   笔刷面板 + 笔刷工坊 (BrushStudio)
         └── panels/          #   工具栏/工具属性面板/取色器/设置面板/选区浮窗
+
+app/src/debug/              # debug 专属源集: 仅开发/量测用的代码与文案
+                            #   java/.../perf/PerfHud.kt (性能标尺 HUD + 设置入口)
+                            #   res/values{,-en}/strings.xml (这些文案不进正式包)
+app/src/release/            # release 专属源集: 上述功能的同签名空实现 (正式包里不存在)
+                            #   见 docs/RENDER-OPTIMIZATION.md §6.2
 
 app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应)
 ├── ReverieCore.h            #   引擎主头文件 (SPDX GPL-3.0 必需)

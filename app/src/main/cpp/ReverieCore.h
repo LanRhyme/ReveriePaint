@@ -558,6 +558,87 @@ public:
     void liquifyBegin(const QVector<int> &layers = QVector<int>());
     void liquifyEnd();
     void liquifyCancel();
+
+    // -----------------------------------------------------------------------
+    // Phase 5 · C3-2: "GPU 常驻位移场"的落盘通路 (docs/LIQUIFY-C3-FIELD-PLAN.md §3)
+    //
+    // 拖动期**完全不进引擎解算**: 位移只在 GPU 的浮点位移场里累加(Kotlin 侧), 引擎一个 dab
+    // 都不收 —— 于是 `调用/rebase/物化` 全部归零(真机实测 200px 笔刷拖动期引擎线程要 1.07s/s,
+    // 全是 per-dab 网格形变与 rebase 物化)。抬笔时把 GPU 已经算好的像素结果**一次性**写回图层,
+    // 选区 / Alpha 锁 / 脏区 / 撤销事务语义与 liquifyApplyLocked 完全一致。
+    // -----------------------------------------------------------------------
+
+    /** 取一份"未形变的源像素"给 GPU 场预览用(每次手势一次; 需要更大范围时再调一次即可)。
+     *  与 liquify() 无关: 只读目标图层**当前**的像素(手势期间它不会被改写 ⇒ 天然是未形变源),
+     *  不做网格、不形变、不写回、不生成低分辨率预览。结果走既有的 liquifyPreviewSourceMeta /
+     *  liquifyPreviewSourcePixels 通道, 因此 Kotlin 侧取数链路无需新增。
+     *  @return false = 不可用(无目标图层 / 非 8bit BGRA / 超预算), 调用方应回退经典路径。 */
+    bool liquifyFieldSource(int x, int y, int w, int h);
+
+    /** 把 GPU 算好的形变结果一次性写回图层。
+     *  @param rgba     RGBA8888(预乘)像素, 至少 `w * h * 4` 字节
+     *  @param bottomUp true = 首行是矩形的**最后一行**(GL 读回的原始行序, 引擎内部翻正) */
+    void liquifyFieldCommit(int x, int y, int w, int h, const QVector<quint8> &rgba, bool bottomUp);
+
+    /** 本次手势是否走 C3-2 的场落盘通路(纯读数, 供 HUD/诊断)。 */
+    bool liquifyFieldMode() const { return m_liquifyFieldMode; }
+    /** 标记/清除"本次手势走场落盘"(由 liquifyFieldSource 自动置位, 由 liquifyEnd/Cancel 清除)。 */
+    void setLiquifyFieldMode(bool on) { m_liquifyFieldMode = on; }
+
+    /** 上一次液化 apply 的分段耗时(ms)与规模, 供性能标尺显示 —— 用来判断液化到底卡在
+     *  "Krita 网格形变 / 补洞内存流量 / 图层回写 / 投影合成"哪一段。
+     *  out 至少 8 个 qint64: [total, warp, seed, blit, composite, areaPx, targets, count]。 */
+    void liquifyStats(qint64 *out);
+
+    /**
+     * Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期读数。
+     * 纯诊断, 不改变任何行为; 独立于 liquifyStats, 不动它的 10 元契约。
+     *  out 至少 12 个 qint64:
+     *   [rebaseCount, reason(0 none / 1 firstDab / 2 leftInnerBox), flushMs, flushMaxMs, cloneMs,
+     *    oldAreaPx, newAreaPx, innerOverflowPx, gridPoints,
+     *    throttleCount, throttleMs, throttleMaxMs]
+     * 其中 rebaseCount / throttleCount 单调递增, 供调用方按窗口取增量。 */
+    void liquifyRebaseStats(qint64 *out);
+
+    /** 当前液化网格的只读导出(row-major: `index = row * columns + col`, 点坐标为文档坐标,
+     *  `offset = transformed - original`)。元素顺序与 Krita `GridIterationTools::processGrid`
+     *  的迭代顺序一致(逐行逐列 append, 见 `AllPointsFetcherOp`)。
+     *  用途: 性能标尺的网格可视化, 以及后续"交互态预览"原型(Phase 2)的位移场来源。
+     *  无活动 worker 或数据不完整时 `count = 0`。多个目标图层的网格位移是同一批操作算出来的,
+     *  因此只导出第一个目标即可代表全部。 */
+    struct LiquifyGridExport {
+        QRect bounds;
+        int columns = 0;
+        int rows = 0;
+        int precision = 0;
+        int count = 0;
+        QVector<QPointF> original;
+        QVector<QPointF> offset;
+    };
+    LiquifyGridExport liquifyGridExport();
+
+    /** Phase 2A-2 预览态 (debug, `setprop debug.reverie.liquifyPreview 1`): 手势期间**不写文档**,
+     *  只维护一份低分辨率的"位移场预览", 供 Kotlin 侧覆盖层绘制; 抬笔仍走完整 Krita 路径。
+     *  `out` 至少 7 个 int: `[w, h, docX, docY, docW, docH, seq]` —— `w = 0` 表示当前没有预览,
+     *  `seq` 每次重建自增(调用方据此判断是否需要重新取像素)。 */
+    void liquifyPreviewMeta(int *out);
+    /** 预览像素 (RGBA8888, `w * h * 4` 字节, 自上而下)。调用方保证缓冲足够(见 liquifyPreviewMeta)。 */
+    void liquifyPreviewPixels(quint8 *out);
+
+    /** Phase 2B 主机侧绘制(AGSL)模式的输入: 引擎**不做**位移采样, 只交出"未形变的 bounds 裁剪"与
+     *  网格, 由 Android 侧 `RuntimeShader` 在显示分辨率上完成采样。
+     *  `out` 至少 7 个 int: `[cropW, cropH, docX, docY, docW, docH, seq]` —— `cropW = 0` 表示当前
+     *  没有可用源像素; 裁剪是 1 像素 = 1 文档像素, 只在 rebase 时重建(整段手势上传一次)。 */
+    void liquifyPreviewSourceMeta(int *out);
+    /** 源裁剪像素 (RGBA8888, `cropW * cropH * 4` 字节, 自上而下)。 */
+    void liquifyPreviewSourcePixels(quint8 *out);
+    /** 覆盖"主机侧绘制"判定: -1 跟随 system property(默认); 0 强制引擎侧叠加(AGSL 初始化失败时的
+     *  回退入口); 1 强制主机侧绘制。 */
+    void setLiquifyPreviewHostDrawMode(int mode);
+    int liquifyPreviewHostDrawMode() const { return m_liquifyPreviewHostDrawMode; }
+    /** 本次手势是否走主机侧绘制(property 与 override 合并后的结果)。 */
+    bool liquifyPreviewHostDraw() const;
+
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
@@ -568,6 +649,14 @@ public:
 private:
     void resetLiquifyWorker();
     void liquifyApplyLocked(const QRect &deltaRect);
+
+    // Phase 2A-2 预览态内部实现(见 LiquifyPreviewMeta 的公开接口说明)
+    /** 本次手势是否需要预览(diagnostic property, 或 Kotlin 侧显式指定了绘制模式)。 */
+    bool liquifyPreviewWanted() const;
+    void liquifyPreviewCaptureLocked(); // rebase 后缓存 bounds 的原始像素(整段手势只读一次)
+    void liquifyPreviewBuildLocked();   // 每次 dab 后重建低分辨率预览(反向采样)
+    /** 把预览混合进刚写好的显示缓冲区域(缓冲像素坐标; 预览覆盖 m_liquifyWorkerBounds)。 */
+    void blendLiquifyPreview(quint8 *buffer, int w, int h, const QRect &written);
 
 public:
 
@@ -682,6 +771,10 @@ public:
     static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible);
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
+
+    /** 上一次 .revp 保存的阶段耗时(ms)与产物体积, 供 UI 侧性能标尺显示。
+     *  out 至少 8 个 qint64: [total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]。 */
+    void revpSaveStats(qint64 *out);
     bool loadRevp(const QString &path);
     static bool loadKraTree(const QByteArray &maindocBytes, KisImageSP image, KoStore *store, const QString &docName, bool *bgVisible);
     bool loadPsd(const QString &path);
@@ -839,9 +932,27 @@ private:
     // run() copies the whole bounds complement, so a full-canvas worker
     // cost a full-canvas copy per dab. Rebased when the brush wanders out.
     QRect m_liquifyWorkerBounds;
+    // 当前 worker 的网格精度 (2 的幂: 4/8/16/32)。只用于诊断上报"单元数", 不影响行为。
+    int m_liquifyPrecision = 16;
+    // Phase 2A-2 预览态: 手势期间"只更新网格 + 生成低分辨率预览", 不 run()/不写图层/不触投影。
+    bool m_liquifyPreview = false;
+    int m_liquifyPreviewW = 0;
+    int m_liquifyPreviewH = 0;
+    qint64 m_liquifyPreviewSeq = 0;      // 只增不减: 归零会让调用方误判"没有新数据"
+    QVector<quint8> m_liquifyPreviewSrc; // bounds 区域的原始像素(文档色彩空间, 8bit)
+    QVector<quint8> m_liquifyPreviewOut; // 预览像素(RGBA8888)
+    // Phase 2B 主机侧绘制: 同一份 bounds 裁剪的 RGBA 副本(交给 GPU 当源纹理), 只在 rebase 时重建
+    QVector<quint8> m_liquifyPreviewSrcRgba;
+    int m_liquifyPreviewHostDrawMode = -1; // -1 跟随 property / 0 强制引擎叠加 / 1 强制主机绘制
     qint64 m_liquifyLastApplyMs = 0;
     // Union of dab influence rects not yet written back to the layer
     QRect m_liquifyPendingDelta;
+    // Phase 5 · C3-2: 本次手势是否走"GPU 场一次性落盘"(拖动期不收 dab)。由 Kotlin 侧在
+    // liquifyFieldSource 成功后置位; liquifyEnd / liquifyCancel 复位。纯状态, 不改任何几何。
+    bool m_liquifyFieldMode = false;
+    // Phase 3 · Commit 2: 尚未落盘的补点参数(每 6 个 float: fx, fy, tx, ty, strength, mode)。
+    // rebase 时若决定"不物化", 就用它把位移**重放**到新窗口的网格上, 从而把 run() 推迟到抬笔。
+    QVector<float> m_liquifyPendingDabs;
     // Adaptive writeback pacing (grows when a single apply overruns)
     qint64 m_liquifyApplyIntervalMs = 20;
     QColor m_brushColor = Qt::black;

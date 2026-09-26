@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 构建专属文案: 性能标尺 (开发/量测用, 正式版不含这些资源)。
+  见 app/src/debug/java/com/reverie/paint/perf/PerfHud.kt
+-->
+<resources>
+    <string name="settings_diagnostics">诊断</string>
+    <string name="settings_perf_hud">性能标尺</string>
+    <string name="settings_perf_hud_sub">画布上显示实时渲染路径、纹理重传与保存耗时（排查卡顿用，日常建议关闭）</string>
+    <string name="settings_liquify_proxy">液化预览代理分辨率</string>
+    <string name="settings_liquify_proxy_sub">实验 A：源纹理按比例下采样，形变几何不变，纹理带宽与显存随之下降（下一段手势生效）</string>
+    <string name="settings_liquify_coalesce">液化交互合并步数</string>
+    <string name="settings_liquify_coalesce_sub">latest-state-wins：每帧最多推进的补点数，关闭则逐点处理（下一段手势生效）</string>
+    <string name="settings_liquify_host">液化预览方式</string>
+    <string name="settings_liquify_host_sub">形变预览由哪条路画：引擎 CPU / AGSL 覆盖层 / GLES 覆盖层（下一段手势生效；标尺里的"预览"一格显示实际生效的那条）</string>
+    <string name="settings_liquify_host_engine">引擎 CPU</string>
+    <string name="settings_liquify_host_agsl">AGSL 覆盖层</string>
+    <string name="settings_liquify_host_gles">GLES 覆盖层</string>
+    <string name="settings_liquify_field">液化位移场</string>
+    <string name="settings_liquify_field_sub">形变位移场的来源：常驻浮点场（全分辨率、无台阶感与窗口接缝）或 Krita 网格（下一段手势生效；判定在手势开始时冻结；标尺的"场"一格显示实际生效的那个）</string>
+    <string name="settings_liquify_field_field">常驻浮点场</string>
+    <string name="settings_liquify_field_grid">Krita 网格</string>
+    <string name="settings_experiment_auto">自动</string>
+    <string name="settings_experiment_off">关闭</string>
+</resources>

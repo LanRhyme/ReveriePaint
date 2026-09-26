@@ -18,19 +18,49 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
 import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.view.WindowManager
+import com.oplusos.vfxsdk.forecast.MotionPredictor as OplusMotionPredictor
+import com.oplusos.vfxsdk.forecast.TouchPointInfo as OplusTouchPointInfo
+import com.reverie.paint.perf.PerfHud
+import com.reverie.paint.ui.painting.brush.BrushTipDecoder
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
+
+/** 单帧最多绘制的像素网格线条数, 超过则跳过网格 (防极端缩放下的掉帧) */
+private const val MAX_VISIBLE_GRID_LINES = 6000
+
+/** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
+private const val MAX_MIRROR_BRANCHES = 8
+
+/** C3-2 · 场通路的文档像素预算上限(源纹理 + 场纹理各留一份, 4M px 文档 ≈ 16MB + 8MB)。 */
+private const val FIELD_PATH_MAX_PX = 4L * 1024L * 1024L
+
+/** C3-2 · 低内存设备的场通路预算(压到 1/4; 超预算直接走经典路径, 宁可慢也不逼近 OOM)。 */
+private const val FIELD_PATH_MAX_PX_LOW_RAM = 1L * 1024L * 1024L
+
+/** B4 · 静止降频: 交互结束后多久把帧率请求降回 [IDLE_FRAME_RATE_HZ]。 */
+private const val IDLE_DOWNCLOCK_MS = 1500L
+
+/** B4 · 静止时请求的帧率(Hz): 不画的时候没必要把屏幕钉在 144Hz 上。 */
+private const val IDLE_FRAME_RATE_HZ = 60f
+
+/** Phase 5 · C3-2: 本地补点列表的步长(px, py, nx, ny, mode, strength, size)。 */
+private const val FIELD_DAB_STRIDE = 7
+
 
 /**
  * 画世界 / Procreate 架构原生触控引擎 (CanvasTouchView)
@@ -133,6 +163,13 @@ class CanvasTouchView(context: Context) : View(context) {
     var isPinchMotion = false
 
     // 本地硬件光标状态 (0 Compose 开销)
+    /** 局部失效时并入标尺块(debug 标尺专用; 正式版 [PerfHud.fillHudBounds] 恒 false)。 */
+    private val hudBoundsScratch = android.graphics.Rect()
+
+    /** B4 · 静止降频: 当前是否已请求"面板最高帧率", 以及静止计时。 */
+    private var frameRateHigh = true
+    private val idleDownclockRunnable = Runnable { downclockWhenIdle() }
+
     private var localCursorPos: Offset? = null
     private var localIsHovering = false
     private var localIsTouching = false
@@ -229,7 +266,36 @@ class CanvasTouchView(context: Context) : View(context) {
     private var previousSinglePos = Offset.Zero
     private val lassoPoints = mutableListOf<Offset>()
     private var lastLassoPreviewNs = 0L
-    private var liquifyPrevPos = Offset.Zero
+    // Phase 5 · C3-2 (docs/LIQUIFY-C3-FIELD-PLAN.md §3): 场通路的"拖动期零引擎解算"状态。
+    // 拖动期不调 liquify()、不收 rebase、不物化 —— 位移只在 GPU 场里累加; 抬笔回读一次落盘。
+    /** 本段手势是否走"GPU 场一次性落盘"。 */
+    private var liquifyFieldGesture = false
+
+    /** 本段手势的补点(7 float/补点, 见 [FIELD_DAB_STRIDE]); 抬笔回读失败时用它重放给引擎。 */
+    private var liquifyDabBuf = FloatArray(0)
+    private var liquifyDabCount = 0
+
+    /** 受影响文档矩形(各补点影响圆的并集): 覆盖层绘制范围 + 抬笔回读范围都用它。 */
+    private var lqAffectedL = Float.MAX_VALUE
+    private var lqAffectedT = Float.MAX_VALUE
+    private var lqAffectedR = -Float.MAX_VALUE
+    private var lqAffectedB = -Float.MAX_VALUE
+
+    // Phase 3A/3B: 液化交互态会话(latest-state-wins 状态机 + backlog 计数), 取代原先散落的
+    // liquifyPrevPos / liquifyPendingTo / liquifyInputSinceFlush / liquifyMaxDabsPerFlush 字段。
+    private val liquifySession = LiquifyInteractionSession()
+    private var liquifyFlushPosted = false
+    private val liquifyFlushRunnable = Runnable { flushLiquifyPending() }
+    // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 覆盖层局部失效所需的"光标环本帧位置"
+    // (屏幕坐标)。环由本类 onDraw 画在同一张画布上, 因此局部重绘必须把环的前后位置一并失效,
+    // 否则环的旧位置会留下残影。全部只在 UI 线程读写。
+    private var lqRingValid = false
+    private var lqRingCx = 0f
+    private var lqRingCy = 0f
+    private var lqRingR = 0f
+    // docToScreen 的输出缓冲(必须是 FloatArray; 不能复用整型的 boundsScratch)
+    private val lqPointScratch = FloatArray(2)
+    private val lqInvalidateRunnable = Runnable { scheduleLiquifyInvalidate() }
     private var smoothedPressure = 0.8f
 
     // 手写笔传感器状态 (倾斜角与朝向)
@@ -443,14 +509,72 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
-
+    // ---- 硬件笔尖前向超前预测 (OEM Hardware Motion Prediction) ----
+    private var oplusPredictor: OplusMotionPredictor? = null
+    private var androidMotionPredictor: Any? = null
+    private var predictedScreenPoint: Offset? = null
+    private var predictedPressure: Float = 1f
+    private val cachedTouchPointInfo = OplusTouchPointInfo()
+    private val tipShaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
 
     // 预分配多指触控索引缓冲区 (热路径零分配 §4)
     private val fingerIndices = IntArray(16)
     private var fingerCount = 0
 
     // ---- 对称与透视绘图辅助 (Drawing Assist) ----
-    private val mirroredBranches = mutableListOf<MutableList<SymStrokeSample>>()
+    // 镜像笔迹采样缓冲: 每个分支一段扁平的 [x, y, pressure] 三元组, 容量按需翻倍。
+    // 上游 1.3.3 用 List<List<SymStrokeSample>> (每个采样点一个对象); 这里保留本分支的
+    // 零分配版 —— 对称绘制最多 8 个分支, 逐点 new 等于每帧几十次分配加列表扩容。
+    private val mirroredSamples = ArrayList<FloatArray>(MAX_MIRROR_BRANCHES)
+    private val mirroredSizes = IntArray(MAX_MIRROR_BRANCHES)
+
+    /** 是否有任一分支已累积采样点 (绘制 / 回放 / 局部失效判定的共同前提) */
+    private fun mirrorBranchHasSamples(): Boolean {
+        for (i in 0 until mirroredSamples.size) {
+            if (mirroredSizes[i] > 0) return true
+        }
+        return false
+    }
+
+    private fun resetMirrorBranches() {
+        for (i in 0 until mirroredSamples.size) mirroredSizes[i] = 0
+    }
+
+    /** 按当前分支数准备缓冲; 多余的数组保留复用, 下一笔不再重新分配 */
+    private fun ensureMirrorBranches(count: Int) {
+        while (mirroredSamples.size > count) {
+            mirroredSamples.removeAt(mirroredSamples.size - 1)
+        }
+        while (mirroredSamples.size < count) {
+            mirroredSamples.add(FloatArray(0))
+        }
+        resetMirrorBranches()
+    }
+
+    /**
+     * 追加一个镜像采样点。缓冲以 3 个 float 为一组存 [x, y, pressure],
+     * 扩容按需翻倍 (初始 16 个点), 热路径上不产生任何对象。
+     */
+    private fun appendMirrorSample(branchIndex: Int, x: Float, y: Float, pressure: Double) {
+        if (branchIndex < 0 || branchIndex >= mirroredSamples.size) return
+        val used = mirroredSizes[branchIndex]
+        val need = (used + 1) * 3
+        var buf = mirroredSamples[branchIndex]
+        if (buf.size < need) {
+            val grown = FloatArray(maxOf(need, buf.size * 2, 48))
+            System.arraycopy(buf, 0, grown, 0, used * 3)
+            mirroredSamples[branchIndex] = grown
+            buf = grown
+        }
+        val base = used * 3
+        buf[base] = x
+        buf[base + 1] = y
+        buf[base + 2] = pressure.toFloat()
+        mirroredSizes[branchIndex] = used + 1
+    }
     private val mirroredDrawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -494,6 +618,25 @@ class CanvasTouchView(context: Context) : View(context) {
             symmetryPressureLut[k] = frac.coerceIn(0.01f, 1f)
         }
     }
+
+    // ---- 视图变换缓存与热路径零分配暂存区 (AGENTS.md §4) ----
+    // 绘制覆盖层时每个点都要做一次 doc->screen, 旧实现每次现算三角函数; 缓存
+    // 视图参数后整条笔迹共用一份变换, 并且只往复用数组里写结果, 全程零分配。
+    private val viewTransform = CanvasViewTransform()
+    private val pointScratch = FloatArray(2)
+    private val boundsScratch = IntArray(4)
+    private val pixelScratch = IntArray(1)
+
+    /** 画笔颜色的解析缓存 (brushColor 是字符串, 每帧 parseColor 纯属浪费) */
+    private var cachedColorHex: String? = null
+    private var cachedColorInt: Int = android.graphics.Color.BLACK
+
+    /** 压力曲线查表的量化缓存 (JNI 调用; 落笔期间压力连续但帧间变化很小) */
+    private var cachedPressureKey: Int = -1
+    private var cachedPressureFraction: Float = 1f
+
+    /** 局部失效开关: 任一安全条件不满足时自动回退全量重绘 */
+    var partialInvalidateEnabled: Boolean = true
 
     private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
         val v = vm ?: return emptyList()
@@ -695,6 +838,32 @@ class CanvasTouchView(context: Context) : View(context) {
         activeTouchView = this
         getOrCreateStylusDriver()?.syncSettings()
         applyHighRefreshRateAndUnbuffered()
+        val maxFps = if (Build.VERSION.SDK_INT >= 30) {
+            val d = try { display } catch (_: Throwable) { null }
+            d?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+        } else 144f
+        if (oplusPredictor == null) {
+            try {
+                val p = OplusMotionPredictor()
+                if (p.isValid) {
+                    p.setRefreshRate(maxFps)
+                    val dm = resources.displayMetrics
+                    p.setDpi(dm.xdpi, dm.ydpi)
+                    oplusPredictor = p
+                    android.util.Log.i("ReveriePerf", "OplusMotionPredictor initialized successfully! maxFps=$maxFps dpi=${dm.xdpi},${dm.ydpi}")
+                } else {
+                    android.util.Log.w("ReveriePerf", "OplusMotionPredictor is not valid")
+                    p.destroy()
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("ReveriePerf", "Failed to init OplusMotionPredictor", t)
+            }
+        }
+        if (oplusPredictor == null && Build.VERSION.SDK_INT >= 34 && androidMotionPredictor == null) {
+            try {
+                androidMotionPredictor = android.view.MotionPredictor(context)
+            } catch (_: Throwable) {}
+        }
         post { updateSystemGestureExclusion() }
     }
 
@@ -709,12 +878,56 @@ class CanvasTouchView(context: Context) : View(context) {
             val d = try { display } catch (_: Throwable) { null }
             d?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
         } else 144f
-        if (Build.VERSION.SDK_INT >= 34) {
+        oplusPredictor?.let { p ->
             try {
-                val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
-                method.invoke(this, maxFps, 1) // 1 = Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+                if (p.isValid) p.setRefreshRate(maxFps)
             } catch (_: Throwable) {}
         }
+        // B4: 交互期请求面板最高帧率; 静止 1.5s 后由 [downclockWhenIdle] 降回 60Hz
+        frameRateHigh = true
+        requestMaxFrameRate()
+    }
+
+    /** B4: 请求"面板最高帧率"(交互期用)。拿不到就静默放弃, 不影响绘制。 */
+    private fun requestMaxFrameRate() {
+        if (Build.VERSION.SDK_INT < 34) return
+        val maxFps = try {
+            display?.supportedModes?.maxOfOrNull { it.refreshRate } ?: 144f
+        } catch (_: Throwable) {
+            144f
+        }
+        applyFrameRateHint(maxFps)
+    }
+
+    /** B4: 通过 `View.setFrameRate`(API 34+) 给系统一个帧率提示(反射调用, 失败即忽略)。 */
+    private fun applyFrameRateHint(fps: Float) {
+        if (Build.VERSION.SDK_INT < 34) return
+        try {
+            val method = View::class.java.getMethod("setFrameRate", java.lang.Float.TYPE, java.lang.Integer.TYPE)
+            method.invoke(this, fps, 1) // 1 = Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * B4 · 静止降频: 一有真实输入就把帧率请求提到最高, 并重置 1.5s 的静止计时; 计时到点若确实
+     * 没有触摸/悬停/动画, 就把请求降回 60Hz —— 只是"别让看画把屏幕钉在 144Hz 上", 不影响任何绘制。
+     */
+    private fun markInteractionFrameRate() {
+        if (!frameRateHigh) {
+            frameRateHigh = true
+            requestMaxFrameRate()
+        }
+        removeCallbacks(idleDownclockRunnable)
+        postDelayed(idleDownclockRunnable, IDLE_DOWNCLOCK_MS)
+    }
+
+    private fun downclockWhenIdle() {
+        if (!frameRateHigh) return
+        if (localIsTouching || localIsHovering || isInteracting) return
+        val v = vm
+        if (v != null && v.anim.isPlaying) return
+        frameRateHigh = false
+        applyFrameRateHint(IDLE_FRAME_RATE_HZ)
     }
 
     fun checkAndRestoreHighRefreshRate() {
@@ -740,6 +953,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (hasWindowFocus) {
             applyHighRefreshRateAndUnbuffered()
             checkAndRestoreHighRefreshRate()
+            // B4: 静止计时也从这里起算(进页面后一直不动也要降频)
+            markInteractionFrameRate()
         }
     }
 
@@ -748,6 +963,7 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isVisible) {
             applyHighRefreshRateAndUnbuffered()
             checkAndRestoreHighRefreshRate()
+            markInteractionFrameRate()
         }
     }
 
@@ -770,7 +986,11 @@ class CanvasTouchView(context: Context) : View(context) {
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
         cachedDriver?.feedbackManager?.stopStrokeSound()
         cachedDriver = null
+        oplusPredictor?.destroy()
+        oplusPredictor = null
+        androidMotionPredictor = null
         safeEndSymmetryUndoMacro()
+        resetMirrorBranches()
         currentStrokeDocPos = Offset.Zero
     }
 
@@ -786,7 +1006,26 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    /**
+     * onDraw 薄壳: 只在性能标尺开启时计时并叠加标尺, 关闭时直接转发 (零额外开销)。
+     * 标尺本体在 debug 专属源集里 ([PerfHud]), 正式版是空实现。
+     */
     override fun onDraw(canvas: Canvas) {
+        if (!PerfHud.enabled) {
+            drawCanvas(canvas)
+            return
+        }
+        PerfTrace.frameTick()
+        val t0 = SystemClock.elapsedRealtimeNanos()
+        try {
+            drawCanvas(canvas)
+        } finally {
+            PerfHud.recordDraw(SystemClock.elapsedRealtimeNanos() - t0)
+            PerfHud.draw(canvas, this)
+        }
+    }
+
+    private fun drawCanvas(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
 
@@ -834,11 +1073,23 @@ class CanvasTouchView(context: Context) : View(context) {
                     pixelGridPaint.color =
                         android.graphics.Color.argb((gridAlpha * 255).toInt(), 255, 255, 255)
                     pixelGridPaint.strokeWidth = 1f / scale
-                    for (gx in 0..bmp.width) {
-                        canvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, pixelGridPaint)
-                    }
-                    for (gy in 0..bmp.height) {
-                        canvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, pixelGridPaint)
+                    // 只画视口内可见的网格线: 整幅遍历在 4x 放大的大画幅上每帧要发
+                    // 上万条 drawLine, 而屏幕上真正看得见的只有几百条 —— 这是高
+                    // 倍率下最贵的一段绘制 (对应"渲染路径分离"的按视口裁剪)。
+                    ensureViewTransform()
+                    visibleBitmapBounds(boundsScratch)
+                    val gx0 = boundsScratch[0].coerceIn(0, bmp.width)
+                    val gx1 = boundsScratch[2].coerceIn(0, bmp.width)
+                    val gy0 = boundsScratch[1].coerceIn(0, bmp.height)
+                    val gy1 = boundsScratch[3].coerceIn(0, bmp.height)
+                    // 兜底: 视口已经把整幅包进来时线条仍可能过万, 宁可不画网格也不掉帧
+                    if ((gx1 - gx0) + (gy1 - gy0) <= MAX_VISIBLE_GRID_LINES) {
+                        for (gx in gx0..gx1) {
+                            canvas.drawLine(gx - halfW, -halfH, gx - halfW, halfH, pixelGridPaint)
+                        }
+                        for (gy in gy0..gy1) {
+                            canvas.drawLine(-halfW, gy - halfH, halfW, gy - halfH, pixelGridPaint)
+                        }
                     }
                 }
             }
@@ -846,53 +1097,157 @@ class CanvasTouchView(context: Context) : View(context) {
             canvas.restore()
         }
 
+        // Phase 2B: AGSL 形变预览覆盖层。引擎在"主机侧绘制"模式下不生成也不叠加 CPU 预览,
+        // 由这里在显示分辨率上做位移采样 —— 因此缩放/旋转/平移都自动跟随, 且不用改画布位图。
+        // 开关关闭时 active 恒为 false, 这段在正式使用中不会执行。
+        // VSYNC 绑定: 一帧内可能"只暂存了状态、还没提交", 因此以 requested 为门,
+        // 让 draw() 自己在帧内完成"提交(=纹理上传) + 绘制"。
+        if (LiquifyGpuPreview.requested || LiquifyGpuPreview.active) {
+            ensureViewTransform()
+            if (LiquifyGlesPreview.requested) {
+                // Phase 5 · C2: 本次手势由 GLES 覆盖层画 —— 这里**不画 AGSL、也不上传纹理**,
+                // 只把"文档 → 屏幕"的仿射喂给它(源裁剪/位移网格由引擎线程喂, 见
+                // PaintViewModel.pollLiquifyGpuPreview), 出图在它自己的渲染线程上。
+                // 两者同时打开时 GLES 优先, 免得同一帧被画两遍。
+                LiquifyGlesPreview.pushAffine(viewTransform)
+            } else {
+                // Phase 3 · Commit 1b 埋点: 覆盖层"提交(纹理构建/上传) + 绘制"在 UI 线程的实际耗时。
+                // draw p95 只含绘制命令录制、不含纹理上传与 GPU, 所以要用这一项才能判断覆盖层贵不贵。
+                val lqOverlayT0 = System.nanoTime()
+                LiquifyGpuPreview.draw(canvas, viewTransform)
+                PerfTrace.liquifyOverlay(System.nanoTime() - lqOverlayT0)
+            }
+        }
 
+        // 标尺的液化网格可视化(debug 专属; release 侧 PerfHud 为恒 false 的空实现, 不进这个分支):
+        // 把 Krita 网格的"原始点 → 位移后点"画成箭头, 用于在实现 Preview 之前确认
+        // 网格几何、位移方向与文档→屏幕映射与最终结果一致。
+        if (PerfHud.gridOverlayEnabled) {
+            ensureViewTransform()
+            PerfHud.drawLiquifyGrid(canvas, viewTransform)
+        }
+
+        // =========================================================================
+        // 1.5 硬件笔尖前向超前预测延伸 (OEM Hardware Stroke Prediction)
+        // 实时预测未来 15~20ms 笔尖切线，微羽化延伸消除 144Hz 屏幕 1~2 帧物理上屏延迟
+        // 遵循画世界 Pro 规范：自动排斥带材质/颗粒/低透明度笔刷，限制极短微切线并平滑渐隐
+        // =========================================================================
+        val predPt = predictedScreenPoint
+        val curPos = localCursorPos
+        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER
+        if (v.isCurrentBrushPredictionEligible && localIsTouching && isDrawingTool && predPt != null && curPos != null) {
+            try {
+                val dx = predPt.x - curPos.x
+                val dy = predPt.y - curPos.y
+                val dist = hypot(dx, dy)
+                val maxDistPx = 14f * density
+                val minDistPx = 2.5f * density
+                if (dist in minDistPx..(maxDistPx * 3.5f) && predictedPressure > 0.05f) {
+                    val prevPos = previousSinglePos
+                    var angleOk = true
+                    if (prevPos != Offset.Zero) {
+                        val v1x = curPos.x - prevPos.x
+                        val v1y = curPos.y - prevPos.y
+                        val len1 = hypot(v1x, v1y)
+                        if (len1 > 1.5f) {
+                            val dot = (v1x * dx + v1y * dy) / (len1 * dist)
+                            if (dot < 0.55f) { // 急转弯或大幅变向时抑制直线外推
+                                angleOk = false
+                            }
+                        }
+                    }
+
+                    if (angleOk) {
+                        val clampDist = dist.coerceAtMost(maxDistPx)
+                        val endX = curPos.x + (dx / dist) * clampDist
+                        val endY = curPos.y + (dy / dist) * clampDist
+
+                        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                        val cursorBrushSize = v.brushSize.toFloat()
+                        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
+                        val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
+
+                        val isEraser = tool == Tool.ERASER
+                        val baseColor = if (isEraser) {
+                            android.graphics.Color.WHITE
+                        } else {
+                            resolveBrushColorCached(v.brushColor)
+                        }
+                        val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
+
+                        val startColor = android.graphics.Color.argb(
+                            (baseAlpha * 0.55f * 255).toInt().coerceIn(0, 255),
+                            android.graphics.Color.red(baseColor),
+                            android.graphics.Color.green(baseColor),
+                            android.graphics.Color.blue(baseColor)
+                        )
+                        val endColor = android.graphics.Color.argb(
+                            0, // 终点彻底渐隐至 0% 透明度，彻底消除圆形粗钝 Cap 假线感
+                            android.graphics.Color.red(baseColor),
+                            android.graphics.Color.green(baseColor),
+                            android.graphics.Color.blue(baseColor)
+                        )
+                        tipShaderPaint.strokeWidth = strokeWidth
+                        tipShaderPaint.shader = android.graphics.LinearGradient(
+                            curPos.x, curPos.y, endX, endY,
+                            startColor, endColor,
+                            android.graphics.Shader.TileMode.CLAMP
+                        )
+                        canvas.drawLine(curPos.x, curPos.y, endX, endY, tipShaderPaint)
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
 
         // =========================================================================
         // 2. 绘画中实时镜像笔迹绘制 (120Hz 零延迟 GPU Canvas 渲染)
         // =========================================================================
-        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirroredBranches.isNotEmpty()) {
+        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirrorBranchHasSamples()) {
             try {
+                ensureViewTransform()
                 updateSymmetryPressureLut(v)
-                val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                val baseStrokeWidth = (v.brushSize.toFloat() * scale).coerceAtLeast(1.5f)
-
+                // 工具/颜色口径取上游 1.3.3: 橡皮与涂抹用固定灰, 其余按笔刷色 × 不透明度
                 when (effTool()) {
-                    Tool.ERASER -> {
-                        mirroredDrawPaint.color = android.graphics.Color.argb(140, 240, 240, 245)
-                    }
-                    Tool.SMUDGE -> {
-                        mirroredDrawPaint.color = android.graphics.Color.argb(100, 180, 180, 190)
-                    }
+                    Tool.ERASER -> mirroredDrawPaint.color = android.graphics.Color.argb(140, 240, 240, 245)
+                    Tool.SMUDGE -> mirroredDrawPaint.color = android.graphics.Color.argb(100, 180, 180, 190)
                     else -> {
-                        val baseColor = android.graphics.Color.parseColor(v.brushColor)
+                        val baseColor = resolveBrushColorCached(v.brushColor)
                         val alpha = (v.brushOpacity.coerceIn(0.0, 1.0) * 255.0).toInt().coerceIn(1, 255)
                         mirroredDrawPaint.color = (baseColor and 0x00FFFFFF) or (alpha shl 24)
                     }
                 }
                 mirroredPointPaint.color = mirroredDrawPaint.color
-
-                for (branch in mirroredBranches) {
-                    if (branch.isEmpty()) continue
-                    if (branch.size == 1) {
-                        val b0 = branch[0]
-                        val p0 = docToScreen(Offset(b0.x, b0.y))
-                        val lutIdx = (b0.pressure.coerceIn(0.0, 1.0) * 128.0 + 0.5).toInt().coerceIn(0, 128)
-                        val frac = symmetryPressureLut[lutIdx]
-                        val r = (baseStrokeWidth * frac * 0.5f).coerceAtLeast(0.75f)
-                        canvas.drawCircle(p0.x, p0.y, r, mirroredPointPaint)
-                    } else {
-                        for (i in 1 until branch.size) {
-                            val b0 = branch[i - 1]
-                            val b1 = branch[i]
-                            val p1 = docToScreen(Offset(b0.x, b0.y))
-                            val p2 = docToScreen(Offset(b1.x, b1.y))
-                            val avgP = (b0.pressure + b1.pressure) * 0.5
-                            val lutIdx = (avgP.coerceIn(0.0, 1.0) * 128.0 + 0.5).toInt().coerceIn(0, 128)
-                            val frac = symmetryPressureLut[lutIdx]
-                            mirroredDrawPaint.strokeWidth = (baseStrokeWidth * frac).coerceAtLeast(1.5f)
-                            canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
-                        }
+                // 宽口径取上游 1.3.3 的压感查找表(对称笔迹跟随压感), 数据仍走本分支的
+                // 零分配扁平缓冲: 一个分支一段 [x, y, pressure], 逐段只读不分配。
+                val baseStrokeWidth =
+                    (v.brushSize.toFloat() * viewTransform.currentScale).coerceAtLeast(1.5f)
+                for (b in 0 until mirroredSamples.size) {
+                    val buf = mirroredSamples[b]
+                    val n = mirroredSizes[b]
+                    if (n < 1) continue
+                    viewTransform.docToScreen(buf[0], buf[1], pointScratch)
+                    if (n == 1) {
+                        val lutIdx = (buf[2].coerceIn(0f, 1f) * 128f + 0.5f).toInt().coerceIn(0, 128)
+                        val r = (baseStrokeWidth * symmetryPressureLut[lutIdx] * 0.5f)
+                            .coerceAtLeast(0.75f)
+                        canvas.drawCircle(pointScratch[0], pointScratch[1], r, mirroredPointPaint)
+                        continue
+                    }
+                    var prevX = pointScratch[0]
+                    var prevY = pointScratch[1]
+                    var prevP = buf[2]
+                    for (i in 1 until n) {
+                        val base = i * 3
+                        viewTransform.docToScreen(buf[base], buf[base + 1], pointScratch)
+                        val curP = buf[base + 2]
+                        val avgP = (prevP + curP) * 0.5f
+                        val lutIdx = (avgP.coerceIn(0f, 1f) * 128f + 0.5f).toInt().coerceIn(0, 128)
+                        mirroredDrawPaint.strokeWidth =
+                            (baseStrokeWidth * symmetryPressureLut[lutIdx]).coerceAtLeast(1.5f)
+                        canvas.drawLine(prevX, prevY, pointScratch[0], pointScratch[1], mirroredDrawPaint)
+                        prevX = pointScratch[0]
+                        prevY = pointScratch[1]
+                        prevP = curP
                     }
                 }
             } catch (_: Exception) {}
@@ -902,8 +1257,10 @@ class CanvasTouchView(context: Context) : View(context) {
         // 2.5 绘画中辅助吸附动态导引线 (透视灭点射线 / 等轴测 / 2D 网格高亮)
         // =========================================================================
         val guide = v.drawingGuide
-        val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
-        if (guide.mode != GuideMode.OFF && guide.assistedDrawing && localIsTouching && strokeStarted && isDrawingTool) {
+        // 注意: 不能复用上面 1.5 段那支 isDrawingTool(它不含 SMUDGE) —— 两者语义不同,
+        // 合并上游 1.3.3 时曾因此产生重复声明。
+        val isGuideAssistTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
+        if (guide.mode != GuideMode.OFF && guide.assistedDrawing && localIsTouching && strokeStarted && isGuideAssistTool) {
             when (guide.mode) {
                 GuideMode.PERSPECTIVE -> {
                     val dx = currentStrokeDocPos.x - firstDocPos.x
@@ -1044,14 +1401,22 @@ class CanvasTouchView(context: Context) : View(context) {
             else -> false
         }
         val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
+        lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
             val pressureFraction =
                 if (localIsTouching) {
-                    ReverieCoreBridge.brushPressureFraction(localPressure)
+                    pressureFractionCached(localPressure)
                 } else 1f
             val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureFraction).coerceAtLeast(2f)
+            // 半径取"环半径"与"十字/点光标尺寸"的较大者: 后三种样式画的是小十字/圆点, 半径只有
+            // 几个 dp, 但同样需要被覆盖
+            lqRingValid = true
+            lqRingCx = pos.x
+            lqRingCy = pos.y
+            lqRingR = if (brushRadiusScreen > 8f * density) brushRadiusScreen else 8f * density
 
             when (v.cursorStyleMode) {
                 0 -> { // 双对比圆环
@@ -1109,40 +1474,23 @@ class CanvasTouchView(context: Context) : View(context) {
             val ix = (docPos.x * (bmp.width.toFloat() / docW)).toInt()
             val iy = (docPos.y * (bmp.height.toFloat() / docH)).toInt()
             if (ix in 0 until bmp.width && iy in 0 until bmp.height) {
-                val pixel = bmp.getPixel(ix, iy)
-                pickerCurrentColor?.value = Color(pixel)
+                // getPixel 每个采样点都是一趟 JNI; 改用复用数组 + getPixels,
+                // 拖动吸色期间每个采样点省一次跨语言调用且零分配
+                bmp.getPixels(pixelScratch, 0, 1, ix, iy, 1, 1)
+                pickerCurrentColor?.value = Color(pixelScratch[0])
             }
         }
     }
 
-    private fun screenToDoc(screenPos: Offset): Offset {
-        val bmp = vm?.displayBitmap ?: docBitmap
-        val bmpW = bmp?.width ?: vm?.docWidth ?: 1
-        val bmpH = bmp?.height ?: vm?.docHeight ?: 1
-        return widgetToImage(
-            screenPos,
-            viewW,
-            viewH,
-            canvasPanX,
-            canvasPanY,
-            canvasZoom,
-            canvasFitScale,
-            canvasRotation,
-            bmpW,
-            bmpH,
-            vm?.docWidth ?: bmpW,
-            vm?.docHeight ?: bmpH
-        )
-    }
-
-    private fun docToScreen(docPos: Offset): Offset {
-        val bmp = vm?.displayBitmap ?: docBitmap
-        val bmpW = bmp?.width ?: vm?.docWidth ?: 1
-        val bmpH = bmp?.height ?: vm?.docHeight ?: 1
-        val dw = vm?.docWidth ?: bmpW
-        val dh = vm?.docHeight ?: bmpH
-        return imageToWidget(
-            docPos,
+    /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
+    private fun ensureViewTransform() {
+        val v = vm
+        val bmp = v?.displayBitmap ?: docBitmap
+        val bmpW = bmp?.width ?: v?.docWidth ?: 1
+        val bmpH = bmp?.height ?: v?.docHeight ?: 1
+        val dw = v?.docWidth ?: bmpW
+        val dh = v?.docHeight ?: bmpH
+        viewTransform.update(
             viewW,
             viewH,
             canvasPanX,
@@ -1157,7 +1505,269 @@ class CanvasTouchView(context: Context) : View(context) {
         )
     }
 
+    private fun screenToDoc(screenPos: Offset): Offset {
+        ensureViewTransform()
+        viewTransform.screenToDoc(screenPos.x, screenPos.y, pointScratch)
+        return Offset(pointScratch[0], pointScratch[1])
+    }
+
+    private fun docToScreen(docPos: Offset): Offset {
+        ensureViewTransform()
+        viewTransform.docToScreen(docPos.x, docPos.y, pointScratch)
+        return Offset(pointScratch[0], pointScratch[1])
+    }
+
+    /** 视口四角反变换到位图坐标后的包围盒 (供按视口裁剪绘制) */
+    private fun visibleBitmapBounds(out: IntArray) {
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for (i in 0 until 4) {
+            val sx = if (i == 0 || i == 2) 0f else viewW.toFloat()
+            val sy = if (i < 2) 0f else viewH.toFloat()
+            viewTransform.screenToBitmap(sx, sy, pointScratch)
+            if (pointScratch[0] < minX) minX = pointScratch[0]
+            if (pointScratch[0] > maxX) maxX = pointScratch[0]
+            if (pointScratch[1] < minY) minY = pointScratch[1]
+            if (pointScratch[1] > maxY) maxY = pointScratch[1]
+        }
+        out[0] = floor(minX).toInt()
+        out[1] = floor(minY).toInt()
+        out[2] = ceil(maxX).toInt()
+        out[3] = ceil(maxY).toInt()
+    }
+
+    /** 画笔颜色字符串 -> 颜色值的解析缓存 (brushColor 每帧都可能被读取) */
+    private fun resolveBrushColorCached(hex: String): Int {
+        val cached = cachedColorHex
+        if (cached === hex || cached == hex) return cachedColorInt
+        val parsed =
+            try {
+                android.graphics.Color.parseColor(hex)
+            } catch (_: Throwable) {
+                android.graphics.Color.BLACK
+            }
+        cachedColorHex = hex
+        cachedColorInt = parsed
+        return parsed
+    }
+
+    /**
+     * 压力曲线的量化缓存。压力曲线由引擎侧提供 (JNI), 落笔期间压力逐帧连续
+     * 变化但幅度很小, 按 1/256 量化后绝大多数帧直接命中缓存。
+     */
+    private fun pressureFractionCached(p: Float): Float {
+        val key = (p.coerceIn(0f, 1f) * 256f).toInt()
+        if (key == cachedPressureKey) return cachedPressureFraction
+        val frac =
+            try {
+                ReverieCoreBridge.brushPressureFraction(p)
+            } catch (_: Throwable) {
+                1f
+            }
+        cachedPressureKey = key
+        cachedPressureFraction = frac
+        return frac
+    }
+
+    /**
+     * 渲染线程写完一帧后调用: 只让真正变化的区域重绘 (配合渲染路径分离,
+     * 位图不变的区域不再重绘, 省下大画幅下每帧的整屏 GPU 填充)。
+     *
+     * 任何"会在脏区之外重绘"的覆盖层处于活动状态时 (光标 / 预测笔迹 /
+     * 镜像笔迹 / 像素网格 / 画布旋转 / 变换会话) 一律回退全量重绘 ——
+     * 宁可多画一次, 也不允许出现边缘残影。
+     */
+    fun invalidateFromRender() {
+        val v = vm
+        val snap = v?.renderDirtySnapshot
+        if (!partialInvalidateEnabled || v == null || snap == null) {
+            postInvalidate()
+            return
+        }
+        val dw = snap[2]
+        val dh = snap[3]
+        if (dw <= 0 || dh <= 0 || !canPartialInvalidate(v, dw, dh)) {
+            postInvalidate()
+            return
+        }
+        ensureViewTransform()
+        viewTransform.bitmapRectToScreenBounds(
+            snap[0].toFloat(),
+            snap[1].toFloat(),
+            (snap[0] + dw).toFloat(),
+            (snap[1] + dh).toFloat(),
+            boundsScratch,
+        )
+        var left = boundsScratch[0].coerceAtLeast(0)
+        var top = boundsScratch[1].coerceAtLeast(0)
+        var right = boundsScratch[2].coerceAtMost(viewW)
+        var bottom = boundsScratch[3].coerceAtMost(viewH)
+        if (right <= left || bottom <= top) {
+            postInvalidate()
+            return
+        }
+        // 标尺(debug)必须整块重绘: 它的行数会随数据出现/消失, 只刷新损坏区会留下两代文本
+        // 拼接的残迹。标尺关闭时这里是纯读一次布尔(见 PerfHud.fillHudBounds)。
+        if (PerfHud.fillHudBounds(hudBoundsScratch)) {
+            if (hudBoundsScratch.left < left) left = hudBoundsScratch.left
+            if (hudBoundsScratch.top < top) top = hudBoundsScratch.top
+            if (hudBoundsScratch.right > right) right = hudBoundsScratch.right
+            if (hudBoundsScratch.bottom > bottom) bottom = hudBoundsScratch.bottom
+        }
+        postInvalidate(left, top, right, bottom)
+    }
+
+    /** 局部失效的安全条件, 任一条不满足就整屏重绘 */
+    private fun canPartialInvalidate(v: PaintViewModel, dirtyW: Int, dirtyH: Int): Boolean {
+        // 回放与动画播放按帧整体切换画面, 只失效引擎回报的脏区会留下上一帧残影
+        if (v.currentPage == Page.REPLAY || v.anim.isPlaying) return false
+        if (!viewTransform.isAxisAligned) return false
+        if (v.pixelGridEnabled && viewTransform.currentScale >= 4f) return false
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return false
+        if (localCursorPos != null || localIsTouching || localIsHovering) return false
+        if (predictedScreenPoint != null) return false
+        if (isTransformActive || isInteracting) return false
+        val guide = v.drawingGuide
+        if (guide.mode == GuideMode.SYMMETRY && guide.assistedDrawing && mirrorBranchHasSamples()) return false
+        val viewArea = viewW.toLong() * viewH.toLong()
+        if (viewArea <= 0L) return false
+        // 脏区超过视口一半时就省不下什么了, 整屏一次画完更划算
+        return dirtyW.toLong() * dirtyH.toLong() * 2L <= viewArea
+    }
+
+    /**
+     * Liquify V2 · Phase 2: 覆盖层有新位移场时调用 (可能来自引擎线程)。
+     *
+     * 原来这里的调用方是无条件 `postInvalidate()` 整屏重绘 —— 这是"每个 dab 都整屏"的来源
+     * (见 docs/RENDER-OPTIMIZATION.md §4.10)。现在改成: 回到 UI 线程, 用
+     * **本帧文档脏区(覆盖层自己算出) ∪ 光标环前后位置** 算一个最小重绘矩形;
+     * 任一安全条件不满足时自行整屏回退 —— 宁可多画一次, 不允许边缘残影。
+     *
+     * 这条路径只服务 AGSL 覆盖层(默认关闭), 其余渲染路径完全不受影响。
+     */
+    fun onLiquifyPreviewUpdated() {
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
+            scheduleLiquifyInvalidate()
+        } else {
+            post(lqInvalidateRunnable)
+        }
+    }
+
+    /**
+     * Phase 2: 局部失效的安全条件。与 [canPartialInvalidate] 的唯一区别是**不再因光标活动而整屏**
+     * —— 液化手势期间光标环必然活动且 `isInteracting` 恒为 true, 若沿用旧条件该优化等于不存在。
+     * 改为把环的前后位置并进失效矩形; 其余"会在脏区之外重绘"的覆盖层仍一律整屏。
+     */
+    private fun canLiquifyPartialInvalidate(v: PaintViewModel): Boolean {
+        if (v.currentPage == Page.REPLAY || v.anim.isPlaying) return false
+        if (!viewTransform.isAxisAligned) return false
+        if (v.pixelGridEnabled) return false
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return false
+        if (isTransformActive || isPinchMotion || maxTouchPointers >= 2) return false
+        val guide = v.drawingGuide
+        // 对称镜像会在光标之外多画几个环, 不在失效矩形内 ⇒ 整屏
+        if (guide.mode == GuideMode.SYMMETRY && guide.assistedDrawing) return false
+        return viewW > 0 && viewH > 0
+    }
+
+    private fun scheduleLiquifyInvalidate() {
+        val v = vm
+        // Phase 5 · C3-2: 场通路的失效由**补点**驱动(见 invalidateLiquifyFieldDab): 那条路径没有网格,
+        // "前后两帧位移场差分"根本不成立, 照旧算只会退化成每帧整屏重绘。这里直接让路。
+        if (LiquifyGlesPreview.requested && LiquifyGlesPreview.fieldArmed) return
+        if (!partialInvalidateEnabled || v == null || !canLiquifyPartialInvalidate(v)) {
+            postInvalidate()
+            return
+        }
+        // 覆盖层初判: 不可比(rebase/首帧)或没有脏区信息 → 整屏
+        if (LiquifyGpuPreview.overlayDirtyFull) {
+            postInvalidate()
+            return
+        }
+        ensureViewTransform()
+        var left = Float.MAX_VALUE
+        var top = Float.MAX_VALUE
+        var right = -Float.MAX_VALUE
+        var bottom = -Float.MAX_VALUE
+
+        // 1) 本帧文档脏区 -> 屏幕包围盒(8px 余量, 与 LiquifyGpuPreview.draw 的绘制余量一致)
+        if (LiquifyGpuPreview.overlayDirtyValid) {
+            val dw = LiquifyGpuPreview.overlayDirtyW
+            val dh = LiquifyGpuPreview.overlayDirtyH
+            if (dw > 0 && dh > 0) {
+                val x0 = LiquifyGpuPreview.overlayDirtyX.toFloat()
+                val y0 = LiquifyGpuPreview.overlayDirtyY.toFloat()
+                val x1 = x0 + dw
+                val y1 = y0 + dh
+                for (i in 0 until 4) {
+                    viewTransform.docToScreen(
+                        if (i == 0 || i == 2) x0 else x1,
+                        if (i < 2) y0 else y1,
+                        lqPointScratch,
+                    )
+                    val sx = lqPointScratch[0]
+                    val sy = lqPointScratch[1]
+                    if (sx < left) left = sx
+                    if (sx > right) right = sx
+                    if (sy < top) top = sy
+                    if (sy > bottom) bottom = sy
+                }
+                left -= 8f
+                top -= 8f
+                right += 8f
+                bottom += 8f
+            }
+        }
+
+        // 2) 光标环: 旧位置与当前位置都要重绘
+        if (lqRingValid) {
+            left = minOf(left, lqRingCx - lqRingR - 2f)
+            top = minOf(top, lqRingCy - lqRingR - 2f)
+            right = maxOf(right, lqRingCx + lqRingR + 2f)
+            bottom = maxOf(bottom, lqRingCy + lqRingR + 2f)
+        }
+        val cur = localCursorPos
+        if (cur != null) {
+            val r = if (lqRingValid) lqRingR else 0f
+            left = minOf(left, cur.x - r - 2f)
+            top = minOf(top, cur.y - r - 2f)
+            right = maxOf(right, cur.x + r + 2f)
+            bottom = maxOf(bottom, cur.y + r + 2f)
+        }
+        if (right <= left || bottom <= top) {
+            // 这一帧位移场没变、环也没动: 连重绘都不需要
+            return
+        }
+        // 标尺(debug)并进失效区 —— 与 [invalidateFromRender] 同理; 放在"无需重绘"判断之后,
+        // 免得标尺把"一帧都不需要重绘"的情况变成每帧都重绘。
+        if (PerfHud.fillHudBounds(hudBoundsScratch)) {
+            if (hudBoundsScratch.left < left) left = hudBoundsScratch.left.toFloat()
+            if (hudBoundsScratch.top < top) top = hudBoundsScratch.top.toFloat()
+            if (hudBoundsScratch.right > right) right = hudBoundsScratch.right.toFloat()
+            if (hudBoundsScratch.bottom > bottom) bottom = hudBoundsScratch.bottom.toFloat()
+        }
+        val l = left.toInt().coerceIn(0, viewW)
+        val t = top.toInt().coerceIn(0, viewH)
+        val r = right.toInt().coerceIn(0, viewW)
+        val b = bottom.toInt().coerceIn(0, viewH)
+        if (r <= l || b <= t) {
+            postInvalidate()
+            return
+        }
+        postInvalidate(l, t, r, b)
+    }
+
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // B4: 真实输入 ⇒ 帧率请求立刻提到最高(静止 1.5s 后自动降回 60Hz)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN,
+            MotionEvent.ACTION_MOVE,
+            MotionEvent.ACTION_POINTER_DOWN,
+            -> markInteractionFrameRate()
+            else -> Unit
+        }
         return super.dispatchTouchEvent(event)
     }
 
@@ -1492,6 +2102,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    try {
+                        oplusPredictor?.reset()
+                    } catch (_: Throwable) {}
+                    predictedScreenPoint = null
                     removeCallbacks(longPressRunnable)
                     longPressToken++
                     isTransformActive = false
@@ -1565,7 +2179,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     localCursorPos = screenPos
                     localIsTouching = true
-                    // 仅在非笔刷工具、光标跟随模式或绘图辅助生效时在 UI 线程重绘
+                    // 仅在非笔刷工具、光标跟随模式、绘图辅助生效或激活笔尖硬件预测时在 UI 线程重绘
                     val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
                     if (!isDrawingTool) {
                         invalidate()
@@ -1573,7 +2187,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         val isEraser = tool == Tool.ERASER
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
                         val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
-                        if (cursorMode == 1 || cursorMode == 3 || hasAssist) {
+                        if (cursorMode == 1 || cursorMode == 3 || hasAssist ||
+                            (v.isCurrentBrushPredictionEligible && predictedScreenPoint != null)) {
                             invalidate()
                         }
                     }
@@ -1586,6 +2201,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
+                    predictedScreenPoint = null
+                    try {
+                        oplusPredictor?.reset()
+                    } catch (_: Throwable) {}
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     removeCallbacks(longPressRunnable)
                     longPressToken++
@@ -1640,7 +2259,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 v.touchCancel()
                 strokeStarted = false
                 safeEndSymmetryUndoMacro()
-                mirroredBranches.clear()
+                resetMirrorBranches()
             }
 
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
@@ -1905,7 +2524,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         v.touchCancel()
                         strokeStarted = false
                         safeEndSymmetryUndoMacro()
-                        mirroredBranches.clear()
+                        resetMirrorBranches()
                     }
                     postDelayed(resetTransformRunnable, 150)
                     invalidate()
@@ -2146,20 +2765,43 @@ class CanvasTouchView(context: Context) : View(context) {
                 val isAssist = hasSymmetry || (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
                 val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
 
-                mirroredBranches.clear()
                 if (hasSymmetry) {
                     updateSymmetryPressureLut(v)
                     val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
-                    for (symPt in symPts) {
-                        val branch = mutableListOf<SymStrokeSample>()
-                        branch.add(SymStrokeSample(symPt.x, symPt.y, pressure.toDouble()))
-                        mirroredBranches.add(branch)
+                    ensureMirrorBranches(symPts.size)
+                    for (idx in symPts.indices) {
+                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
                     }
+                } else {
+                    resetMirrorBranches()
                 }
             }
             Tool.LIQUIFY -> {
-                liquifyPrevPos = docPos
+                liquifyFlushPosted = false
+                removeCallbacks(liquifyFlushRunnable)
+                // Phase 3A 实验开关: `setprop debug.reverie.lqcoalesce <n>` 指定每帧最多推进的
+                // 补点数(0 = 关闭)。AGSL 预览本来就"不阻塞引擎", 因此它默认按 2 步/帧跑;
+                // 引擎侧路径(无预览/CPU 预览)默认关闭, 保持既有行为, 需要时用 property 打开。
+                // 应用内覆盖(debug 设置页)优先于 property —— 无数据线时靠它切换
+                val ov = PerfTrace.liquifyCoalesceOverride
+                val prop = if (ov >= 0) ov else PerfTrace.debugPropInt("debug.reverie.lqcoalesce", -1)
+                val maxDabs = when {
+                    // 1) property 最高优先(无数据线时也能靠构建档位兜底)
+                    prop >= 0 -> prop
+                    // 2) 构建期档位: 3 = 对照"不做调度合并", 1/2 = 默认 2 步/帧
+                    BuildConfig.LQ_TEST_PROFILE == 3 -> 0
+                    BuildConfig.LQ_TEST_PROFILE == 1 || BuildConfig.LQ_TEST_PROFILE == 2 ->
+                        LiquifyPath.DEFAULT_MAX_DABS_PER_FLUSH
+                    // 3) AGSL 预览(引擎侧本来就不阻塞)默认开启; 其它路径保持逐点处理
+                    LiquifyGpuPreview.requested -> LiquifyPath.DEFAULT_MAX_DABS_PER_FLUSH
+                    else -> 0
+                }
+                // 交互态会话: 以落笔点为已渲染基准, 后续 MOVE 只提交"最新位置"
+                liquifySession.begin(docPos.x, docPos.y, maxDabs)
                 v.liquifyBegin()
+                // Phase 5 · C3-2: 能走场通路就走 —— 引擎只交一份"未形变的源像素", 拖动期零解算。
+                // 判定失败(超预算/非 8bit BGRA/覆盖层不在)自动退回下面的逐 dab 路径。
+                liquifyFieldGesture = beginLiquifyFieldGesture(v)
                 strokeStarted = true
             }
             Tool.PICKER -> {
@@ -2389,12 +3031,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         lastSoundTimeMs = 0L
                         if (hasSymmetry) {
                             updateSymmetryPressureLut(v)
-                            mirroredBranches.clear()
                             val symPts = computeAllSymmetricPoints(Point2D(firstDocPos.x, firstDocPos.y))
-                            for (symPt in symPts) {
-                                val branch = mutableListOf<SymStrokeSample>()
-                                branch.add(SymStrokeSample(symPt.x, symPt.y, pressure.toDouble()))
-                                mirroredBranches.add(branch)
+                            ensureMirrorBranches(symPts.size)
+                            for (idx in symPts.indices) {
+                                appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
                             }
                         }
                     }
@@ -2420,7 +3060,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hasSymmetry) {
                         val symPts = computeAllSymmetricPoints(Point2D(hAssisted.x, hAssisted.y))
                         for (idx in symPts.indices) {
-                            if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, hP.toDouble()))
+                            appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, hP.toDouble())
                         }
                     }
                 }
@@ -2442,19 +3082,82 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (hasSymmetry) {
                     val symPts = computeAllSymmetricPoints(Point2D(effectiveDocPos.x, effectiveDocPos.y))
                     for (idx in symPts.indices) {
-                        if (idx < mirroredBranches.size) mirroredBranches[idx].add(SymStrokeSample(symPts[idx].x, symPts[idx].y, pressure.toDouble()))
+                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, pressure.toDouble())
                     }
                 }
 
+                // OEM 硬件前向预测计算 (抵消 144Hz 屏幕 1~2 帧约 14~20ms 物理显示上屏延迟)
+                if (isStylus && v.isCurrentBrushPredictionEligible) {
+                    val op = oplusPredictor
+                    if (op != null && op.isValid) {
+                        try {
+                            for (i in 0 until event.historySize) {
+                                cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
+                                cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
+                                cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
+                                cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
+                                op.pushTouchPoint(cachedTouchPointInfo)
+                            }
+                            cachedTouchPointInfo.x = event.getX(pointerIndex)
+                            cachedTouchPointInfo.y = event.getY(pointerIndex)
+                            cachedTouchPointInfo.pressure = pressure
+                            cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
+                            cachedTouchPointInfo.timestamp = event.eventTime
+                            op.pushTouchPoint(cachedTouchPointInfo)
+
+                            val pred = op.predictTouchPoint()
+                            if (pred != null) {
+                                predictedScreenPoint = Offset(pred.x, pred.y)
+                                predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                            } else {
+                                predictedScreenPoint = null
+                            }
+                        } catch (_: Throwable) {
+                            predictedScreenPoint = null
+                        }
+                    } else if (Build.VERSION.SDK_INT >= 34 && androidMotionPredictor != null) {
+                        val amp = androidMotionPredictor as? android.view.MotionPredictor
+                        if (amp != null) {
+                            try {
+                                amp.record(event)
+                                val predEvent = amp.predict(15_000_000L)
+                                if (predEvent != null) {
+                                    predictedScreenPoint = Offset(predEvent.x, predEvent.y)
+                                    predictedPressure = predEvent.pressure.coerceIn(0.01f, 1f)
+                                    predEvent.recycle()
+                                } else {
+                                    predictedScreenPoint = null
+                                }
+                            } catch (_: Throwable) {
+                                predictedScreenPoint = null
+                            }
+                        }
+                    } else {
+                        predictedScreenPoint = null
+                    }
+                } else {
+                    predictedScreenPoint = null
+                }
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
-                    // 历史点(coalesced)必须一起消费: 原先只取当帧最终点, 手快时
-                    // 一次事件跨几十像素, 形变搭接不上就会留下断口
-                    for (i in 0 until event.historySize) {
-                        liquifyAlongPath(v, screenToDoc(Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))))
+                    if (liquifySession.coalescing) {
+                        // Phase 3B: latest-state-wins —— 只留"最新位置", 中间状态(含历史点)全丢,
+                        // 由下一帧统一推进。避免"一个事件里多个历史点 → 队列里堆多次 apply"。
+                        liquifySession.submitTarget(docPos.x, docPos.y)
+                        if (!liquifyFlushPosted) {
+                            liquifyFlushPosted = true
+                            postOnAnimation(liquifyFlushRunnable)
+                        }
+                    } else {
+                        // 历史点(coalesced)必须一起消费: 原先只取当帧最终点, 手快时
+                        // 一次事件跨几十像素, 形变搭接不上就会留下断口
+                        for (i in 0 until event.historySize) {
+                            liquifyAlongPath(v, screenToDoc(Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))))
+                        }
+                        liquifyAlongPath(v, docPos)
                     }
-                    liquifyAlongPath(v, docPos)
                 }
             }
             Tool.PICKER -> {
@@ -2596,26 +3299,256 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    /** 回放一条镜像分支: [buf] 为扁平的 [x, y, pressure] 三元组, 共 [count] 个点 */
+    private fun replaySymmetricBranch(buf: FloatArray, count: Int) {
+        val v = vm ?: return
+        if (count < 2 || buf.size < count * 3) return
+
+        v.touchStart(buf[0], buf[1], buf[2].toDouble())
+        for (i in 1 until count) {
+            val base = i * 3
+            v.touchMove(buf[base], buf[base + 1], buf[base + 2].toDouble())
+        }
+        v.touchEnd()
+    }
+
     /**
      * 液化沿路径推进: 位移大于笔刷影响半径时拆成多个补点, 让相邻形变搭接,
      * 消除快速拖动时的断线。强度按 [LiquifyPath.substepStrengthScale] 折算,
      * 保证细分前后总形变量一致 (引擎侧幅度曲线对每个 dab 有固定底)。
+     *
+     * 关闭合并(latest-state-wins)时的逐点路径: 每个输入点立即**全量**推进, 与历史行为一致。
      */
     private fun liquifyAlongPath(v: PaintViewModel, to: Offset) {
-        val from = liquifyPrevPos
-        val dist = hypot(to.x - from.x, to.y - from.y)
-        val n = LiquifyPath.substepCount(dist, liquifyBrushSize)
-        if (n == 0) return
-        val strength = liquifyStrength *
-            LiquifyPath.substepStrengthScale(dist, liquifyBrushSize, n, liquifyMode)
-        var prev = from
-        for (i in 1..n) {
-            val t = i.toFloat() / n
-            val next = Offset(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
-            v.liquify(prev.x, prev.y, next.x, next.y, liquifyMode, strength.toDouble())
-            prev = next
+        liquifySession.submitTarget(to.x, to.y)
+        liquifyFlushNow(v, forceFull = true)
+    }
+
+    /**
+     * Phase 3A/3B: 把会话里待推进的位移段提交给引擎 —— 液化的**唯一 JNI 提交点**。
+     *
+     * 调度全在 [LiquifyInteractionSession] 里(纯逻辑), 这里只按它的推进计划跑 JNI 循环:
+     * 步长与强度折算始终按"整段"口径, 因此分帧只改节奏、不改总量; 抬笔 forceFull 精确落点。
+     *
+     * @param forceFull true = 抬笔补齐 / 关闭合并的逐点路径(不受每帧补点上限约束)
+     */
+    private fun liquifyFlushNow(v: PaintViewModel, forceFull: Boolean) {
+        if (!liquifySession.prepareFlush(liquifyBrushSize, liquifyMode, forceFull)) return
+        val steps = liquifySession.planSteps
+        if (steps <= 0) return
+        val strength = liquifyStrength * liquifySession.planStrengthScale
+        val stepX = liquifySession.planStepX
+        val stepY = liquifySession.planStepY
+        var px = liquifySession.planStartX
+        var py = liquifySession.planStartY
+        for (i in 0 until steps) {
+            val nx = px + stepX
+            val ny = py + stepY
+            if (liquifyFieldGesture) {
+                // Phase 5 · C3-2: 场通路 —— **拖动期一个 dab 都不进引擎**。真机实测(200px 笔刷)
+                // 原本每秒要 1.07s 的原生工作: 逐 dab 网格形变 550ms + rebase 物化 517ms, 全在这里消失。
+                // 参数只记进本地列表: 抬笔回读若失败, 就靠这份列表重放给引擎, 形变一点不丢。
+                recordLiquifyFieldDab(px, py, nx, ny, liquifyMode, strength)
+                // 录制流必须与"逐 dab 提交"完全一致 —— 回放走的是经典路径
+                v.recordLiquifyDab(px, py, nx, ny, liquifyMode, strength)
+            } else {
+                v.liquify(px, py, nx, ny, liquifyMode, strength.toDouble())
+            }
+            // Phase 5 · C3: 同一个补点再推一份给 GLES 常驻位移场 (docs/LIQUIFY-C3-FIELD-PLAN.md §2.2)。
+            // 这里**不新增任何 JNI** —— 参数本来就在手上; 场通路下这是唯一的消费者(引擎那边一个都不收),
+            // 场未 armed(开关关/由别的路径画)时 pushDab 只是一次 volatile 读, 不进热路径。
+            LiquifyGlesPreview.pushDab(px, py, nx, ny, liquifyMode, strength, liquifyBrushSize)
+            px = nx
+            py = ny
         }
-        liquifyPrevPos = to
+        liquifySession.advanceFlush(steps)
+        // 合并倍率: 本帧覆盖的输入事件数 / 实际补点数
+        PerfTrace.liquifySchedule(liquifySession.lastFlushInputs, steps)
+        // backlog 指标: 滞后事件数 + 仍未提交的补点数(见 PerfTrace.liquifyFlow)
+        PerfTrace.liquifyFlow(liquifySession.lag, liquifySession.backlogDabs)
+    }
+
+    // ---------------- Phase 5 · C3-2: 场通路(拖动期零引擎解算 + 抬笔一次性提交) ----------------
+
+    /**
+     * 尝试进入"场通路"。前置: 本段手势由 GLES 覆盖层画、且场已 armed。
+     *
+     * 成功 ⇒ 引擎只准备一份"未形变的源像素"(整篇文档, 每段手势一次), 之后的 dab 全部只喂 GPU 场;
+     * 失败(超预算 / 非 8bit BGRA / 文档尺寸未知)返回 false, 调用方原样走经典逐 dab 路径。
+     */
+    private fun beginLiquifyFieldGesture(v: PaintViewModel): Boolean {
+        if (!LiquifyGlesPreview.requested || !LiquifyGlesPreview.fieldArmed) return false
+        val dw = v.docWidth
+        val dh = v.docHeight
+        if (dw <= 0 || dh <= 0) return false
+        // 稳定性硬预算: 源纹理 + 场纹理都是"整篇文档"级别的大块内存(CPU/GPU 各留一份),
+        // 低内存设备压到 1/4; 超预算直接回经典路径 —— 宁可慢一点, 也不能一次手势把进程推到 OOM 边缘。
+        val budget = if (isLowRamDevice()) FIELD_PATH_MAX_PX_LOW_RAM else FIELD_PATH_MAX_PX
+        if (dw.toLong() * dh.toLong() > budget) return false
+        if (!v.liquifyFieldSource(0, 0, dw, dh)) return false
+        liquifyDabCount = 0
+        lqAffectedL = Float.MAX_VALUE
+        lqAffectedT = Float.MAX_VALUE
+        lqAffectedR = -Float.MAX_VALUE
+        lqAffectedB = -Float.MAX_VALUE
+        return true
+    }
+
+    /**
+     * 记一个补点(场通路): 追加进本地列表 + 扩大受影响矩形 + 把绘制/失效范围同步给覆盖层。
+     *
+     * 受影响矩形 = 各补点**影响圆**的并集 —— 场的位移只在圆内非零, 所以"绘制范围""失效范围"
+     * "抬笔回读范围"是同一个矩形, 一次算清三处都用它。
+     */
+    private fun recordLiquifyFieldDab(
+        px: Float,
+        py: Float,
+        nx: Float,
+        ny: Float,
+        mode: Int,
+        strength: Float,
+    ) {
+        if ((liquifyDabCount + 1) * FIELD_DAB_STRIDE > liquifyDabBuf.size) {
+            val grown = FloatArray(maxOf(liquifyDabBuf.size * 2, FIELD_DAB_STRIDE * 256))
+            System.arraycopy(liquifyDabBuf, 0, grown, 0, liquifyDabBuf.size)
+            liquifyDabBuf = grown
+        }
+        val b = liquifyDabCount * FIELD_DAB_STRIDE
+        liquifyDabBuf[b] = px
+        liquifyDabBuf[b + 1] = py
+        liquifyDabBuf[b + 2] = nx
+        liquifyDabBuf[b + 3] = ny
+        liquifyDabBuf[b + 4] = mode.toFloat()
+        liquifyDabBuf[b + 5] = strength
+        liquifyDabBuf[b + 6] = liquifyBrushSize
+        liquifyDabCount++
+        val r = LiquifyPath.fieldDabRadius(liquifyBrushSize)
+        lqAffectedL = minOf(lqAffectedL, px - r)
+        lqAffectedT = minOf(lqAffectedT, py - r)
+        lqAffectedR = maxOf(lqAffectedR, px + r)
+        lqAffectedB = maxOf(lqAffectedB, py + r)
+        LiquifyGlesPreview.pushDrawRect(
+            lqAffectedL, lqAffectedT, lqAffectedR - lqAffectedL, lqAffectedB - lqAffectedT,
+        )
+        invalidateLiquifyFieldDab(px, py, r)
+    }
+
+    /**
+     * 场通路的局部失效: 位移只在本 dab 的影响圆里变化, 所以只失效**该圆** ∪ 光标环前后位置。
+     * 判据与 [scheduleLiquifyInvalidate] 同源(任一安全条件不满足就整屏), 只是脏区来源换成补点。
+     */
+    private fun invalidateLiquifyFieldDab(cx: Float, cy: Float, radius: Float) {
+        val v = vm ?: return
+        if (!partialInvalidateEnabled || !canLiquifyPartialInvalidate(v)) {
+            postInvalidate()
+            return
+        }
+        ensureViewTransform()
+        var left = Float.MAX_VALUE
+        var top = Float.MAX_VALUE
+        var right = -Float.MAX_VALUE
+        var bottom = -Float.MAX_VALUE
+        for (i in 0 until 4) {
+            viewTransform.docToScreen(
+                if (i == 0 || i == 2) cx - radius else cx + radius,
+                if (i < 2) cy - radius else cy + radius,
+                lqPointScratch,
+            )
+            val sx = lqPointScratch[0]
+            val sy = lqPointScratch[1]
+            if (sx < left) left = sx
+            if (sx > right) right = sx
+            if (sy < top) top = sy
+            if (sy > bottom) bottom = sy
+        }
+        left -= 8f
+        top -= 8f
+        right += 8f
+        bottom += 8f
+        if (lqRingValid) {
+            left = minOf(left, lqRingCx - lqRingR - 2f)
+            top = minOf(top, lqRingCy - lqRingR - 2f)
+            right = maxOf(right, lqRingCx + lqRingR + 2f)
+            bottom = maxOf(bottom, lqRingCy + lqRingR + 2f)
+        }
+        val cur = localCursorPos
+        if (cur != null) {
+            val r = if (lqRingValid) lqRingR else 0f
+            left = minOf(left, cur.x - r - 2f)
+            top = minOf(top, cur.y - r - 2f)
+            right = maxOf(right, cur.x + r + 2f)
+            bottom = maxOf(bottom, cur.y + r + 2f)
+        }
+        val l = left.toInt().coerceIn(0, viewW)
+        val t = top.toInt().coerceIn(0, viewH)
+        val rr = right.toInt().coerceIn(0, viewW)
+        val bb = bottom.toInt().coerceIn(0, viewH)
+        if (rr <= l || bb <= t) return
+        postInvalidate(l, t, rr, bb)
+    }
+
+    /**
+     * 抬笔提交(场通路): 回读覆盖层的形变结果 → 一次性写回图层。
+     *
+     * 任何一步失败(覆盖层不在 / 回读超时 / 范围为空)都**回退经典路径**: 把记录下来的补点按序
+     * 重放给引擎再 materialize ⇒ 形变一点不丢, 只是慢一些(而且重放走引擎线程, 不挡 UI)。
+     */
+    private fun commitLiquifyField(v: PaintViewModel) {
+        liquifyFieldGesture = false
+        val rect = fieldCommitRect(v)
+        if (rect != null) {
+            // 回读 + 写回 + 收口整段都在引擎线程上跑(见该方法的注释), UI 线程不阻塞
+            v.liquifyFieldEndFromOverlay(rect, liquifyDabBuf, liquifyDabCount, FIELD_DAB_STRIDE)
+        } else {
+            // 没有有效范围(纯点按): 走经典收口
+            v.liquifyEnd()
+        }
+        liquifyDabCount = 0
+    }
+
+    /**
+     * 受影响矩形 → 文档整数矩形(夹到文档内; 空 ⇒ null = 回退经典路径)。
+     *
+     * 也会挡住"回读矩形过大": 回读要一次性分配 `w*h*4` 字节并过一次 JNI, 超预算就回退
+     * **重放补点** —— 那条路是流式的, 不额外吃大块内存(体积换稳定性)。
+     */
+    private fun fieldCommitRect(v: PaintViewModel): IntArray? {
+        if (liquifyDabCount <= 0 || lqAffectedR <= lqAffectedL || lqAffectedB <= lqAffectedT) return null
+        val x0 = floor(lqAffectedL).toInt().coerceAtLeast(0)
+        val y0 = floor(lqAffectedT).toInt().coerceAtLeast(0)
+        val x1 = ceil(lqAffectedR).toInt().coerceAtMost(v.docWidth)
+        val y1 = ceil(lqAffectedB).toInt().coerceAtMost(v.docHeight)
+        if (x1 <= x0 || y1 <= y0) return null
+        if ((x1 - x0).toLong() * (y1 - y0).toLong() > FIELD_PATH_MAX_PX) return null
+        return intArrayOf(x0, y0, x1 - x0, y1 - y0)
+    }
+
+    /** C3-2: 低内存设备判定(用系统自己的分级, 而不是猜总内存)。 */
+    private fun isLowRamDevice(): Boolean = try {
+        val am = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+            as? android.app.ActivityManager
+        am?.isLowRamDevice == true
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * Phase 3B: latest-state-wins 的"一帧推进"。
+     *
+     * 每帧最多推进 [LiquifyInteractionSession.maxDabsPerFlush] 个补点, 方向永远指向**最新**位置;
+     * 没追完下一帧继续。与"逐个历史点立即处理"的差别只有两点: ①同一帧内多个输入事件被合并成
+     * 一段(中间位置丢弃); ②单帧阻塞时间有上界 —— 不会再出现"一个事件里 10 个历史点 × 每个
+     * 41ms"这种排队。
+     */
+    private fun flushLiquifyPending() {
+        liquifyFlushPosted = false
+        val v = vm ?: return
+        liquifyFlushNow(v, forceFull = false)
+        if (liquifySession.hasPending && !liquifyFlushPosted) {
+            // 还没追上最新位置: 下一帧继续朝最新位置推进
+            liquifyFlushPosted = true
+            postOnAnimation(liquifyFlushRunnable)
+        }
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
@@ -2635,28 +3568,50 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (isCancel) {
                         v.touchCancel()
                     } else {
-                        val validBranches = if (hasSymmetry) mirroredBranches.filter { it.isNotEmpty() } else emptyList()
-                        val hasBranchesToReplay = validBranches.isNotEmpty()
+                        val hasBranchesToReplay = hasSymmetry && mirrorBranchHasSamples()
                         if (hasBranchesToReplay) {
                             safeBeginSymmetryUndoMacro()
                         }
                         // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在镜像分支执行完毕后统一渲染
                         v.touchEnd(render = !hasBranchesToReplay)
                         if (hasBranchesToReplay) {
-                            v.replaySymmetricBranches(validBranches)
+                            // 回放期间只读缓冲 (抬笔后不再追加采样), 无需再拷贝一份。
+                            // 上游的 replaySymmetricBranches 会按分支重建 SymStrokeSample
+                            // 对象, 这里沿用本分支的零分配扁平缓冲版, 结果语义一致。
+                            for (b in 0 until mirroredSamples.size) {
+                                replaySymmetricBranch(mirroredSamples[b], mirroredSizes[b])
+                            }
                             safeEndSymmetryUndoMacro()
                         }
                     }
                     strokeStarted = false
                 }
+                resetMirrorBranches()
+                predictedScreenPoint = null
+                try {
+                    oplusPredictor?.reset()
+                } catch (_: Throwable) {}
+                // 兜底: 取消路径可能没走到重放处的 macro 收尾 (safe* 自身幂等)
                 safeEndSymmetryUndoMacro()
-                mirroredBranches.clear()
                 currentStrokeDocPos = Offset.Zero
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
+                    // Phase 3B: 抬笔要把没追完的剩余段一次性补齐(此时按常规补点规则覆盖整段,
+                    // 不丢形变), 再提交事务
+                    if (liquifySession.coalescing) {
+                        removeCallbacks(liquifyFlushRunnable)
+                        liquifyFlushPosted = false
+                        liquifyFlushNow(v, forceFull = true)
+                    }
+                    liquifySession.reset()
                     if (isCancel) {
+                        liquifyFieldGesture = false
                         v.liquifyCancel()
+                    } else if (liquifyFieldGesture) {
+                        // Phase 5 · C3-2: 拖动期一个 dab 都没进引擎 —— 现在把 GPU 算好的结果
+                        // 一次性写回图层(失败则自动重放补点)
+                        commitLiquifyField(v)
                     } else {
                         v.liquifyEnd()
                     }

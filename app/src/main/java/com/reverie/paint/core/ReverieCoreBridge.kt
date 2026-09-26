@@ -611,6 +611,37 @@ object ReverieCoreBridge {
     /** Revert the whole liquify drag. */
     external fun liquifyCancel()
 
+    /**
+     * Phase 5 · C3-2: 取一份"未形变的源像素"给 GPU 常驻位移场当源纹理。
+     *
+     * 与 [liquify] 无关 —— 只读目标图层**当前**的像素(拖动期图层不会被改写 ⇒ 天然未形变),
+     * 不做网格/形变/写回, 也不生成 CPU 预览。结果走既有 [liquifyPreviewSourceMeta] /
+     * [liquifyPreviewSourcePixels] 通道, 因此覆盖层的取数链路无需新增。
+     *
+     * @return false = 不可用(无目标图层 / 非 8bit BGRA / 超预算 / 空矩形), 调用方回退经典路径
+     */
+    external fun liquifyFieldSource(x: Int, y: Int, w: Int, h: Int): Boolean
+
+    /**
+     * Phase 5 · C3-2: 抬笔时把 GPU 已经算好的形变结果**一次性**写回图层。
+     *
+     * 选区冻结 / Alpha 锁只动颜色 / 脏区 + 立即投影合成 / 一条撤销, 语义与经典 liquefy 路径一致。
+     *
+     * @param pixels   RGBA8888(预乘)像素, 至少 `w * h * 4` 字节
+     * @param bottomUp true = 首行是矩形的最后一行(GL 读回的原始行序, 引擎内部翻正)
+     */
+    external fun liquifyFieldCommit(
+        x: Int,
+        y: Int,
+        w: Int,
+        h: Int,
+        pixels: ByteArray,
+        bottomUp: Boolean,
+    ): Boolean
+
+    /** Phase 5 · C3-2: 当前手势是否走"场一次性落盘"通路(纯读数)。 */
+    external fun liquifyFieldMode(): Boolean
+
     external fun setLiquifyBrushSize(size: Double)
 
     /** Move several layers' content at once (one undo step). */
@@ -722,6 +753,85 @@ object ReverieCoreBridge {
         extraMetaJson: String = "",
         recordingBlob: ByteArray? = null,
     ): Boolean
+
+    /**
+     * 上一次 .revp 保存的阶段耗时(ms)与产物体积, 供性能标尺显示:
+     * `[total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]`。
+     * 典型用法是保存后或每秒钟取一次 (见 `PaintViewModel.pollSaveStats`)。
+     */
+    external fun revpSaveStats(): LongArray?
+
+    /**
+     * 上一次液化 apply 的分段耗时(ms)与规模, 供性能标尺显示 —— 用来判断液化卡在
+     * "Krita 网格形变 / 补洞内存流量 / 图层回写 / 投影合成"哪一段:
+     * `[total, warp, seed, blit, composite, areaPx, targets, count, precision, cells]`
+     * (count 单调递增, 供调用方判断是否有新数据; precision 为本次 worker 的网格精度,
+     * cells 为网格单元数的估算值 —— 用于对照"单元数 → 形变耗时"的曲线)。
+     * 典型用法是每秒取一次 (见 `PaintViewModel.pollLiquifyStats`)。
+     */
+    external fun liquifyStats(): LongArray?
+
+    /**
+     * Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / materialize 生命周期读数。
+     *
+     * `[rebaseCount, reason, flushMs, flushMaxMs, cloneMs, oldAreaPx, newAreaPx,
+     *   innerOverflowPx, gridPoints, throttleCount, throttleMs, throttleMaxMs,
+     *   callCount, callUs, callMaxUs]`
+     *
+     * `reason`: 0 = 无, 1 = 首个 dab(worker 未创建), 2 = 笔尖走出 bounds 内框。
+     * `callCount/callUs/callMaxUs`: 一次 `liquify()` 调用的次数 / 累计 µs / 峰值 µs
+     *   —— 拖动热路径的**单位成本**。注意 `liquifyStats` 的"形变 52ms"是**单次 apply**的拆分,
+     *   AGSL 预览模式下拖动期间通常不触发 apply(`物化 0`), 因此它衡量不了拖动是否卡。
+     * `rebaseCount` / `throttleCount` / `callCount` 单调递增, 调用方按窗口取增量。
+     * 与 [liquifyStats] **互相独立**(不改动后者的 10 元契约)。
+     */
+    external fun liquifyRebaseStats(): LongArray?
+
+    /**
+     * 当前液化网格的只读导出(row-major, 点坐标为文档坐标):
+     * `[bx, by, bw, bh, columns, rows, precision, count, (origX, origY, dx, dy) × count]`,
+     * 其中 `dx/dy = transformed - original` —— 与 Krita `run()` 做分段线性 warping 用的是同一份网格。
+     * 供标尺的网格可视化与后续"交互态预览"原型使用; 无活动网格时 `count = 0`。
+     */
+    external fun liquifyGrid(): FloatArray?
+
+    /**
+     * 交互态预览元数据: `[previewW, previewH, docX, docY, docW, docH, seq]`。
+     * 仅当打开诊断开关 (`setprop debug.reverie.liquifyPreview 1`) 且手势进行中时 `previewW > 0`
+     * (手势结束/取消后归 0); `seq` 单调递增, 供调用方判断是否有新预览帧。正常使用时恒为 0,
+     * 因为预览默认由引擎在渲染时直接叠加进显示缓冲, Kotlin 侧不需要读像素。
+     */
+    external fun liquifyPreviewMeta(): IntArray?
+
+    /**
+     * 当前预览像素 (RGBA8888, `previewW × previewH`), 与 [liquifyPreviewMeta] 配套。
+     * 引擎内部已经把它混进显示缓冲, 这个入口只留给调试时把预览单独导出来比对。
+     */
+    external fun liquifyPreviewPixels(): ByteArray?
+
+    /**
+     * Phase 2B 主机侧(AGSL)绘制的输入元信息: `[cropW, cropH, docX, docY, docW, docH, seq]`。
+     * `cropW = 0` 表示当前没有可用源裁剪(不在预览态 / 非 8bit BGRA 文档 / 超出面积预算),
+     * 调用方据此回退到引擎侧 CPU 预览; 裁剪内容只在 rebase 时变, 因此源纹理整段手势只上传一次。
+     */
+    /**
+     * Phase 5 · C3-2 收尾: 同一份源裁剪像素, 但**填进 [out]**(长度 ≥ `cropW*cropH*4`)。
+     *
+     * 调用方复用同一块缓冲 ⇒ 每段手势不再新分配一份 16MB(4M px 文档), 连续压测下没有那阵
+     * 大对象垃圾。长度不足时不做任何事(不抛异常), 调用方按"本帧没有新源"处理。
+     */
+    external fun liquifyPreviewSourcePixelsInto(out: ByteArray)
+
+    external fun liquifyPreviewSourceMeta(): IntArray?
+
+    /** 未形变的 bounds 裁剪(RGBA8888, 1 像素 = 1 文档像素)。只在 rebase 后取一次。 */
+    external fun liquifyPreviewSourcePixels(): ByteArray?
+
+    /**
+     * 覆盖引擎的"主机侧绘制"判定: -1 跟随 system property(默认), 0 强制引擎侧 CPU 叠加,
+     * 1 强制主机侧绘制。AGSL 不可用/初始化失败时用 0 回退, 保证"要么 GPU 画, 要么引擎画"。
+     */
+    external fun setLiquifyPreviewHostDrawMode(mode: Int)
 
     external fun saveRevpAsync(
         path: String,

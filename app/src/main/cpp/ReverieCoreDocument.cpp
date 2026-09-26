@@ -11,6 +11,20 @@
 
 #include <future>
 #include <QSet>
+#include <QThread>
+#include <QThreadPool>
+
+QThreadPool *reverieBackgroundPool()
+{
+    // 进程级单例: 刻意不析构 (静态析构顺序不可控, 退出期回收线程池没有意义)
+    static QThreadPool *pool = [] {
+        QThreadPool *p = new QThreadPool();
+        p->setMaxThreadCount(qBound(2, QThread::idealThreadCount(), 4));
+        p->setExpiryTimeout(30000);
+        return p;
+    }();
+    return pool;
+}
 
 ReverieCore::ReverieCore()
 {

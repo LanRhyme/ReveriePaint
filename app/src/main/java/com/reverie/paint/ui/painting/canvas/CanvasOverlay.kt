@@ -84,6 +84,22 @@ internal fun CanvasOverlay(
     liveSelectionPath: androidx.compose.runtime.MutableState<androidx.compose.ui.graphics.Path?>,
     checkerboardPaint: android.graphics.Paint,
 ) {
+    // 变换预览每帧都要做 setPolyToPoly / clipPath, 这些临时对象全部复用: 旧实现
+    // 每格 new 一组 floatArray/Matrix/Path/Rect/RectF (网格模式 9 格 ≈ 每帧 50+
+    // 个对象), 拖动变换框时是实打实的 GC 压力。绘制只在主线程执行, 复用安全。
+    val previewSrcQuad = androidx.compose.runtime.remember { FloatArray(8) }
+    val previewDstQuad = androidx.compose.runtime.remember { FloatArray(8) }
+    val previewMatrix = androidx.compose.runtime.remember { android.graphics.Matrix() }
+    val previewClipPath = androidx.compose.runtime.remember { android.graphics.Path() }
+    val previewSrcRect = androidx.compose.runtime.remember { android.graphics.Rect() }
+    val previewDstRectF = androidx.compose.runtime.remember { android.graphics.RectF() }
+    val previewBitmapPaint = androidx.compose.runtime.remember {
+        android.graphics.Paint(
+            android.graphics.Paint.ANTI_ALIAS_FLAG or
+                android.graphics.Paint.FILTER_BITMAP_FLAG or
+                android.graphics.Paint.DITHER_FLAG,
+        )
+    }
         Canvas(Modifier.fillMaxSize()) {
             val bmp = object {
                 val width: Int = if (vm.renderW > 0) vm.renderW else vm.docWidth
@@ -110,7 +126,7 @@ internal fun CanvasOverlay(
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         val aBmp = previewBmp.asAndroidBitmap()
                         val b = tfState.bounds
-                        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.DITHER_FLAG)
+                        val p = previewBitmapPaint
 
                         for (r in 0..2) {
                             for (c in 0..2) {
@@ -119,44 +135,52 @@ internal fun CanvasOverlay(
                                 val sTop = (b.top + b.height * (r / 3f)) * scY - bmp.height / 2f
                                 val sBottom = (b.top + b.height * ((r + 1) / 3f)) * scY - bmp.height / 2f
 
-                                val srcQuad = floatArrayOf(
-                                    sLeft, sTop,
-                                    sRight, sTop,
-                                    sRight, sBottom,
-                                    sLeft, sBottom,
-                                )
+                                val srcQuad = previewSrcQuad
+                                srcQuad[0] = sLeft
+                                srcQuad[1] = sTop
+                                srcQuad[2] = sRight
+                                srcQuad[3] = sTop
+                                srcQuad[4] = sRight
+                                srcQuad[5] = sBottom
+                                srcQuad[6] = sLeft
+                                srcQuad[7] = sBottom
 
                                 val pTL = tfState.meshPoints[r * 4 + c]
                                 val pTR = tfState.meshPoints[r * 4 + (c + 1)]
                                 val pBR = tfState.meshPoints[(r + 1) * 4 + (c + 1)]
                                 val pBL = tfState.meshPoints[(r + 1) * 4 + c]
 
-                                val dstQuad = floatArrayOf(
-                                    pTL.x * scX - bmp.width / 2f, pTL.y * scY - bmp.height / 2f,
-                                    pTR.x * scX - bmp.width / 2f, pTR.y * scY - bmp.height / 2f,
-                                    pBR.x * scX - bmp.width / 2f, pBR.y * scY - bmp.height / 2f,
-                                    pBL.x * scX - bmp.width / 2f, pBL.y * scY - bmp.height / 2f,
-                                )
+                                val dstQuad = previewDstQuad
+                                dstQuad[0] = pTL.x * scX - bmp.width / 2f
+                                dstQuad[1] = pTL.y * scY - bmp.height / 2f
+                                dstQuad[2] = pTR.x * scX - bmp.width / 2f
+                                dstQuad[3] = pTR.y * scY - bmp.height / 2f
+                                dstQuad[4] = pBR.x * scX - bmp.width / 2f
+                                dstQuad[5] = pBR.y * scY - bmp.height / 2f
+                                dstQuad[6] = pBL.x * scX - bmp.width / 2f
+                                dstQuad[7] = pBL.y * scY - bmp.height / 2f
 
-                                val m = android.graphics.Matrix()
+                                val m = previewMatrix
                                 if (m.setPolyToPoly(srcQuad, 0, dstQuad, 0, 4)) {
                                     nativeCanvas.save()
-                                    val clipPath = android.graphics.Path().apply {
-                                        moveTo(dstQuad[0], dstQuad[1])
-                                        lineTo(dstQuad[2], dstQuad[3])
-                                        lineTo(dstQuad[4], dstQuad[5])
-                                        lineTo(dstQuad[6], dstQuad[7])
-                                        close()
-                                    }
+                                    val clipPath = previewClipPath
+                                    clipPath.reset()
+                                    clipPath.moveTo(dstQuad[0], dstQuad[1])
+                                    clipPath.lineTo(dstQuad[2], dstQuad[3])
+                                    clipPath.lineTo(dstQuad[4], dstQuad[5])
+                                    clipPath.lineTo(dstQuad[6], dstQuad[7])
+                                    clipPath.close()
                                     nativeCanvas.clipPath(clipPath)
                                     nativeCanvas.concat(m)
-                                    val cellSrcRect = android.graphics.Rect(
+                                    val cellSrcRect = previewSrcRect
+                                    cellSrcRect.set(
                                         (b.left + b.width * (c / 3f)).toInt().coerceIn(0, aBmp.width),
                                         (b.top + b.height * (r / 3f)).toInt().coerceIn(0, aBmp.height),
                                         (b.left + b.width * ((c + 1) / 3f)).toInt().coerceIn(0, aBmp.width),
                                         (b.top + b.height * ((r + 1) / 3f)).toInt().coerceIn(0, aBmp.height)
                                     )
-                                    val cellDstRect = android.graphics.RectF(sLeft, sTop, sRight, sBottom)
+                                    val cellDstRect = previewDstRectF
+                                    cellDstRect.set(sLeft, sTop, sRight, sBottom)
                                     nativeCanvas.drawBitmap(aBmp, cellSrcRect, cellDstRect, p)
                                     nativeCanvas.restore()
                                 }
@@ -167,34 +191,42 @@ internal fun CanvasOverlay(
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         val aBmp = previewBmp.asAndroidBitmap()
                         val b = tfState.bounds
-                        val src = floatArrayOf(
-                            b.left * scX - bmp.width / 2f, b.top * scY - bmp.height / 2f,
-                            b.right * scX - bmp.width / 2f, b.top * scY - bmp.height / 2f,
-                            b.right * scX - bmp.width / 2f, b.bottom * scY - bmp.height / 2f,
-                            b.left * scX - bmp.width / 2f, b.bottom * scY - bmp.height / 2f,
-                        )
+                        val src = previewSrcQuad
+                        src[0] = b.left * scX - bmp.width / 2f
+                        src[1] = b.top * scY - bmp.height / 2f
+                        src[2] = b.right * scX - bmp.width / 2f
+                        src[3] = b.top * scY - bmp.height / 2f
+                        src[4] = b.right * scX - bmp.width / 2f
+                        src[5] = b.bottom * scY - bmp.height / 2f
+                        src[6] = b.left * scX - bmp.width / 2f
+                        src[7] = b.bottom * scY - bmp.height / 2f
                         val c0 = tfState.quadCorners[0]
                         val c1 = tfState.quadCorners[1]
                         val c2 = tfState.quadCorners[2]
                         val c3 = tfState.quadCorners[3]
-                        val dst = floatArrayOf(
-                            c0.x * scX - bmp.width / 2f, c0.y * scY - bmp.height / 2f,
-                            c1.x * scX - bmp.width / 2f, c1.y * scY - bmp.height / 2f,
-                            c2.x * scX - bmp.width / 2f, c2.y * scY - bmp.height / 2f,
-                            c3.x * scX - bmp.width / 2f, c3.y * scY - bmp.height / 2f,
-                        )
-                        val m = android.graphics.Matrix()
+                        val dst = previewDstQuad
+                        dst[0] = c0.x * scX - bmp.width / 2f
+                        dst[1] = c0.y * scY - bmp.height / 2f
+                        dst[2] = c1.x * scX - bmp.width / 2f
+                        dst[3] = c1.y * scY - bmp.height / 2f
+                        dst[4] = c2.x * scX - bmp.width / 2f
+                        dst[5] = c2.y * scY - bmp.height / 2f
+                        dst[6] = c3.x * scX - bmp.width / 2f
+                        dst[7] = c3.y * scY - bmp.height / 2f
+                        val m = previewMatrix
                         if (m.setPolyToPoly(src, 0, dst, 0, 4)) {
                             nativeCanvas.save()
                             nativeCanvas.concat(m)
-                            val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.DITHER_FLAG)
-                            val srcRect = android.graphics.Rect(
+                            val p = previewBitmapPaint
+                            val srcRect = previewSrcRect
+                            srcRect.set(
                                 b.left.toInt().coerceIn(0, aBmp.width),
                                 b.top.toInt().coerceIn(0, aBmp.height),
                                 b.right.toInt().coerceIn(0, aBmp.width),
                                 b.bottom.toInt().coerceIn(0, aBmp.height)
                             )
-                            val dstRect = android.graphics.RectF(
+                            val dstRect = previewDstRectF
+                            dstRect.set(
                                 b.left * scX - bmp.width / 2f,
                                 b.top * scY - bmp.height / 2f,
                                 b.right * scX - bmp.width / 2f,

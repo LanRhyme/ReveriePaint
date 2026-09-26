@@ -71,9 +71,22 @@ fun PalettesPage(
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                val input = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(input)
-                input?.close()
+                // B4: **采样解码**再提取 —— 取 30 个颜色不需要原图, 而相册常见 40~100MP,
+                // 直接 decodeStream 会按整张图分配(数百 MB, 低内存机直接 OOM)。
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                }
+                var sample = 1
+                while (bounds.outWidth > 0 &&
+                    maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 768
+                ) {
+                    sample *= 2
+                }
+                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
+                val bitmap = context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, decodeOptions)
+                }
                 if (bitmap != null) {
                     vm.importPaletteFromBitmap(bitmap, context.getString(R.string.color_pal_image_default_name))
                     Toast.makeText(context, context.getString(R.string.color_pal_extract_success), Toast.LENGTH_SHORT).show()

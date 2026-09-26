@@ -186,6 +186,11 @@ class MainActivity : ComponentActivity() {
             }
             androidx.compose.runtime.LaunchedEffect(Unit) {
                 vm.appContext = applicationContext
+                // 内存压力回调: 系统在 OOM 之前主动丢可重建的缓存 (回放帧缓存/
+                // 图层缩略图), 而不是让进程被杀
+                vm.registerMemoryPressureCallbacks()
+                // 性能打点默认关闭, 只有显式 setprop debug.reverie.perf 1 才打开
+                com.reverie.paint.core.PerfTrace.refreshFromSystemProp()
                 vm.getOrCreateStylusDriver(applicationContext)
                 vm.updateColorPickerMode(
                     applicationContext

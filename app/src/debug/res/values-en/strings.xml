@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only strings: performance HUD (dev/measurement only, absent from release).
+  See app/src/debug/java/com/reverie/paint/perf/PerfHud.kt
+-->
+<resources>
+    <string name="settings_diagnostics">Diagnostics</string>
+    <string name="settings_perf_hud">Performance HUD</string>
+    <string name="settings_perf_hud_sub">Show render paths, texture re-upload and save timings on the canvas (diagnostics; keep off)</string>
+    <string name="settings_liquify_proxy">Liquify preview proxy resolution</string>
+    <string name="settings_liquify_proxy_sub">Experiment A: downscale the source texture; deformation geometry is unchanged while texture bandwidth and memory drop (applies to the next gesture)</string>
+    <string name="settings_liquify_coalesce">Liquify coalesce steps</string>
+    <string name="settings_liquify_coalesce_sub">latest-state-wins: max substeps advanced per frame; off means per-point processing (applies to the next gesture)</string>
+    <string name="settings_liquify_host">Liquify preview path</string>
+    <string name="settings_liquify_host_sub">Which path draws the warp preview: engine CPU / AGSL overlay / GLES overlay (applies to the next gesture; the HUD "preview" field shows the one actually in use)</string>
+    <string name="settings_liquify_host_engine">Engine CPU</string>
+    <string name="settings_liquify_host_agsl">AGSL overlay</string>
+    <string name="settings_liquify_host_gles">GLES overlay</string>
+    <string name="settings_liquify_field">Liquify displacement field</string>
+    <string name="settings_liquify_field_sub">Where the warp field comes from: a persistent float field (full resolution, no stepping or window seams) or the Krita grid (applies to the next gesture; the decision is frozen at gesture start; the HUD "field" cell shows which one is in use)</string>
+    <string name="settings_liquify_field_field">Persistent float field</string>
+    <string name="settings_liquify_field_grid">Krita grid</string>
+    <string name="settings_experiment_auto">Auto</string>
+    <string name="settings_experiment_off">Off</string>
+</resources>

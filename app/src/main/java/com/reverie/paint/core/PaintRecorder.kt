@@ -75,6 +75,14 @@ class PaintRecorder {
     var eventCount = 0
         private set
 
+    // 快照字节缓存: 一个会话内快照文件内容不变, 而自动保存每隔几分钟就要
+    // serialize 一次 —— 每次都 readBytes() 等于反复把几十 MB 从磁盘读进一个
+    // 新数组 (每次保存都白付一次 IO + 一次大分配)。用 (路径, mtime) 做键校验,
+    // 命中即复用; 内存压力时由 PaintViewModel 调 [dropSnapshotCache] 释放。
+    private var snapCachePath: String? = null
+    private var snapCacheMtime: Long = 0L
+    private var snapCacheBytes: ByteArray? = null
+
     // Context diff state (sentinel values = unknown / not yet captured)
     private var lastToolMode = -2
     private var lastPreset = -2
@@ -174,6 +182,47 @@ class PaintRecorder {
         }
         snapshotFile?.delete()
         snapshotFile = null
+        snapCachePath = null
+        snapCacheMtime = 0L
+        snapCacheBytes = null
+    }
+
+    /**
+     * 读取快照字节, 命中 (路径 + mtime) 缓存时零磁盘 IO、零分配。
+     * 调用方需持有 [ioLock] (serialize 在锁内调用), 因此这里不再单独加锁。
+     */
+    private fun readSnapshotCached(f: File): ByteArray? {
+        val path = f.absolutePath
+        val mtime =
+            try {
+                f.lastModified()
+            } catch (_: Exception) {
+                0L
+            }
+        val cached = snapCacheBytes
+        if (cached != null && path == snapCachePath && mtime == snapCacheMtime) return cached
+        val bytes =
+            try {
+                f.readBytes()
+            } catch (e: Exception) {
+                android.util.Log.e("ReveriePaint", "recording snapshot read failed", e)
+                null
+            }
+        if (bytes != null) {
+            snapCachePath = path
+            snapCacheMtime = mtime
+            snapCacheBytes = bytes
+        }
+        return bytes
+    }
+
+    /** 释放快照字节缓存 (内存压力或会话结束时调用) */
+    fun dropSnapshotCache() {
+        synchronized(ioLock) {
+            snapCachePath = null
+            snapCacheMtime = 0L
+            snapCacheBytes = null
+        }
     }
 
     /** Serialize the session into the "recording" blob; null if empty.
@@ -214,14 +263,9 @@ class PaintRecorder {
             snap = snapshotFile
             // 快照字节必须在锁内读完: endSession (goHome/onCleared) 可并发
             // 删除快照文件, 锁外 readBytes 会拿到空 blob (有事件流无快照,
-            // 回放直接画在空白底上)
-            snapBytesLocked =
-                try {
-                    snap?.readBytes()
-                } catch (e: Exception) {
-                    android.util.Log.e("ReveriePaint", "recording snapshot read failed", e)
-                    null
-                }
+            // 回放直接画在空白底上)。走缓存: 同一会话内快照内容不变, 自动保存
+            // 每隔几分钟就 serialize 一次, 反复读几十 MB 纯属浪费。
+            snapBytesLocked = snap?.let { readSnapshotCached(it) }
         }
         val snapBytes = snapBytesLocked
         val used = snapshotBytes ?: return null
@@ -230,36 +274,37 @@ class PaintRecorder {
         // relative increment per event, so plain stream concatenation keeps
         // the timeline monotonic (the first session event carries the pause
         // since this session started).
-        val merged: ByteArray
-        val totalCount: Int
-        val totalMs: Int
+        //
+        // 一次性分配最终 blob 并顺序写入。旧实现是 used -> merged -> out ->
+        // copyOf 四份全量拷贝 (长时绘画的录制流可达几十 MB, 保存时白给 3 次
+        // 全量复制和 2 个大缓冲的 GC 峰值)。锁内那份 used 快照仍必须保留 ——
+        // emit() 可能正在往 buffer 追加。
         val p = prior
-        if (p != null && p.isNotEmpty()) {
-            merged = ByteArray(p.size + used.size)
-            System.arraycopy(p, 0, merged, 0, p.size)
-            System.arraycopy(used, 0, merged, p.size, used.size)
-            totalCount = priorCount + count
-            totalMs = (priorMs + durationMs).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        } else {
-            merged = used
-            totalCount = count
-            totalMs = durationMs
-        }
-        val out = RecordingBuffer(64 + merged.size + (snapBytes?.size ?: 0))
-        out.writeBytes(MAGIC.toByteArray(Charsets.US_ASCII))
+        val priorSize = if (p != null) p.size else 0
+        val totalCount = priorCount + count
+        val totalMs = (priorMs + durationMs).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val snapSize = snapBytes?.size ?: 0
+        val magic = MAGIC.toByteArray(Charsets.US_ASCII)
+        // 容量按实际需要算, 这样 RecordingBuffer 不会扩容, 最后可以直接把
+        // 内部数组交出去 (零拷贝); 多算 1 字节浪费都没有
+        val need = magic.size + 2 + 2 + 2 + 1 + 4 + 4 + 4 + (if (snapBytes != null) 8 else 0) +
+            priorSize + used.size + snapSize
+        val out = RecordingBuffer(need)
+        out.writeBytes(magic)
         out.u16(VERSION)
         out.u16(sessionW)
         out.u16(sessionH)
         out.u8(if (snapBytes != null) 1 else 0)
         out.u32(totalCount)
         out.u32(totalMs)
-        out.u32(merged.size)
-        out.writeBytes(merged, 0, merged.size)
+        out.u32(priorSize + used.size)
+        if (priorSize > 0) out.writeBytes(p!!, 0, priorSize)
+        out.writeBytes(used, 0, used.size)
         if (snapBytes != null) {
-            out.u64(snapBytes.size.toLong())
-            out.writeBytes(snapBytes)
+            out.u64(snapSize.toLong())
+            out.writeBytes(snapBytes, 0, snapSize)
         }
-        return out.data.copyOf(out.size)
+        return if (out.size == out.data.size) out.data else out.data.copyOf(out.size)
     }
 
     // ---- Event emission (main thread; ignored while not recording) ----

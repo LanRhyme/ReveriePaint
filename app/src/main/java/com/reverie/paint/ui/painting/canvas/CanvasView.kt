@@ -332,6 +332,19 @@ fun CanvasView(
             )
         }
 
+        // Phase 5 · C2: 液化 GLES 覆盖层(**默认关**)。位置刻意夹在"画布位图(AndroidView)"与
+        // "顶层辅助覆盖层(CanvasOverlay)"之间 —— 这个夹层位置是 C1 的结论(TextureView, 不是
+        // SurfaceView), C2 起它在这里按 AGSL 同一套数学出图。见 docs/LIQUIFY-PHASE5-GLES-PLAN.md。
+        //
+        // 挂载条件除了 property/构建档位, 还认设置页里的"预览方式 = GLES"(没有数据线时唯一的
+        // 入口): 所以这里读 Compose 状态 vm.liquifyHostDraw, 页内切换也能重建/摘除覆盖层。
+        if (LiquifyGlesOverlay.enabledFor(vm.liquifyHostDraw, vm.liquifyField)) {
+            androidx.compose.ui.viewinterop.AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx -> LiquifyGlesOverlay(ctx) },
+            )
+        }
+
         // 顶层辅助覆盖层 (选区蚂蚁线/选区蒙版/变换控制点/裁剪线/辅助线)
         CanvasOverlay(
             vm = vm,

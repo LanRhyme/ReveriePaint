@@ -57,6 +57,23 @@ android {
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
 
+        // 无 adb 真机 A/B 用的"液化实验档位": ./gradlew assembleDebug -PlqTestProfile=<n>
+        //   0(默认) = 不改任何默认行为(一切照旧由 debug property 控制)
+        //   1 = 默认开 AGSL 预览 + latest-state-wins(2 步/帧)   ← 目标形态
+        //   2 = 默认开引擎侧 CPU 预览 + latest-state-wins(2 步/帧)(2A-2 对照)
+        //   3 = 默认开 AGSL 预览 + 不做 latest-state-wins(对照调度)
+        // 只改"默认值": 任一项仍可被对应 property 覆盖(见 docs/RENDER-OPTIMIZATION.md §4.11)
+        val lqTestProfile = (project.findProperty("lqTestProfile") as? String)?.toIntOrNull() ?: 0
+        buildConfigField("int", "LQ_TEST_PROFILE", lqTestProfile.toString())
+
+        // 液化预览"代理分辨率"百分比(无 adb 做 Proxy Resolution 实验): ./gradlew assembleDebug -PlqProxy=<10..100>
+        //   100(默认) = 源纹理全分辨率(与历史行为逐像素一致)
+        //   75/50/25  = 源纹理按比例下采样(几何不变, 纹理带宽/显存随之下降)
+        // 运行时可用 `setprop debug.reverie.lqproxy <n>` 覆盖(见 docs/RENDER-OPTIMIZATION.md 实验 A)
+        val lqProxyPercent =
+            ((project.findProperty("lqProxy") as? String)?.toIntOrNull() ?: 100).coerceIn(10, 100)
+        buildConfigField("int", "LQ_PROXY_PERCENT", lqProxyPercent.toString())
+
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

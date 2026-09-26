@@ -23,6 +23,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.*
+import com.reverie.paint.perf.PerfHud
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -135,6 +136,16 @@ class PaintViewModel : ViewModel() {
                     if (currentPage == Page.PAINTING) {
                         tickPaintingTimer()
                         checkAutoSave()
+                        // 标尺开启时顺带取一次保存/液化的引擎侧统计 (关闭时只剩一次布尔判断)。
+                        // 必须走 runCore: 架构铁律要求引擎调用不经 UI 线程。这两条 JNI 只读
+                        // C++ 侧的 relaxed 原子量、不牵动渲染, 所以 render = false。
+                        if (PerfTrace.enabled) {
+                            runCore(render = false) {
+                                pollSaveStats()
+                                pollLiquifyStats()
+                                if (PerfHud.gridOverlayEnabled) pollLiquifyGrid()
+                            }
+                        }
                     }
                 }
             }
@@ -209,6 +220,248 @@ class PaintViewModel : ViewModel() {
     var autoSaveEnabled by mutableStateOf(true)
     var autoSaveIntervalMinutes by mutableIntStateOf(5)
     var autoSaveToastEnabled by mutableStateOf(true)
+
+    /**
+     * 性能标尺 (画布左上角实时显示渲染路径/纹理重传/保存阶段耗时)。见 [PerfTrace]。
+     * 与 `setprop debug.reverie.perf 1` 任一为真即为开 (后者方便现场量测, 不写偏好)。
+     */
+    var perfHudEnabled by mutableStateOf(false)
+
+    fun updatePerfHudEnabled(on: Boolean) {
+        perfHudEnabled = on
+        PerfTrace.enabled = on || PerfTrace.isEnabledByProp
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("perfHud", on).apply()
+        }
+    }
+
+    /**
+     * 实验 A: 液化预览代理分辨率百分比 (0 = 跟随 property/构建档位)。debug 设置页可改 ——
+     * 没有数据线时靠它做 100/75/50/25 对照; 正式版没有该入口, 读取器恒返回 0。
+     */
+    var liquifyProxyPercent by mutableIntStateOf(0)
+
+    fun updateLiquifyProxyPercent(pct: Int) {
+        liquifyProxyPercent = pct
+        LiquifyGpuPreview.proxyPercentOverride = pct
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyProxyPercent", pct).apply()
+        }
+    }
+
+    /**
+     * Phase 3B: latest-state-wins 每帧最多推进的补点数 (-1 = 跟随 property/构建档位; 0 = 关闭)。
+     * debug 设置页可改; 正式版没有该入口, 读取器恒返回 -1。
+     */
+    var liquifyCoalesceSteps by mutableIntStateOf(-1)
+
+    fun updateLiquifyCoalesceSteps(steps: Int) {
+        liquifyCoalesceSteps = steps
+        PerfTrace.liquifyCoalesceOverride = steps
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyCoalesceSteps", steps).apply()
+        }
+    }
+
+    /**
+     * Phase 5 · C2: 液化预览**由谁画** (0 = 自动 / 1 = 引擎侧 CPU 叠加 / 2 = AGSL 覆盖层 /
+     * 3 = GLES 覆盖层)。debug 设置页可改 —— 这是**没有数据线时**做 AGSL↔GLES A/B 的唯一入口
+     * (正式版没有该入口, 读取器恒返回 0)。判定发生在手势开始, 改完下一段手势生效。
+     */
+    var liquifyHostDraw by mutableIntStateOf(LiquifyGpuPreview.HOST_OVERRIDE_AUTO)
+
+    fun updateLiquifyHostDraw(mode: Int) {
+        liquifyHostDraw = mode
+        LiquifyGpuPreview.hostDrawOverride = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyHostDraw", mode).apply()
+        }
+    }
+
+    /**
+     * Phase 5 · C3: 液化位移场的来源 (0 = 自动 / 1 = 常驻浮点场 / 2 = Krita 网格)。
+     *
+     * debug 设置页可改 —— **没有数据线时**做"场 vs 网格"A/B 的唯一入口(正式版没有该入口,
+     * 读取器恒返回 0)。判定在**手势开始**冻结(场是从 0 逐 dab 累加的, 半路切换会让已累加的
+     * 形变凭空消失), 所以改完下一段手势生效。
+     */
+    var liquifyField by mutableIntStateOf(LiquifyGlesPreview.FIELD_OVERRIDE_AUTO)
+
+    fun updateLiquifyField(mode: Int) {
+        liquifyField = mode
+        LiquifyGlesPreview.fieldOverride = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyField", mode).apply()
+        }
+    }
+
+    /**
+     * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
+     * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
+     *
+     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`): 虽然 C++ 侧只做
+     * `relaxed` 原子量读取、不触碰文档与投影, 但"引擎调用不经 UI 线程"是架构铁律, 不做例外。
+     */
+    internal fun pollSaveStats() {
+        if (!PerfTrace.enabled) return
+        val s = ReverieCoreBridge.revpSaveStats() ?: return
+        if (s.size < 8) return
+        if (s[0] <= 0L) return // 还没保存过
+        PerfTrace.saveStats(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7] != 0L)
+    }
+
+    /**
+     * 取一次引擎侧"上一次液化 apply"的分段耗时 (仅标尺开启时调用, 每秒一次)。
+     * 四段为 形变(Krita 网格) / 补洞(内存流量) / 回写图层 / 投影合成 —— 用来确定
+     * "液化大笔刷卡顿"下一步该优化哪一段, 而不是凭感觉加线程。
+     *
+     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`)。
+     */
+    internal fun pollLiquifyStats() {
+        if (!PerfTrace.enabled) return
+        // Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / 节流两条物化边分开读。
+        // 刻意放在下面 apply 的早退**之前** —— rebase 读数与"是否已有 apply"无关。
+        ReverieCoreBridge.liquifyRebaseStats()?.let { PerfTrace.liquifyRebase(it) }
+        val s = ReverieCoreBridge.liquifyStats() ?: return
+        if (s.size < 10 || s[7] <= 0L) return // 还没做过液化
+        PerfTrace.liquifyApply(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9])
+    }
+
+    /**
+     * 取一次液化网格快照 (仅"网格可视化"打开时调用, 每秒一次; **引擎线程**)。
+     * 摘要进标尺 HUD 第 5 行, 原始网格交给 `PerfHud` 叠加绘制 —— 正式版里两者都不存在。
+     */
+    internal fun pollLiquifyGrid() {
+        val g = ReverieCoreBridge.liquifyGrid() ?: return
+        if (g.size < 8) return
+        val count = g[7].toInt()
+        if (count <= 0) return
+        PerfTrace.liquifyGrid(g[4].toInt(), g[5].toInt(), g[6].toInt(), count, g)
+        PerfHud.setLiquifyGrid(g)
+    }
+
+    // Phase 2B: 上次取到的预览版本与裁剪指纹(只在引擎线程读写, 无需加锁)
+    private var lqGpuPreviewSeq = -1L
+    private var lqGpuCropKey = Long.MIN_VALUE
+
+    // Phase 5 · C3-2 收尾: 源像素缓冲**复用**(两块轮换)。
+    // 以前每段手势都要新分配一份 `cropW*cropH*4`(4M px 文档就是 16MB), 连续压测时是持续的
+    // 大对象垃圾; 复用后这块只在尺寸变化时才重建。用两块轮换是因为上一段手势的数组可能还被
+    // 覆盖层暂存着(等渲染线程消费), 直接复用同一块会让那张源纹理读到新一段的像素(画面错位),
+    // 轮换一块就够避开这个窗口。
+    private var lqSrcBufA: ByteArray? = null
+    private var lqSrcBufB: ByteArray? = null
+    private var lqSrcBufUseA = false
+
+    /**
+     * Phase 5 · C3-2: 作废"源裁剪指纹", 让下一次取数**重新取一份源像素**。
+     *
+     * 为什么需要: 场通路的裁剪就是**整篇文档** ⇒ 两段手势的几何完全相同, 指纹也一样, 于是第二次
+     * 手势会沿用上一段手势的源纹理 —— 而那份源早已被上一段手势的提交改过(画面会整体错位)。
+     * 经典路径的裁剪每段手势都不同, 所以只在场通路里调它。
+     */
+    internal fun invalidateLiquifySourceKey() {
+        lqGpuCropKey = Long.MIN_VALUE
+    }
+
+    /** Phase 5 · C2: GLES 覆盖层失败后的"一次性交回引擎 CPU 预览"标记(只在引擎线程读写)。 */
+    private var lqGlesRecovered = false
+
+    /**
+     * Phase 2B: 取一次预览所需的"源裁剪 + 位移网格" (**引擎线程**, 调用点见 `doRender`)。
+     *
+     * 只有 GPU 诊断开关打开时才有内容, 且引擎此时既不生成也不叠加 CPU 预览:
+     *  - 源裁剪(未形变)只在 rebase 时变 ⇒ 整段手势只上传一次纹理;
+     *  - 位移网格每个 dab 都变 ⇒ 每次取(6~25KB 级小数组, 不做差分)。
+     *
+     * Phase 5 · C2: 取数链路**不变**, 只多一个消费端 —— 本次手势由 GLES 覆盖层画时,
+     * 同一份 `crop/src/grid` 同时喂给 `LiquifyGlesPreview`(它自己的渲染线程上传纹理并出图);
+     * AGSL 侧这一份仅用于"本帧文档脏区"基线(它不再建纹理, 见 `CanvasTouchView.drawCanvas`)。
+     */
+    internal fun pollLiquifyGpuPreview() {
+        // Phase 5 · C2: GLES 侧自己躲掉了(EGL/着色器/交换失败) ⇒ **当帧**把引擎切回 CPU 预览。
+        // "要么 GPU 画, 要么引擎画"是这条线不可破的底线; 恢复动作必须在引擎线程做(JNI 时序由
+        // ViewModel 保证), 只做一次 —— 失败后 LiquifyGlesPreview.failed 会挡掉后续手势的重试。
+        if (LiquifyGlesPreview.failed && !lqGlesRecovered) {
+            lqGlesRecovered = true
+            LiquifyGlesPreview.clear()
+            ReverieCoreBridge.setLiquifyPreviewHostDrawMode(0)
+            return
+        }
+        if (!LiquifyGpuPreview.requested) {
+            // HUD 读数: 走到这里 = 预览由引擎侧 CPU 叠加(没有 GPU 覆盖层接手)
+            if (PerfTrace.enabled) PerfTrace.liquifyHost(PerfTrace.HOST_ENGINE)
+            return
+        }
+        val crop = ReverieCoreBridge.liquifyPreviewSourceMeta() ?: return
+        if (crop.size < 7) return
+        if (crop[0] <= 0) {
+            // 没有源裁剪(超出面积预算 / 非 8bit BGRA / 手势结束): 摘掉覆盖层, 由引擎侧
+            // CPU 预览兜底 —— 不能两边都不画
+            LiquifyGpuPreview.clear()
+            return
+        }
+        val seq = crop[6].toLong()
+        if (seq == lqGpuPreviewSeq) return
+        lqGpuPreviewSeq = seq
+        val key = LiquifyGpuPreview.cropKeyOf(crop)
+        val src =
+            if (key != lqGpuCropKey) {
+                lqGpuCropKey = key
+                val need = crop[0] * crop[1] * 4
+                lqSrcBufUseA = !lqSrcBufUseA
+                var buf = if (lqSrcBufUseA) lqSrcBufA else lqSrcBufB
+                if (buf == null || buf.size != need) {
+                    buf = ByteArray(need)
+                    if (lqSrcBufUseA) lqSrcBufA = buf else lqSrcBufB = buf
+                }
+                ReverieCoreBridge.liquifyPreviewSourcePixelsInto(buf)
+                buf
+            } else {
+                null
+            }
+        val grid = ReverieCoreBridge.liquifyGrid()
+        val useGles = LiquifyGlesPreview.requested
+        // HUD 读数: 这一行是判断"设置里的预览方式生效了没"的唯一依据(见 PerfTrace.liquifyHost)
+        if (PerfTrace.enabled) {
+            PerfTrace.liquifyHost(if (useGles) PerfTrace.HOST_GLES else PerfTrace.HOST_AGSL)
+        }
+        // 脏区基线两条路都要: GLES 接管时 AGSL 侧不会被 draw(不会建纹理), 只贡献脏区计算
+        LiquifyGpuPreview.update(crop, src, grid)
+        if (useGles) {
+            LiquifyGlesPreview.update(crop, src, grid)
+            // 上报实际在画的那条路的读数(语义与 AGSL 侧同名字段一致)
+            // Phase 3B: 源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
+            PerfTrace.liquifyUpload(LiquifyGlesPreview.sourceUploadCount)
+            val tw = LiquifyGlesPreview.textureWidth
+            val th = LiquifyGlesPreview.textureHeight
+            PerfTrace.liquifyProxy(tw, th, tw.toLong() * th.toLong() * 4L)
+            // 干预实验(§4.15): "暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
+            PerfTrace.liquifyPipeline(LiquifyGlesPreview.previewUpdates, LiquifyGlesPreview.gridUploads)
+        } else {
+            // Phase 3B: 上报源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
+            PerfTrace.liquifyUpload(LiquifyGpuPreview.sourceUploadCount)
+            // 实验 A: 上报预览源纹理(代理)尺寸与占用, 便于对照不同代理分辨率
+            PerfTrace.liquifyProxy(
+                LiquifyGpuPreview.proxyWidth,
+                LiquifyGpuPreview.proxyHeight,
+                LiquifyGpuPreview.proxyUploadBytes,
+            )
+            // 干预实验(§4.15): 上报预览"暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
+            PerfTrace.liquifyPipeline(LiquifyGpuPreview.previewUpdates, LiquifyGpuPreview.gridUploads)
+        }
+        // 主机侧绘制模式下引擎不写显示缓冲(没有脏区), 所以"该重绘了"必须由这里发起。
+        // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 改走 CanvasTouchView 的**局部失效**
+        // 入口 —— 它回到 UI 线程, 用"本帧文档脏区 ∪ 光标环前后位置"算一个最小重绘矩形,
+        // 任一安全条件不满足时自行整屏回退。原来这里是无条件整屏 postInvalidate。
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+            ?.onLiquifyPreviewUpdated()
+    }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false
     var lastAutoSaveTimeMs by mutableLongStateOf(0L)
@@ -558,13 +811,42 @@ class PaintViewModel : ViewModel() {
                 val dir = java.io.File(appContext.filesDir, "ref_images")
                 val count = prefs.getInt("ref_images_count", 0)
                 val list = mutableListOf<Bitmap>()
+                // B4: 参考图恢复改**有界解码** —— 最长边压到 2048, 并设总字节预算。
+                // 参考图只是"看着画"的辅助, 不需要原始分辨率; 而 decodeFile 按整张图分配,
+                // 老版本存下来的大图会让启动时一次性分配几百 MB(甚至 OOM)。
+                val maxEdge = 2048
+                val totalBudget = 64L * 1024L * 1024L
+                var loadedBytes = 0L
+                val decodeScaled: (java.io.File) -> Bitmap? = { f ->
+                    try {
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeFile(f.absolutePath, bounds)
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                            null
+                        } else {
+                            var sample = 1
+                            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+                            android.graphics.BitmapFactory.decodeFile(
+                                f.absolutePath,
+                                android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
+                            )
+                        }
+                    } catch (_: Throwable) {
+                        null
+                    }
+                }
                 if (dir.exists() && count > 0) {
                     for (i in 0 until count) {
                         val file = java.io.File(dir, "ref_$i.png")
-                        if (file.exists()) {
-                            val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                            if (bmp != null) list.add(bmp)
+                        if (!file.exists()) continue
+                        val bmp = decodeScaled(file) ?: continue
+                        if (loadedBytes + bmp.byteCount > totalBudget) {
+                            // 预算用尽: 后面的图直接跳过(宁可少几张, 也不把内存打满)
+                            bmp.recycle()
+                            break
                         }
+                        loadedBytes += bmp.byteCount
+                        list.add(bmp)
                     }
                 }
                 viewModelScope.launch(Dispatchers.Main) {
@@ -1865,6 +2147,21 @@ class PaintViewModel : ViewModel() {
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
+            // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
+            perfHudEnabled = PerfHud.readPref(prefs)
+            PerfTrace.enabled = perfHudEnabled || PerfTrace.isEnabledByProp
+            // Phase 3B / 实验 A 的应用内档位(仅 debug 有入口; release 读取器恒返回默认值)
+            liquifyProxyPercent = PerfHud.readLiquifyProxyPercent(prefs)
+            LiquifyGpuPreview.proxyPercentOverride = liquifyProxyPercent
+            liquifyCoalesceSteps = PerfHud.readLiquifyCoalesceSteps(prefs)
+            PerfTrace.liquifyCoalesceOverride = liquifyCoalesceSteps
+            // Phase 5 · C2: 预览方式的持久化档位(没有数据线时的 A/B 入口)
+            liquifyHostDraw = PerfHud.readLiquifyHostDraw(prefs)
+            LiquifyGpuPreview.hostDrawOverride = liquifyHostDraw
+            // Phase 5 · C3: 位移场来源的持久化档位("场 vs 网格" A/B 入口)
+            liquifyField = PerfHud.readLiquifyField(prefs)
+            LiquifyGlesPreview.fieldOverride = liquifyField
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
@@ -2601,6 +2898,14 @@ class PaintViewModel : ViewModel() {
     private val renderDirty = IntArray(4)
     private var hasWrittenRect = false
 
+    // 本帧实际写入区域 (渲染缓冲坐标 x/y/w/h), 供 UI 侧做局部失效。
+    // 双缓冲交替发布: 渲染线程每帧只写一份不重复使用的副本, 读侧拿到的引用
+    // 必然是完整一帧的结果, 且这条每帧路径上不产生任何新数组 (§4)。
+    @Volatile internal var renderDirtySnapshot: IntArray? = null
+    private val dirtySnapshotA = IntArray(4)
+    private val dirtySnapshotB = IntArray(4)
+    private var dirtySnapshotFlip = false
+
     @Volatile internal var displayBufferInvalid = false
 
     @Volatile internal var renderScheduled = false
@@ -2659,6 +2964,7 @@ class PaintViewModel : ViewModel() {
         recorder.endSession()
         replaySession?.stop()
         renderThread?.quitSafely()
+        unregisterMemoryPressureCallbacks()
         renderThread = null
         renderHandler = null
         super.onCleared()
@@ -2957,6 +3263,8 @@ class PaintViewModel : ViewModel() {
             backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             displayBufferInvalid = false
             hasWrittenRect = false
+            // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
+            renderDirtySnapshot = null
         }
 
         val front = frontBuffer
@@ -2969,10 +3277,31 @@ class PaintViewModel : ViewModel() {
         }
 
         val forceFull = reallocated
-        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换), 用 span 只在
-        // 超过阈值时打印, 平常不刷屏
-        val ok = PerfTrace.span("render.buffer", threshold = 8L) {
-            ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        // Phase 2B: 先取 AGSL 预览数据再渲染 —— 放在 renderToBuffer 之前, 免得
+        // "无脏区 ⇒ 直接 return" 的分支把这帧的预览更新吞掉(GPU 模式下缓冲本来就不变)。
+        pollLiquifyGpuPreview()
+        // 干预实验(§4.16): 每渲染采样一次液化 apply 统计 —— 提高采样频率, 才能抓到
+        // 拖动中每次 rebase/物化的单次耗时尖峰(原先只在 1s 定时器里取, 只能拿到"最后一次")。
+        pollLiquifyStats()
+
+        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
+        // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答
+        // "到底走的是哪条路径、值不值得动它", 单看总耗时看不出来。
+        val traceOn = PerfTrace.enabled
+        val tEngineNs =
+            if (traceOn) android.os.SystemClock.elapsedRealtimeNanos() else 0L
+        val ok = ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
+        if (traceOn) {
+            PerfTrace.renderPath(
+                when {
+                    !ok -> PerfTrace.PATH_SKIP
+                    forceFull -> PerfTrace.PATH_FULL
+                    else -> PerfTrace.PATH_INCR
+                },
+                android.os.SystemClock.elapsedRealtimeNanos() - tEngineNs,
+                if (ok) renderDirty[2].toLong() * renderDirty[3].toLong() else 0L,
+            )
+            if (w != coreW || h != coreH) PerfTrace.renderScaled()
         }
         PerfTrace.tick("render.calls", 1000L)
         if (!ok) {
@@ -2990,8 +3319,10 @@ class PaintViewModel : ViewModel() {
                 renderDirty[1] + renderDirty[3]
             )
             hasWrittenRect = true
+            publishRenderDirtySnapshot()
         } else {
             hasWrittenRect = false
+            renderDirtySnapshot = null
         }
 
         // Swap front and back buffers
@@ -3000,23 +3331,29 @@ class PaintViewModel : ViewModel() {
         frontBuffer = rendered
         displayBitmap = rendered
 
+        // 纹理重传代理量: 每翻转一次, 下一帧 HWUI 都要把整张 Bitmap 纹理重传一遍
+        // (HWUI 不做局部纹理更新), 这是本项目最大的带宽开销
+        if (traceOn) PerfTrace.renderFlip(w.toLong() * h * 4, w.toLong() * h)
+
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             rendered.prepareToDraw()
         }
 
-        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay)
+        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
+        // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
+        // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
-            tv.postInvalidate()
+            tv.invalidateFromRender()
         } else {
             mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
         }
         val isStrokeActive = strokeBatchQueued || (pendingCoreOps.get() > 0)
         if (!isStrokeActive) {
             mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidate()
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
         }
 
@@ -3026,6 +3363,17 @@ class PaintViewModel : ViewModel() {
                 displayRevision++
             }
         }
+    }
+
+    /** 把本帧写入区域发布给 UI 线程做局部失效 (双缓冲交替, 零分配) */
+    private fun publishRenderDirtySnapshot() {
+        val target = if (dirtySnapshotFlip) dirtySnapshotB else dirtySnapshotA
+        dirtySnapshotFlip = !dirtySnapshotFlip
+        target[0] = renderDirty[0]
+        target[1] = renderDirty[1]
+        target[2] = renderDirty[2]
+        target[3] = renderDirty[3]
+        renderDirtySnapshot = target
     }
 
     var layers by mutableStateOf(listOf<LayerUiState>())
