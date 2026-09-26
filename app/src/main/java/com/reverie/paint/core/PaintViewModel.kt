@@ -237,6 +237,36 @@ class PaintViewModel : ViewModel() {
     }
 
     /**
+     * 实验 A: 液化预览代理分辨率百分比 (0 = 跟随 property/构建档位)。debug 设置页可改 ——
+     * 没有数据线时靠它做 100/75/50/25 对照; 正式版没有该入口, 读取器恒返回 0。
+     */
+    var liquifyProxyPercent by mutableIntStateOf(0)
+
+    fun updateLiquifyProxyPercent(pct: Int) {
+        liquifyProxyPercent = pct
+        LiquifyGpuPreview.proxyPercentOverride = pct
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyProxyPercent", pct).apply()
+        }
+    }
+
+    /**
+     * Phase 3B: latest-state-wins 每帧最多推进的补点数 (-1 = 跟随 property/构建档位; 0 = 关闭)。
+     * debug 设置页可改; 正式版没有该入口, 读取器恒返回 -1。
+     */
+    var liquifyCoalesceSteps by mutableIntStateOf(-1)
+
+    fun updateLiquifyCoalesceSteps(steps: Int) {
+        liquifyCoalesceSteps = steps
+        PerfTrace.liquifyCoalesceOverride = steps
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("liquifyCoalesceSteps", steps).apply()
+        }
+    }
+
+    /**
      * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
      * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
      *
@@ -311,9 +341,22 @@ class PaintViewModel : ViewModel() {
                 null
             }
         LiquifyGpuPreview.update(crop, src, ReverieCoreBridge.liquifyGrid())
+        // Phase 3B: 上报源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
+        PerfTrace.liquifyUpload(LiquifyGpuPreview.sourceUploadCount)
+        // 实验 A: 上报预览源纹理(代理)尺寸与占用, 便于对照不同代理分辨率
+        PerfTrace.liquifyProxy(
+            LiquifyGpuPreview.proxyWidth,
+            LiquifyGpuPreview.proxyHeight,
+            LiquifyGpuPreview.proxyUploadBytes,
+        )
+        // 干预实验(§4.15): 上报预览"暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
+        PerfTrace.liquifyPipeline(LiquifyGpuPreview.previewUpdates, LiquifyGpuPreview.gridUploads)
         // 主机侧绘制模式下引擎不写显示缓冲(没有脏区), 所以"该重绘了"必须由这里发起。
-        // 手势期间 canPartialInvalidate 恒为 false, postInvalidate() 与既有语义一致。
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.postInvalidate()
+        // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 改走 CanvasTouchView 的**局部失效**
+        // 入口 —— 它回到 UI 线程, 用"本帧文档脏区 ∪ 光标环前后位置"算一个最小重绘矩形,
+        // 任一安全条件不满足时自行整屏回退。原来这里是无条件整屏 postInvalidate。
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+            ?.onLiquifyPreviewUpdated()
     }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false
@@ -1958,6 +2001,11 @@ class PaintViewModel : ViewModel() {
             // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
             perfHudEnabled = PerfHud.readPref(prefs)
             PerfTrace.enabled = perfHudEnabled || PerfTrace.isEnabledByProp
+            // Phase 3B / 实验 A 的应用内档位(仅 debug 有入口; release 读取器恒返回默认值)
+            liquifyProxyPercent = PerfHud.readLiquifyProxyPercent(prefs)
+            LiquifyGpuPreview.proxyPercentOverride = liquifyProxyPercent
+            liquifyCoalesceSteps = PerfHud.readLiquifyCoalesceSteps(prefs)
+            PerfTrace.liquifyCoalesceOverride = liquifyCoalesceSteps
             uiOpacity = prefs.getFloat("uiOpacity", 1.0f)
             popupPanelOpacity = prefs.getFloat("popupPanelOpacity", 0.95f)
             paintingUiScale = prefs.getFloat("paintingUiScale", 1.0f).coerceIn(0.70f, 1.40f)
@@ -3041,6 +3089,9 @@ class PaintViewModel : ViewModel() {
         // Phase 2B: 先取 AGSL 预览数据再渲染 —— 放在 renderToBuffer 之前, 免得
         // "无脏区 ⇒ 直接 return" 的分支把这帧的预览更新吞掉(GPU 模式下缓冲本来就不变)。
         pollLiquifyGpuPreview()
+        // 干预实验(§4.16): 每渲染采样一次液化 apply 统计 —— 提高采样频率, 才能抓到
+        // 拖动中每次 rebase/物化的单次耗时尖峰(原先只在 1s 定时器里取, 只能拿到"最后一次")。
+        pollLiquifyStats()
 
         // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
         // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答

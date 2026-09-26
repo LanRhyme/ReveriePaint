@@ -17,6 +17,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.ui.home.SettingCategoryTitle
+import com.reverie.paint.ui.home.SettingDropdownGroupItem
 import com.reverie.paint.ui.home.SettingGroup
 import com.reverie.paint.ui.home.SettingSwitchGroupItem
 import com.reverie.paint.ui.home.settingGroupShape
@@ -40,6 +41,14 @@ internal object PerfHud {
 
     /** 设置页偏好 (仅 debug 构建读取; release 恒 false, 防止残留偏好默默开着标尺) */
     fun readPref(prefs: SharedPreferences): Boolean = prefs.getBoolean("perfHud", false)
+
+    /** 实验 A: 应用内代理分辨率档位 (0 = 跟随 property/构建档位) */
+    fun readLiquifyProxyPercent(prefs: SharedPreferences): Int =
+        prefs.getInt("liquifyProxyPercent", 0)
+
+    /** Phase 3B: 应用内合并步数档位 (-1 = 跟随 property/构建档位) */
+    fun readLiquifyCoalesceSteps(prefs: SharedPreferences): Int =
+        prefs.getInt("liquifyCoalesceSteps", -1)
 
     /** 记录一次 onDraw 的耗时, 汇总成 p95 */
     fun recordDraw(nanos: Long) = PerfTrace.drawFrame(nanos)
@@ -148,7 +157,13 @@ internal object PerfHud {
         canvas.restoreToCount(save)
     }
 
-    /** 设置页"诊断"分组里的标尺开关 (debug 构建才有这个入口) */
+    /** 液化预览代理分辨率档位的可选值(与下拉项一一对应) */
+    private val PROXY_VALUES = intArrayOf(0, 100, 75, 50, 25)
+
+    /** latest-state-wins 合并步数的可选值(与下拉项一一对应) */
+    private val COALESCE_VALUES = intArrayOf(-1, 0, 2, 4, 8)
+
+    /** 设置页"诊断"分组: 标尺开关 + 液化实验档位 (debug 构建才有这个入口) */
     @Composable
     fun SettingsSection(vm: PaintViewModel) {
         SettingCategoryTitle(stringResource(R.string.settings_diagnostics))
@@ -158,8 +173,30 @@ internal object PerfHud {
                 title = stringResource(R.string.settings_perf_hud),
                 summary = stringResource(R.string.settings_perf_hud_sub),
                 checked = vm.perfHudEnabled,
-                shape = settingGroupShape(0, 1),
+                shape = settingGroupShape(0, 3),
                 onCheckedChange = { vm.updatePerfHudEnabled(it) },
+            )
+            val autoText = stringResource(R.string.settings_experiment_auto)
+            val offText = stringResource(R.string.settings_experiment_off)
+            SettingDropdownGroupItem(
+                title = stringResource(R.string.settings_liquify_proxy),
+                summary = stringResource(R.string.settings_liquify_proxy_sub),
+                currentText = if (vm.liquifyProxyPercent <= 0) autoText else "${vm.liquifyProxyPercent}%",
+                options = listOf(autoText, "100%", "75%", "50%", "25%"),
+                shape = settingGroupShape(1, 3),
+                onSelect = { idx -> vm.updateLiquifyProxyPercent(PROXY_VALUES[idx]) },
+            )
+            SettingDropdownGroupItem(
+                title = stringResource(R.string.settings_liquify_coalesce),
+                summary = stringResource(R.string.settings_liquify_coalesce_sub),
+                currentText = when {
+                    vm.liquifyCoalesceSteps < 0 -> autoText
+                    vm.liquifyCoalesceSteps == 0 -> offText
+                    else -> vm.liquifyCoalesceSteps.toString()
+                },
+                options = listOf(autoText, offText, "2", "4", "8"),
+                shape = settingGroupShape(2, 3),
+                onSelect = { idx -> vm.updateLiquifyCoalesceSteps(COALESCE_VALUES[idx]) },
             )
         }
     }

@@ -194,13 +194,21 @@ class CanvasTouchView(context: Context) : View(context) {
     private var previousSinglePos = Offset.Zero
     private val lassoPoints = mutableListOf<Offset>()
     private var lastLassoPreviewNs = 0L
-    private var liquifyPrevPos = Offset.Zero
-    // Phase 2C 实验(latest-state-wins): 每帧最多推进几个补点; 0 = 关闭(逐个历史点立即处理)
-    private var liquifyMaxDabsPerFlush = 0
-    private var liquifyPendingTo: Offset? = null
+    // Phase 3A/3B: 液化交互态会话(latest-state-wins 状态机 + backlog 计数), 取代原先散落的
+    // liquifyPrevPos / liquifyPendingTo / liquifyInputSinceFlush / liquifyMaxDabsPerFlush 字段。
+    private val liquifySession = LiquifyInteractionSession()
     private var liquifyFlushPosted = false
-    private var liquifyInputSinceFlush = 0
     private val liquifyFlushRunnable = Runnable { flushLiquifyPending() }
+    // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 覆盖层局部失效所需的"光标环本帧位置"
+    // (屏幕坐标)。环由本类 onDraw 画在同一张画布上, 因此局部重绘必须把环的前后位置一并失效,
+    // 否则环的旧位置会留下残影。全部只在 UI 线程读写。
+    private var lqRingValid = false
+    private var lqRingCx = 0f
+    private var lqRingCy = 0f
+    private var lqRingR = 0f
+    // docToScreen 的输出缓冲(必须是 FloatArray; 不能复用整型的 boundsScratch)
+    private val lqPointScratch = FloatArray(2)
+    private val lqInvalidateRunnable = Runnable { scheduleLiquifyInvalidate() }
     private var smoothedPressure = 0.8f
 
     // 文本交互状态
@@ -710,6 +718,7 @@ class CanvasTouchView(context: Context) : View(context) {
             drawCanvas(canvas)
             return
         }
+        PerfTrace.frameTick()
         val t0 = SystemClock.elapsedRealtimeNanos()
         try {
             drawCanvas(canvas)
@@ -794,7 +803,9 @@ class CanvasTouchView(context: Context) : View(context) {
         // Phase 2B: AGSL 形变预览覆盖层。引擎在"主机侧绘制"模式下不生成也不叠加 CPU 预览,
         // 由这里在显示分辨率上做位移采样 —— 因此缩放/旋转/平移都自动跟随, 且不用改画布位图。
         // 开关关闭时 active 恒为 false, 这段在正式使用中不会执行。
-        if (LiquifyGpuPreview.active) {
+        // VSYNC 绑定: 一帧内可能"只暂存了状态、还没提交", 因此以 requested 为门,
+        // 让 draw() 自己在帧内完成"提交(=纹理上传) + 绘制"。
+        if (LiquifyGpuPreview.requested || LiquifyGpuPreview.active) {
             ensureViewTransform()
             LiquifyGpuPreview.draw(canvas, viewTransform)
         }
@@ -924,6 +935,8 @@ class CanvasTouchView(context: Context) : View(context) {
             else -> false
         }
         val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
+        lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
@@ -932,6 +945,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     pressureFractionCached(localPressure)
                 } else 1f
             val brushRadiusScreen = (cursorBrushSize * scale * 0.5f * pressureFraction).coerceAtLeast(2f)
+            // 半径取"环半径"与"十字/点光标尺寸"的较大者: 后三种样式画的是小十字/圆点, 半径只有
+            // 几个 dp, 但同样需要被覆盖
+            lqRingValid = true
+            lqRingCx = pos.x
+            lqRingCy = pos.y
+            lqRingR = if (brushRadiusScreen > 8f * density) brushRadiusScreen else 8f * density
 
             when (v.cursorStyleMode) {
                 0 -> { // 双对比圆环
@@ -1142,6 +1161,117 @@ class CanvasTouchView(context: Context) : View(context) {
         if (viewArea <= 0L) return false
         // 脏区超过视口一半时就省不下什么了, 整屏一次画完更划算
         return dirtyW.toLong() * dirtyH.toLong() * 2L <= viewArea
+    }
+
+    /**
+     * Liquify V2 · Phase 2: 覆盖层有新位移场时调用 (可能来自引擎线程)。
+     *
+     * 原来这里的调用方是无条件 `postInvalidate()` 整屏重绘 —— 这是"每个 dab 都整屏"的来源
+     * (见 docs/RENDER-OPTIMIZATION.md §4.10)。现在改成: 回到 UI 线程, 用
+     * **本帧文档脏区(覆盖层自己算出) ∪ 光标环前后位置** 算一个最小重绘矩形;
+     * 任一安全条件不满足时自行整屏回退 —— 宁可多画一次, 不允许边缘残影。
+     *
+     * 这条路径只服务 AGSL 覆盖层(默认关闭), 其余渲染路径完全不受影响。
+     */
+    fun onLiquifyPreviewUpdated() {
+        if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {
+            scheduleLiquifyInvalidate()
+        } else {
+            post(lqInvalidateRunnable)
+        }
+    }
+
+    /**
+     * Phase 2: 局部失效的安全条件。与 [canPartialInvalidate] 的唯一区别是**不再因光标活动而整屏**
+     * —— 液化手势期间光标环必然活动且 `isInteracting` 恒为 true, 若沿用旧条件该优化等于不存在。
+     * 改为把环的前后位置并进失效矩形; 其余"会在脏区之外重绘"的覆盖层仍一律整屏。
+     */
+    private fun canLiquifyPartialInvalidate(v: PaintViewModel): Boolean {
+        if (v.currentPage == Page.REPLAY || v.anim.isPlaying) return false
+        if (!viewTransform.isAxisAligned) return false
+        if (v.pixelGridEnabled) return false
+        if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return false
+        if (isTransformActive || isPinchMotion || maxTouchPointers >= 2) return false
+        val guide = v.drawingGuide
+        // 对称镜像会在光标之外多画几个环, 不在失效矩形内 ⇒ 整屏
+        if (guide.mode == GuideMode.SYMMETRY && guide.assistedDrawing) return false
+        return viewW > 0 && viewH > 0
+    }
+
+    private fun scheduleLiquifyInvalidate() {
+        val v = vm
+        if (!partialInvalidateEnabled || v == null || !canLiquifyPartialInvalidate(v)) {
+            postInvalidate()
+            return
+        }
+        // 覆盖层初判: 不可比(rebase/首帧)或没有脏区信息 → 整屏
+        if (LiquifyGpuPreview.overlayDirtyFull) {
+            postInvalidate()
+            return
+        }
+        ensureViewTransform()
+        var left = Float.MAX_VALUE
+        var top = Float.MAX_VALUE
+        var right = -Float.MAX_VALUE
+        var bottom = -Float.MAX_VALUE
+
+        // 1) 本帧文档脏区 -> 屏幕包围盒(8px 余量, 与 LiquifyGpuPreview.draw 的绘制余量一致)
+        if (LiquifyGpuPreview.overlayDirtyValid) {
+            val dw = LiquifyGpuPreview.overlayDirtyW
+            val dh = LiquifyGpuPreview.overlayDirtyH
+            if (dw > 0 && dh > 0) {
+                val x0 = LiquifyGpuPreview.overlayDirtyX.toFloat()
+                val y0 = LiquifyGpuPreview.overlayDirtyY.toFloat()
+                val x1 = x0 + dw
+                val y1 = y0 + dh
+                for (i in 0 until 4) {
+                    viewTransform.docToScreen(
+                        if (i == 0 || i == 2) x0 else x1,
+                        if (i < 2) y0 else y1,
+                        lqPointScratch,
+                    )
+                    val sx = lqPointScratch[0]
+                    val sy = lqPointScratch[1]
+                    if (sx < left) left = sx
+                    if (sx > right) right = sx
+                    if (sy < top) top = sy
+                    if (sy > bottom) bottom = sy
+                }
+                left -= 8f
+                top -= 8f
+                right += 8f
+                bottom += 8f
+            }
+        }
+
+        // 2) 光标环: 旧位置与当前位置都要重绘
+        if (lqRingValid) {
+            left = minOf(left, lqRingCx - lqRingR - 2f)
+            top = minOf(top, lqRingCy - lqRingR - 2f)
+            right = maxOf(right, lqRingCx + lqRingR + 2f)
+            bottom = maxOf(bottom, lqRingCy + lqRingR + 2f)
+        }
+        val cur = localCursorPos
+        if (cur != null) {
+            val r = if (lqRingValid) lqRingR else 0f
+            left = minOf(left, cur.x - r - 2f)
+            top = minOf(top, cur.y - r - 2f)
+            right = maxOf(right, cur.x + r + 2f)
+            bottom = maxOf(bottom, cur.y + r + 2f)
+        }
+        if (right <= left || bottom <= top) {
+            // 这一帧位移场没变、环也没动: 连重绘都不需要
+            return
+        }
+        val l = left.toInt().coerceIn(0, viewW)
+        val t = top.toInt().coerceIn(0, viewH)
+        val r = right.toInt().coerceIn(0, viewW)
+        val b = bottom.toInt().coerceIn(0, viewH)
+        if (r <= l || b <= t) {
+            postInvalidate()
+            return
+        }
+        postInvalidate(l, t, r, b)
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -2097,15 +2227,15 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
             Tool.LIQUIFY -> {
-                liquifyPrevPos = docPos
-                liquifyPendingTo = null
                 liquifyFlushPosted = false
                 removeCallbacks(liquifyFlushRunnable)
-                // Phase 2C 实验开关: `setprop debug.reverie.lqcoalesce <n>` 指定每帧最多推进的
+                // Phase 3A 实验开关: `setprop debug.reverie.lqcoalesce <n>` 指定每帧最多推进的
                 // 补点数(0 = 关闭)。AGSL 预览本来就"不阻塞引擎", 因此它默认按 2 步/帧跑;
                 // 引擎侧路径(无预览/CPU 预览)默认关闭, 保持既有行为, 需要时用 property 打开。
-                val prop = PerfTrace.debugPropInt("debug.reverie.lqcoalesce", -1)
-                liquifyMaxDabsPerFlush = when {
+                // 应用内覆盖(debug 设置页)优先于 property —— 无数据线时靠它切换
+                val ov = PerfTrace.liquifyCoalesceOverride
+                val prop = if (ov >= 0) ov else PerfTrace.debugPropInt("debug.reverie.lqcoalesce", -1)
+                val maxDabs = when {
                     // 1) property 最高优先(无数据线时也能靠构建档位兜底)
                     prop >= 0 -> prop
                     // 2) 构建期档位: 3 = 对照"不做调度合并", 1/2 = 默认 2 步/帧
@@ -2116,7 +2246,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     LiquifyGpuPreview.requested -> LiquifyPath.DEFAULT_MAX_DABS_PER_FLUSH
                     else -> 0
                 }
-                liquifyInputSinceFlush = 0
+                // 交互态会话: 以落笔点为已渲染基准, 后续 MOVE 只提交"最新位置"
+                liquifySession.begin(docPos.x, docPos.y, maxDabs)
                 v.liquifyBegin()
                 strokeStarted = true
             }
@@ -2441,11 +2572,10 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
-                    if (liquifyMaxDabsPerFlush > 0) {
-                        // Phase 2C: latest-state-wins —— 只留"最新位置", 中间状态(含历史点)全丢,
+                    if (liquifySession.coalescing) {
+                        // Phase 3B: latest-state-wins —— 只留"最新位置", 中间状态(含历史点)全丢,
                         // 由下一帧统一推进。避免"一个事件里多个历史点 → 队列里堆多次 apply"。
-                        liquifyPendingTo = docPos
-                        liquifyInputSinceFlush++
+                        liquifySession.submitTarget(docPos.x, docPos.y)
                         if (!liquifyFlushPosted) {
                             liquifyFlushPosted = true
                             postOnAnimation(liquifyFlushRunnable)
@@ -2616,76 +2746,61 @@ class CanvasTouchView(context: Context) : View(context) {
      * 液化沿路径推进: 位移大于笔刷影响半径时拆成多个补点, 让相邻形变搭接,
      * 消除快速拖动时的断线。强度按 [LiquifyPath.substepStrengthScale] 折算,
      * 保证细分前后总形变量一致 (引擎侧幅度曲线对每个 dab 有固定底)。
+     *
+     * 关闭合并(latest-state-wins)时的逐点路径: 每个输入点立即**全量**推进, 与历史行为一致。
      */
     private fun liquifyAlongPath(v: PaintViewModel, to: Offset) {
-        val from = liquifyPrevPos
-        val dist = hypot(to.x - from.x, to.y - from.y)
-        val n = LiquifyPath.substepCount(dist, liquifyBrushSize)
-        if (n == 0) return
-        val strength = liquifyStrength *
-            LiquifyPath.substepStrengthScale(dist, liquifyBrushSize, n, liquifyMode)
-        var prev = from
-        for (i in 1..n) {
-            val t = i.toFloat() / n
-            val next = Offset(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
-            v.liquify(prev.x, prev.y, next.x, next.y, liquifyMode, strength.toDouble())
-            prev = next
-        }
-        liquifyPrevPos = to
-        // 逐点路径的"推进 == 输入": 作为 latest-state-wins 的对照基线(合并倍率恒为 1)
-        PerfTrace.liquifySchedule(1, n)
+        liquifySession.submitTarget(to.x, to.y)
+        liquifyFlushNow(v, forceFull = true)
     }
 
     /**
-     * Phase 2C 实验: latest-state-wins 的"一帧推进"。
+     * Phase 3A/3B: 把会话里待推进的位移段提交给引擎 —— 液化的**唯一 JNI 提交点**。
      *
-     * 每帧最多推进 [liquifyMaxDabsPerFlush] 个补点, 方向永远指向**最新**位置; 没追完下一帧继续。
-     * 与"逐个历史点立即处理"的差别只有两点: ①同一帧内多个输入事件被合并成一段(中间位置丢弃);
-     * ②单帧阻塞时间有上界 —— 不会再出现"一个事件里 10 个历史点 × 每个 41ms"这种排队。
+     * 调度全在 [LiquifyInteractionSession] 里(纯逻辑), 这里只按它的推进计划跑 JNI 循环:
+     * 步长与强度折算始终按"整段"口径, 因此分帧只改节奏、不改总量; 抬笔 forceFull 精确落点。
+     *
+     * @param forceFull true = 抬笔补齐 / 关闭合并的逐点路径(不受每帧补点上限约束)
      */
-    private fun flushLiquifyPending() {
-        liquifyFlushPosted = false
-        val v = vm ?: return
-        val to = liquifyPendingTo ?: return
-        val from = liquifyPrevPos
-        val size = liquifyBrushSize
-        val dist = hypot(to.x - from.x, to.y - from.y)
-        if (dist < 0.5f) {
-            liquifyPrevPos = to
-            liquifyPendingTo = null
-            return
-        }
-        // 整段的补点数作为"总步数": 与常规路径同一套补点与强度折算规则, 分帧不改变总量
-        val full = LiquifyPath.substepCount(dist, size)
-        val n = LiquifyPath.chaseSubsteps(dist, size, liquifyMaxDabsPerFlush)
-        if (n <= 0) {
-            liquifyAlongPath(v, to)
-            return
-        }
-        val strength = liquifyStrength *
-            LiquifyPath.substepStrengthScale(dist, size, full, liquifyMode)
-        val stepX = (to.x - from.x) / full
-        val stepY = (to.y - from.y) / full
-        var px = from.x
-        var py = from.y
-        for (i in 0 until n) {
+    private fun liquifyFlushNow(v: PaintViewModel, forceFull: Boolean) {
+        if (!liquifySession.prepareFlush(liquifyBrushSize, liquifyMode, forceFull)) return
+        val steps = liquifySession.planSteps
+        if (steps <= 0) return
+        val strength = liquifyStrength * liquifySession.planStrengthScale
+        val stepX = liquifySession.planStepX
+        val stepY = liquifySession.planStepY
+        var px = liquifySession.planStartX
+        var py = liquifySession.planStartY
+        for (i in 0 until steps) {
             val nx = px + stepX
             val ny = py + stepY
             v.liquify(px, py, nx, ny, liquifyMode, strength.toDouble())
             px = nx
             py = ny
         }
-        liquifyPrevPos = Offset(px, py)
-        PerfTrace.liquifySchedule(liquifyInputSinceFlush, n)
-        liquifyInputSinceFlush = 0
-        if (n < full) {
-            // 还没追完: 下一帧继续朝最新位置推进
-            if (!liquifyFlushPosted) {
-                liquifyFlushPosted = true
-                postOnAnimation(liquifyFlushRunnable)
-            }
-        } else {
-            liquifyPendingTo = null
+        liquifySession.advanceFlush(steps)
+        // 合并倍率: 本帧覆盖的输入事件数 / 实际补点数
+        PerfTrace.liquifySchedule(liquifySession.lastFlushInputs, steps)
+        // backlog 指标: 滞后事件数 + 仍未提交的补点数(见 PerfTrace.liquifyFlow)
+        PerfTrace.liquifyFlow(liquifySession.lag, liquifySession.backlogDabs)
+    }
+
+    /**
+     * Phase 3B: latest-state-wins 的"一帧推进"。
+     *
+     * 每帧最多推进 [LiquifyInteractionSession.maxDabsPerFlush] 个补点, 方向永远指向**最新**位置;
+     * 没追完下一帧继续。与"逐个历史点立即处理"的差别只有两点: ①同一帧内多个输入事件被合并成
+     * 一段(中间位置丢弃); ②单帧阻塞时间有上界 —— 不会再出现"一个事件里 10 个历史点 × 每个
+     * 41ms"这种排队。
+     */
+    private fun flushLiquifyPending() {
+        liquifyFlushPosted = false
+        val v = vm ?: return
+        liquifyFlushNow(v, forceFull = false)
+        if (liquifySession.hasPending && !liquifyFlushPosted) {
+            // 还没追上最新位置: 下一帧继续朝最新位置推进
+            liquifyFlushPosted = true
+            postOnAnimation(liquifyFlushRunnable)
         }
     }
 
@@ -2732,16 +2847,14 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
-                    // Phase 2C: 抬笔要把没追完的剩余段一次性补齐(此时按常规补点规则覆盖整段,
+                    // Phase 3B: 抬笔要把没追完的剩余段一次性补齐(此时按常规补点规则覆盖整段,
                     // 不丢形变), 再提交事务
-                    if (liquifyMaxDabsPerFlush > 0) {
+                    if (liquifySession.coalescing) {
                         removeCallbacks(liquifyFlushRunnable)
                         liquifyFlushPosted = false
-                        liquifyPendingTo?.let { to ->
-                            liquifyPendingTo = null
-                            liquifyAlongPath(v, to)
-                        }
+                        liquifyFlushNow(v, forceFull = true)
                     }
+                    liquifySession.reset()
                     if (isCancel) {
                         v.liquifyCancel()
                     } else {

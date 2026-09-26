@@ -7,4 +7,10 @@
     <string name="settings_diagnostics">诊断</string>
     <string name="settings_perf_hud">性能标尺</string>
     <string name="settings_perf_hud_sub">画布上显示实时渲染路径、纹理重传与保存耗时（排查卡顿用，日常建议关闭）</string>
+    <string name="settings_liquify_proxy">液化预览代理分辨率</string>
+    <string name="settings_liquify_proxy_sub">实验 A：源纹理按比例下采样，形变几何不变，纹理带宽与显存随之下降（下一段手势生效）</string>
+    <string name="settings_liquify_coalesce">液化交互合并步数</string>
+    <string name="settings_liquify_coalesce_sub">latest-state-wins：每帧最多推进的补点数，关闭则逐点处理（下一段手势生效）</string>
+    <string name="settings_experiment_auto">自动</string>
+    <string name="settings_experiment_off">关闭</string>
 </resources>

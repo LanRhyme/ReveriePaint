@@ -17,6 +17,10 @@
 | 液化 | 四段耗时打点(总/形变/补洞/回写/合成) + 网格导出与箭头可视化 | 已落地 | `setprop debug.reverie.lqprec` / `debug.reverie.lqgrid` |
 | 液化预览 | 手势期间不 `run()`/不写图层/不触投影, 由显示层叠加低分辨率形变预览; 抬笔仍精确 materialize | 原型已落地, 待真机 | `setprop debug.reverie.liquifyPreview 1` |
 | 液化预览 | AGSL 版: 同一份位移场交给 GPU 在显示分辨率上采样(引擎只给源裁剪 + 网格) | 原型已落地, 待真机 | `setprop debug.reverie.liquifyPreviewGpu 1` |
+| 液化预览 | 交互态会话(Phase 3A/3B): latest-state-wins 收敛成纯 Kotlin 状态机, 补 backlog/lag 指标(HUD 第 4.5 行) | 已落地, 待真机 | 同 2C(`debug.reverie.lqcoalesce` / `-PlqTestProfile`) |
+| 液化预览 | 实验 A: 代理分辨率旋钮(源纹理按比例下采样) + HUD `/代理` 读数 | 已落地, 待测量 | `-PlqProxy=<10..100>` / `setprop debug.reverie.lqproxy` / **设置→诊断 内应用内切换** |
+| 液化预览 | 干预实验(§4.15): 预览"状态暂存"与"纹理上传"解耦, 上传 ≤ 1/帧; HUD 拆出 暂存/网格上传/源上传 + frame p95 | 已落地, 待测量 | 无(自动); 设置→诊断 内的合并步数/代理旋钮仍可用 |
+| 液化预览 | 覆盖层局部失效(V2 Phase 2, §4.17): 由前后两帧位移场差异推文档脏区, 不再每个 dab 整屏重绘 | 已落地, 待真机 | `debug.reverie.liquifyPreviewGpu` + `partialInvalidateEnabled` |
 | 内存 | 帧缓存按字节预算淘汰 + `ComponentCallbacks2` 内存压力释放; 缩略图给笔画让路 | 已落地 | 无(自动) |
 | 量测 | `PerfTrace`(Kotlin, 分桶统计) + `revpSaveStats`(C++ 阶段计时) + debug 专属 HUD | 已落地 | `setprop debug.reverie.perf 1` / debug 包设置页 |
 | 未做 | tile 化显示缓冲(整张纹理重传是最大带宽项) · 视口尺寸渲染缓冲 · 液化按 tile 增量 `run()` | 待立项 | 见 §9 |
@@ -416,6 +420,143 @@ HUD 新增的第 4.5 行就是这台实验的读数: `泵 输入<i>/推进<f>/�
 回写 0/合成 3, 543K px` —— 543K px 恰好是 200px 笔刷的 bounds 面积, 即那 54ms 是一次**物化**
 而不是拖动中的每次提交。若 `物化` 在拖动中还明显 > 0, 说明 rebase 是下一个瓶颈。
 
+### 4.12 Phase 3A/3B: 交互态会话与 backlog 指标 (已落地, 待真机)
+
+2A-2 / 2B / 2C 已经把"最终物化"与"交互态呈现"分开, 2C 又验证了"只追最新位置"的调度合并。但 2C
+的实现散落在触摸视图里的五个临时字段(`liquifyPrevPos` / `liquifyPendingTo` / `liquifyInputSinceFlush`
+/ `liquifyMaxDabsPerFlush` / `liquifyFlushPosted`), 既难单测, 也读不出"到底积压了多少"。3A/3B 把它
+收敛成一个纯 Kotlin 状态机 —— **不改任何默认行为**(开关口径与 2C 完全一致)。
+
+| 项 | 内容 |
+|---|---|
+| 状态机 | [`LiquifyInteractionSession.kt`](../app/src/main/java/com/reverie/paint/model/LiquifyInteractionSession.kt): 交互态只保留"最新目标位置", 记录 `inputSequence` / `renderedSequence` 与每帧推进计划; 不持有像素、不调 JNI |
+| 提交点 | [`CanvasTouchView.liquifyFlushNow()`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt): 液化的**唯一** JNI 提交点, 按会话的推进计划跑补点循环 |
+| 为什么不重放操作栈 | 形变真身在 C++ 引擎网格, 每个 dab 都是**增量**累加(见 `ReverieCoreMiscTools.cpp`) ⇒ Kotlin 侧无需保存历史操作, 只记"还剩多少距离" |
+| backlog 指标 | `lag = inputSequence - renderedSequence`(距上次推进累积的输入事件); `backlogDabs` = 上一帧推进后仍未提交的补点数(真实"还差多少") |
+| HUD | 第 4.5 行扩为 `泵 输入<i>/推进<f>/补点<d>/物化<a>/上传<u>/滞后<cur>峰<max>步 lag<lag>`(上传正常恒为 1) |
+| 默认行为 | **不变**: `lqcoalesce=0` 或关闭预览时仍逐点全量推进; AGSL 预览默认 2 步/帧(与 2C 相同) |
+| 单测 | [`LiquifyInteractionSessionTest.kt`](../app/src/test/java/com/reverie/paint/model/LiquifyInteractionSessionTest.kt): 调度上限 / backlog 口径 / 分帧不改总量 / 抬笔精确落点 |
+
+**压力测试判据(方案 §20~§22)**: 200px 高速连续 30 秒, 看 HUD `滞后…峰…步` 是否**随时间增大**。
+若峰值量级稳定(≈ 一帧位移折算出的补点数), 说明 latest-state-wins 真正消灭了长期积压; 若持续爬升,
+则 backlog 仍在, 下一步才需要动"局部 deformation / 代理分辨率 / 提交优化"。
+
+**下一步(未做)**: 局部 State(仅处理受影响区域) → 代理分辨率(1/2 → 1/4) → Commit 阶段优化。
+Vulkan 后端与全画布 Flow Field 明确暂缓 —— `draw p95 ≈ 0.10ms` 已说明呈现层不是瓶颈。
+
+### 4.14 实验 A: Proxy Resolution (代理分辨率旋钮, 已落地, 待测量)
+
+Phase 3B 证明"输入积压"只是问题的一部分。下一阶段目标是把**交互帧成本与"笔刷大小 × 画布分辨率"
+脱钩**。按"先做极简 benchmark, 不急着上 Phase 4 架构"的顺序, 本实验只加一个旋钮: 让 AGSL 预览的
+**源纹理**按比例下采样(形变几何不变, 纹理带宽/显存随之下降), 用来回答"瓶颈是否在 preview
+pixel/bandwidth workload"。
+
+| 项 | 值 |
+|---|---|
+| 构建期档位 | `./gradlew assembleDebug -PlqProxy=<10..100>`(默认 100 = 全分辨率, 行为不变) |
+| 运行时覆盖 | `adb shell setprop debug.reverie.lqproxy <n>`(改后下一次 rebase 生效) |
+| **应用内(无数据线)** | **设置 → 诊断 → 「液化预览代理分辨率」下拉**(自动/100/75/50/25), 持久化, 下一段手势生效 |
+| **应用内(无数据线)** | **设置 → 诊断 → 「液化交互合并步数」下拉**(自动/关闭/2/4/8), 即 latest-state-wins 的每帧补点上限 |
+| 实现 | [`buildSourceBitmap()`](../app/src/main/java/com/reverie/paint/core/LiquifyGpuPreview.kt) 在 rebase 时一次性下采样; shader 用 `uSrcScale` 同比缩放采样坐标 |
+| HUD | 第 4.5 行新增 `/代理<w>x<h>(<KB>)` —— 直接读出"这一档把源纹理压到了多少" |
+| 默认 | 100 = 与历史行为逐像素一致(几何、采样口径都不变) |
+
+**跑法(固定 200px / 高速拖动 / 同一画布)**: 依次 `setprop debug.reverie.lqproxy 100 / 75 / 50 / 25`,
+每次记录 HUD 的 `draw p95` / `flip/s`(FPS 代理) / `滞后…峰…步` / `代理` 尺寸。
+
+**判读**:
+- 曲线随分辨率下降明显改善 ⇒ 瓶颈确在 preview 像素/带宽 workload, 下一步做真正的 Phase 4
+  (Proxy Surface: 只 warp 受影响区域, 连屏幕覆盖面积一起降下来);
+- 曲线基本平坦 ⇒ 每帧成本主要由**屏幕覆盖面积**(裁剪区在屏幕上的包围盒)决定, 而非源纹理分辨率;
+  此时应先做"局部 deformation 更新 + 只画受影响区域", 再谈代理分辨率。
+
+> 注: 本旋钮降低的是**纹理带宽/显存**, 不改变 AGSL 的片元数量(片元数由裁剪区的屏幕包围盒决定)。
+> 它是一把"便宜的探针": 用来判断下一步该投"带宽"还是"覆盖面积"。
+
+### 4.15 干预实验: 预览"状态暂存"与"纹理上传"解耦 (上传 ≤ 1/帧)
+
+真机读到 `输入 9 / 推进 7 / 上传 9 / lag 0` —— 输入没有积压, 但**上传/提交**仍与输入同频。
+本实验只做一件事: 把"输入 → 状态"与"状态 → GPU 纹理"分开, 让上传跟着 VSYNC 走。
+
+```
+引擎线程:  update(crop, src, grid)  →  只暂存 pending 状态, stateDirty = true   (+1 暂存)
+UI 线程:   draw()(每帧一次) → commitLocked() → 构建/上传纹理 (+1 网格上传) → 绘制
+```
+
+| 项 | 内容 |
+|---|---|
+| 实现 | [`LiquifyGpuPreview.update()`](../app/src/main/java/com/reverie/paint/core/LiquifyGpuPreview.kt) 变为纯暂存; 新增 `commitLocked()` 在 [`draw()`](../app/src/main/java/com/reverie/paint/core/LiquifyGpuPreview.kt) 内每帧提交一次 |
+| 门控 | [`CanvasTouchView.onDraw`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt) 以 `requested` 为门(而非 `active`), 让帧内提交得以发生 |
+| 指标 | 每帧 `PerfTrace.frameTick()`(帧间隔 p95); `previewUpdates`(暂存次数) / `gridUploads`(网格上传次数) / `sourceUploadCount`(rebase 次数) |
+| HUD | 第 4.5 行 `泵 输入/推进/补点/物化 暂存N/网格上传M/源上传K 滞后…峰… 代理…`; 第 4.6 行 `frame <ms> p95 <ms>` |
+| 预期 | `网格上传 ≤ 帧数`(原先 ≈ 推进次数) |
+
+**读法(重跑 200px 高速拖动, 对比实验前后)**:
+- `网格上传` 明显下降 + `frame p95` 接近刷新间隔 ⇒ 收敛方案成立(上传不再是变量);
+- `网格上传` 已 ≤ 帧数但 `frame p95` 仍有 30ms+ 尖峰 ⇒ **停止调 AGSL**, 转做 SurfaceView + GLES,
+  验证"CanvasTouchView + Android Canvas/HWUI 是不是帧 pacing 瓶颈"。
+
+> 重要澄清: 上一版 HUD 的 `/上传` 是**源纹理(rebase)上传次数**, 不是每帧的网格纹理上传。它 > 1 说明
+> 拖动中 rebase 过频(每次 rebase 一次全分辨率 Krita apply) —— 这是与"输入积压"不同的独立瓶颈。
+> 本实验把它拆成 `源上传`(rebase) 与 `网格上传`(每帧), 避免误读。
+
+### 4.16 干预实验: 拆开"物化 41" (物化 count / total / max)
+
+真机读数 `物化 41` + `draw p95 0.14ms` + `lag 0` 指向一个反模式: **`lag=0` 不代表不卡** —— 预览推进很快,
+但引擎在拖动中反复 materialize(rebase), 每次都做一次全 bounds 的 `KisLiquifyTransformWorker::run()`。
+
+引擎侧 [`liquifyApplyLocked()`](../app/src/main/cpp/ReverieCoreMiscTools.cpp) 就是物化点; 预览模式下触发来源只有两处:
+1. **rebase**: 笔刷移出 worker bounds 内边距时(`ReverieCoreMiscTools.cpp` 的 `needRebase`), 会先
+   `liquifyApplyLocked()` 再重建 worker —— 这是拖动中物化的主要来源, 次数 ≈ `源上传`;
+2. 抬笔 `liquifyEnd()` 的收口一次。
+
+本实验**不改算法、不改渲染**, 只把物化拆开看:
+
+| 项 | 内容 |
+|---|---|
+| 采样点 | [`PaintViewModel.doRender()`](../app/src/main/java/com/reverie/paint/core/PaintViewModel.kt) 内每渲染一次 `pollLiquifyStats()`(**引擎线程**) —— 原先只在 1s 定时器取, 只能拿到"最后一次"的耗时 |
+| 累计 | [`PerfTrace.liquifyApply()`](../app/src/main/java/com/reverie/paint/core/PerfTrace.kt) 检测到 applyCount 增加时累加 `lqMatTotalMs` 并取 `lqMatMaxMs` 峰值; 窗口(1s)清零 |
+| HUD | 第 4.5 行 `物化 <次数>/<累计ms> max<峰值ms>`(与 `源上传` 并列, 源上传 ≈ rebase 次数) |
+| 口径 | 若两次采样间发生多次 apply, `total` 会低估(只记最后一次), `max` 仍是所采到的峰值 |
+
+**判读(200px / 90% / 高速 / 30s)**:
+- `物化 41/820ms max47ms` 这类读数 ⇒ 确认"`lag=0` 却卡"的根因是**拖动中反复 rebase 的全量物化**;
+  下一步做 §9.1 的 **Phase 4 Interaction-State Compaction**: 交互期不碰 Krita Document, 只在超过阈值时
+  压缩 deformation state, 抬笔才做唯一一次 materialize。
+- 若 `max` 很小(几 ms)而 `frame p95` 仍高 ⇒ 物化不是主因, 回到 frame pacing 方向。
+
+> 需要 `rebase` 分段的精确耗时、以及"交互期完全不 rebase"的开关(如 `debug.reverie.liquifyNoRebase`)时,
+> 必须在具备 Qt for Android + Krita 源码的机器上 `-PbuildNative` 重编 C++(本工作区无该工具链, 故本轮先给
+> Kotlin 侧可验证的量测)。C++ 侧只需在 `liquifyApplyLocked` / `needRebase` 分支加同样的累计原子量。
+
+### 4.17 V2 Phase 2(已落地): 覆盖层局部失效, 消掉"每个 dab 整屏重绘"
+
+§4.10 记的已知代价是"主机侧绘制模式下引擎不写显示缓冲 ⇒ 没有脏区 ⇒ 每个 dab 触发一次整屏重绘"。
+本节把它接进既有脏区体系(目标与 §2.2 的 `invalidateFromRender` 相同, 只是换了个失效源)。
+**只服务 AGSL 覆盖层(该路径默认关闭), 其它渲染路径一律不变。**
+
+| 环节 | 实现 | 关键约束 |
+|---|---|---|
+| 脏区推导 | [`LiquifyDirtyRegion.changedDocRect()`](../app/src/main/java/com/reverie/paint/model/LiquifyDirtyRegion.kt): 比较前后两帧 `liquifyGrid()` 的位移场 | 覆盖层输出 = `src(p - offset(p))`, 源纹理整段不变 ⇒ **只有 offset 变了的地方输出才变**; 位移场是双线性采样 ⇒ 按"变化点的单元 ±1 格"取保守超集 |
+| 逐帧暴露 | [`LiquifyGpuPreview.update()`](../app/src/main/java/com/reverie/paint/core/LiquifyGpuPreview.kt)(引擎线程)算好脏区, `@Volatile` 暴露 `overlayDirtyValid/Full/X/Y/W/H` | rebase 换了源裁剪(`cropKey` 变)必须判 `INCOMPARABLE` ⇒ 整屏回退; 否则局部矩形会漏掉"源纹理已换"这件事 |
+| 失效计算 | [`CanvasTouchView.scheduleLiquifyInvalidate()`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt): 文档脏区 → 屏幕包围盒(+8px, 与 `draw()` 余量一致) ∪ **光标环前后位置** | 光标环由 `CanvasTouchView.onDraw` 画在同一张画布上, 旧位置必须一起重绘, 否则留残影 —— 这也正是原 `canPartialInvalidate` 在触摸期一律整屏的原因 |
+| 安全门 | [`canLiquifyPartialInvalidate()`](../app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt): 旋转 / 像素网格 / 面板 / 多指 / 对称镜像 → 整屏 | 与 `canPartialInvalidate` 的唯一区别是**不因光标活动而整屏**: 液化手势期间 `isInteracting` 恒为 true, 沿用旧条件等于该优化不存在 |
+| 入口 | `pollLiquifyGpuPreview()` 收尾由 `postInvalidate()` 改为 `onLiquifyPreviewUpdated()`(可来自引擎线程, 内部回 UI 线程) | 不可比 / 无脏区信息 / 安全门不满足 / 失效矩形为空 ⇒ 一律整屏 |
+
+**正确性依据**: HWUI 只重绘失效矩形, 矩形之外的旧覆盖层像素被保留 —— 而在"位移场没变"的区域, 旧像素
+本来就是对的不变量。因此只要脏区是"变化输出"的超集, 画面就与整屏重绘等价。
+
+**未做(刻意)**: 没有按 [液化 V2 改造清单](LIQUIFY-V2-PLAN.md) 把 `LiquifyGpuPreview` 拆成
+`LiquifyTextureSet`/`LiquifyWarpPass` —— 该文件不到 500 行且职责已单一, 此时拆分属"为拆分而拆分"
+(AGENTS.md §5 最小 diff); 等功能继续长大再拆。
+
+**与 Phase 3 的关系**: 本节只降"重绘面积", 不降"拖动中 rebase 的全量物化"(§4.16)。两者独立, 可分别验证。
+
+**机械验证**: `:app:compileDebugKotlin` 与 `:app:testDebugUnitTest` 通过(新增
+`LiquifyDirtyRegionTest` 7 例: 无变化 / 单点变化 / 多点并集 / 阈值内抖动 / null 与规模不符判不可比 /
+截断数组不崩)。**真机待验证**: ① 开 `debug.reverie.liquifyPreviewGpu 1` 推拉拖动, 环无残影、形变区边缘
+无"未更新的旧像素块"; ② 与关闭开关时的最终结果逐像素一致(局部失效只改交互态呈现, 不改提交)。
+
 ## 5. 内存与线程
 
 ### 5.1 帧缓存预算 + 内存压力
@@ -540,6 +681,10 @@ sha256sum third_party/android-native-libs/libreverie_jni.so
 | — | **已论证不做** | "推拉绕开网格做 memcpy"(§4.5); 收紧 Krita 投影瓦片回收上限(要碰 `KisTiledDataManager`, 风险高于收益) |
 
 ### 9.1 交互态与文档态解耦 (Phase 0~5, 已定方向)
+
+> 文件级改造清单已单独成文: [液化 V2 改造清单](LIQUIFY-V2-PLAN.md) —— 把"快照 + 操作日志 +
+> 局部 GPU Warp + Dirty Tile"逐模块映射到本仓库现有文件, 并列出两条不可照搬的边界
+> (画布后端无 GLES 管线; 形变真身在 Krita 网格而非 Kotlin 操作日志)。
 
 核心判断:**预览不落盘、预览不触发投影重组合**。把"交互态"从 Krita 的文档流水线里剥离 ——
 Krita 继续负责最终正确性(形变 / 采样 / 像素 / 事务 / 撤销 / 最终合成), Android 侧负责交互性能

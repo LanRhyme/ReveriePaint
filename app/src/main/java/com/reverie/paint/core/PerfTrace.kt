@@ -234,6 +234,26 @@ object PerfTrace {
         rollWindowLocked()
     }
 
+    /**
+     * 记录一次 UI 线程 onDraw 的时刻, 统计"真实帧间隔"(相邻两帧的时间差)。
+     * 与 [drawFrame](单帧绘制耗时) 不同: 帧间隔能暴露"每帧都很快, 但上屏被拖慢"的 pacing 问题。
+     */
+    @Synchronized
+    fun frameTick() {
+        if (!enabled) return
+        val now = System.nanoTime()
+        val prev = lastFrameNs
+        lastFrameNs = now
+        if (prev == 0L) return
+        val dt = now - prev
+        // 忽略首帧与长停顿(>1s): 它们不是"帧节奏", 会把 p95 拉歪
+        if (dt <= 0L || dt > 1_000_000_000L) return
+        frameIntervalLastMs = dt / 1_000_000.0
+        frameRing[frameIdx] = dt
+        frameIdx = (frameIdx + 1) % RING
+        if (frameN < RING) frameN++
+    }
+
     /** C++ 侧回报的上一次保存阶段耗时 (见 `revpSaveStats`) */
     @Synchronized
     fun saveStats(
@@ -258,23 +278,104 @@ object PerfTrace {
         hudCacheMs = 0L
     }
 
-    // Phase 2C: 交互调度计数(每秒窗口) —— 输入事件 / 推进次数 / 补点总数, 用于判断合并倍率
+    // Phase 3A: 交互调度计数(每秒窗口) —— 输入事件 / 推进次数 / 补点总数, 用于判断合并倍率
     private var lqScheduleInput = 0L
     private var lqScheduleFlush = 0L
     private var lqScheduleDab = 0L
     private var lqApplyPerWindow = 0L
     private var lqApplyCountLast = 0L
+    // Phase 3B: 交互态"滞后"即时值 + 窗口内的峰值 backlog。
+    // backlog = 上一帧推进后仍未提交的补点数(真实"还差多少"); 若它随操作时间持续增大,
+    // 就说明 latest-state-wins 没能消灭长期积压 —— 这是 200px/高速/长时间压力测试的核心读数。
+    private var lqFlowLag = 0L
+    private var lqFlowBacklog = 0
+    private var lqFlowBacklogMax = 0
+    private var lqUploadCount = 0L
+    // 实验 A: 预览源纹理(代理)尺寸与占用, 用于 Proxy Resolution 对照。
+    private var lqProxyW = 0
+    private var lqProxyH = 0
+    private var lqProxyBytes = 0L
+    // 干预实验(§4.15): 预览"暂存 / 上传"计数(gauge, 每次手势内累计)
+    private var lqPreviewUpdates = 0L
+    private var lqGridUploads = 0L
+    // 干预实验(§4.16): 物化(Krita apply)耗时累计 —— 本窗口内的 总耗时 / 峰值耗时。
+    private var lqMatTotalMs = 0L
+    private var lqMatMaxMs = 0L
+    // 帧间隔(UI 线程相邻两次 onDraw 的时间差): 找 frame spike。
+    // 不与窗口一起清零 —— 保持一个滚动窗口的 p95, 便于长时间观察。
+    private val frameRing = LongArray(RING)
+    private val frameSort = LongArray(RING)
+    private var frameIdx = 0
+    private var frameN = 0
+    private var lastFrameNs = 0L
+    private var frameIntervalLastMs = 0.0
 
     /**
      * 记录一次液化"推进"(Phase 2C latest-state-wins 的每帧一次):
      * [inputs] = 距上次推进累积的输入事件数, [dabs] = 本次推进实际提交的补点数。
      * 三者之比就是合并倍率: 1 次推进 = 1 帧, 补点数 ≤ 每帧上限。
      */
+    /**
+     * 应用内覆盖(debug 设置页): latest-state-wins 每帧最多推进的补点数。
+     * -1 = 不覆盖(跟随 property/构建期档位); 0 = 关闭合并; >0 = 指定步数。
+     * 没有数据线时靠它切换(见 CanvasTouchView 的手势起始判定)。
+     */
+    @Volatile
+    var liquifyCoalesceOverride: Int = -1
+
     @Synchronized
     fun liquifySchedule(inputs: Int, dabs: Int) {
         lqScheduleInput += inputs
         lqScheduleFlush++
         lqScheduleDab += dabs
+    }
+
+    /**
+     * Phase 3B: 记录一次交互态的即时滞后指标 (gauge, 不累加):
+     * [lag] = 距上次推进累积的输入事件数, [backlogDabs] = 上一帧推进后仍未提交的补点数。
+     * 每帧都会调用, 因此 **不** 置 `hudCacheMs = 0`(否则 HUD 会每帧重建); HUD 在其
+     * 自身的 250ms 刷新节奏里读到最新 gauge 即可。
+     */
+    @Synchronized
+    fun liquifyFlow(lag: Long, backlogDabs: Int) {
+        if (!enabled) return
+        lqFlowLag = lag
+        lqFlowBacklog = backlogDabs
+        if (backlogDabs > lqFlowBacklogMax) lqFlowBacklogMax = backlogDabs
+    }
+
+    /**
+     * Phase 3B: 记录本次手势累计的源纹理上传次数 (gauge, 正常应恒为 1)。
+     * > 1 说明高速拖动期间发生了多余的 rebase 重传, 是需要优先排查的问题。
+     */
+    @Synchronized
+    fun liquifyUpload(count: Long) {
+        if (!enabled) return
+        lqUploadCount = count
+    }
+
+    /**
+     * 实验 A: 预览源纹理(代理)尺寸与占用 (gauge) —— 跑 100/75/50/25 对照时,
+     * 这一行直接告诉你"这一档实际把源纹理压到了多少"。
+     */
+    @Synchronized
+    fun liquifyProxy(width: Int, height: Int, bytes: Long) {
+        if (!enabled) return
+        lqProxyW = width
+        lqProxyH = height
+        lqProxyBytes = bytes
+    }
+
+    /**
+     * 干预实验(§4.15): 预览管线的"暂存 → 上传"计数 (gauge, 每次手势内累计)。
+     * [previewUpdates] = 引擎暂存的预览状态更新次数; [gridUploads] = 实际构建/上传网格纹理的次数。
+     * 目标: `gridUploads ≤ 帧数`, 即"上传 ≤ 1/帧"。
+     */
+    @Synchronized
+    fun liquifyPipeline(previewUpdates: Long, gridUploads: Long) {
+        if (!enabled) return
+        lqPreviewUpdates = previewUpdates
+        lqGridUploads = gridUploads
     }
 
     /**
@@ -297,11 +398,19 @@ object PerfTrace {
     ) {
         if (!enabled) return
         if (applyCount == lqCount) return
+        val delta = (applyCount - lqApplyCountLast).coerceAtLeast(0L)
         lqCount = applyCount
         // 本窗口发生了多少次"物化"(apply): 预览模式下引擎只在 rebase 与抬笔时 apply,
         // 因此这个增量就是 **拖动中 rebase 的次数** —— 它决定下一步是优化 rebase 还是收工。
-        lqApplyPerWindow += (applyCount - lqApplyCountLast).coerceAtLeast(0L)
+        lqApplyPerWindow += delta
         lqApplyCountLast = applyCount
+        // 干预实验(§4.16): 物化耗时累计。采样点已改为"每渲染一次"(引擎线程), 因此每次检测到
+        // 新的 apply 就把引擎上报的"上一次 apply 总耗时"累进来, 并取 max 抓尖峰。
+        // 注意: 若两次采样之间发生了多次 apply, total 会低估(只记最后一次); max 仍是所采到的峰值。
+        if (delta > 0L) {
+            lqMatTotalMs += totalMs
+            if (totalMs > lqMatMaxMs) lqMatMaxMs = totalMs
+        }
         lqTotalMs = totalMs
         lqWarpMs = warpMs
         lqSeedMs = seedMs
@@ -400,6 +509,9 @@ object PerfTrace {
         lqScheduleFlush = 0L
         lqScheduleDab = 0L
         lqApplyPerWindow = 0L
+        lqFlowBacklogMax = 0
+        lqMatTotalMs = 0L
+        lqMatMaxMs = 0L
         windowStart = now
     }
 
@@ -477,14 +589,32 @@ object PerfTrace {
                 .append(" 精度").append(lqPrecision).append("/单元").append(lqCells)
         }
 
-        // 第 4.5 行: 交互调度(Phase 2C latest-state-wins)的合并倍率 —— 上一秒窗口内
-        // `输入事件 / 推进次数 / 补点总数`。无数据线时靠这一行就能判断"有没有真的在合并"。
-        if (lqScheduleFlush > 0L) {
+        // 第 4.5 行: 液化交互管线的"暂存 → 上传 → 帧"三段读数。
+        //   输入/推进/补点 = 交互调度(上一秒窗口);
+        //   暂存/网格上传 = 状态暂存与实际纹理上传(每次手势内累计; 目标 网格上传 ≤ 1/帧);
+        //   源上传 = rebase 次数; 滞后 = 当前未提交补点数; 代理 = 源纹理尺寸。
+        if (lqScheduleFlush > 0L || lqPreviewUpdates > 0L) {
             sb.append('\n')
             sb.append("泵 输入").append(lqScheduleInput)
                 .append("/推进").append(lqScheduleFlush)
                 .append("/补点").append(lqScheduleDab)
-                .append("/物化").append(lqApplyPerWindow)
+            // 物化: 次数 / 本窗口累计耗时 / 单次峰值 —— 回答"lag=0 但仍卡"是否来自 apply 尖峰(§4.16)
+            sb.append(" 物化").append(lqApplyPerWindow)
+                .append('/').append(lqMatTotalMs).append("ms max").append(lqMatMaxMs).append("ms")
+            sb.append(" 暂存").append(lqPreviewUpdates)
+                .append("/网格上传").append(lqGridUploads)
+                .append("/源上传").append(lqUploadCount)
+                .append(" 滞后").append(lqFlowBacklog).append("峰").append(lqFlowBacklogMax)
+                .append(" lag").append(lqFlowLag)
+                .append(" 代理").append(lqProxyW).append('x').append(lqProxyH)
+        }
+
+        // 第 4.6 行: 真实帧间隔(相邻两帧 onDraw 的时间差) —— 判断"上传控制住了但仍卡"的关键。
+        if (frameN > 0) {
+            sb.append('\n')
+            sb.append("frame ").append("%.1f".format(frameIntervalLastMs))
+                .append("ms p95 ").append("%.1f".format(p95Locked(frameRing, frameSort, frameN) / 1e6))
+                .append("ms n").append(frameN)
         }
 
         // 第 5 行: 液化网格快照 (setprop debug.reverie.lqgrid 1 时才有)

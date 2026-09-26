@@ -66,6 +66,14 @@ android {
         val lqTestProfile = (project.findProperty("lqTestProfile") as? String)?.toIntOrNull() ?: 0
         buildConfigField("int", "LQ_TEST_PROFILE", lqTestProfile.toString())
 
+        // 液化预览"代理分辨率"百分比(无 adb 做 Proxy Resolution 实验): ./gradlew assembleDebug -PlqProxy=<10..100>
+        //   100(默认) = 源纹理全分辨率(与历史行为逐像素一致)
+        //   75/50/25  = 源纹理按比例下采样(几何不变, 纹理带宽/显存随之下降)
+        // 运行时可用 `setprop debug.reverie.lqproxy <n>` 覆盖(见 docs/RENDER-OPTIMIZATION.md 实验 A)
+        val lqProxyPercent =
+            ((project.findProperty("lqProxy") as? String)?.toIntOrNull() ?: 100).coerceIn(10, 100)
+        buildConfigField("int", "LQ_PROXY_PERCENT", lqProxyPercent.toString())
+
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

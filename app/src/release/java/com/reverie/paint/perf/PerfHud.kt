@@ -25,6 +25,12 @@ internal object PerfHud {
 
     fun readPref(prefs: SharedPreferences): Boolean = false
 
+    /** 实验 A 的档位在正式版不存在: 恒返回"不覆盖", 不 honor 任何残留偏好 */
+    fun readLiquifyProxyPercent(prefs: SharedPreferences): Int = 0
+
+    /** Phase 3B 的档位在正式版不存在: 恒返回"不覆盖" */
+    fun readLiquifyCoalesceSteps(prefs: SharedPreferences): Int = -1
+
     fun recordDraw(nanos: Long) {}
 
     fun draw(canvas: Canvas, view: View) {}

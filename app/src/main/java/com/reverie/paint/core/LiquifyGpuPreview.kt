@@ -14,6 +14,7 @@ import android.os.Build
 import android.util.Half
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.CanvasViewTransform
+import com.reverie.paint.model.LiquifyDirtyRegion
 import java.nio.ByteBuffer
 import java.nio.ShortBuffer
 
@@ -43,6 +44,10 @@ internal object LiquifyGpuPreview {
 
     private const val PROP_GPU = "debug.reverie.liquifyPreviewGpu"
 
+    /** 实验 A: 代理分辨率百分比(10..100)。运行时覆盖构建期档位。 */
+    private const val PROP_PROXY = "debug.reverie.lqproxy"
+    private const val MIN_PROXY_PERCENT = 10
+
     /**
      * 构建期注入的实验档位(`-PlqTestProfile=<n>`, 见 `app/build.gradle.kts`):
      * 0 = 不改默认行为; 1 = 默认 AGSL 预览 + latest-state-wins; 2 = 默认 CPU 预览 + latest-state-wins;
@@ -51,13 +56,17 @@ internal object LiquifyGpuPreview {
      */
     private val testProfile = BuildConfig.LQ_TEST_PROFILE
 
+    /** 实验 A: 构建期注入的代理分辨率百分比(`-PlqProxy=<n>`, 默认 100)。 */
+    private val proxyTestPercent = BuildConfig.LQ_PROXY_PERCENT
+
     /**
      * 位移采样 shader。输入:
      *  - `uSrc`  : 未形变的 bounds 裁剪(1 纹素 = 1 文档像素, CLAMP + 线性);
      *  - `uGrid` : 位移纹理(R = dx, G = dy, 单位文档像素, 线性插值即双线性);
      *  - `uOrigin`/`uEx`/`uEy`: 文档→屏幕仿射(原点 + 两个基向量), 这里做 2x2 求逆变成
      *    屏幕→文档, 于是缩放/旋转/平移自动跟随画布;
-     *  - `uCropOrigin`/`uGridOrigin`/`uGridStep`/`uGridSize`: 裁剪与网格在文档坐标里的原点与步长。
+     *  - `uCropOrigin`/`uGridOrigin`/`uGridStep`/`uGridSize`: 裁剪与网格在文档坐标里的原点与步长;
+     *  - `uSrcScale`: 代理分辨率比例(1.0 = 全分辨率源纹理, <1 = 下采样后的代理)。
      */
     private val SHADER_SRC = """
         uniform shader uSrc;
@@ -69,6 +78,7 @@ internal object LiquifyGpuPreview {
         uniform float2 uGridOrigin;
         uniform float2 uGridStep;
         uniform float2 uGridSize;
+        uniform float uSrcScale;
 
         half4 main(float2 fragCoord) {
             float2 d = fragCoord - uOrigin;
@@ -85,7 +95,8 @@ internal object LiquifyGpuPreview {
                 return half4(0.0);
             }
             float2 off = uGrid.eval(g + 0.5).rg;
-            return uSrc.eval((doc - uCropOrigin) - off);
+            // 代理分辨率: uSrc 可能是按比例下采样后的源纹理, 采样坐标要同比缩放(100% 时为 1.0)
+            return uSrc.eval(((doc - uCropOrigin) - off) * uSrcScale);
         }
     """.trimIndent()
 
@@ -96,6 +107,63 @@ internal object LiquifyGpuPreview {
     /** 是否已有可绘制内容(UI 线程按帧读取)。 */
     @Volatile
     var active = false
+
+    /** Phase 3B: 本次手势累计的源纹理上传次数。正常应恒为 1 —— 源裁剪只在 rebase 时变,
+     *  拖动期间不重传; 若高速操作中发现 > 1, 说明 rebase 过频, 是需要优先修的问题。 */
+    @Volatile
+    var sourceUploadCount: Long = 0L
+        private set
+
+    /** 干预实验(§4.15): 本次手势累计"暂存"的预览状态更新次数(一帧内可能多次)。 */
+    @Volatile
+    var previewUpdates: Long = 0L
+        private set
+
+    /** 干预实验(§4.15): 本次手势累计构建(上传)网格纹理的次数 —— 目标 ≤ 帧数(即 ≤1/帧)。 */
+    @Volatile
+    var gridUploads: Long = 0L
+        private set
+
+    // VSYNC 绑定: 引擎线程只"暂存"最新状态, 纹理构建/上传推迟到 draw()(每帧一次)。
+    // JNI 每次返回新数组, 直接持有引用即可, 不复制(热路径零分配)。
+    private var pendingCrop: IntArray? = null
+    private var pendingSrc: ByteArray? = null
+    private var pendingGrid: FloatArray? = null
+    private var stateDirty = false
+
+    // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 本帧**文档脏区** —— 由前后两帧位移场的
+    // 差异推出, 交给 UI 侧做局部失效(覆盖层不再每 dab 整屏重绘)。只在引擎线程写(update),
+    // UI 线程读(经 CanvasTouchView.post), 故全部 @Volatile。
+    // JNI 每次返回新数组 ⇒ 直接持有上一帧引用做差分, 不复制。
+    private var dirtyPrevGrid: FloatArray? = null
+    private var dirtyPrevCropKey = 0L
+    private val dirtyRectScratch = IntArray(4)
+
+    /** 本帧脏区是否可用(UI 线程读)。false = 无需重绘。 */
+    @Volatile
+    var overlayDirtyValid = false
+        private set
+
+    /** true = 脏区不可用(首次 / rebase 换了源纹理 / 数据不完整), UI 侧必须整屏回退。 */
+    @Volatile
+    var overlayDirtyFull = true
+        private set
+
+    @Volatile
+    var overlayDirtyX = 0
+        private set
+
+    @Volatile
+    var overlayDirtyY = 0
+        private set
+
+    @Volatile
+    var overlayDirtyW = 0
+        private set
+
+    @Volatile
+    var overlayDirtyH = 0
+        private set
 
     /** -1 未判定 / 0 不可用 / 1 可用。判定失败后不再重试, 免得每帧都抛异常。 */
     private var supported = -1
@@ -120,6 +188,14 @@ internal object LiquifyGpuPreview {
     private var gridStepY = 1f
     private var cropOriginX = 0f
     private var cropOriginY = 0f
+    // 实验 A: 源纹理代理比例(1.0 = 全分辨率)。下面三个只读量供 HUD 对照。
+    private var srcScale = 1f
+    var proxyWidth: Int = 0
+        private set
+    var proxyHeight: Int = 0
+        private set
+    var proxyUploadBytes: Long = 0L
+        private set
 
     private val scratch = FloatArray(2)
     private val corners = FloatArray(8)
@@ -142,6 +218,11 @@ internal object LiquifyGpuPreview {
         val wantGpu =
             (propBool(PROP_GPU) || testProfile == 1 || testProfile == 3) && ensureSupported()
         requested = wantGpu
+        sourceUploadCount = 0L
+        previewUpdates = 0L
+        gridUploads = 0L
+        resetDirtyBaseline()
+        synchronized(lock) { clearStagingLocked() }
         if (!wantGpu) {
             active = false
         }
@@ -167,6 +248,7 @@ internal object LiquifyGpuPreview {
         active = false
         requested = false
         synchronized(lock) {
+            clearStagingLocked()
             runtime = null
             srcShader = null
             gridShader = null
@@ -187,19 +269,89 @@ internal object LiquifyGpuPreview {
     /** 手势结束/取消, 或引擎报告没有源裁剪时调用。 */
     fun clear() {
         active = false
+        resetDirtyBaseline()
         synchronized(lock) {
             gridShader = null
             gridBitmap = null
             cropKey = 0L
+            clearStagingLocked()
+        }
+    }
+
+    /** 丢弃尚未提交的暂存状态(调用方需持有 [lock])。 */
+    private fun clearStagingLocked() {
+        pendingCrop = null
+        pendingSrc = null
+        pendingGrid = null
+        stateDirty = false
+    }
+
+    /**
+     * 丢弃脏区基线: 下一次 [update] 必然判为"不可比较", 于是 UI 侧整屏重绘一次。
+     * 手势开始 / 结束 / 失败回退时调用 —— 宁可多画一次整屏, 也不让旧基线算出错误的局部矩形。
+     */
+    private fun resetDirtyBaseline() {
+        dirtyPrevGrid = null
+        dirtyPrevCropKey = 0L
+        overlayDirtyValid = false
+        overlayDirtyFull = true
+        overlayDirtyX = 0
+        overlayDirtyY = 0
+        overlayDirtyW = 0
+        overlayDirtyH = 0
+    }
+
+    /**
+     * Phase 2: 由前后两帧位移场算出本帧文档脏区(引擎线程, 纯本地数组运算, 无分配)。
+     *
+     * 判为 [LiquifyDirtyRegion.CHANGED] 时 UI 侧只重绘该矩形映射到屏幕的包围盒;
+     * [LiquifyDirtyRegion.NO_CHANGE] 时连重绘都可以省掉; 其余情况整屏回退。
+     */
+    private fun updateDirtyRegion(crop: IntArray, grid: FloatArray?) {
+        val key = cropKeyOf(crop)
+        val code =
+            if (grid == null || key != dirtyPrevCropKey) {
+                // 换了源裁剪(rebase)或没有网格: 位移场不可比, 必须整屏
+                LiquifyDirtyRegion.INCOMPARABLE
+            } else {
+                LiquifyDirtyRegion.changedDocRect(dirtyPrevGrid, grid, dirtyRectScratch)
+            }
+        dirtyPrevCropKey = key
+        dirtyPrevGrid = grid
+        when (code) {
+            LiquifyDirtyRegion.CHANGED -> {
+                overlayDirtyX = dirtyRectScratch[0]
+                overlayDirtyY = dirtyRectScratch[1]
+                overlayDirtyW = dirtyRectScratch[2]
+                overlayDirtyH = dirtyRectScratch[3]
+                overlayDirtyFull = false
+                overlayDirtyValid = true
+            }
+            LiquifyDirtyRegion.NO_CHANGE -> {
+                overlayDirtyW = 0
+                overlayDirtyH = 0
+                overlayDirtyFull = false
+                overlayDirtyValid = false
+            }
+            else -> {
+                overlayDirtyW = 0
+                overlayDirtyH = 0
+                overlayDirtyFull = true
+                overlayDirtyValid = true
+            }
         }
     }
 
     /**
-     * 引擎线程调用: 用最新一帧的裁剪与网格刷新预览资源。
+     * 引擎线程调用: **只暂存**最新一帧的裁剪与网格, 不构建任何纹理。
+     *
+     * 干预实验(§4.15): 把"预览状态更新"与"GPU 上传"解耦 —— 输入可以 120/240Hz, 纹理构建与上传
+     * 推迟到 [draw](UI 线程, 每帧一次), 于是**每帧最多上传一次**。这是把"输入频率"从"上传频率"
+     * 里剥离出来的关键一步。
      *
      * @param crop `[cropW, cropH, docX, docY, docW, docH, seq]`
      * @param src  仅当裁剪发生变化时非空(RGBA8888, 整段手势只上传一次纹理)
-     * @param grid `liquifyGrid()` 的原始数组(每个 dab 都会变)
+     * @param grid `liquifyGrid()` 的原始数组(每个 dab 都会变; JNI 每次返回新数组, 直接持有即可)
      */
     fun update(crop: IntArray, src: ByteArray?, grid: FloatArray?) {
         if (crop.size < 7 || crop[0] <= 0 || crop[1] <= 0) {
@@ -211,41 +363,103 @@ internal object LiquifyGpuPreview {
             return
         }
         try {
+            // Phase 2: 脏区先算(锁外, 只碰本类私有字段), 再暂存状态给 UI 线程提交
+            updateDirtyRegion(crop, grid)
             synchronized(lock) {
-                val key = cropKeyOf(crop)
-                if (src != null && key != cropKey) {
-                    val bmp = Bitmap.createBitmap(crop[0], crop[1], Bitmap.Config.ARGB_8888)
-                    bmp.copyPixelsFromBuffer(ByteBuffer.wrap(src))
-                    // 换新位图而不是原地覆写: copyPixelsFromBuffer 不保证推进 generation id,
-                    // 原地改内容可能让 GPU 继续用旧纹理; 每次新建则可确定会上传。
-                    srcBitmap = bmp
-                    srcShader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-                    cropOriginX = crop[2].toFloat()
-                    cropOriginY = crop[3].toFloat()
-                    cropW = crop[0]
-                    cropH = crop[1]
-                    cropKey = key
-                }
-                if (grid != null && grid.size >= 8) {
-                    applyGridLocked(grid)
-                }
-                val r = runtime
-                val ss = srcShader
-                val gs = gridShader
-                if (r != null && ss != null && gs != null) {
-                    r.setInputShader("uSrc", ss)
-                    r.setInputShader("uGrid", gs)
-                    r.setFloatUniform("uCropOrigin", cropOriginX, cropOriginY)
-                    r.setFloatUniform("uGridOrigin", gridOriginX, gridOriginY)
-                    r.setFloatUniform("uGridStep", gridStepX, gridStepY)
-                    r.setFloatUniform("uGridSize", gridCols.toFloat(), gridRows.toFloat())
-                    paint.shader = r
-                    active = true
-                }
+                pendingCrop = crop
+                if (src != null) pendingSrc = src
+                if (grid != null && grid.size >= 8) pendingGrid = grid
+                stateDirty = true
+                previewUpdates++
             }
         } catch (t: Throwable) {
             fail()
         }
+    }
+
+    /**
+     * 把暂存状态落到纹理(每帧最多一次, 由 [draw] 调用)。返回本次是否可绘制。
+     * 上传计数只在这里增加 ⇒ [gridUploads] ≤ 帧数。
+     */
+    private fun commitLocked(): Boolean {
+        if (!stateDirty) return active
+        stateDirty = false
+        val crop = pendingCrop
+        val src = pendingSrc
+        val grid = pendingGrid
+        pendingSrc = null
+        if (crop == null || crop.size < 7) return false
+        val key = cropKeyOf(crop)
+        if (src != null && key != cropKey) {
+            val bmp = buildSourceBitmap(crop, src)
+            // 换新位图而不是原地覆写: copyPixelsFromBuffer 不保证推进 generation id,
+            // 原地改内容可能让 GPU 继续用旧纹理; 每次新建则可确定会上传。
+            srcBitmap = bmp
+            srcShader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            cropOriginX = crop[2].toFloat()
+            cropOriginY = crop[3].toFloat()
+            cropW = crop[0]
+            cropH = crop[1]
+            cropKey = key
+            sourceUploadCount++
+            // 实验 A: 源纹理坐标缩放(代理 <100% 时按比例下采样)
+            srcScale = bmp.width.toFloat() / crop[0].toFloat()
+            proxyWidth = bmp.width
+            proxyHeight = bmp.height
+            proxyUploadBytes = bmp.width.toLong() * bmp.height.toLong() * 4L
+        }
+        if (grid != null && grid.size >= 8) {
+            applyGridLocked(grid)
+            gridUploads++
+        }
+        val r = runtime
+        val ss = srcShader
+        val gs = gridShader
+        if (r != null && ss != null && gs != null) {
+            r.setInputShader("uSrc", ss)
+            r.setInputShader("uGrid", gs)
+            r.setFloatUniform("uCropOrigin", cropOriginX, cropOriginY)
+            r.setFloatUniform("uGridOrigin", gridOriginX, gridOriginY)
+            r.setFloatUniform("uGridStep", gridStepX, gridStepY)
+            r.setFloatUniform("uGridSize", gridCols.toFloat(), gridRows.toFloat())
+            r.setFloatUniform("uSrcScale", srcScale)
+            paint.shader = r
+            active = true
+            return true
+        }
+        return false
+    }
+
+    /**
+     * 实验 A: 按"代理分辨率"百分比构建源纹理。
+     *
+     * 100 = 原始 1:1(与历史行为逐像素一致); <100 时先按比例下采样再上传 —— 形变几何不变,
+     * 但纹理带宽/显存随之下降。下采样只在 rebase(整段手势一次)发生, 拖动期间不重算。
+     */
+    private fun buildSourceBitmap(crop: IntArray, src: ByteArray): Bitmap {
+        val full = Bitmap.createBitmap(crop[0], crop[1], Bitmap.Config.ARGB_8888)
+        full.copyPixelsFromBuffer(ByteBuffer.wrap(src))
+        val pct = proxyPercent()
+        if (pct >= 100) return full
+        val pw = (crop[0] * pct / 100).coerceAtLeast(1)
+        val ph = (crop[1] * pct / 100).coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(full, pw, ph, true)
+    }
+
+    /**
+     * 应用内覆盖(debug 设置页): 0 = 不覆盖。>0 时优先于 property 与构建期档位 ——
+     * 这是**没有数据线**(无法 setprop)时做实验 A 对照的唯一入口。
+     */
+    @Volatile
+    var proxyPercentOverride: Int = 0
+
+    /** 生效的代理分辨率百分比: 应用内覆盖 > 运行时 property > 构建期档位(默认 100)。 */
+    private fun proxyPercent(): Int {
+        val ov = proxyPercentOverride
+        if (ov in MIN_PROXY_PERCENT..100) return ov
+        val prop = PerfTrace.debugPropInt(PROP_PROXY, -1)
+        val pct = if (prop >= 0) prop else proxyTestPercent
+        return pct.coerceIn(MIN_PROXY_PERCENT, 100)
     }
 
     /** 网格 → 位移纹理(R=dx, G=dy, 半精度浮点), 并从真实网格点推原点和步长。 */
@@ -292,8 +506,9 @@ internal object LiquifyGpuPreview {
 
     /** UI 线程调用: 按当前视图变换把形变后的内容叠到画布之上(仅覆盖网格范围, 其余透明)。 */
     fun draw(canvas: Canvas, vt: CanvasViewTransform) {
-        if (!active) return
         synchronized(lock) {
+            // VSYNC 绑定: 一帧内的多次 update() 合并在这一次提交里, 纹理上传 ≤ 1/帧
+            if (!commitLocked()) return
             val r = runtime ?: return
             if (srcShader == null || gridShader == null) return
             if (cropW <= 0 || cropH <= 0) return

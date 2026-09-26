@@ -7,4 +7,10 @@
     <string name="settings_diagnostics">Diagnostics</string>
     <string name="settings_perf_hud">Performance HUD</string>
     <string name="settings_perf_hud_sub">Show render paths, texture re-upload and save timings on the canvas (diagnostics; keep off)</string>
+    <string name="settings_liquify_proxy">Liquify preview proxy resolution</string>
+    <string name="settings_liquify_proxy_sub">Experiment A: downscale the source texture; deformation geometry is unchanged while texture bandwidth and memory drop (applies to the next gesture)</string>
+    <string name="settings_liquify_coalesce">Liquify coalesce steps</string>
+    <string name="settings_liquify_coalesce_sub">latest-state-wins: max substeps advanced per frame; off means per-point processing (applies to the next gesture)</string>
+    <string name="settings_experiment_auto">Auto</string>
+    <string name="settings_experiment_off">Off</string>
 </resources>
