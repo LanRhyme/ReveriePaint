@@ -456,6 +456,44 @@ class CanvasTouchView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+    private val mirroredPointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    // 对称实时绘制笔迹压感查找表 (128阶，热路径零分配与零 JNI 锁开销)
+    private val symmetryPressureLut = FloatArray(129)
+    private var lastLutPresetIndex = -999
+    private var lastLutCurve = -1
+    private var lastLutEnabled = false
+    private var lastLutPressureSize = -1.0
+    private var lastLutGlobalCurvePoints: List<Offset>? = null
+
+    private fun updateSymmetryPressureLut(v: PaintViewModel) {
+        val currentPreset = v.brushPresetIndex
+        val currentCurve = v.brushPressureCurve
+        val currentEnabled = v.brushPressureEnabled
+        val currentSize = v.brushPressureSize
+        val currentGlobal = v.pressureControlPoints
+
+        if (currentPreset == lastLutPresetIndex &&
+            currentCurve == lastLutCurve &&
+            currentEnabled == lastLutEnabled &&
+            currentSize == lastLutPressureSize &&
+            currentGlobal === lastLutGlobalCurvePoints
+        ) {
+            return
+        }
+
+        lastLutPresetIndex = currentPreset
+        lastLutCurve = currentCurve
+        lastLutEnabled = currentEnabled
+        lastLutPressureSize = currentSize
+        lastLutGlobalCurvePoints = currentGlobal
+
+        for (k in 0..128) {
+            val frac = v.computeStrokePressureFraction(k / 128.0)
+            symmetryPressureLut[k] = frac.coerceIn(0.01f, 1f)
+        }
+    }
 
     private fun computeAllSymmetricPoints(docPt: Point2D): List<Point2D> {
         val v = vm ?: return emptyList()
@@ -815,14 +853,46 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing && localIsTouching && mirroredBranches.isNotEmpty()) {
             try {
+                updateSymmetryPressureLut(v)
                 val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                mirroredDrawPaint.color = android.graphics.Color.parseColor(v.brushColor)
-                mirroredDrawPaint.strokeWidth = (v.brushSize.toFloat() * scale).coerceAtLeast(1.5f)
+                val baseStrokeWidth = (v.brushSize.toFloat() * scale).coerceAtLeast(1.5f)
+
+                when (effTool()) {
+                    Tool.ERASER -> {
+                        mirroredDrawPaint.color = android.graphics.Color.argb(140, 240, 240, 245)
+                    }
+                    Tool.SMUDGE -> {
+                        mirroredDrawPaint.color = android.graphics.Color.argb(100, 180, 180, 190)
+                    }
+                    else -> {
+                        val baseColor = android.graphics.Color.parseColor(v.brushColor)
+                        val alpha = (v.brushOpacity.coerceIn(0.0, 1.0) * 255.0).toInt().coerceIn(1, 255)
+                        mirroredDrawPaint.color = (baseColor and 0x00FFFFFF) or (alpha shl 24)
+                    }
+                }
+                mirroredPointPaint.color = mirroredDrawPaint.color
+
                 for (branch in mirroredBranches) {
-                    for (i in 1 until branch.size) {
-                        val p1 = docToScreen(Offset(branch[i - 1].x, branch[i - 1].y))
-                        val p2 = docToScreen(Offset(branch[i].x, branch[i].y))
-                        canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
+                    if (branch.isEmpty()) continue
+                    if (branch.size == 1) {
+                        val b0 = branch[0]
+                        val p0 = docToScreen(Offset(b0.x, b0.y))
+                        val lutIdx = (b0.pressure.coerceIn(0.0, 1.0) * 128.0 + 0.5).toInt().coerceIn(0, 128)
+                        val frac = symmetryPressureLut[lutIdx]
+                        val r = (baseStrokeWidth * frac * 0.5f).coerceAtLeast(0.75f)
+                        canvas.drawCircle(p0.x, p0.y, r, mirroredPointPaint)
+                    } else {
+                        for (i in 1 until branch.size) {
+                            val b0 = branch[i - 1]
+                            val b1 = branch[i]
+                            val p1 = docToScreen(Offset(b0.x, b0.y))
+                            val p2 = docToScreen(Offset(b1.x, b1.y))
+                            val avgP = (b0.pressure + b1.pressure) * 0.5
+                            val lutIdx = (avgP.coerceIn(0.0, 1.0) * 128.0 + 0.5).toInt().coerceIn(0, 128)
+                            val frac = symmetryPressureLut[lutIdx]
+                            mirroredDrawPaint.strokeWidth = (baseStrokeWidth * frac).coerceAtLeast(1.5f)
+                            canvas.drawLine(p1.x, p1.y, p2.x, p2.y, mirroredDrawPaint)
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -2078,6 +2148,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 mirroredBranches.clear()
                 if (hasSymmetry) {
+                    updateSymmetryPressureLut(v)
                     val symPts = computeAllSymmetricPoints(Point2D(docPos.x, docPos.y))
                     for (symPt in symPts) {
                         val branch = mutableListOf<SymStrokeSample>()
@@ -2317,6 +2388,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER)
                         lastSoundTimeMs = 0L
                         if (hasSymmetry) {
+                            updateSymmetryPressureLut(v)
                             mirroredBranches.clear()
                             val symPts = computeAllSymmetricPoints(Point2D(firstDocPos.x, firstDocPos.y))
                             for (symPt in symPts) {

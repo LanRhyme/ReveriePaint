@@ -68,7 +68,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 
-private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
+internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     if (!brushPressureEnabled) return 1.0
     val p = raw.coerceIn(0.0, 1.0)
     // Stage 1: global stylus curve (settings page; identity for the default
@@ -83,6 +83,11 @@ private fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     }
     // Stage 3: brushPressureSize dynamic scaling
     return (1.0 - brushPressureSize) + brushPressureSize * curveP
+}
+
+internal fun PaintViewModel.computeStrokePressureFraction(raw: Double): Float {
+    val effP = computeEffectivePressure(raw).toFloat().coerceIn(0f, 1f)
+    return ReverieCoreBridge.brushPressureFraction(effP)
 }
 
 private fun PaintViewModel.computeDynamicColor(pressure: Double = 1.0): String {
