@@ -266,6 +266,14 @@ internal class LiquifyGlesOverlay(context: Context) :
                     break
                 }
                 frames++
+                // 相位 8(背景色线框闪烁修复): 本帧**已经上屏**, 现在才允许引擎把这块挖成
+                // "不含目标图层"。顺序一旦反过来(先挖后画), 那圈就是露出的画布背景。
+                if (frame.valid && frame.fieldArmed && frame.drawW > 0f && frame.drawH > 0f) {
+                    LiquifyGlesPreview.noteDrawRectCommitted(
+                        Math.round(frame.drawX), Math.round(frame.drawY),
+                        Math.round(frame.drawW), Math.round(frame.drawH),
+                    )
+                }
                 LiquifyGlesPreview.noteFrameRendered()
             }
         } catch (t: Throwable) {
@@ -531,6 +539,7 @@ internal class LiquifyGlesOverlay(context: Context) :
                 // 无效帧/提前 return 的帧不会把补点吞掉(见 LiquifyGlesPreview.takeDabs)
                 LiquifyGlesPreview.takeDabs(f)
                 accumulateDabs(f)
+                if (!fieldUnavailable) LiquifyGlesPreview.acknowledgeDabs(f)
                 // 累加 pass 把视口挪到了各 dab 的包围盒 ⇒ 呈现 pass 必须回到整视口
                 GLES20.glViewport(0, 0, w, h)
             }
@@ -660,7 +669,8 @@ internal class LiquifyGlesOverlay(context: Context) :
                 }
                 buf.position(0)
                 buf.get(bytes, 0, need)
-                out = bytes
+                // Reject failed draws/readbacks instead of committing stale reusable bytes.
+                if (GLES20.glGetError() == GLES20.GL_NO_ERROR) out = bytes
             }
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
             GLES20.glEnable(GLES20.GL_BLEND)
@@ -975,9 +985,10 @@ internal class LiquifyGlesOverlay(context: Context) :
                 val h = y1 - y0
                 if (w <= 0 || h <= 0) continue
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + TEX_UNIT_FIELD)
-                if (w > fieldScratchW || h > fieldScratchH) {
-                    fieldScratchW = maxOf(w, fieldScratchW)
-                    fieldScratchH = maxOf(h, fieldScratchH)
+                val resized = w > fieldScratchW || h > fieldScratchH
+                if (resized) {
+                    fieldScratchW = maxOf((w + 63) / 64 * 64, fieldScratchW)
+                    fieldScratchH = maxOf((h + 63) / 64 * 64, fieldScratchH)
                     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fieldScratchTex)
                     GLES30.glTexImage2D(
                         GLES20.GL_TEXTURE_2D, 0, GLES30.GL_RGBA16F, fieldScratchW, fieldScratchH, 0,
@@ -988,7 +999,7 @@ internal class LiquifyGlesOverlay(context: Context) :
                     GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0,
                     GLES20.GL_TEXTURE_2D, fieldScratchTex, 0,
                 )
-                if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+                if (resized && GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
                     giveUpField("scratch FBO incomplete")
                     break
                 }
@@ -1219,6 +1230,20 @@ internal class LiquifyGlesOverlay(context: Context) :
             uniform vec2 uDrawOrigin;
             uniform vec2 uDrawSize;
 
+            vec4 sourcePixel(vec2 index) {
+                vec2 valid = step(vec2(0.0), index) * (vec2(1.0) - step(uCropSize, index));
+                return texture2D(uSrc, (index + 0.5) / uCropSize) * valid.x * valid.y;
+            }
+            vec4 sourceAt(vec2 pixel) {
+                // Fast hardware filtering for the interior; explicit transparent border at edges.
+                if (all(greaterThanEqual(pixel, vec2(0.5))) &&
+                    all(lessThanEqual(pixel, uCropSize - 0.5)))
+                    return texture2D(uSrc, pixel / uCropSize);
+                vec2 q = pixel - 0.5;
+                vec2 i = floor(q), f = fract(q);
+                return mix(mix(sourcePixel(i), sourcePixel(i + vec2(1.0,0.0)), f.x),
+                           mix(sourcePixel(i + vec2(0.0,1.0)), sourcePixel(i + vec2(1.0)), f.x), f.y);
+            }
             void main() {
                 // gl_FragCoord 的 y 向上, 画布坐标 y 向下 ⇒ 翻回画布坐标
                 vec2 frag = vec2(gl_FragCoord.x, uViewSize.y - gl_FragCoord.y);
@@ -1254,7 +1279,7 @@ internal class LiquifyGlesOverlay(context: Context) :
                     }
                     off = texture2D(uGrid, (g + 0.5) / uGridSize).rg;
                 }
-                gl_FragColor = texture2D(uSrc, (doc - uCropOrigin - off) / uCropSize);
+                gl_FragColor = sourceAt(doc - uCropOrigin - off);
             }
         """.trimIndent()
 

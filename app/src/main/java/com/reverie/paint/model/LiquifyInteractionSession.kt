@@ -6,28 +6,9 @@ package com.reverie.paint.model
 
 import kotlin.math.hypot
 
-/**
- * Phase 3A: 液化交互态会话 —— "输入 → 预览" 的调度状态机 (latest-state-wins)。
- *
- * 背景 (见 docs/RENDER-OPTIMIZATION.md §4.11):
- *  一次 `ACTION_MOVE` 可以携带多个历史点。手越快 / 笔刷越大, "每个历史点 × 每个补点都立刻提交"
- *  带来的积压越严重 —— 旧实现表现为预览越来越落后。本类把原先散落在触摸视图里的临时字段
- *  (`liquifyPrevPos` / `liquifyPendingTo` / `liquifyInputSinceFlush` / `liquifyMaxDabsPerFlush`)
- *  收敛成单一纯状态机: 交互态只保留 **最新目标位置**, 中间位置丢弃; 每帧最多推进
- *  [maxDabsPerFlush] 个补点, 方向始终指向最新位置, 没追完下一帧继续。
- *
- * 为什么不做 "操作栈重放": 形变的真身在 C++ 引擎的 Krita 网格里, 每个 dab 都是对网格的
- *  **增量** 累加 (见 ReverieCoreMiscTools.cpp)。因此 Kotlin 侧不需要保存历史操作, 只需记住
- *  "从已渲染位置到最新目标还剩多少距离"。本类只负责调度与计数, 不持有像素、不调 JNI ——
- *  纯逻辑, 可单测 (AGENTS.md §8); 单一职责, 与引擎解耦 (AGENTS.md §5)。
- *
- * 正确性底线: 单帧推进量有上界, 但总量口径不变 (补点规则与强度折算复用 [LiquifyPath])。
- *  抬笔时由调用方以 `forceFull = true` 一次性补齐剩余段, 保证最终形变不受调度节奏影响 ——
- *  抬笔后仍由 Krita 全精度 materialize, 交互态只是近似 (AGENTS.md §4)。
- *
- * 零分配: 每帧的推进计划全部落在此类的原生类型字段上 ([planSteps] / [planStepX] ...), 热路径
- *  上不创建任何对象 (AGENTS.md §4 铁律 4)。
- */
+/** Ordered document-space input with a per-frame dab budget. Batching preserves turns,
+ * reversals and pressure; an in-progress segment keeps its interpolation across frames.
+ * The reusable ring grows only when a gesture exceeds its previously reserved capacity. */
 class LiquifyInteractionSession {
 
     /** 每帧最多推进的补点数; 0 = 关闭合并(逐点立即处理, 与历史行为一致)。 */
@@ -36,6 +17,18 @@ class LiquifyInteractionSession {
 
     /** 是否处于合并(每帧推进)模式。 */
     val coalescing: Boolean get() = maxDabsPerFlush > 0
+
+    private var points = FloatArray(1024 * 3)
+    private var sequences = LongArray(1024)
+    private var head = 0
+    private var count = 0
+    private var remainingSteps = 0
+    private var segmentTotalSteps = 0
+    private var segmentStepX = 0f
+    private var segmentStepY = 0f
+    private var segmentScale = 1f
+    var planPressureFactor = 1f
+        private set
 
     // ---- 位置: [renderedX/Y] = 已推进到的位置; [targetX/Y] = 最新输入位置 ----
     var renderedX: Float = 0f
@@ -88,8 +81,6 @@ class LiquifyInteractionSession {
     var lastFlushInputs: Int = 0
         private set
 
-    private var lastFlushSeq = 0L
-    private var pendingFlushInputs = 0
 
     // ---- 本帧推进计划(由 [prepareFlush] 填充, 全为原生类型 ⇒ 零分配) ----
     /** 本帧实际推进的补点数。 */
@@ -119,6 +110,9 @@ class LiquifyInteractionSession {
      * @param maxDabsPerFlush 每帧最多推进的补点数(0 = 关闭合并)
      */
     fun begin(x: Float, y: Float, maxDabsPerFlush: Int) {
+        head = 0
+        count = 0
+        remainingSteps = 0
         renderedX = x
         renderedY = y
         targetX = x
@@ -126,33 +120,53 @@ class LiquifyInteractionSession {
         hasPending = false
         inputSequence = 0L
         renderedSequence = 0L
-        lastFlushSeq = 0L
         inputCount = 0L
         flushCount = 0L
         dabCount = 0L
         operationCount = 0L
         lastFlushInputs = 0
-        pendingFlushInputs = 0
         backlogDabs = 0
         this.maxDabsPerFlush = maxDabsPerFlush
     }
 
     /** 手势结束/取消: 丢弃待推进目标(位置保留, 便于调用方读取末态)。 */
     fun reset() {
+        head = 0
+        count = 0
+        remainingSteps = 0
         hasPending = false
         targetX = renderedX
         targetY = renderedY
         backlogDabs = 0
-        pendingFlushInputs = 0
     }
 
     /** 提交一个输入位置(`ACTION_MOVE` 或历史点)。 */
-    fun submitTarget(x: Float, y: Float) {
+    fun submitTarget(x: Float, y: Float, pressureFactor: Float = 1f) {
+        if (!x.isFinite() || !y.isFinite() || !pressureFactor.isFinite()) return
+        if (count == sequences.size) {
+            val capacity = sequences.size
+            val grown = FloatArray(points.size * 2)
+            val seq = LongArray(capacity * 2)
+            for (i in 0 until count) {
+                val old = (head+i) % capacity
+                points.copyInto(grown,i*3,old*3,old*3+3)
+                seq[i] = sequences[old]
+            }
+            points = grown
+            sequences = seq
+            head = 0
+        }
         targetX = x
         targetY = y
-        hasPending = true
         inputSequence++
         inputCount++
+        val slot = (head+count) % sequences.size
+        points[slot*3] = x
+        points[slot*3+1] = y
+        points[slot*3+2] = pressureFactor.coerceIn(0f,1f)
+        sequences[slot] = inputSequence
+        count++
+        hasPending = true
     }
 
     /**
@@ -164,55 +178,57 @@ class LiquifyInteractionSession {
      * @param forceFull    true = 不受每帧上限约束(抬笔补齐 / 关闭合并时的逐点路径)
      * @return false 表示无需推进(没有待推进目标 / 位移归零)
      */
-    fun prepareFlush(brushSize: Float, mode: Int, forceFull: Boolean): Boolean {
-        if (!hasPending) return false
-        val dx = targetX - renderedX
-        val dy = targetY - renderedY
-        val dist = hypot(dx, dy)
-        if (!dist.isFinite() || dist <= 0f) {
-            hasPending = false
-            backlogDabs = 0
-            settleSequenceLocked()
-            return false
+    fun prepareFlush(brushSize: Float, mode: Int, forceFull: Boolean, budget: Int = Int.MAX_VALUE): Boolean {
+        planSteps = 0
+        if (!brushSize.isFinite() || budget <= 0) return false
+        while (count > 0 && remainingSteps == 0) {
+            val dx = points[head*3] - renderedX
+            val dy = points[head*3+1] - renderedY
+            val dist = hypot(dx,dy)
+            if (!dist.isFinite() || dist <= 0f) { consumePoint(); continue }
+            segmentTotalSteps = LiquifyPath.substepCount(dist,brushSize)
+            remainingSteps = segmentTotalSteps
+            segmentStepX = dx / segmentTotalSteps
+            segmentStepY = dy / segmentTotalSteps
+            segmentScale = LiquifyPath.substepStrengthScale(dist,brushSize,segmentTotalSteps,mode)
         }
-        val full = LiquifyPath.substepCount(dist, brushSize)
-        if (full <= 0) return false
-        val chased = if (forceFull) full else LiquifyPath.chaseSubsteps(dist, brushSize, maxDabsPerFlush)
-        val steps = if (chased <= 0) full else chased
-        planTotalSteps = full
-        planSteps = steps
-        planStrengthScale = LiquifyPath.substepStrengthScale(dist, brushSize, full, mode)
-        planStepX = dx / full
-        planStepY = dy / full
+        hasPending = count > 0
+        if (!hasPending) { backlogDabs = 0; return false }
+        val cap = if (forceFull || maxDabsPerFlush <= 0) budget else minOf(budget,maxDabsPerFlush)
+        planSteps = minOf(remainingSteps,cap)
+        planTotalSteps = segmentTotalSteps
+        planStrengthScale = segmentScale
+        planPressureFactor = points[head*3+2]
+        planStepX = segmentStepX
+        planStepY = segmentStepY
         planStartX = renderedX
         planStartY = renderedY
-        pendingFlushInputs = (inputSequence - lastFlushSeq).toInt()
         return true
     }
 
-    /** 推进完成(调用方已按 [planSteps] 提交 JNI): 更新位置与计数。 */
+    private fun consumePoint() {
+        renderedSequence = sequences[head]
+        head = (head+1) % sequences.size
+        count--
+    }
+
     fun advanceFlush(steps: Int) {
+        require(steps in 1..planSteps)
         renderedX = planStartX + planStepX * steps
         renderedY = planStartY + planStepY * steps
+        remainingSteps -= steps
+        lastFlushInputs = 0
+        if (remainingSteps == 0) {
+            renderedX = points[head*3]
+            renderedY = points[head*3+1]
+            consumePoint()
+            lastFlushInputs = 1
+        }
         dabCount += steps
         flushCount++
         operationCount++
-        lastFlushInputs = pendingFlushInputs
-        pendingFlushInputs = 0
-        backlogDabs = planTotalSteps - steps
-        renderedSequence = inputSequence
-        lastFlushSeq = inputSequence
-        if (backlogDabs <= 0) {
-            hasPending = false
-        }
-    }
-
-    /** 吸附/收尾: 让 [renderedSequence] 追上输入, 使 [lag] 归零。 */
-    private fun settleSequenceLocked() {
-        renderedSequence = inputSequence
-        lastFlushSeq = inputSequence
-        lastFlushInputs = pendingFlushInputs
-        pendingFlushInputs = 0
+        hasPending = count > 0
+        backlogDabs = remainingSteps + maxOf(0,count - if (remainingSteps>0) 1 else 0)
     }
 
     companion object {

@@ -876,6 +876,13 @@ object ReverieCoreBridge {
      */
     external fun setLiquifyPreviewHostDrawMode(mode: Int)
 
+    /**
+     * 覆盖层上报"本帧预览真正覆盖的文档矩形"(场通路的源裁剪是整篇文档, 真正出图的只有受影响
+     * 矩形)。引擎据此把这块区域的画布合成换成"不含液化目标图层"的底图, 消除形变搬走原始像素
+     * 后的残影(透明画布/半透明图层尤其明显)。w/h <= 0 = 清空。
+     */
+    external fun setLiquifyPreviewBaseRect(x: Int, y: Int, w: Int, h: Int)
+
     external fun saveRevpAsync(
         path: String,
         extraMetaJson: String = "",

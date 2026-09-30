@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "PixelAlpha.h"
 #include "ReverieCoreFilterKernels.h"
 #include "ReverieCoreColorSpaceHook.h"
 #include <android/log.h>
@@ -168,7 +169,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         if (m_soloedNode || !m_bitmapInited || m_dirtyRect == QRect(0, 0, iw, ih)) {
             // Full frame update: direct in-place read and SIMD conversion
             proj->readBytes(buffer, 0, 0, iw, ih);
-            blitBgraToRgbaFast(buffer, iw * 4, buffer, w * 4, iw, ih);
+            PixelAlpha::toDisplayRows(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
             m_lastWrittenRect = QRect(0, 0, w, h);
         } else if (m_dirtyRect.isNull()) {
@@ -189,13 +190,17 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 }
                 proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r.x(), r.y(), r.width(), r.height());
                 quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
-                blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
+                PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
                                    dst, w * 4, r.width(), r.height());
                 m_lastWrittenRect = r;
             } else {
                 m_lastWrittenRect = QRect();
             }
         }
+        // 预览基座(残影修复): 液化预览期间目标图层的像素由预览自己提供, 所以这里必须先把
+        // "不含目标图层"的底图写回这块区域 —— 顺序在 blendLiquifyPreview / 覆盖层之前。
+        // 少了这一步, 被形变搬走的原始像素会留在原地透出来(透明画布上就是残影)。
+        applyLiquifyPreviewBase(buffer, w, h, m_lastWrittenRect);
         // Phase 2A-2: 预览叠加 (只有在 debug 开关打开且预览有内容时才非空) —— 把低分辨率形变
         // 预览混进刚写好的缓冲区域, 于是旋转/缩放/平移都沿用画布自身的变换。
         // Phase 2B: 主机侧(AGSL)绘制时引擎不叠加, 否则会和 GPU 覆盖层叠两次。
@@ -238,8 +243,8 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // QImage 分配 + 整块 bits() 拷贝, 缩放视图下这是每帧一次的堆分配。
         quint8 *scratch = reinterpret_cast<quint8 *>(m_subRegionBuffer.data());
         proj->readBytes(scratch, rs.x(), rs.y(), rs.width(), rs.height());
-        QImage subBgra(scratch, rs.width(), rs.height(), rs.width() * 4, QImage::Format_RGBA8888);
-        blitBgraToRgbaFast(scratch, rs.width() * 4, scratch, rs.width() * 4, rs.width(), rs.height());
+        QImage subBgra(scratch, rs.width(), rs.height(), rs.width() * 4, QImage::Format_RGBA8888_Premultiplied);
+        PixelAlpha::toDisplayRows(scratch, rs.width() * 4, scratch, rs.width() * 4, rs.width(), rs.height());
 
         // Map BOTH edges of a rect through the same round(edge*scale) rule so
         // consecutive dirty blits always agree on where each pixel boundary
@@ -658,7 +663,8 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
     }
 }
 
-void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r)
+void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
+                                       int excludeIdx)
 {
     if (!out || r.isEmpty() || !m_document) {
         return;
@@ -667,6 +673,20 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
     while (i < endIdx) {
         if (i < 0 || i >= m_layers.size()) break;
         const LayerEntry &e = m_layers[i];
+        if (i == excludeIdx) {
+            // 预览基座: 被排除的那一项(及其子树)整块跳过 —— 与不可见图层走同一条路径,
+            // 于是组内的目标图层也能被正确排除(见 setLiquifyPreviewBaseRect)。
+            if (e.isGroup) {
+                int j = i + 1;
+                while (j < endIdx && m_layers[j].depth > e.depth) {
+                    ++j;
+                }
+                i = j;
+            } else {
+                ++i;
+            }
+            continue;
+        }
         if (!e.visible || !e.node) {
             if (e.isGroup) {
                 int j = i + 1;
@@ -687,7 +707,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             }
             KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
             tmp->clear(r);
-            compositeLayersRange(tmp, i + 1, j, r);
+            compositeLayersRange(tmp, i + 1, j, r, excludeIdx);
             KisPainter painter(out);
             painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
             painter.setCompositeOpId(e.node->compositeOpId());

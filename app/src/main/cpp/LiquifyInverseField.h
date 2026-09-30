@@ -31,6 +31,16 @@ public:
         y = std::clamp(y / m_step - .5f, 0.f, float((m_height + m_step - 1) / m_step - 1));
         const int ix = int(x), iy = int(y);
         const float fx = x - ix, fy = y - iy;
+        // Almost all bilinear footprints remain within one tile: one hash lookup, not four.
+        if (ix % TileSide != TileSide - 1 && iy % TileSide != TileSide - 1) {
+            const auto it = m_tiles.find(key(ix, iy));
+            if (it == m_tiles.end()) return {};
+            const Point *p = it->second.data() + (iy % TileSide) * TileSide + ix % TileSide;
+            return {(p[0].x + (p[1].x-p[0].x)*fx)*(1-fy) +
+                    (p[TileSide].x + (p[TileSide+1].x-p[TileSide].x)*fx)*fy,
+                    (p[0].y + (p[1].y-p[0].y)*fx)*(1-fy) +
+                    (p[TileSide].y + (p[TileSide+1].y-p[TileSide].y)*fx)*fy};
+        }
         const Point a = node(ix, iy), b = node(ix + 1, iy);
         const Point c = node(ix, iy + 1), d = node(ix + 1, iy + 1);
         return {(a.x + (b.x - a.x) * fx) * (1 - fy) + (c.x + (d.x - c.x) * fx) * fy,
@@ -105,11 +115,20 @@ private:
                 m_scratch[size_t(y - y0) * width + x - x0] = {vx + old.x * retain, vy + old.y * retain};
             }
         }
+        // Publish contiguous tile rows. Avoid operator[] / hashing for every pixel.
         for (int y = y0; y <= y1; ++y) {
-            for (int x = x0; x <= x1; ++x) {
-                const Point p = m_scratch[size_t(y - y0) * width + x - x0];
-                if (p.x == 0 && p.y == 0 && m_tiles.find(key(x, y)) == m_tiles.end()) continue;
-                m_tiles[key(x, y)][(y % TileSide) * TileSide + x % TileSide] = p;
+            for (int x = x0; x <= x1;) {
+                const int end = std::min(x1 + 1, (x / TileSide + 1) * TileSide);
+                const Point *from = m_scratch.data() + size_t(y-y0)*width + x-x0;
+                auto it = m_tiles.find(key(x,y));
+                if (it == m_tiles.end()) {
+                    bool nonzero = false;
+                    for (int i=0;i<end-x;++i) nonzero |= from[i].x != 0 || from[i].y != 0;
+                    if (!nonzero) { x=end; continue; }
+                    it = m_tiles.try_emplace(key(x,y), Tile{}).first;
+                }
+                std::copy_n(from,end-x,it->second.data()+(y%TileSide)*TileSide+x%TileSide);
+                x=end;
             }
         }
     }

@@ -490,6 +490,16 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyPreviewHostDrawMode(
     core()->setLiquifyPreviewHostDrawMode(int(mode));
 }
 
+// 覆盖层上报"本帧预览真正覆盖的文档矩形"(场通路的裁剪是整篇文档, 真正出图的只有受影响矩形)。
+// 引擎据此把这块区域的画布合成换成"不含液化目标图层"的底图, 修掉形变搬走原始像素后的残影。
+// w/h <= 0 = 清空。只在引擎线程调用(调用方走 runCore)。
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyPreviewBaseRect(
+    JNIEnv *, jobject, jint x, jint y, jint w, jint h)
+{
+    core()->setLiquifyPreviewBaseRect(int(x), int(y), int(w), int(h));
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyBrushSize(JNIEnv *, jobject, jdouble size)
 {

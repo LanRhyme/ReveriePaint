@@ -5,6 +5,7 @@
 package com.reverie.paint.model
 
 import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.min
 
 /** Document-space dab geometry shared by native replay and GLES inverse-map composition. */
@@ -148,6 +149,39 @@ object LiquifyPath {
         if (mode == MODE_PUSH || substeps <= 1) return 1f
         val size = brushSize.coerceAtLeast(MIN_BRUSH_SIZE)
         return amplitude(distance, size) / (substeps * amplitude(distance / substeps, size))
+    }
+
+    /**
+     * Phase 8(透明残影 / 背景色线框修复): 场通路的"受影响矩形"(浮点, 文档坐标) → 整数矩形。
+     *
+     * 这个矩形会被**同时**用于两处, 两处必须逐像素一致, 否则差值区域必然出错:
+     *  1. 覆盖层的绘制矩形(`LiquifyGlesPreview.pushDrawRect` → shader 的 `uDrawSize`);
+     *  2. 引擎的"预览基座"矩形(该区域画布不合成目标图层, 由覆盖层补上形变后的它)。
+     *
+     *  - 基座**大于**绘制范围 ⇒ 那圈被挖掉却没人补, 透明画布上露出背景 ⇒ 背景色线框闪烁;
+     *  - 基座**小于**绘制范围 ⇒ 那圈没被挖却在叠加, 半透明内容被叠两次 ⇒ 深色描边。
+     *
+     * 因此这里取**向内**对齐(覆盖范围 ⊆ 真实受影响区域): 边界那 1~2 像素既不挖也不叠, 显示
+     * 未形变的原始像素 —— 该处位移按场的衰减曲线已为 0, 视觉等价, 且**绝不会**露出背景。
+     *
+     * @return `[x, y, w, h]`; 区域无效或与文档无交集时返回 null。
+     */
+    fun previewRect(
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        docWidth: Int,
+        docHeight: Int,
+    ): IntArray? {
+        if (!left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite()) return null
+        if (docWidth <= 0 || docHeight <= 0 || right <= left || bottom <= top) return null
+        val x0 = ceil(left).toInt().coerceAtLeast(0)
+        val y0 = ceil(top).toInt().coerceAtLeast(0)
+        val x1 = floor(right).toInt().coerceAtMost(docWidth)
+        val y1 = floor(bottom).toInt().coerceAtMost(docHeight)
+        if (x1 <= x0 || y1 <= y0) return null
+        return intArrayOf(x0, y0, x1 - x0, y1 - y0)
     }
 
     private fun amplitude(distance: Float, size: Float): Float = 0.2f + 0.8f * min(1f, distance / size)

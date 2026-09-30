@@ -399,12 +399,17 @@ class PaintViewModel : ViewModel() {
      * AGSL 侧这一份仅用于"本帧文档脏区"基线(它不再建纹理, 见 `CanvasTouchView.drawCanvas`)。
      */
     internal fun pollLiquifyGpuPreview() {
+        if (liquifyPresentation.isPending(liquifyPresentationGesture)) return
         // Phase 5 · C2: GLES 侧自己躲掉了(EGL/着色器/交换失败) ⇒ **当帧**把引擎切回 CPU 预览。
         // "要么 GPU 画, 要么引擎画"是这条线不可破的底线; 恢复动作必须在引擎线程做(JNI 时序由
         // ViewModel 保证), 只做一次 —— 失败后 LiquifyGlesPreview.failed 会挡掉后续手势的重试。
         if (LiquifyGlesPreview.failed && !lqGlesRecovered) {
             lqGlesRecovered = true
             LiquifyGlesPreview.clear()
+            // 场通路回退到引擎 CPU 预览时, 之前按"受影响矩形"推下去的预览基座不再成立:
+            // 必须当场清掉, 否则那块画布会一直"少一层"(CPU 预览只覆盖 worker bounds)。
+            // 这里已经在引擎线程上, 可直接调 JNI。
+            ReverieCoreBridge.setLiquifyPreviewBaseRect(0, 0, 0, 0)
             ReverieCoreBridge.setLiquifyPreviewHostDrawMode(0)
             return
         }
@@ -3501,6 +3506,14 @@ class PaintViewModel : ViewModel() {
         h.post(r)
     }
 
+    @Volatile internal var liquifyPresentationGesture = 0L
+    internal val liquifyPresentation = com.reverie.paint.model.LiquifyPresentationFence<Bitmap>()
+
+    internal fun onLiquifyBitmapDrawn(bitmap: Bitmap) {
+        if (!liquifyPresentation.isPending(liquifyPresentationGesture)) return
+        if (liquifyPresentation.consume(liquifyPresentationGesture, bitmap)) LiquifyGpuPreview.clear()
+    }
+
     internal var renderDeferCount = 0
 
     internal fun doRender() {
@@ -3562,6 +3575,9 @@ class PaintViewModel : ViewModel() {
         if (!ok) {
             if (ReverieCoreBridge.renderPendingDirty()) {
                 rh?.postDelayed({ doRender() }, 8L)
+            } else if (liquifyPresentation.isPending(liquifyPresentationGesture)) {
+                displayBitmap?.let { liquifyPresentation.publish(liquifyPresentationGesture, it) }
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
             return
         }
@@ -3585,6 +3601,7 @@ class PaintViewModel : ViewModel() {
         backBuffer = front
         frontBuffer = rendered
         displayBitmap = rendered
+        liquifyPresentation.publish(liquifyPresentationGesture, rendered)
 
         // 纹理重传代理量: 每翻转一次, 下一帧 HWUI 都要把整张 Bitmap 纹理重传一遍
         // (HWUI 不做局部纹理更新), 这是本项目最大的带宽开销

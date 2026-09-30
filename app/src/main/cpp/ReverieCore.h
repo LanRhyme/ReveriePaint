@@ -157,7 +157,10 @@ public:
     void compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full);
     // Direct sub-region layer compositing for zero-latency in-stroke rendering
     struct LayerEntry;
-    void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r);
+    // excludeIdx: 合成时跳过 m_layers 里的这一项(含它的子树), -1 = 合成整摞。
+    // 液化预览要用它得到"不含目标图层"的底图(见 setLiquifyPreviewBaseRect)。
+    void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
+                              int excludeIdx = -1);
     void compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
     void applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity);
     // Multi-layer type creation
@@ -682,6 +685,17 @@ public:
     /** 本次手势是否走主机侧绘制(property 与 override 合并后的结果)。 */
     bool liquifyPreviewHostDraw() const;
 
+    /**
+     * 覆盖层上报"本帧预览真正覆盖的文档矩形"(场通路的源裁剪是整篇文档, 真正会出图的只有
+     * 受影响矩形)。引擎据此把这块区域的**画布合成**换成"不含液化目标图层"的底图 ——
+     * 目标图层的像素由预览自己提供, 未形变的原始像素必须让位, 否则形变把它们搬走之后
+     * 原地会留下残影(透明画布 / 半透明图层上尤其明显, 看起来像"没擦干净的旧笔画")。
+     *
+     * 只在引擎线程调用; 矩形按"只增不减"增长(每格一次, 见 LiquifyPath.quantizedPreviewRect)。
+     * w/h <= 0 = 清空(手势结束 / 场通路回退时复位)。
+     */
+    void setLiquifyPreviewBaseRect(int x, int y, int w, int h);
+
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
 
@@ -706,6 +720,14 @@ private:
     void liquifyPreviewBuildLocked();   // 每次 dab 后重建低分辨率预览(反向采样)
     /** 把预览混合进刚写好的显示缓冲区域(缓冲像素坐标; 预览覆盖 m_liquifyWorkerBounds)。 */
     void blendLiquifyPreview(quint8 *buffer, int w, int h, const QRect &written);
+
+    // ---- 预览基座(见 setLiquifyPreviewBaseRect): 预览期间目标图层不参与画布合成 ----
+    /** 把基座矩形的新增部分合成为"不含目标图层"的像素(内部会标脏, 让渲染重读)。 */
+    void ensureLiquifyPreviewBase();
+    /** 用基座像素改写显示缓冲里属于基座的那部分(1:1 路径; 缩放路径维持原行为)。 */
+    void applyLiquifyPreviewBase(quint8 *buffer, int w, int h, const QRect &written);
+    /** 摘掉基座: 目标图层立刻回到画布合成, 并让旧矩形按真实文档重读一次。 */
+    void invalidateLiquifyPreviewBase();
 
 public:
 
@@ -1014,6 +1036,15 @@ private:
     // Phase 2B 主机侧绘制: 同一份 bounds 裁剪的 RGBA 副本(交给 GPU 当源纹理), 只在 rebase 时重建
     QVector<quint8> m_liquifyPreviewSrcRgba;
     int m_liquifyPreviewHostDrawMode = -1; // -1 跟随 property / 0 强制引擎叠加 / 1 强制主机绘制
+    // 预览基座(见 setLiquifyPreviewBaseRect): 这块区域里画布不合成目标图层, 由预览提供它。
+    // 空 = 不做排除(手势结束 / 取消 / 无可见预览目标时)。
+    QRect m_liquifyPreviewBaseRect;
+    // 已经写进显示缓冲的部分; 单调增长时只有新增的边带需要重新合成。
+    QRect m_liquifyPreviewBaseBuilt;
+    // "不含目标图层"的合成结果(只在基座矩形内有效; 跨手势复用, 免得每段手势重建大设备)。
+    KisPaintDeviceSP m_liquifyPreviewBaseDev;
+    // 预览目标图层在 m_layers 里的下标(-1 = 解析不到 ⇒ 不排除, 退回改动前的行为)。
+    int m_liquifyPreviewBaseLayer = -1;
     qint64 m_liquifyLastApplyMs = 0;
     // Union of dab influence rects not yet written back to the layer
     QRect m_liquifyPendingDelta;
@@ -1022,7 +1053,7 @@ private:
     QVector<QRect> m_liquifyMatQueue;
     // Phase 7: 队列去重键(=(y<<32)|x)。同一行带重复入队会让队列随帧数线性膨胀,
     // 收口时一次性消费就是几百 ms 的尖峰(test17: rebase 峰值 975ms)。
-    QVector<qint64> m_liquifyMatKeys;
+    QSet<qint64> m_liquifyMatKeys;
     // Phase 5 · C3-2: 本次手势是否走"GPU 场一次性落盘"(拖动期不收 dab)。由 Kotlin 侧在
     // liquifyFieldSource 成功后置位; liquifyEnd / liquifyCancel 复位。纯状态, 不改任何几何。
     bool m_liquifyFieldMode = false;
