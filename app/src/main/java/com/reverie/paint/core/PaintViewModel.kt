@@ -681,12 +681,20 @@ class PaintViewModel : ViewModel() {
     internal var smoothedStrokeY = 0f
     internal var smoothedStrokePressure = 0.0
     internal var lastStrokeTimeMs: Long = 0L
+    internal var lastInputEventTimeMs: Long = 0L
     internal var lastStrokeX: Float = 0f
     internal var lastStrokeY: Float = 0f
     internal var lastStrokeDeltaX: Float = 0f
     internal var lastStrokeDeltaY: Float = 0f
     internal var strokeDistanceAccumulator: Float = 0f
     internal var lastDynamicColor: String = ""
+
+    // Krita Gaussian Weighted Smoothing history buffer (zero allocation)
+    internal val smoothingHistX = FloatArray(SMOOTHING_HISTORY_CAPACITY)
+    internal val smoothingHistY = FloatArray(SMOOTHING_HISTORY_CAPACITY)
+    internal val smoothingHistP = DoubleArray(SMOOTHING_HISTORY_CAPACITY)
+    internal val smoothingHistDist = DoubleArray(SMOOTHING_HISTORY_CAPACITY)
+    internal var smoothingHistCount = 0
 
     fun getCategoryPresetScroll(cat: String): Pair<Int, Int> {
         return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)
@@ -1204,8 +1212,18 @@ class PaintViewModel : ViewModel() {
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
 
-    // Stroke Stabilizer (抖动修正: 0.0 ~ 1.0, 默认为 0 实现零延迟物理直通)
-    var strokeStabilizer by mutableFloatStateOf(0.0f)
+    // Canvas View Lock (固定画布缩放与旋转，保留双指平移)
+    var isViewTransformLocked by mutableStateOf(false)
+
+    // Stroke Stabilizer & Smoothing (抖动修正与平滑算法)
+    var strokeStabilizer by mutableFloatStateOf(0.0f) // 基础平滑比例: 0.0 ~ 1.0
+    var strokeSmoothingType by mutableIntStateOf(SMOOTHING_BASIC) // 0: 关闭, 1: 基础平滑, 2: 加权平滑 (Krita)
+    var strokeSmoothnessDistanceMin by mutableDoubleStateOf(30.0)
+    var strokeSmoothnessDistanceMax by mutableDoubleStateOf(30.0)
+    var strokeSmoothDistanceLocked by mutableStateOf(true)
+    var strokeSmoothPressure by mutableStateOf(true)
+    var strokeScalableDistance by mutableStateOf(true)
+    var strokeTailAggressiveness by mutableDoubleStateOf(0.5)
 
     // Keyboard Shortcuts (参考图 2)
     var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
@@ -1580,6 +1598,21 @@ class PaintViewModel : ViewModel() {
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("gestureQuickPinchFit", enable)
+                .apply()
+        }
+    }
+
+    /** 绘画主界面返回键的兜底行为 (浮层都已关闭时才生效), 见 [BackKeyAction] */
+    var backKeyAction by mutableStateOf(BackKeyAction.NONE)
+
+    fun updateBackKeyAction(action: BackKeyAction) {
+        if (backKeyAction == action) return
+        backKeyAction = action
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("backKeyAction", action.id)
                 .apply()
         }
     }
@@ -2434,6 +2467,7 @@ class PaintViewModel : ViewModel() {
             gestureThreeFingerEditMenu = prefs.getBoolean("gestureThreeFingerEditMenu", true)
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
             gestureQuickPinchFit = prefs.getBoolean("gestureQuickPinchFit", true)
+            backKeyAction = BackKeyAction.fromId(prefs.getString("backKeyAction", BackKeyAction.NONE.id))
             longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
             eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
             eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)
@@ -2488,6 +2522,7 @@ class PaintViewModel : ViewModel() {
             brushSecondaryColor = prefs.getString("brushSecondaryColor", "#ffffff") ?: "#ffffff"
             runCore {
                 ReverieCoreBridge.setBrushColor(brushColor)
+                ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
             }
 
             brushSizePresets = loadSliderPresets("brushSizePresets")
@@ -3270,6 +3305,13 @@ class PaintViewModel : ViewModel() {
     // lost pressure detail. Buffers are allocated once: zero allocation on
     // the hot path (架构铁律 §4).
     companion object {
+        const val SMOOTHING_OFF = 0
+        const val SMOOTHING_BASIC = 1
+        const val SMOOTHING_WEIGHTED = 2
+        const val SMOOTHING_DISTANCE_MIN = 1.0
+        const val SMOOTHING_DISTANCE_MAX = 300.0
+        internal const val SMOOTHING_HISTORY_CAPACITY = 128
+
         val DEFAULT_PINNED_TOOLS = listOf(
             com.reverie.paint.model.Tool.BRUSH,
             com.reverie.paint.model.Tool.ERASER,
@@ -3527,12 +3569,28 @@ class PaintViewModel : ViewModel() {
         val sizeMismatch = backBuffer == null || backBuffer?.width != w || backBuffer?.height != h
         val reallocated = sizeMismatch || displayBufferInvalid
         if (reallocated) {
-            frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            displayBufferInvalid = false
-            hasWrittenRect = false
-            // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
-            renderDirtySnapshot = null
+            try {
+                frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                displayBufferInvalid = false
+                hasWrittenRect = false
+                // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
+                renderDirtySnapshot = null
+            } catch (oom: OutOfMemoryError) {
+                android.util.Log.e("PaintViewModel", "OOM allocating front/back buffers ($w x $h)", oom)
+                releaseReclaimableCaches(aggressive = true)
+                System.gc()
+                try {
+                    frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    displayBufferInvalid = false
+                    hasWrittenRect = false
+                    renderDirtySnapshot = null
+                } catch (retryOom: OutOfMemoryError) {
+                    android.util.Log.e("PaintViewModel", "OOM retry failed, aborting frame", retryOom)
+                    return
+                }
+            }
         }
 
         val front = frontBuffer
@@ -3810,7 +3868,7 @@ enum class Page { HOME, CREATE, PAINTING, REPLAY }
 /** Krita-style brush grouping: strictly aligned with Krita default presets. */
 fun inferBrushGroup(name: String): String =
     when {
-        name.startsWith("a)") || name.contains("Eraser", ignoreCase = true) -> "橡皮擦"
+        name.startsWith("a)_Eraser", ignoreCase = true) || name.contains("Eraser", ignoreCase = true) -> "橡皮擦"
         name.startsWith("e)") || name.contains("Marker", ignoreCase = true) -> "马克笔"
         name.startsWith("t)") || name.contains("Shape", ignoreCase = true) || (name.contains("Fill", ignoreCase = true) && !name.contains("starfield", ignoreCase = true)) -> "形状"
         name.startsWith("u)") || name.contains("Pixel", ignoreCase = true) || name.contains("pixel") -> "像素画"

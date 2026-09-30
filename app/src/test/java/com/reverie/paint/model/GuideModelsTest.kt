@@ -137,4 +137,38 @@ class GuideModelsTest {
         assertTrue(symConfig.computeSymmetricPoints(Point2D(Float.NaN, 300f), 1000, 1000).isEmpty())
         assertTrue(symConfig.computeSymmetricPoints(Point2D(200f, Float.POSITIVE_INFINITY), 1000, 1000).isEmpty())
     }
+
+    @Test
+    fun `computeSymmetricPoints vertical mode rotated 90 degrees mirrors vertically`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.VERTICAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f,
+            symmetryRotationDeg = 90f
+        )
+        // Center is (500, 500). Point (500, 300) rotated 90 degrees axis should mirror to (500, 700)
+        val symPts = config.computeSymmetricPoints(Point2D(500f, 300f), docWidth = 1000, docHeight = 1000)
+        assertEquals(1, symPts.size)
+        assertEquals(500f, symPts[0].x, 0.01f)
+        assertEquals(700f, symPts[0].y, 0.01f)
+    }
+
+    @Test
+    fun `computeSymmetricPoints vertical mode rotated 45 degrees mirrors across diagonal`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.VERTICAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f,
+            symmetryRotationDeg = 45f
+        )
+        // Center is (500, 500). Point (600, 500) -> vector (+100, 0).
+        // Vertical axis rotated 45 deg has direction (-sin45, cos45).
+        // Reflection of (600, 500) across this axis is (500, 400)
+        val symPts = config.computeSymmetricPoints(Point2D(600f, 500f), docWidth = 1000, docHeight = 1000)
+        assertEquals(1, symPts.size)
+        assertEquals(500f, symPts[0].x, 0.01f)
+        assertEquals(400f, symPts[0].y, 0.01f)
+    }
 }

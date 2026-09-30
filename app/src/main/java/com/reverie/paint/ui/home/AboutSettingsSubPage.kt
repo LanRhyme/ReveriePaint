@@ -418,7 +418,23 @@ fun AboutSettingsSubPage(
                 summary = stringResource(R.string.settings_export_log_sub),
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
                 onClick = {
+                    val latest = com.reverie.paint.core.CrashHandler.getLatestCrashLog(context)
+                    val content = if (!latest.isNullOrBlank()) {
+                        latest
+                    } else {
+                        "ReveriePaint Diagnostics:\nApp: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\nDevice: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})\nStatus: Normal (No crash logs recorded)"
+                    }
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                    cm?.setPrimaryClip(android.content.ClipData.newPlainText("ReveriePaint Log", content))
                     Toast.makeText(context, logToastMessage, Toast.LENGTH_SHORT).show()
+                    try {
+                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(android.content.Intent.EXTRA_SUBJECT, "ReveriePaint Diagnostics & Crash Log")
+                            putExtra(android.content.Intent.EXTRA_TEXT, content)
+                        }
+                        context.startActivity(android.content.Intent.createChooser(shareIntent, null))
+                    } catch (_: Throwable) {}
                 },
             )
         }

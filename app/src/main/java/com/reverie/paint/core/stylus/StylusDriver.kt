@@ -62,8 +62,16 @@ class StylusDriver(
         adapters.forEach { it.onWindowFocusChanged(activity, hasFocus) }
     }
 
+    @Volatile
+    private var cachedPrimaryBrand: StylusBrand? = null
+
+    init {
+        detectDevices()
+    }
+
     fun onActivityResume(activity: android.app.Activity) {
         adapters.forEach { it.onActivityResume(activity) }
+        detectDevices()
     }
 
     fun onActivityPause(activity: android.app.Activity) {
@@ -112,6 +120,7 @@ class StylusDriver(
                 .thenByDescending { it.isCurrentDeviceSupported }
                 .thenByDescending { it.isConnected }
         )
+        cachedPrimaryBrand = detected.firstOrNull()?.brand
         return detected
     }
 
@@ -157,8 +166,12 @@ class StylusDriver(
      * Hot-path safe: two bitmask reads, no allocation.
      */
     fun isSideButtonEraseActive(event: MotionEvent): Boolean {
-        val detected = detectDevices().firstOrNull()
-        val eraseAllowed = when (detected?.brand) {
+        val brand = cachedPrimaryBrand ?: run {
+            val d = detectDevices().firstOrNull()
+            cachedPrimaryBrand = d?.brand
+            d?.brand
+        }
+        val eraseAllowed = when (brand) {
             StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSideButtonErase
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSideButtonErase
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase

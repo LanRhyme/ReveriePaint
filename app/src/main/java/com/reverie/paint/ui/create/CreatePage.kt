@@ -167,6 +167,18 @@ fun getAspectRatioLabel(w: Int, h: Int, context: Context? = null): String {
     if ((w == 2480 && h == 3508) || (w == 3508 && h == 2480)) {
         return if (w <= h) context?.getString(R.string.create_ratio_a4_paper) ?: "A4 纸张" else context?.getString(R.string.create_ratio_a4_landscape) ?: "A4 横版"
     }
+    if ((w == 2550 && h == 3300) || (w == 3300 && h == 2550)) {
+        return if (w <= h) context?.getString(R.string.create_ratio_us_letter) ?: "美制 Letter" else context?.getString(R.string.create_ratio_us_letter_landscape) ?: "美制 Letter 横版"
+    }
+    if ((w == 2550 && h == 4200) || (w == 4200 && h == 2550)) {
+        return if (w <= h) context?.getString(R.string.create_ratio_us_legal) ?: "美制 Legal" else context?.getString(R.string.create_ratio_us_legal_landscape) ?: "美制 Legal 横版"
+    }
+    if ((w == 3300 && h == 5100) || (w == 5100 && h == 3300)) {
+        return if (w <= h) context?.getString(R.string.create_ratio_us_tabloid) ?: "美制 Tabloid" else context?.getString(R.string.create_ratio_us_tabloid_landscape) ?: "美制 Tabloid 横版"
+    }
+    if ((w == 2175 && h == 3150) || (w == 3150 && h == 2175)) {
+        return if (w <= h) context?.getString(R.string.create_ratio_us_executive) ?: "美制 Executive" else context?.getString(R.string.create_ratio_us_executive_landscape) ?: "美制 Executive 横版"
+    }
     val ratio = w.toFloat() / h.toFloat()
     return when {
         abs(ratio - 1.0f) < 0.01f -> context?.getString(R.string.create_ratio_square) ?: "1:1 正方形"
@@ -320,6 +332,38 @@ fun getSystemPresets(context: Context): List<CanvasPresetItem> {
             height = 3508,
             defaultPpi = 300,
             description = context.getString(R.string.create_preset_a4_print_desc)
+        ),
+        CanvasPresetItem(
+            id = "sys_us_letter",
+            name = context.getString(R.string.create_preset_us_letter),
+            width = 2550,
+            height = 3300,
+            defaultPpi = 300,
+            description = context.getString(R.string.create_preset_us_letter_desc)
+        ),
+        CanvasPresetItem(
+            id = "sys_us_legal",
+            name = context.getString(R.string.create_preset_us_legal),
+            width = 2550,
+            height = 4200,
+            defaultPpi = 300,
+            description = context.getString(R.string.create_preset_us_legal_desc)
+        ),
+        CanvasPresetItem(
+            id = "sys_us_tabloid",
+            name = context.getString(R.string.create_preset_us_tabloid),
+            width = 3300,
+            height = 5100,
+            defaultPpi = 300,
+            description = context.getString(R.string.create_preset_us_tabloid_desc)
+        ),
+        CanvasPresetItem(
+            id = "sys_us_executive",
+            name = context.getString(R.string.create_preset_us_executive),
+            width = 2175,
+            height = 3150,
+            defaultPpi = 300,
+            description = context.getString(R.string.create_preset_us_executive_desc)
         ),
         CanvasPresetItem(
             id = "sys_b5_comic",

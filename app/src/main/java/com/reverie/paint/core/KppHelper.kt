@@ -26,24 +26,30 @@ object KppHelper {
             val length = ByteBuffer.wrap(kppBytes, idx, 4).order(ByteOrder.BIG_ENDIAN).int
             val chunkType = String(kppBytes, idx + 4, 4, Charsets.ISO_8859_1)
             val chunkDataStart = idx + 8
-            val chunkDataEnd = chunkDataStart + length
-            if (chunkDataEnd + 4 > kppBytes.size || length < 0) break
+            // Accumulate in Long: `length` comes from the file and a corrupt one may be
+            // 0x7FFFFFFF. With Int arithmetic `chunkDataStart + length` overflows negative,
+            // the `> size` guard stops working, and the next round's
+            // ByteBuffer.wrap(bytes, idx, 4) sees a negative offset and throws
+            // IndexOutOfBoundsException. Reachable with brush packs downloaded off the web.
+            val chunkDataEnd = chunkDataStart.toLong() + length.toLong()
+            if (length < 0 || chunkDataEnd + 4 > kppBytes.size.toLong()) break
+            val chunkDataEndI = chunkDataEnd.toInt()
 
             if (chunkType == "zTXt") {
                 var nullPos = -1
-                for (p in chunkDataStart until chunkDataEnd) {
+                for (p in chunkDataStart until chunkDataEndI) {
                     if (kppBytes[p] == 0.toByte()) {
                         nullPos = p
                         break
                     }
                 }
-                if (nullPos != -1 && nullPos + 2 <= chunkDataEnd) {
+                if (nullPos != -1 && nullPos + 2 <= chunkDataEndI) {
                     val keyword = String(kppBytes, chunkDataStart, nullPos - chunkDataStart, Charsets.ISO_8859_1)
                     if (keyword == "preset") {
                         val cmethod = kppBytes[nullPos + 1].toInt()
                         if (cmethod == 0) {
                             val compressedStart = nullPos + 2
-                            val compressedLen = chunkDataEnd - compressedStart
+                            val compressedLen = chunkDataEndI - compressedStart
                             val inflater = Inflater(false)
                             inflater.setInput(kppBytes, compressedStart, compressedLen)
                             val bos = ByteArrayOutputStream()
@@ -60,7 +66,7 @@ object KppHelper {
                 }
             } else if (chunkType == "tEXt") {
                 var nullPos = -1
-                for (p in chunkDataStart until chunkDataEnd) {
+                for (p in chunkDataStart until chunkDataEndI) {
                     if (kppBytes[p] == 0.toByte()) {
                         nullPos = p
                         break
@@ -70,7 +76,7 @@ object KppHelper {
                     val keyword = String(kppBytes, chunkDataStart, nullPos - chunkDataStart, Charsets.ISO_8859_1)
                     if (keyword == "preset") {
                         val textStart = nullPos + 1
-                        val textLen = chunkDataEnd - textStart
+                        val textLen = chunkDataEndI - textStart
                         return String(kppBytes, textStart, textLen, Charsets.UTF_8)
                     }
                 }
@@ -126,11 +132,18 @@ object KppHelper {
     /**
      * Updates an existing .kpp file (or bytes) by modifying parameters in its preset XML.
      * Returns a new byte array with the updated zTXt chunk.
+     *
+     * [tipScale] is only supplied by the ABR import path (= ABR diameter / longest tip side).
+     * `null` means "the caller does not know the right value", in which case the scale already
+     * present in the file is preserved. The brush workshop goes through that path, and it must
+     * never be reset back to 1, otherwise every parameter edit snaps the size back to the raw
+     * pixel size of the tip.
      */
     fun updateKppBytes(
         kppBytes: ByteArray,
         presetName: String,
         params: BrushParams,
+        tipScale: Double? = null,
     ): ByteArray {
         if (kppBytes.size < 8) return kppBytes
         for (i in 0 until 8) {
@@ -139,9 +152,9 @@ object KppHelper {
 
         val originalXml = readPresetXml(kppBytes)
         val newXml = if (originalXml != null) {
-            injectParamsIntoXml(originalXml, presetName, params)
+            injectParamsIntoXml(originalXml, presetName, params, tipScale)
         } else {
-            buildMinimalPresetXml(presetName, params)
+            buildMinimalPresetXml(presetName, params, tipScale)
         }
 
         return replacePresetXml(kppBytes, newXml)
@@ -191,91 +204,164 @@ object KppHelper {
     }
 
     /** 用新的 preset XML 替换 .kpp 里的 zTXt preset 块, PNG 其余 chunk 原样保留。 */
+    /**
+     * Rewrites the preset text chunk of a .kpp, keeping every other PNG chunk as is.
+     *
+     * Two hard constraints imposed by the way Krita reads .kpp files:
+     *
+     * 1. **The preset / version text chunks must sit before the first IDAT.** Krita's
+     *    `KisPaintOpPreset::loadFromDevice` calls `text("version")` / `text("preset")`
+     *    *before* `reader.read()`, and at that moment Qt's `QPngHandler` only exposes
+     *    pre-IDAT text chunks. Writing them after IDAT is the same as not writing them:
+     *    it looks fine on the import pass (the parameters were applied to the in-memory
+     *    preset directly) but **after a restart** the engine cannot read the preset out of
+     *    the .kpp, falls back to `auto_brush`, and every imported brush turns into the same
+     *    round dab.
+     * 2. **The version chunk must not be dropped.** It selects the preset XML schema version
+     *    (Krita 5.x writes 2.2). When the base image is a programmatically generated PNG —
+     *    e.g. the preview produced by `encodePreviewPng` for an ABR import — it carries no
+     *    text chunks at all, so one has to be added here.
+     *
+     * Hence the implementation drops any existing preset / version chunk and writes both back
+     * ahead of the first IDAT, rather than replacing in place: the latter would perpetuate a
+     * wrong position when the original chunk already sat after IDAT.
+     */
     private fun replacePresetXml(kppBytes: ByteArray, newXml: String): ByteArray {
-        // Recompress XML
-        val deflater = Deflater(Deflater.DEFAULT_COMPRESSION)
-        val xmlBytes = newXml.toByteArray(Charsets.UTF_8)
-        deflater.setInput(xmlBytes)
-        deflater.finish()
-        val deflatedOut = ByteArrayOutputStream()
-        val buf = ByteArray(4096)
-        while (!deflater.finished()) {
-            val count = deflater.deflate(buf)
-            deflatedOut.write(buf, 0, count)
-        }
-        deflater.end()
-        val compressed = deflatedOut.toByteArray()
-
-        // Build new zTXt chunk data
-        val keywordBytes = "preset".toByteArray(Charsets.ISO_8859_1)
-        val newChunkData = ByteArray(keywordBytes.size + 2 + compressed.size)
-        System.arraycopy(keywordBytes, 0, newChunkData, 0, keywordBytes.size)
-        newChunkData[keywordBytes.size] = 0 // null separator
-        newChunkData[keywordBytes.size + 1] = 0 // Deflate method
-        System.arraycopy(compressed, 0, newChunkData, keywordBytes.size + 2, compressed.size)
-
-        // CRC of chunk type + chunk data
-        val crcCalculator = CRC32()
-        crcCalculator.update("zTXt".toByteArray(Charsets.ISO_8859_1))
-        crcCalculator.update(newChunkData)
-        val crcVal = crcCalculator.value.toInt()
+        val presetChunk = buildTextChunkData(
+            keyword = "preset",
+            payload = deflateXml(newXml),
+            isCompressed = true,
+        )
+        // Reuse the version already present in the base image; only fall back to the default
+        // when the base is a generated PNG that has no text chunk at all.
+        val versionChunk = buildTextChunkData(
+            keyword = "version",
+            payload = (readExistingVersion(kppBytes) ?: PRESET_XML_VERSION).toByteArray(Charsets.ISO_8859_1),
+            isCompressed = false,
+        )
 
         val out = ByteArrayOutputStream()
         out.write(PNG_HEADER)
 
         var idx = 8
-        var replaced = false
+        var presetWritten = false
+        var versionWritten = false
         while (idx + 12 <= kppBytes.size) {
             val length = ByteBuffer.wrap(kppBytes, idx, 4).order(ByteOrder.BIG_ENDIAN).int
             val chunkType = String(kppBytes, idx + 4, 4, Charsets.ISO_8859_1)
             val chunkDataStart = idx + 8
-            val chunkDataEnd = chunkDataStart + length
-            if (chunkDataEnd + 4 > kppBytes.size || length < 0) break
+            // Long accumulation again: a corrupt 0x7FFFFFFF length would overflow the Int
+            // sum into a negative value, defeating the `> size` guard, and the subsequent
+            // out.write(kppBytes, idx, 12 + length) would throw IndexOutOfBounds.
+            val chunkDataEnd = chunkDataStart.toLong() + length.toLong()
+            if (length < 0 || chunkDataEnd + 4 > kppBytes.size.toLong()) break
 
-            var isPresetChunk = false
-            if (chunkType == "zTXt" || chunkType == "tEXt") {
-                var nullPos = -1
-                for (p in chunkDataStart until chunkDataEnd) {
-                    if (kppBytes[p] == 0.toByte()) {
-                        nullPos = p
-                        break
-                    }
-                }
-                if (nullPos != -1) {
-                    val keyword = String(kppBytes, chunkDataStart, nullPos - chunkDataStart, Charsets.ISO_8859_1)
-                    if (keyword == "preset") {
-                        isPresetChunk = true
-                    }
-                }
+            val keyword = if (chunkType == "zTXt" || chunkType == "tEXt") {
+                readChunkKeyword(kppBytes, chunkDataStart, chunkDataEnd.toInt())
+            } else null
+
+            // Any chunk already claiming to be preset / version is dropped here and rewritten
+            // ahead of the first IDAT below.
+            if (keyword == "preset" || keyword == "version") {
+                idx += 12 + length
+                continue
             }
 
-            if (isPresetChunk) {
-                if (!replaced) {
-                    val lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(newChunkData.size).array()
-                    out.write(lenBuf)
-                    out.write("zTXt".toByteArray(Charsets.ISO_8859_1))
-                    out.write(newChunkData)
-                    val crcBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(crcVal).array()
-                    out.write(crcBuf)
-                    replaced = true
+            // The first IDAT — or IEND, for an image-less PNG — is the point where the two text
+            // chunks have to be emitted; see the KDoc above.
+            if (!presetWritten && (chunkType == "IDAT" || chunkType == "IEND")) {
+                if (!versionWritten) {
+                    writeChunk(out, "tEXt", versionChunk)
+                    versionWritten = true
                 }
-            } else {
-                if (chunkType == "IEND" && !replaced) {
-                    val lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(newChunkData.size).array()
-                    out.write(lenBuf)
-                    out.write("zTXt".toByteArray(Charsets.ISO_8859_1))
-                    out.write(newChunkData)
-                    val crcBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(crcVal).array()
-                    out.write(crcBuf)
-                    replaced = true
-                }
-                out.write(kppBytes, idx, 12 + length)
+                writeChunk(out, "zTXt", presetChunk)
+                presetWritten = true
             }
+
+            out.write(kppBytes, idx, 12 + length)
             idx += 12 + length
         }
 
+        // Fallback for a truncated PNG that has neither IDAT nor IEND.
+        if (!presetWritten) {
+            if (!versionWritten) writeChunk(out, "tEXt", versionChunk)
+            writeChunk(out, "zTXt", presetChunk)
+        }
         return out.toByteArray()
     }
+
+    /** Deflates the preset XML, which is the payload of the zTXt chunk. */
+    private fun deflateXml(xml: String): ByteArray {
+        val deflater = Deflater(Deflater.DEFAULT_COMPRESSION)
+        deflater.setInput(xml.toByteArray(Charsets.UTF_8))
+        deflater.finish()
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(4096)
+        while (!deflater.finished()) {
+            out.write(buf, 0, deflater.deflate(buf))
+        }
+        deflater.end()
+        return out.toByteArray()
+    }
+
+    /** Builds the data section of a text chunk: keyword + 0x00 (+ method 0x00) + payload. */
+    private fun buildTextChunkData(keyword: String, payload: ByteArray, isCompressed: Boolean): ByteArray {
+        val kw = keyword.toByteArray(Charsets.ISO_8859_1)
+        val head = if (isCompressed) 2 else 1
+        val data = ByteArray(kw.size + head + payload.size)
+        System.arraycopy(kw, 0, data, 0, kw.size)
+        data[kw.size] = 0
+        if (isCompressed) data[kw.size + 1] = 0
+        System.arraycopy(payload, 0, data, kw.size + head, payload.size)
+        return data
+    }
+
+    /** Writes a complete chunk: length + type + data + CRC32(type + data). */
+    private fun writeChunk(out: ByteArrayOutputStream, type: String, data: ByteArray) {
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(data.size).array())
+        val typeBytes = type.toByteArray(Charsets.ISO_8859_1)
+        out.write(typeBytes)
+        out.write(data)
+        val crc = CRC32()
+        crc.update(typeBytes)
+        crc.update(data)
+        out.write(ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(crc.value.toInt()).array())
+    }
+
+    /** Reads a text chunk's keyword (terminated by 0x00); null when it is not a text chunk. */
+    private fun readChunkKeyword(png: ByteArray, from: Int, to: Int): String? {
+        var p = from
+        while (p < to && png[p] != 0.toByte()) p++
+        if (p >= to) return null
+        return String(png, from, p - from, Charsets.ISO_8859_1)
+    }
+
+    /** Reads the version text value already present in a .kpp (tEXt); null when absent. */
+    private fun readExistingVersion(png: ByteArray): String? {
+        var idx = 8
+        while (idx + 12 <= png.size) {
+            val length = ByteBuffer.wrap(png, idx, 4).order(ByteOrder.BIG_ENDIAN).int
+            val chunkType = String(png, idx + 4, 4, Charsets.ISO_8859_1)
+            val start = idx + 8
+            // Long accumulation, so a corrupt oversized length cannot overflow past the guard.
+            val end = start.toLong() + length.toLong()
+            if (length < 0 || end + 4 > png.size.toLong()) break
+            if (chunkType == "tEXt") {
+                val endI = end.toInt()
+                var p = start
+                while (p < endI && png[p] != 0.toByte()) p++
+                if (p < endI && String(png, start, p - start, Charsets.ISO_8859_1) == "version") {
+                    val value = String(png, p + 1, endI - p - 1, Charsets.ISO_8859_1)
+                    if (value.isNotBlank()) return value
+                }
+            }
+            idx += 12 + length
+        }
+        return null
+    }
+
+    /** Default used when the base image has no version chunk; matches what Krita 5.x writes. */
+    private const val PRESET_XML_VERSION = "2.2"
 
     /**
      * Fade / Softness 语义（2026-09-29 按 248 个预设实测校准，勿再反）：
@@ -297,6 +383,34 @@ object KppHelper {
     /** 主 brush_definition 的 CDATA 内容; 没有则退回整个 XML（兼容极老的生成文件） */
     private fun mainBrushDefinition(xml: String): String =
         mainBrushDefPattern.find(xml)?.groupValues?.get(1) ?: xml
+
+    /**
+     * `scale` is the **only** attribute that decides the brush size the engine reports.
+     *
+     * From Krita's `libs/brush/kis_scaling_size_brush.cpp`:
+     * ```
+     * qreal KisScalingSizeBrush::userEffectiveSize() const
+     * { return qMax(this->width(), this->height()) * this->scale(); }
+     * ```
+     * and `KisBrushBasedPaintOpSettings::paintOpSize()` returns exactly that. So for
+     * file-backed tips (`png_brush` / `gbr_brush`), writing `scale="1"` in `brush_definition`
+     * is equivalent to "treat the raw tip pixel size as the brush size" — the `diameter`
+     * declared by the ABR (say 80) is discarded and the engine reports 282 for a 282x282 tip.
+     * Writing `diameter / max(w, h)` on import makes the reported size match the ABR.
+     */
+    private fun formatScale(v: Double): String {
+        if (!v.isFinite() || v <= 0.0) return "1"
+        val rounded = String.format(java.util.Locale.US, "%.6f", v)
+        return if (rounded.contains('.')) rounded.trimEnd('0').trimEnd('.') else rounded
+    }
+
+    /** Existing scale of the main brush_definition, or Krita's default of 1 when absent */
+    private fun existingBrushScale(xml: String): String =
+        Regex("""<Brush\b[^>]*\bscale="([^"]*)"""")
+            .find(mainBrushDefinition(xml))
+            ?.groupValues?.get(1)
+            ?.takeIf { it.isNotBlank() }
+            ?: "1"
 
     /**
      * Data class holding parsed native attributes from preset XML.
@@ -441,8 +555,15 @@ object KppHelper {
 
     /**
      * Injects or updates parameter tags in Krita preset XML.
+     *
+     * [tipScale] see [updateKppBytes]; `null` = keep the scale already in the file.
      */
-    fun injectParamsIntoXml(originalXml: String, presetName: String, params: BrushParams): String {
+    fun injectParamsIntoXml(
+        originalXml: String,
+        presetName: String,
+        params: BrushParams,
+        tipScale: Double? = null,
+    ): String {
         var xml = originalXml
 
         // 1. Update <Preset name="..." paintopid="...">
@@ -571,46 +692,54 @@ object KppHelper {
         val hasHue = params.hueJitter > 0.001
         xml = updateParam(xml, "Pressureh", hasHue.toString())
         xml = updateParam(xml, "hValue", params.hueJitter.toString())
-        xml = updateParam(xml, "Customh", "true")
-        xml = updateParam(xml, "Curveh", "0,0;1,1;")
-        xml = updateParam(xml, "hUseCurve", "true")
-        xml = updateParam(xml, "hUseSameCurve", "true")
-        if (hasHue) {
-            xml = updateParam(xml, "hSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+        if (!originalXml.contains("""name="hSensor"""")) {
+            xml = updateParam(xml, "Customh", "true")
+            xml = updateParam(xml, "Curveh", "0,0;1,1;")
+            xml = updateParam(xml, "hUseCurve", "true")
+            xml = updateParam(xml, "hUseSameCurve", "true")
+            if (hasHue) {
+                xml = updateParam(xml, "hSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+            }
         }
 
         val hasSat = params.satJitter > 0.001
         xml = updateParam(xml, "Pressures", hasSat.toString())
         xml = updateParam(xml, "sValue", params.satJitter.toString())
-        xml = updateParam(xml, "Customs", "true")
-        xml = updateParam(xml, "Curves", "0,0;1,1;")
-        xml = updateParam(xml, "sUseCurve", "true")
-        xml = updateParam(xml, "sUseSameCurve", "true")
-        if (hasSat) {
-            xml = updateParam(xml, "sSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+        if (!originalXml.contains("""name="sSensor"""")) {
+            xml = updateParam(xml, "Customs", "true")
+            xml = updateParam(xml, "Curves", "0,0;1,1;")
+            xml = updateParam(xml, "sUseCurve", "true")
+            xml = updateParam(xml, "sUseSameCurve", "true")
+            if (hasSat) {
+                xml = updateParam(xml, "sSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+            }
         }
 
         val hasVal = params.valJitter > 0.001
         xml = updateParam(xml, "Pressurev", hasVal.toString())
         xml = updateParam(xml, "vValue", params.valJitter.toString())
-        xml = updateParam(xml, "Customv", "true")
-        xml = updateParam(xml, "Curvev", "0,0;1,1;")
-        xml = updateParam(xml, "vUseCurve", "true")
-        xml = updateParam(xml, "vUseSameCurve", "true")
-        if (hasVal) {
-            xml = updateParam(xml, "vSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+        if (!originalXml.contains("""name="vSensor"""")) {
+            xml = updateParam(xml, "Customv", "true")
+            xml = updateParam(xml, "Curvev", "0,0;1,1;")
+            xml = updateParam(xml, "vUseCurve", "true")
+            xml = updateParam(xml, "vUseSameCurve", "true")
+            if (hasVal) {
+                xml = updateParam(xml, "vSensor", """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>""")
+            }
         }
 
         val hasMix = params.secondaryMix > 0.001 || params.pressureColorMix
         xml = updateParam(xml, "PressureMix", hasMix.toString())
         xml = updateParam(xml, "MixValue", params.secondaryMix.toString())
-        xml = updateParam(xml, "CurveMix", "0,0;1,1;")
-        xml = updateParam(xml, "CustomMix", "true")
-        xml = updateParam(xml, "MixUseCurve", "true")
-        xml = updateParam(xml, "MixUseSameCurve", "true")
-        if (hasMix) {
-            val mixSensorId = if (params.pressureColorMix) "pressure" else "fuzzy"
-            xml = updateParam(xml, "MixSensor", """<!DOCTYPE params><params id="$mixSensorId"><curve>0,0;1,1;</curve></params>""")
+        if (!originalXml.contains("""name="MixSensor"""")) {
+            xml = updateParam(xml, "CurveMix", "0,0;1,1;")
+            xml = updateParam(xml, "CustomMix", "true")
+            xml = updateParam(xml, "MixUseCurve", "true")
+            xml = updateParam(xml, "MixUseSameCurve", "true")
+            if (hasMix) {
+                val mixSensorId = if (params.pressureColorMix) "pressure" else "fuzzy"
+                xml = updateParam(xml, "MixSensor", """<!DOCTYPE params><params id="$mixSensorId"><curve>0,0;1,1;</curve></params>""")
+            }
         }
 
         // 14. Update Mirror & Rotation dynamics & Scatter sensor
@@ -647,12 +776,18 @@ object KppHelper {
                 "svg" -> "svg_brush"
                 else -> "png_brush"
             }
-            val brushDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="$tipFile" spacing="${params.spacing}" angle="${params.angle}" brushApplication="0"/> ]]></param>"""
+            // `scale` is what the engine actually reports as the brush size (see formatScale).
+            // When the caller knows the right value (ABR import) we use it; otherwise we keep
+            // whatever the file already had instead of forcing it back to 1.
+            val scaleAttr = tipScale?.let { formatScale(it) } ?: existingBrushScale(xml)
+            val brushDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="$tipFile" spacing="${params.spacing}" angle="${params.angle}" brushApplication="0"/> ]]></param>"""
             if (mainBrushDefPattern.containsMatchIn(xml)) {
                 xml = mainBrushDefPattern.replace(xml, brushDef)
             } else {
                 xml = xml.replace("</Preset>", " $brushDef\n</Preset>")
             }
+            xml = updateParam(xml, "requiredBrushFile", tipFile)
+            xml = updateParam(xml, "requiredBrushFilesList", tipFile)
         } else if (mainBrushDefPattern.containsMatchIn(xml)) {
             // Retain original tip or auto_brush, and sync spacing/angle/MaskGenerator attrs.
             // 只动主 brush_definition 的 CDATA —— 文档序里排在它前面的
@@ -773,7 +908,11 @@ object KppHelper {
     private fun paramPattern(paramName: String): Regex =
         Regex("""<param\b[^>]*\bname="${Regex.escape(paramName)}"[^>]*>.*?</param>""", RegexOption.DOT_MATCHES_ALL)
 
-    private fun buildMinimalPresetXml(presetName: String, params: BrushParams): String {
+    private fun buildMinimalPresetXml(
+        presetName: String,
+        params: BrushParams,
+        tipScale: Double? = null,
+    ): String {
         val resolvedOpId = when {
             params.paintOpId.isBlank() || params.paintOpId == "defaultpaintop" -> "paintbrush"
             else -> params.paintOpId
@@ -786,7 +925,11 @@ object KppHelper {
         val tipDef = if (params.tipAsset.isNotBlank()) {
             val ext = params.tipAsset.substringAfterLast(".").lowercase()
             val tipType = if (ext == "gbr") "gbr_brush" else "png_brush"
-            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="${params.tipAsset}" spacing="${params.spacing}" angle="${params.angle}"/> ]]></param>"""
+            // Freshly built XML has no previous scale to preserve, so fall back to 1.
+            val scaleAttr = tipScale?.let { formatScale(it) } ?: "1"
+            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="${params.tipAsset}" spacing="${params.spacing}" angle="${params.angle}" brushApplication="0"/> ]]></param>
+  <param type="string" name="requiredBrushFile"><![CDATA[${params.tipAsset}]]></param>
+  <param type="string" name="requiredBrushFilesList"><![CDATA[${params.tipAsset}]]></param>"""
         } else {
             """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="${params.angle}"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipShapeType" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
         }

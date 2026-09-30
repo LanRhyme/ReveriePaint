@@ -153,8 +153,16 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
     const QString cleanName = QUrl::fromPercentEncoding(baseName.toUtf8());
     const QString bareName = QFileInfo(cleanName).fileName();
 
-    if (m_loadedBrushes.contains(baseName) || m_loadedBrushes.contains(cleanName) || m_loadedBrushes.contains(bareName) ||
-        m_loadedResourceNames.contains(baseName) || m_loadedResourceNames.contains(cleanName) || m_loadedResourceNames.contains(bareName)) {
+    const bool isBrush = bareName.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive) ||
+                         bareName.endsWith(QLatin1String(".gih"), Qt::CaseInsensitive) ||
+                         bareName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive) ||
+                         bareName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive) ||
+                         bareName.endsWith(QLatin1String(".abr"), Qt::CaseInsensitive);
+
+    if (m_loadedBrushes.contains(baseName) || m_loadedBrushes.contains(cleanName) || m_loadedBrushes.contains(bareName)) {
+        return true;
+    }
+    if (!isBrush && (m_loadedResourceNames.contains(baseName) || m_loadedResourceNames.contains(cleanName) || m_loadedResourceNames.contains(bareName))) {
         return true;
     }
 
@@ -554,6 +562,18 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                         }
                     }
 
+                    // 3.5 Required brush file params in Krita preset XML
+                    static const QRegularExpression reqFileRe(
+                        QStringLiteral("<param\\b[^>]*?name=[\"']requiredBrushFiles?(?:List)?[\"'][^>]*>(?:<!\\[CDATA\\[)?([^\\<]+?)(?:\\]\\]>)?</param>"),
+                        QRegularExpression::CaseInsensitiveOption);
+                    auto itReq = reqFileRe.globalMatch(xmlStr);
+                    while (itReq.hasNext()) {
+                        const QString reqVal = itReq.next().captured(1).trimmed();
+                        if (!reqVal.isEmpty()) {
+                            loadSingleBrushResource(reqVal);
+                        }
+                    }
+
                     // 4. Fallback regex to capture any brush resource file names in XML
                     static const QRegularExpression re(
                         QStringLiteral("([\\w\\-\\._ %]+\\.(?:gbr|gih|png|svg|pat|abr|jpg|jpeg))"),
@@ -662,7 +682,7 @@ int ReverieCore::loadBrushResources(const QString &dirPath)
         }
         const QString fullPath = dir.filePath(base);
         QFileInfo fi(fullPath);
-        if (fi.size() > 1024 * 1024) continue; // Skip large brushes; load on demand
+        if (fi.size() > 16 * 1024 * 1024) continue; // Skip excessively large brushes (>16MB); load on demand
         if (loadSingleBrushResource(base)) {
             ++loaded;
         }

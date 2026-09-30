@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.panels
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -66,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.BackKeyAction
 import com.reverie.paint.model.RotationSnap
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
@@ -79,6 +81,7 @@ internal fun SettingsTabPage(
 ) {
     var currentSubPage by remember { mutableStateOf<String?>(null) }
     var recordingShortcut by remember { mutableStateOf<ShortcutDefinition?>(null) }
+    var smoothingAdvancedExpanded by remember { mutableStateOf(false) }
 
     AnimatedContent(
         targetState = currentSubPage,
@@ -637,6 +640,53 @@ internal fun SettingsTabPage(
                                 onChecked = { vm.updatePenModeSingleFingerPan(it) },
                             )
                         }
+
+                        SettingsInnerDivider()
+
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text(
+                                stringResource(R.string.settings_back_key_title),
+                                color = Morandi.text,
+                                fontSize = 13.sp,
+                            )
+                            Text(
+                                stringResource(R.string.settings_back_key_desc),
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
+                            )
+
+                            Spacer(Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(32.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panel)
+                                    .padding(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                for (action in BackKeyAction.entries) {
+                                    val isSelected = vm.backKeyAction == action
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Morandi.accent else Color.Transparent)
+                                            .clickable { vm.updateBackKeyAction(action) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            stringResource(action.labelRes()),
+                                            color = if (isSelected) Color.White else Morandi.subText,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Box(
@@ -892,7 +942,7 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
-                        // 抖动修正 (Stroke Stabilizer)
+                        // 抖动修正与平滑 (Stroke Stabilizer & Smoothing)
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -913,24 +963,70 @@ internal fun SettingsTabPage(
                                     Spacer(Modifier.width(10.dp))
                                     Text(stringResource(R.string.settings_stroke_stabilizer), color = Morandi.text, fontSize = 13.sp)
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Morandi.panel)
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text("${(vm.strokeStabilizer * 100).roundToInt()}%", color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    // 高级设置展开/折叠按钮
+                                    Row(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (smoothingAdvancedExpanded) Morandi.accent.copy(alpha = 0.15f) else Morandi.panel)
+                                            .clickable { smoothingAdvancedExpanded = !smoothingAdvancedExpanded }
+                                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            stringResource(R.string.settings_stroke_smoothing_advanced),
+                                            color = if (smoothingAdvancedExpanded) Morandi.accent else Morandi.subText,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                        Spacer(Modifier.width(2.dp))
+                                        Icon(
+                                            painter = painterResource(if (smoothingAdvancedExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down),
+                                            contentDescription = null,
+                                            tint = if (smoothingAdvancedExpanded) Morandi.accent else Morandi.subText,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                    }
+
+                                    // 当前数值/模式徽标
+                                    val badgeText = when (vm.strokeSmoothingType) {
+                                        PaintViewModel.SMOOTHING_OFF -> stringResource(R.string.settings_smoothing_mode_off)
+                                        PaintViewModel.SMOOTHING_WEIGHTED -> "${vm.strokeSmoothnessDistanceMin.roundToInt()} px"
+                                        else -> "${(vm.strokeStabilizer * 100).roundToInt()}%"
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Morandi.panel)
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            badgeText,
+                                            color = Morandi.accent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                    }
                                 }
                             }
 
                             Spacer(Modifier.height(10.dp))
 
-                            // Interactive Stabilizer Slider
+                            // Interactive Stabilizer Slider (根据平滑模式自适应映射)
+                            val sliderFraction = when (vm.strokeSmoothingType) {
+                                PaintViewModel.SMOOTHING_OFF -> 0f
+                                PaintViewModel.SMOOTHING_WEIGHTED -> ((vm.strokeSmoothnessDistanceMin - PaintViewModel.SMOOTHING_DISTANCE_MIN) / (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)).toFloat().coerceIn(0f, 1f)
+                                else -> vm.strokeStabilizer.coerceIn(0f, 1f)
+                            }
+
                             BoxWithConstraints(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(24.dp)
-                                    .pointerInput(Unit) {
+                                    .pointerInput(vm.strokeSmoothingType) {
                                         awaitEachGesture {
                                             val down = awaitFirstDown(requireUnconsumed = false)
                                             val w = size.width.toFloat()
@@ -944,7 +1040,18 @@ internal fun SettingsTabPage(
 
                                             fun updateFromX(x: Float) {
                                                 val frac = ((x - thumbRadiusPx) / usableWidthPx).coerceIn(0f, 1f)
-                                                vm.updateStrokeStabilizer(frac)
+                                                when (vm.strokeSmoothingType) {
+                                                    PaintViewModel.SMOOTHING_WEIGHTED -> {
+                                                        val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
+                                                        vm.updateStrokeSmoothnessDistanceMin(dist)
+                                                    }
+                                                    else -> {
+                                                        if (vm.strokeSmoothingType == PaintViewModel.SMOOTHING_OFF) {
+                                                            vm.updateStrokeSmoothingType(PaintViewModel.SMOOTHING_BASIC)
+                                                        }
+                                                        vm.updateStrokeStabilizer(frac)
+                                                    }
+                                                }
                                             }
 
                                             while (true) {
@@ -985,8 +1092,8 @@ internal fun SettingsTabPage(
                                 val trackWidth = maxWidth
                                 val thumbSize = 16.dp
                                 val maxTravel = (trackWidth - thumbSize).coerceAtLeast(0.dp)
-                                val thumbOffset = maxTravel * vm.strokeStabilizer.coerceIn(0f, 1f)
-                                val activeTrackWidth = if (vm.strokeStabilizer <= 0f) {
+                                val thumbOffset = maxTravel * sliderFraction
+                                val activeTrackWidth = if (sliderFraction <= 0f) {
                                     0.dp
                                 } else {
                                     (thumbOffset + thumbSize / 2).coerceAtMost(trackWidth)
@@ -1019,6 +1126,194 @@ internal fun SettingsTabPage(
                                         .clip(CircleShape)
                                         .background(Morandi.text),
                                 )
+                            }
+
+                            // ---- Advanced Smoothing Expandable Section ----
+                            AnimatedVisibility(visible = smoothingAdvancedExpanded) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panelHi.copy(alpha = 0.5f))
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    // 1. 算法模式单选
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        val modes = listOf(
+                                            PaintViewModel.SMOOTHING_OFF to stringResource(R.string.settings_smoothing_mode_off),
+                                            PaintViewModel.SMOOTHING_BASIC to stringResource(R.string.settings_smoothing_mode_basic),
+                                            PaintViewModel.SMOOTHING_WEIGHTED to stringResource(R.string.settings_smoothing_mode_weighted),
+                                        )
+                                        modes.forEach { (modeVal, modeLabel) ->
+                                            val selected = vm.strokeSmoothingType == modeVal
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(if (selected) Morandi.accent else Morandi.panel)
+                                                    .clickable { vm.updateStrokeSmoothingType(modeVal) }
+                                                    .padding(vertical = 6.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    modeLabel,
+                                                    color = if (selected) Morandi.panelHi else Morandi.text,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    if (vm.strokeSmoothingType == PaintViewModel.SMOOTHING_WEIGHTED) {
+                                        // 保持最小与最大距离锁定一致开关
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text(
+                                                stringResource(R.string.settings_smoothing_lock_distance),
+                                                color = Morandi.text,
+                                                fontSize = 12.sp,
+                                            )
+                                            ReSwitch(
+                                                checked = vm.strokeSmoothDistanceLocked,
+                                                onChecked = { vm.updateStrokeSmoothDistanceLocked(it) },
+                                            )
+                                        }
+
+                                        if (vm.strokeSmoothDistanceLocked) {
+                                            // 统一平滑距离滑块
+                                            Column {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Text(stringResource(R.string.settings_smoothing_distance), color = Morandi.subText, fontSize = 11.sp)
+                                                    Text("${vm.strokeSmoothnessDistanceMin.roundToInt()} px", color = Morandi.accent, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                ReSlider(
+                                                    value = ((vm.strokeSmoothnessDistanceMin - PaintViewModel.SMOOTHING_DISTANCE_MIN) / (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)).toFloat().coerceIn(0f, 1f),
+                                                    onValue = { frac ->
+                                                        val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
+                                                        vm.updateStrokeSmoothnessDistanceMin(dist)
+                                                    },
+                                                )
+                                            }
+                                        } else {
+                                            // 最小距离
+                                            Column {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Text(stringResource(R.string.settings_smoothing_distance_min), color = Morandi.subText, fontSize = 11.sp)
+                                                    Text("${vm.strokeSmoothnessDistanceMin.roundToInt()} px", color = Morandi.accent, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                ReSlider(
+                                                    value = ((vm.strokeSmoothnessDistanceMin - PaintViewModel.SMOOTHING_DISTANCE_MIN) / (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)).toFloat().coerceIn(0f, 1f),
+                                                    onValue = { frac ->
+                                                        val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
+                                                        vm.updateStrokeSmoothnessDistanceMin(dist)
+                                                    },
+                                                )
+                                            }
+                                            // 最大距离
+                                            Column {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Text(stringResource(R.string.settings_smoothing_distance_max), color = Morandi.subText, fontSize = 11.sp)
+                                                    Text("${vm.strokeSmoothnessDistanceMax.roundToInt()} px", color = Morandi.accent, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                                Spacer(Modifier.height(4.dp))
+                                                ReSlider(
+                                                    value = ((vm.strokeSmoothnessDistanceMax - PaintViewModel.SMOOTHING_DISTANCE_MIN) / (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)).toFloat().coerceIn(0f, 1f),
+                                                    onValue = { frac ->
+                                                        val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
+                                                        vm.updateStrokeSmoothnessDistanceMax(dist)
+                                                    },
+                                                )
+                                            }
+                                        }
+
+                                        // 画布缩放自适应
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    stringResource(R.string.settings_smoothing_scalable),
+                                                    color = Morandi.text,
+                                                    fontSize = 12.sp,
+                                                )
+                                                Text(
+                                                    stringResource(R.string.settings_smoothing_scalable_desc),
+                                                    color = Morandi.subText,
+                                                    fontSize = 10.sp,
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = vm.strokeScalableDistance,
+                                                onChecked = { vm.updateStrokeScalableDistance(it) },
+                                            )
+                                        }
+
+                                        // 平滑压感
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                                Text(
+                                                    stringResource(R.string.settings_smoothing_pressure),
+                                                    color = Morandi.text,
+                                                    fontSize = 12.sp,
+                                                )
+                                                Text(
+                                                    stringResource(R.string.settings_smoothing_pressure_desc),
+                                                    color = Morandi.subText,
+                                                    fontSize = 10.sp,
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = vm.strokeSmoothPressure,
+                                                onChecked = { vm.updateStrokeSmoothPressure(it) },
+                                            )
+                                        }
+
+                                        // 笔尾收束敏锐度
+                                        Column {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                            ) {
+                                                Text(stringResource(R.string.settings_smoothing_tail_aggressiveness), color = Morandi.text, fontSize = 12.sp)
+                                                Text("${(vm.strokeTailAggressiveness * 100).roundToInt()}%", color = Morandi.accent, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                            }
+                                            Text(stringResource(R.string.settings_smoothing_tail_aggressiveness_desc), color = Morandi.subText, fontSize = 10.sp)
+                                            Spacer(Modifier.height(4.dp))
+                                            ReSlider(
+                                                value = vm.strokeTailAggressiveness.toFloat().coerceIn(0f, 1f),
+                                                onValue = { frac ->
+                                                    vm.updateStrokeTailAggressiveness(frac.toDouble())
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

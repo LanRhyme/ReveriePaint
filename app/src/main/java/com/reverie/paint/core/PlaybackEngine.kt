@@ -260,7 +260,7 @@ private fun PaintViewModel.sendPresetEraserFlagLocked(presetIndex: Int) {
     // Native-table index (BrushPresetInfo.index), not list position.
     val p = brushPresets.firstOrNull { it.index == presetIndex } ?: return
     val isEraser =
-        p.group == "橡皮擦" || p.name.startsWith("a)") || p.name.contains("Eraser", ignoreCase = true)
+        p.group == "橡皮擦" || p.name.startsWith("a)_Eraser", ignoreCase = true) || p.name.contains("Eraser", ignoreCase = true)
     ReverieCoreBridge.setPresetIsEraser(isEraser)
 }
 

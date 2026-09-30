@@ -20,14 +20,21 @@ class HuaweiStylusReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context?, intent: Intent?) {
-        val action = intent?.action ?: return
-        Log.i(TAG, "Static receiver caught action: $action, extras: ${intent.extras}")
-        val activity = MainActivity.activityInstance
-        val vm = MainActivity.currentViewModel
-        if (activity != null && vm != null) {
-            val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(activity)
-            val adapter = driver.getAdapter<HuaweiStylusAdapter>()
-            adapter?.onBroadcastReceived(action, intent)
+        try {
+            val action = intent?.action ?: return
+            Log.i(TAG, "Static receiver caught action: $action")
+            val activity = MainActivity.activityInstance
+            val vm = MainActivity.currentViewModel
+            if (activity != null && vm != null) {
+                try {
+                    intent.setExtrasClassLoader(context?.classLoader ?: activity.classLoader)
+                } catch (_: Throwable) {}
+                val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(activity)
+                val adapter = driver.getAdapter<HuaweiStylusAdapter>()
+                adapter?.onBroadcastReceived(action, intent)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Safe guard caught error in onReceive: ${t.message}")
         }
     }
 }

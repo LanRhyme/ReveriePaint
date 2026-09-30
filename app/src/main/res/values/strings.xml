@@ -189,6 +189,14 @@
     <string name="create_preset_phone_wallpaper_desc">主流全面屏手机高分辨率锁屏与桌面</string>
     <string name="create_preset_a4_print">A4 纸张印刷</string>
     <string name="create_preset_a4_print_desc">国际标准 A4 规格 (210×297 mm @ 300 DPI)</string>
+    <string name="create_preset_us_letter">美制 Letter</string>
+    <string name="create_preset_us_letter_desc">美制信纸 (8.5×11 英寸 @ 300 DPI)</string>
+    <string name="create_preset_us_legal">美制 Legal</string>
+    <string name="create_preset_us_legal_desc">美制法律用纸 (8.5×14 英寸 @ 300 DPI)</string>
+    <string name="create_preset_us_tabloid">美制 Tabloid</string>
+    <string name="create_preset_us_tabloid_desc">美制对开 (11×17 英寸 @ 300 DPI)</string>
+    <string name="create_preset_us_executive">美制 Executive</string>
+    <string name="create_preset_us_executive_desc">美制行政用纸 (7.25×10.5 英寸 @ 300 DPI)</string>
     <string name="create_preset_b5_comic">B5 漫画原稿</string>
     <string name="create_preset_b5_comic_desc">日系漫画单页与同人志标准黑白/彩色原稿</string>
     <string name="create_preset_webtoon">网络长图条漫</string>
@@ -205,6 +213,14 @@
     <string name="create_ratio_b5_landscape">B5 横版</string>
     <string name="create_ratio_a4_paper">A4 纸张</string>
     <string name="create_ratio_a4_landscape">A4 横版</string>
+    <string name="create_ratio_us_letter">美制 Letter</string>
+    <string name="create_ratio_us_letter_landscape">美制 Letter 横版</string>
+    <string name="create_ratio_us_legal">美制 Legal</string>
+    <string name="create_ratio_us_legal_landscape">美制 Legal 横版</string>
+    <string name="create_ratio_us_tabloid">美制 Tabloid</string>
+    <string name="create_ratio_us_tabloid_landscape">美制 Tabloid 横版</string>
+    <string name="create_ratio_us_executive">美制 Executive</string>
+    <string name="create_ratio_us_executive_landscape">美制 Executive 横版</string>
     <string name="create_ratio_square">1:1 正方形</string>
     <string name="create_ratio_widescreen">16:9 宽屏</string>
     <string name="create_ratio_portrait_9_16">9:16 竖屏</string>
@@ -282,7 +298,7 @@
     <string name="settings_licenses_sub">查看使用的开源库与许可证</string>
     <string name="settings_export_log">导出日志</string>
     <string name="settings_export_log_sub">导出应用运行日志以供调试</string>
-    <string name="settings_export_log_toast">运行日志已准备完毕</string>
+    <string name="settings_export_log_toast">日志已复制到剪贴板</string>
     <string name="settings_intro_title">软件介绍</string>
     <string name="settings_version_summary">v%s · 支持 Mirror 酱高速通道</string>
     <string name="settings_auto_save">自动保存</string>
@@ -710,6 +726,11 @@
     <string name="settings_quick_pinch_fit_desc">双指快速向内收拢捏合时自动平滑居中并满屏复位</string>
     <string name="settings_pen_mode_single_finger_pan_title">笔模式下允许单指移动画布</string>
     <string name="settings_pen_mode_single_finger_pan_desc">开启后笔模式下可用单指拖拽平移画布，关闭后单指触控将被忽略以严格防误触</string>
+    <string name="settings_back_key_title">返回键行为</string>
+    <string name="settings_back_key_desc">画布上没有打开的面板或对话框时，按系统返回键执行的操作</string>
+    <string name="settings_back_key_none">无行为</string>
+    <string name="settings_back_key_open_settings">弹出菜单</string>
+    <string name="settings_back_key_exit">返回</string>
     <string name="settings_gesture_pen_hint">提示：多指触控手势不受笔模式影响，手写笔模式下依然可以直接使用双指撤销与三指重做</string>
     <string name="settings_eyedropper_long_press_title">长按画布吸色</string>
     <string name="settings_eyedropper_long_press_stylus_desc">笔模式已开启：手写笔长按画布取色</string>
@@ -1298,7 +1319,9 @@
     <string name="guide_symmetry_quadrant">四象限</string>
     <string name="guide_symmetry_radial">放射状</string>
     <string name="guide_symmetry_center">对称轴中心</string>
+    <string name="guide_symmetry_rotation">旋转角度</string>
     <string name="guide_symmetry_reset_center">重置居中</string>
+    <string name="guide_perspective_ray_density">参考线密度</string>
     <string name="guide_grid_size">网格尺寸</string>
     <string name="guide_line_opacity">参考线不透明度</string>
 
@@ -2082,5 +2105,27 @@
     <string name="canvas_edit_cut_done">已剪切，可撤销</string>
     <string name="canvas_edit_copied">已复制</string>
     <string name="canvas_edit_failed">操作未完成，请检查当前图层与选区</string>
+    <string name="toast_project_save_failed">保存失败，修改尚未保存，请重试</string>
+
+    <!-- Canvas View Lock & Krita Weighted Smoothing -->
+    <string name="toast_view_locked">视图已锁定</string>
+    <string name="toast_view_unlocked">视图已解锁</string>
+    <string name="canvas_view_lock">锁定视图</string>
+    <string name="canvas_view_unlock">解锁视图</string>
+    <string name="settings_stroke_smoothing_advanced">高级</string>
+    <string name="settings_smoothing_mode">平滑算法</string>
+    <string name="settings_smoothing_mode_off">关闭</string>
+    <string name="settings_smoothing_mode_basic">基础平滑</string>
+    <string name="settings_smoothing_mode_weighted">加权平滑 (Krita)</string>
+    <string name="settings_smoothing_distance">平滑距离</string>
+    <string name="settings_smoothing_distance_min">最小距离</string>
+    <string name="settings_smoothing_distance_max">最大距离</string>
+    <string name="settings_smoothing_lock_distance">锁定最小与最大距离</string>
+    <string name="settings_smoothing_scalable">随画布缩放自适应</string>
+    <string name="settings_smoothing_scalable_desc">平滑距离随画布缩放比例换算像素</string>
+    <string name="settings_smoothing_pressure">平滑压感</string>
+    <string name="settings_smoothing_pressure_desc">对落笔压感进行高斯平滑滤波</string>
+    <string name="settings_smoothing_tail_aggressiveness">笔尾敏锐度</string>
+    <string name="settings_smoothing_tail_aggressiveness_desc">笔尖离屏时加速收束，消除拖尾迟滞</string>
 </resources>
 

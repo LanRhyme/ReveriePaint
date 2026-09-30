@@ -48,6 +48,7 @@ internal fun PaintViewModel.autoSaveDir(): File {
 
 // Blocking loading overlay state (used during canvas loading, saving, creating)
 
+/** Calls [onComplete] only after a successful save; failures keep the current document open and dirty state intact. */
 internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
@@ -55,30 +56,31 @@ internal fun PaintViewModel.saveProject(
     tickPaintingTimer()
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_saving_progress)
+    var savedFile: File? = null
     runCore(
         after = {
+            isBlockingLoading = false
+            val targetFile = savedFile
+            if (targetFile == null) {
+                showActionToast(R.string.toast_project_save_failed, R.drawable.ic_save)
+                return@runCore
+            }
+            currentProjectFile = targetFile.absolutePath
             initialStrokeCount = totalStrokes
             isModified = false
             docName = name
-            val targetFile = currentProjectFile?.let { File(it) }
-            val saveSucceeded = targetFile != null && targetFile.exists() && targetFile.length() > 0
 
             // 显式保存成功后，才清理对应的自动保存草稿
-            if (saveSucceeded) {
-                val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
-                if (autoSaveFile.exists()) {
-                    autoSaveFile.delete()
-                }
-                val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
-                if (autoSaveTmp.exists()) {
-                    autoSaveTmp.delete()
-                }
-            } else {
-                android.util.Log.w("RP_IO", "saveProject target file not found or empty, retaining autosave draft")
+            val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+            if (autoSaveFile.exists()) {
+                autoSaveFile.delete()
+            }
+            val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
+            if (autoSaveTmp.exists()) {
+                autoSaveTmp.delete()
             }
             refreshProjects()
-            if (saveSucceeded) maybeAutoBackup()
-            isBlockingLoading = false
+            maybeAutoBackup()
             onComplete?.invoke()
         },
     ) {
@@ -93,7 +95,6 @@ internal fun PaintViewModel.saveProject(
             } else {
                 fileToSave
             }
-        currentProjectFile = finalFile.absolutePath
 
         val extraJson =
             """
@@ -114,8 +115,12 @@ internal fun PaintViewModel.saveProject(
         android.util.Log.d("RP_IO", "saveRevp blob=${recBlob?.size ?: 0} bytes to ${finalFile.absolutePath}")
         val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
         android.util.Log.d("RP_IO", "saveRevp result=$saved, file exists=${finalFile.exists()}, length=${finalFile.length()}")
-        if (!saved && !(finalFile.exists() && finalFile.length() > 0)) {
-            android.util.Log.w("RP_IO", "saveRevp failed, no artifact")
+        // An old non-empty file is not evidence that this save succeeded.
+        // Leave the result unset on false or exception so runCore's after callback cannot report success.
+        if (saved && finalFile.isFile && finalFile.length() > 0) {
+            savedFile = finalFile
+        } else {
+            android.util.Log.w("RP_IO", "saveRevp failed, retaining document state and autosave draft")
         }
     }
 }
@@ -265,6 +270,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 // 新文档的撤销栈是 C++ 侧新建的, 每次都要重新应用历史上限
                 ReverieCoreBridge.setUndoLimit(maxUndoSteps)
                 ReverieCoreBridge.setBrushColor(brushColor)
+                ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                 refreshSavedSelections()
 
                 // 恢复退出时选中的图层
@@ -1098,6 +1104,7 @@ internal fun PaintViewModel.startPainting(
                 syncLayersFromNative()
                 ReverieCoreBridge.setUndoLimit(maxUndoSteps)
                 ReverieCoreBridge.setBrushColor(brushColor)
+                ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                 if (animation) {
                     // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率
                     nativeInitAnimation(animationFps)
@@ -1266,9 +1273,9 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             } ?: ordered.firstOrNull {
                 it.name == "b)_Basic-5_Size_Opacity"
             } ?: ordered.firstOrNull {
-                it.group == "基础" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true)
+                it.group == "基础" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
             } ?: ordered.firstOrNull {
-                it.group != "橡皮擦" && !it.name.startsWith("a)") && !it.name.contains("Eraser", ignoreCase = true)
+                it.group != "橡皮擦" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
             } ?: ordered[0]
 
             val defaultEraserPreset = ordered.firstOrNull {
@@ -1289,7 +1296,7 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
                 if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
                     val candidate = ordered.first { it.index == savedToolState.presetIndex }
                     val isCandidateEraser = candidate.group == "橡皮擦" ||
-                            candidate.name.startsWith("a)") ||
+                            candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
                             candidate.name.contains("Eraser", ignoreCase = true)
                     if (!isEraserTool && isCandidateEraser) {
                         fallbackPreset.index
@@ -1301,7 +1308,7 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
                     if (savedPresetIdx >= 0 && ordered.any { it.index == savedPresetIdx }) {
                         val candidate = ordered.first { it.index == savedPresetIdx }
                         val isCandidateEraser = candidate.group == "橡皮擦" ||
-                                candidate.name.startsWith("a)") ||
+                                candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
                                 candidate.name.contains("Eraser", ignoreCase = true)
                         if (!isEraserTool && isCandidateEraser) {
                             fallbackPreset.index

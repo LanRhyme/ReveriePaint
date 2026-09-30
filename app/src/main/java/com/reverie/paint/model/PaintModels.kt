@@ -73,6 +73,30 @@ enum class Tool(
     }
 }
 
+/**
+ * 绘画主界面上按下系统返回键/返回手势时的兜底行为。
+ *
+ * 仅在 BackHandler 链把所有浮层 (面板 / 对话框 / 变换 / 工具切换) 都消费完之后才生效,
+ * 因此这三个值只描述"画布处于干净状态时按返回"的结果:
+ * - [NONE] 无行为: 忽略返回, 防止误触退出画布 (历史默认)
+ * - [OPEN_SETTINGS] 弹出设置面板
+ * - [EXIT] 退出画布 (有未保存修改时仍走保存确认流程)
+ *
+ * `id` 用于 SharedPreferences 持久化, 非法/历史脏值由 [fromId] 回退到 [NONE]。
+ */
+enum class BackKeyAction(
+    val id: String,
+) {
+    NONE("none"),
+    OPEN_SETTINGS("open_settings"),
+    EXIT("exit"),
+    ;
+
+    companion object {
+        fun fromId(id: String?): BackKeyAction = entries.find { it.id == id } ?: NONE
+    }
+}
+
 /** 套索操作模式: 0: 自由描画, 1: 折线, 2: 自由描画与折线 (多次操作) */
 object LassoSubMode {
     const val FREEHAND = 0

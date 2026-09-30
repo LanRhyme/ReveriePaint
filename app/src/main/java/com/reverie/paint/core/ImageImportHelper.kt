@@ -36,7 +36,8 @@ object ImageImportHelper {
 
     /**
      * Calculates proportional scaling and centered coordinates when placing an image on canvas.
-     * If the image exceeds [maxRatio] of canvas dimensions, scale down proportionally;
+     * An exact canvas-sized image stays at its original size and aligns to the canvas origin.
+     * Otherwise, if the image exceeds [maxRatio] of canvas dimensions, scale down proportionally;
      * otherwise keep original size.
      */
     fun calculateFitPlacement(
@@ -48,6 +49,9 @@ object ImageImportHelper {
     ): FitPlacement {
         if (docW <= 0 || docH <= 0 || imgW <= 0 || imgH <= 0) {
             return FitPlacement(0, 0, imgW.coerceAtLeast(1), imgH.coerceAtLeast(1))
+        }
+        if (imgW == docW && imgH == docH) {
+            return FitPlacement(0, 0, imgW, imgH)
         }
         val maxTargetW = docW * maxRatio
         val maxTargetH = docH * maxRatio

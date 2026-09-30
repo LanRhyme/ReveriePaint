@@ -518,6 +518,7 @@ fun ReVerticalSlider(
     title: String = stringResource(R.string.slider_fine_tune),
     iconRes: Int = com.reverie.paint.R.drawable.ic_brush,
     valueText: String,
+    previewCircleRadiusPx: Float? = null,
     onStep: ((Boolean) -> Unit)? = null,
     quickChips: List<Pair<String, () -> Unit>> = emptyList(),
     presets: List<Double?> = emptyList(),
@@ -706,20 +707,64 @@ fun ReVerticalSlider(
                             dismissOnClickOutside = false,
                         )
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colors.panel.copy(alpha = popupAlpha))
-                                .glassBorder(RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(
-                                valueText,
-                                color = colors.text,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.panel.copy(alpha = popupAlpha))
+                                    .glassBorder(RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    valueText,
+                                    color = colors.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            if (previewCircleRadiusPx != null && previewCircleRadiusPx > 0f) {
+                                val safeRadius = previewCircleRadiusPx.coerceIn(2.5f, 100f)
+                                val canvasBoxSize = with(density) { ((safeRadius + 4f) * 2f).toDp() }
+                                Box(
+                                    modifier = Modifier
+                                        .shadow(8.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.2f))
+                                        .clip(CircleShape)
+                                        .background(colors.panel.copy(alpha = (popupAlpha * 0.75f).coerceIn(0.2f, 0.95f)))
+                                        .glassBorder(CircleShape)
+                                        .size(canvasBoxSize),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val c = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+                                        // Faint theme accent tint inside
+                                        drawCircle(colors.accent.copy(alpha = 0.12f), radius = safeRadius, center = c)
+                                        // Outer black stroke for contrast on bright canvas / background
+                                        drawCircle(
+                                            Color.Black.copy(alpha = 0.6f),
+                                            radius = safeRadius + 0.8f,
+                                            center = c,
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6f)
+                                        )
+                                        // Inner white stroke for contrast on dark background
+                                        drawCircle(
+                                            Color.White,
+                                            radius = safeRadius,
+                                            center = c,
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2f)
+                                        )
+                                        if (safeRadius >= 10f) {
+                                            // Center precision dot
+                                            drawCircle(Color.Black.copy(alpha = 0.6f), radius = 2.2f, center = c)
+                                            drawCircle(Color.White, radius = 1.2f, center = c)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

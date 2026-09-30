@@ -80,10 +80,12 @@ data class DrawingGuideConfig(
     val symmetryType: SymmetryType = SymmetryType.VERTICAL,
     val symmetryCenterX: Float = 0.5f, // 归一化画布相对坐标
     val symmetryCenterY: Float = 0.5f,
+    val symmetryRotationDeg: Float = 0f, // 对称轴旋转角度 (度数)
     val perspectiveVanishingPoints: List<Point2D> = emptyList(), // 1~3 点透视点 (画布物理坐标)
+    val perspectiveRayCount: Int = 12, // 透视灭点放射线密度 (6~24)
 ) {
     /**
-     * 计算输入点对应的对称镜像分支点列表
+     * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)
      */
     fun computeSymmetricPoints(docPt: Point2D, docWidth: Int, docHeight: Int): List<Point2D> {
         if (mode != GuideMode.SYMMETRY) return emptyList()
@@ -92,26 +94,42 @@ data class DrawingGuideConfig(
         val scY = symmetryCenterY.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
         val cx = docWidth * scX
         val cy = docHeight * scY
-        return when (symmetryType) {
-            SymmetryType.VERTICAL -> listOf(Point2D(2f * cx - docPt.x, docPt.y))
-            SymmetryType.HORIZONTAL -> listOf(Point2D(docPt.x, 2f * cy - docPt.y))
+
+        val rotRad = (symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
+        val cosR = cos(rotRad)
+        val sinR = sin(rotRad)
+
+        // 旋转至对称轴局部对齐坐标系 (绕中心点逆时针旋转 -rotRad)
+        val dx = docPt.x - cx
+        val dy = docPt.y - cy
+        val lx = dx * cosR + dy * sinR
+        val ly = -dx * sinR + dy * cosR
+
+        val localBranches = when (symmetryType) {
+            SymmetryType.VERTICAL -> listOf(Point2D(-lx, ly))
+            SymmetryType.HORIZONTAL -> listOf(Point2D(lx, -ly))
             SymmetryType.QUADRANT -> listOf(
-                Point2D(2f * cx - docPt.x, docPt.y),
-                Point2D(docPt.x, 2f * cy - docPt.y),
-                Point2D(2f * cx - docPt.x, 2f * cy - docPt.y),
+                Point2D(-lx, ly),
+                Point2D(lx, -ly),
+                Point2D(-lx, -ly),
             )
             SymmetryType.RADIAL -> {
-                val dx = docPt.x - cx
-                val dy = docPt.y - cy
-                val r = hypot(dx, dy)
-                val baseAngle = atan2(dy, dx)
+                val r = hypot(lx, ly)
+                val baseAngle = atan2(ly, lx)
                 val branches = ArrayList<Point2D>(7)
                 for (k in 1..7) {
                     val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
-                    branches.add(Point2D(cx + r * cos(ang), cy + r * sin(ang)))
+                    branches.add(Point2D(r * cos(ang), r * sin(ang)))
                 }
                 branches
             }
+        }
+
+        // 旋转回文档坐标系 (绕中心点顺时针旋转 +rotRad)
+        return localBranches.map { lp ->
+            val wx = cx + (lp.x * cosR - lp.y * sinR)
+            val wy = cy + (lp.x * sinR + lp.y * cosR)
+            Point2D(wx, wy)
         }.filter { it.x.isFinite() && it.y.isFinite() }
     }
 }

@@ -8,6 +8,7 @@ import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
+import com.reverie.paint.model.BackKeyAction
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 
@@ -52,6 +53,13 @@ fun Tool.labelRes(): Int = when (this) {
     Tool.REFERENCE -> R.string.tool_reference
     Tool.SYMMETRY -> R.string.tool_symmetry
     Tool.PERSPECTIVE -> R.string.tool_perspective
+}
+
+@StringRes
+fun BackKeyAction.labelRes(): Int = when (this) {
+    BackKeyAction.NONE -> R.string.settings_back_key_none
+    BackKeyAction.OPEN_SETTINGS -> R.string.settings_back_key_open_settings
+    BackKeyAction.EXIT -> R.string.settings_back_key_exit
 }
 
 val ToolGroup.displayName: String
