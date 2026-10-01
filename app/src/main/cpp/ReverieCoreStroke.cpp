@@ -351,7 +351,7 @@ bool ReverieCore::flushStrokeBatch()
         isEraserPreset = m_presetIsEraserOverride == 1;
     } else {
         isEraserPreset = m_brushPreset && (
-            m_brushPreset->name().startsWith(QLatin1String("a)_")) ||
+            m_brushPreset->name().startsWith(QLatin1String("a)_Eraser"), Qt::CaseInsensitive) ||
             m_brushPreset->name().contains(QLatin1String("Eraser"), Qt::CaseInsensitive)
         );
     }

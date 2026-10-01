@@ -26,14 +26,19 @@ object AbrParser {
         val index: Int,
         val width: Int,
         val height: Int,
-        val depth: Int,
-        val data: ByteArray, // width * height bytes of 8-bit density (0 = empty, 255 = opaque)
+        val depth: Int = 8,
+        val data: ByteArray = ByteArray(0), // width * height bytes of 8-bit density (0 = empty, 255 = opaque)
+        val thumbnail: ByteArray? = null, // Small downscaled density map for lightweight preview generation
+        val thumbWidth: Int = 0,
+        val thumbHeight: Int = 0,
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is AbrDecodedTip) return false
             return uuid == other.uuid && index == other.index && width == other.width &&
-                height == other.height && depth == other.depth && data.contentEquals(other.data)
+                height == other.height && depth == other.depth && data.contentEquals(other.data) &&
+                (thumbnail == null && other.thumbnail == null || thumbnail != null && other.thumbnail != null && thumbnail.contentEquals(other.thumbnail)) &&
+                thumbWidth == other.thumbWidth && thumbHeight == other.thumbHeight
         }
 
         override fun hashCode(): Int {
@@ -43,6 +48,9 @@ object AbrParser {
             result = 31 * result + height
             result = 31 * result + depth
             result = 31 * result + data.contentHashCode()
+            result = 31 * result + (thumbnail?.contentHashCode() ?: 0)
+            result = 31 * result + thumbWidth
+            result = 31 * result + thumbHeight
             return result
         }
     }
@@ -77,9 +85,80 @@ object AbrParser {
     private val SUBVERSION_HEADER_SKIP = mapOf(1 to 47, 2 to 301)
 
     /**
-     * Parses an ABR stream into decoded tips and preset configurations.
+     * Highest ABR version this parser accepts.
+     *
+     * Versions after v6 only mean Photoshop added new features; the `8BIM` section skeleton
+     * (`samp` / `desc`) is unchanged, so the version check is widened to a range instead of
+     * enumerating versions one by one. Photoshop exports made after CS6 are mostly v7~v10,
+     * and the earlier `6 ->` branch rejected all of them outright. A genuinely incompatible
+     * version still yields an empty result (the caller falls back) rather than throwing.
      */
-    fun parse(input: InputStream, basePackName: String = "ABR"): AbrParseResult {
+    const val MAX_SUPPORTED_VERSION = 10
+
+    /**
+     * Sanity check for tip bitmap dimensions.
+     *
+     * **A per-side limit alone is not enough**: `width * height * (depth / 8)` decides how big
+     * a ByteArray gets allocated, and a corrupt or maliciously crafted ABR can declare
+     * 16384x16384 — each side within bounds, yet a single 268MB allocation. On a device with a
+     * 256MB per-app heap that is an instant crash, and because it is an `OutOfMemoryError`
+     * (an `Error`, not an `Exception`) no caller-side try/catch can recover from it.
+     *
+     * The thresholds are deliberately loose so real tips are never rejected: the largest tip in
+     * the biggest pack we measured (375 sampled tips) is 3480x3426 ≈ 11.9M pixels, and
+     * Photoshop itself caps brushes at roughly 5000px. Per-side 8192 plus 64M total pixels
+     * leaves more than a 5x margin over real-world data.
+     */
+    private fun plausibleTipDimensions(w: Int, h: Int): Boolean =
+        w in 1..MAX_TIP_SIDE && h in 1..MAX_TIP_SIDE &&
+            w.toLong() * h.toLong() <= MAX_TIP_PIXELS
+
+    private const val MAX_TIP_SIDE = 8192
+    private const val MAX_TIP_PIXELS = 64L * 1024 * 1024
+
+    /**
+     * Pairs an ABR preset with one of the parsed tips.
+     *
+     * **Only sampled (bitmap) brushes should bind a tip.** Photoshop's computed brushes have no
+     * tip resource — their shape is described by diameter / roundness / hardness. The `samp`
+     * section only stores sampled tips and computed presets carry no `sampledData` in `desc`,
+     * so their [AbrPresetInfo.tipUuid] is null.
+     *
+     * The previous expression unconditionally fell back through
+     * `tipsByUuid[uuid] ?: tipsByIndex[tipIndex] ?: tips.first()`, while a computed preset's
+     * `tipIndex` happens to be filled with "list index + 1" — so **every computed preset got
+     * bound to an unrelated sampled tip**. Measured on a real pack (375 tips / 493 presets),
+     * 47 presets were affected. The damage is not limited to a wrong thumbnail: the emitted
+     * .kpp turns into a `png_brush` pointing at someone else's tip, so the actual stroke is wrong.
+     *
+     * A sampled brush whose UUID cannot be resolved (should not happen with a well-formed file)
+     * still falls back to the index, which at least belongs to a real tip. When nothing matches
+     * at all we return null so the caller degrades to a round `auto_brush` instead of forcing an
+     * unrelated tip upon it.
+     */
+    fun matchTipForPreset(
+        preset: AbrPresetInfo,
+        tipsByUuid: Map<String, AbrDecodedTip>,
+        tipsByIndex: Map<Int, AbrDecodedTip>,
+        allTips: List<AbrDecodedTip>,
+    ): AbrDecodedTip? {
+        if (preset.tipUuid == null) return null
+        return tipsByUuid[preset.tipUuid]
+            ?: tipsByIndex[preset.tipIndex]
+            ?: allTips.firstOrNull()
+    }
+
+    /**
+     * Parses an ABR stream into decoded tips and preset configurations.
+     * If [onTipDecoded] is provided, each decoded tip is dispatched immediately and
+     * the in-memory tip stores a lightweight thumbnail instead of the full raw pixel array,
+     * drastically reducing peak heap memory usage to prevent OOM on large ABR files.
+     */
+    fun parse(
+        input: InputStream,
+        basePackName: String = "ABR",
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult {
         val bytes = input.readBytes()
         if (bytes.size < 4) {
             return AbrParseResult(0, 0, emptyList(), emptyList())
@@ -89,17 +168,47 @@ object AbrParser {
         val version = dis.readUnsignedShort()
 
         return when (version) {
-            1, 2 -> parseVersion12(bytes, version, basePackName)
-            6 -> parseVersion6(bytes, basePackName)
+            1, 2 -> parseVersion12(bytes, version, basePackName, onTipDecoded)
+            // v6 and later (v6 ~ v10) share the same `8BIM` section layout: `samp` holds the
+            // sampled tips and `desc` holds the ActionDescriptor. Adobe exports after CS6 are
+            // almost all v7~v10, so only accepting `6` meant those files produced zero presets.
+            in 6..MAX_SUPPORTED_VERSION -> parseVersion6(bytes, basePackName, onTipDecoded)
             else -> AbrParseResult(version, 0, emptyList(), emptyList())
         }
+    }
+
+    fun generateThumbnail(tip: AbrDecodedTip, targetSize: Int = 150): Triple<ByteArray, Int, Int> {
+        val srcW = tip.width
+        val srcH = tip.height
+        val srcData = tip.data
+        if (srcW <= 0 || srcH <= 0 || srcData.isEmpty()) return Triple(ByteArray(0), 0, 0)
+
+        val maxDim = maxOf(srcW, srcH)
+        val scale = if (maxDim > targetSize) targetSize.toDouble() / maxDim else 1.0
+        val dstW = maxOf(1, (srcW * scale).toInt())
+        val dstH = maxOf(1, (srcH * scale).toInt())
+        val thumb = ByteArray(dstW * dstH)
+
+        for (y in 0 until dstH) {
+            val sy = ((y.toDouble() / dstH) * srcH).toInt().coerceIn(0, srcH - 1)
+            for (x in 0 until dstW) {
+                val sx = ((x.toDouble() / dstW) * srcW).toInt().coerceIn(0, srcW - 1)
+                thumb[y * dstW + x] = srcData[sy * srcW + sx]
+            }
+        }
+        return Triple(thumb, dstW, dstH)
     }
 
     // ---------------------------------------------------------------------------------------------
     // Version 1 & 2 Parser
     // ---------------------------------------------------------------------------------------------
 
-    private fun parseVersion12(bytes: ByteArray, version: Int, basePackName: String): AbrParseResult {
+    private fun parseVersion12(
+        bytes: ByteArray,
+        version: Int,
+        basePackName: String,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult {
         val dis = DataInputStream(ByteArrayInputStream(bytes))
         dis.readUnsignedShort() // version
         val count = dis.readUnsignedShort()
@@ -151,7 +260,7 @@ object AbrParser {
                     val width = right - left
                     val height = bottom - top
 
-                    if (width in 1..16384 && height in 1..16384) {
+                    if (plausibleTipDimensions(width, height)) {
                         val tipData = if (compression == 1) {
                             decodePackBitsScanlines(bytes, cursor, height, width)
                         } else {
@@ -163,7 +272,7 @@ object AbrParser {
 
                         if (tipData != null) {
                             val uuid = "v${version}_tip_${i + 1}"
-                            val tip = AbrDecodedTip(
+                            val fullTip = AbrDecodedTip(
                                 uuid = uuid,
                                 index = i + 1,
                                 width = width,
@@ -171,7 +280,25 @@ object AbrParser {
                                 depth = depth,
                                 data = tipData,
                             )
-                            tips.add(tip)
+                            onTipDecoded?.invoke(fullTip)
+
+                            val tipToKeep = if (onTipDecoded != null) {
+                                val (thumb, tw, th) = generateThumbnail(fullTip)
+                                AbrDecodedTip(
+                                    uuid = uuid,
+                                    index = i + 1,
+                                    width = width,
+                                    height = height,
+                                    depth = depth,
+                                    data = ByteArray(0),
+                                    thumbnail = thumb,
+                                    thumbWidth = tw,
+                                    thumbHeight = th,
+                                )
+                            } else {
+                                fullTip
+                            }
+                            tips.add(tipToKeep)
                             presets.add(
                                 AbrPresetInfo(
                                     name = brushName.ifBlank { "$basePackName ${i + 1}" },
@@ -197,8 +324,14 @@ object AbrParser {
     // Version 6+ Parser (Photoshop 7.0 - CC)
     // ---------------------------------------------------------------------------------------------
 
-    private fun parseVersion6(bytes: ByteArray, basePackName: String): AbrParseResult {
-        var cursor = 2
+    private fun parseVersion6(
+        bytes: ByteArray,
+        basePackName: String,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult {
+        var cursor = 0
+        val version = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
+        cursor += 2
         val subversion = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
         cursor += 2
 
@@ -232,7 +365,7 @@ object AbrParser {
             val sectionEnd = (sectionStart + sectionLen).toInt().coerceAtMost(fileSize)
 
             if (key == "samp") {
-                tips.addAll(parseSampSection(bytes, sectionStart, sectionEnd, subversion))
+                tips.addAll(parseSampSection(bytes, sectionStart, sectionEnd, subversion, onTipDecoded))
             } else if (key == "desc") {
                 try {
                     val descDis = ByteCursor(bytes, sectionStart)
@@ -268,7 +401,7 @@ object AbrParser {
             }
         }
 
-        return AbrParseResult(6, subversion, tips, presets)
+        return AbrParseResult(version, subversion, tips, presets)
     }
 
     private fun parseSampSection(
@@ -276,6 +409,7 @@ object AbrParser {
         sectionStart: Int,
         sectionEnd: Int,
         subversion: Int,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
     ): List<AbrDecodedTip> {
         val tips = mutableListOf<AbrDecodedTip>()
         var cursor = sectionStart
@@ -311,7 +445,7 @@ object AbrParser {
                 val width = right - left
                 val height = bottom - top
 
-                if (width in 1..16384 && height in 1..16384) {
+                if (plausibleTipDimensions(width, height)) {
                     val pixelDataStart = boundsStart + 19
                     val pixelData = if (compress == 1) {
                         decodePackBitsScanlines(bytes, pixelDataStart, height, width)
@@ -323,16 +457,33 @@ object AbrParser {
                     }
 
                     if (pixelData != null) {
-                        tips.add(
+                        val fullTip = AbrDecodedTip(
+                            uuid = uuid,
+                            index = index,
+                            width = width,
+                            height = height,
+                            depth = depth,
+                            data = pixelData,
+                        )
+                        onTipDecoded?.invoke(fullTip)
+
+                        val tipToKeep = if (onTipDecoded != null) {
+                            val (thumb, tw, th) = generateThumbnail(fullTip)
                             AbrDecodedTip(
                                 uuid = uuid,
                                 index = index,
                                 width = width,
                                 height = height,
                                 depth = depth,
-                                data = pixelData,
+                                data = ByteArray(0),
+                                thumbnail = thumb,
+                                thumbWidth = tw,
+                                thumbHeight = th,
                             )
-                        )
+                        } else {
+                            fullTip
+                        }
+                        tips.add(tipToKeep)
                         index++
                     }
                 }
@@ -805,9 +956,10 @@ object AbrParser {
         }
 
         if (tip != null && tip.width > 0 && tip.height > 0) {
-            val tipW = tip.width
-            val tipH = tip.height
-            val tipData = tip.data
+            val hasThumb = tip.thumbnail != null && tip.thumbnail.isNotEmpty() && tip.thumbWidth > 0 && tip.thumbHeight > 0
+            val tipW = if (hasThumb) tip.thumbWidth else tip.width
+            val tipH = if (hasThumb) tip.thumbHeight else tip.height
+            val tipData = if (hasThumb) tip.thumbnail!! else tip.data
 
             val maxD = maxOf(tipW, tipH)
             val fitSize = 150.0 // target fit in 200x200 canvas
@@ -913,7 +1065,7 @@ object AbrParser {
             System.arraycopy(rgbaBytes, y * rowSize, rawScanlines, destOffset + 1, rowSize)
         }
 
-        val deflater = Deflater(Deflater.DEFAULT_COMPRESSION)
+        val deflater = Deflater(Deflater.BEST_SPEED)
         deflater.setInput(rawScanlines)
         deflater.finish()
         val deflatedBos = ByteArrayOutputStream()

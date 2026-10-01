@@ -81,6 +81,7 @@ fun ToolRail(
     moreToolsOpen: Boolean = false,
     onToggleMoreTools: () -> Unit = {},
     brushSize: Double,
+    canvasScale: Float = 1f,
     onBrushSize: (Double, Boolean) -> Unit,
     opacity: Double,
     popupOpacity: Float = 1f,
@@ -307,6 +308,7 @@ fun ToolRail(
                     vm = vm,
                     hazeState = hazeState,
                     brushSize = brushSize,
+                    canvasScale = canvasScale,
                     onBrushSize = onBrushSize,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -373,6 +375,7 @@ private fun BrushSizeGroup(
     vm: PaintViewModel,
     hazeState: HazeState? = null,
     brushSize: Double,
+    canvasScale: Float = 1f,
     onBrushSize: (Double, Boolean) -> Unit,
 ) {
     val formattedValue = if (brushSize < 10.0) {
@@ -391,6 +394,8 @@ private fun BrushSizeGroup(
     val current = brushSize.coerceIn(minL, maxL)
     val frac = ((kotlin.math.ln(current) - logMin) / range).toFloat().coerceIn(0f, 1f)
 
+    val currentScreenRadiusPx = (brushSize * canvasScale * 0.5).toFloat()
+
     ReVerticalSlider(
         label = "S",
         title = stringResource(R.string.tool_rail_brush_size),
@@ -407,6 +412,7 @@ private fun BrushSizeGroup(
         trackWidth = 26,
         trackHeight = vm.quickSliderHeightDp,
         valueText = formattedValue,
+        previewCircleRadiusPx = currentScreenRadiusPx,
         onStep = { increase ->
             val step = when {
                 brushSize < 5.0 -> 0.1

@@ -108,4 +108,60 @@ class MarkdownParserTest {
         assertEquals(" code.", parts[6].text)
         assertNull(parts[6].type)
     }
+
+    @Test
+    fun `convert and parse atom feed html content`() {
+        val html = """
+            <h3>新增特性 (Features)</h3>
+            <ul>
+            <li><strong>笔刷最大尺寸跟随画布</strong>: 支持自适应缩放</li>
+            <li><strong>三指编辑浮动菜单</strong>: 支持快捷操作 (by <a href="https://github.com/fisHarly0">@fisHarly0</a> in <a href="https://github.com/LanRhyme/ReveriePaint/pull/19">#19</a>)</li>
+            </ul>
+            <h3>缺陷修复 (Bug Fixes)</h3>
+            <ul>
+            <li><strong>触控穿透修复</strong>: 修复异常问题</li>
+            </ul>
+        """.trimIndent()
+
+        val blocks = MarkdownParser.parse(html)
+        assertEquals(5, blocks.size)
+        assertEquals(MarkdownBlock.Header(3, "新增特性 (Features)"), blocks[0])
+        assertTrue(blocks[1] is MarkdownBlock.ListItem)
+        assertTrue(blocks[2] is MarkdownBlock.ListItem)
+        assertEquals(MarkdownBlock.Header(3, "缺陷修复 (Bug Fixes)"), blocks[3])
+        assertTrue(blocks[4] is MarkdownBlock.ListItem)
+
+        val item1 = blocks[1] as MarkdownBlock.ListItem
+        val parts1 = MarkdownParser.parseInline(item1.text)
+        assertEquals(InlineStyleType.BOLD, parts1[0].type)
+        assertEquals("笔刷最大尺寸跟随画布", parts1[0].text)
+
+        val item2 = blocks[2] as MarkdownBlock.ListItem
+        val parts2 = MarkdownParser.parseInline(item2.text)
+        assertEquals(InlineStyleType.BOLD, parts2[0].type)
+        assertEquals("三指编辑浮动菜单", parts2[0].text)
+        assertTrue(parts2.any { it.type == InlineStyleType.LINK && it.text == "@fisHarly0" })
+        assertTrue(parts2.any { it.type == InlineStyleType.LINK && it.text == "#19" })
+    }
+
+    @Test
+    fun `parse escaped literal newlines`() {
+        val raw = "### 新增特性\\n- **特性1**: 内容1\\n- **特性2**: 内容2"
+        val blocks = MarkdownParser.parse(raw)
+        assertEquals(3, blocks.size)
+        assertEquals(MarkdownBlock.Header(3, "新增特性"), blocks[0])
+        assertTrue(blocks[1] is MarkdownBlock.ListItem)
+        assertTrue(blocks[2] is MarkdownBlock.ListItem)
+    }
+
+    @Test
+    fun `bold text does not trigger false italic`() {
+        val text = "**测试加粗**: 正常内容"
+        val parts = MarkdownParser.parseInline(text)
+        assertEquals(2, parts.size)
+        assertEquals(InlineStyleType.BOLD, parts[0].type)
+        assertEquals("测试加粗", parts[0].text)
+        assertNull(parts[1].type)
+        assertEquals(": 正常内容", parts[1].text)
+    }
 }

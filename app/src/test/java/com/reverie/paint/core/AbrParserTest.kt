@@ -130,4 +130,165 @@ class AbrParserTest {
         assertTrue(previewPng.isNotEmpty())
         assertEquals(0x89.toByte(), previewPng[0])
     }
+
+    // ---------------------------------------------------------------------------------------------
+    // v7 ~ v10 version dispatch
+    //
+    // Packs exported after Photoshop CS6 are usually v7~v10, while the '8BIM' section skeleton
+    // has not changed since v6. These cases synthesise the ABR by hand so they do not depend on
+    // any external sample file (the real-file case above returns early on a machine without it).
+    // ---------------------------------------------------------------------------------------------
+
+    private fun be16(v: Int) = byteArrayOf((v ushr 8 and 0xFF).toByte(), (v and 0xFF).toByte())
+
+    private fun be32(v: Int) = byteArrayOf(
+        (v ushr 24 and 0xFF).toByte(), (v ushr 16 and 0xFF).toByte(),
+        (v ushr 8 and 0xFF).toByte(), (v and 0xFF).toByte(),
+    )
+
+    /** '8BIM' + 4-char section name + int32 length + payload */
+    private fun section(name: String, payload: ByteArray): ByteArray {
+        require(name.length == 4)
+        return "8BIM".toByteArray(Charsets.ISO_8859_1) +
+            name.toByteArray(Charsets.ISO_8859_1) +
+            be32(payload.size) + payload
+    }
+
+    /**
+     * One subversion=2 samp record: 1-byte name length 36 + UUID + 264 filler bytes
+     * + top/left/bottom/right + int16 depth + byte compression + pixel payload.
+     */
+    private fun sampRecord(
+        uuid: String,
+        width: Int,
+        height: Int,
+        gray: ByteArray,
+        compression: Int = 0,
+    ): ByteArray {
+        require(uuid.length == 36)
+        return byteArrayOf(36) +
+            uuid.toByteArray(Charsets.US_ASCII) +
+            ByteArray(264) +
+            be32(0) + be32(0) + be32(height) + be32(width) +
+            be16(8) + byteArrayOf(compression.toByte()) +
+            gray
+    }
+
+    /** Synthesises an ABR with a single sampled tip at the given version. */
+    private fun buildAbr(
+        version: Int,
+        uuid: String,
+        width: Int,
+        height: Int,
+        gray: ByteArray,
+        compression: Int = 0,
+    ): ByteArray {
+        val rec = sampRecord(uuid, width, height, gray, compression)
+        // A samp section prefixes every record with an int32 payloadSize.
+        val samp = be32(rec.size) + rec
+        return be16(version) + be16(2) + section("samp", samp)
+    }
+
+    @Test
+    fun `v7 to v10 packs parse into tips instead of being rejected by version dispatch`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        val gray = ByteArray(4 * 3) { (it * 5 + 7).toByte() }
+
+        for (version in 7..AbrParser.MAX_SUPPORTED_VERSION) {
+            val abr = buildAbr(version, uuid, 4, 3, gray)
+            val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "pack") }
+
+            assertEquals("v$version should parse rather than return empty", version, result.version)
+            assertEquals("v$version should yield one tip", 1, result.tips.size)
+            assertEquals("v$version tip width", 4, result.tips[0].width)
+            assertEquals("v$version tip height", 3, result.tips[0].height)
+            assertTrue("v$version tip pixels", result.tips[0].data.isNotEmpty())
+            assertTrue("v$version should produce a preset", result.presets.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `a version newer than the supported range returns empty without throwing`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        val abr = buildAbr(AbrParser.MAX_SUPPORTED_VERSION + 1, uuid, 2, 2, ByteArray(4))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "future") }
+        assertTrue("too-new version should return no tips", result.tips.isEmpty())
+        assertTrue("too-new version should return no presets", result.presets.isEmpty())
+    }
+
+    @Test
+    fun `v6 still takes the same parsing path after widening the version check`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        val gray = ByteArray(2 * 2) { 0x40 }
+        val abr = buildAbr(6, uuid, 2, 2, gray)
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "v6") }
+
+        assertEquals(6, result.version)
+        assertEquals(2, result.subversion)
+        assertEquals(1, result.tips.size)
+    }
+
+    @Test
+    fun `the reported version is the real file version and not a hardcoded 6`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        val abr = buildAbr(10, uuid, 2, 2, ByteArray(4))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "v10") }
+        assertEquals(10, result.version)
+        // Asserting the version field alone would also pass on the old dispatch, which for
+        // anything other than v6 returned AbrParseResult(version, 0, emptyList(), emptyList()).
+        // The tip count is what proves the file was actually parsed.
+        assertEquals("v10 must really be parsed, not just echo its version", 1, result.tips.size)
+        assertEquals(2, result.subversion)
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Hardening
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `an absurdly large declared tip is rejected instead of allocating hundreds of MB`() {
+        // A PackBits tip declaring 16384x16384 passes a per-side check alone, and
+        // decodePackBitsScanlines allocates ByteArray(height * width) as its very first
+        // statement - 268MB, thrown as OutOfMemoryError, which no try/catch(Exception) catches.
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        val abr = buildAbr(6, uuid, 16384, 16384, ByteArray(8), compression = 1)
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "corrupt") }
+        assertTrue("implausible tip dimensions must not yield a tip", result.tips.isEmpty())
+    }
+
+    @Test
+    fun `a computed preset never binds a sampled tip`() {
+        // Computed presets carry no sampledData, so their tipUuid stays null - but their
+        // tipIndex is filled with "index + 1", which used to match an unrelated sampled tip.
+        val tip = AbrParser.AbrDecodedTip(
+            uuid = "tip-uuid",
+            index = 3,
+            width = 8,
+            height = 8,
+            depth = 8,
+            data = ByteArray(64),
+        )
+        val computed = AbrParser.AbrPresetInfo(
+            name = "computed",
+            tipUuid = null,
+            tipIndex = 3, // would resolve to tipsByIndex[3] == tip
+            diameter = 40.0,
+            isComputed = true,
+        )
+
+        val matched = AbrParser.matchTipForPreset(
+            computed,
+            tipsByUuid = mapOf("tip-uuid" to tip),
+            tipsByIndex = mapOf(3 to tip),
+            allTips = listOf(tip),
+        )
+        assertEquals("a computed preset must not bind someone else's tip", null, matched)
+
+        val sampled = computed.copy(tipUuid = "tip-uuid", isComputed = false)
+        assertEquals(
+            "a sampled preset still resolves its own tip",
+            tip,
+            AbrParser.matchTipForPreset(sampled, mapOf("tip-uuid" to tip), mapOf(3 to tip), listOf(tip)),
+        )
+    }
 }

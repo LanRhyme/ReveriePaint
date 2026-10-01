@@ -189,6 +189,14 @@
     <string name="create_preset_phone_wallpaper_desc">High-res lockscreen and wallpaper for smartphones</string>
     <string name="create_preset_a4_print">A4 Print</string>
     <string name="create_preset_a4_print_desc">Standard A4 (210×297 mm @ 300 DPI)</string>
+    <string name="create_preset_us_letter">US Letter</string>
+    <string name="create_preset_us_letter_desc">US Letter (8.5×11 in @ 300 DPI)</string>
+    <string name="create_preset_us_legal">US Legal</string>
+    <string name="create_preset_us_legal_desc">US Legal (8.5×14 in @ 300 DPI)</string>
+    <string name="create_preset_us_tabloid">US Tabloid</string>
+    <string name="create_preset_us_tabloid_desc">US Tabloid (11×17 in @ 300 DPI)</string>
+    <string name="create_preset_us_executive">US Executive</string>
+    <string name="create_preset_us_executive_desc">US Executive (7.25×10.5 in @ 300 DPI)</string>
     <string name="create_preset_b5_comic">B5 Comic Draft</string>
     <string name="create_preset_b5_comic_desc">Manga page and doujinshi standard draft</string>
     <string name="create_preset_webtoon">Webtoon Long Strip</string>
@@ -205,6 +213,14 @@
     <string name="create_ratio_b5_landscape">B5 Landscape</string>
     <string name="create_ratio_a4_paper">A4 Paper</string>
     <string name="create_ratio_a4_landscape">A4 Landscape</string>
+    <string name="create_ratio_us_letter">US Letter</string>
+    <string name="create_ratio_us_letter_landscape">US Letter Landscape</string>
+    <string name="create_ratio_us_legal">US Legal</string>
+    <string name="create_ratio_us_legal_landscape">US Legal Landscape</string>
+    <string name="create_ratio_us_tabloid">US Tabloid</string>
+    <string name="create_ratio_us_tabloid_landscape">US Tabloid Landscape</string>
+    <string name="create_ratio_us_executive">US Executive</string>
+    <string name="create_ratio_us_executive_landscape">US Executive Landscape</string>
     <string name="create_ratio_square">1:1 Square</string>
     <string name="create_ratio_widescreen">16:9 Widescreen</string>
     <string name="create_ratio_portrait_9_16">9:16 Portrait</string>
@@ -282,7 +298,7 @@
     <string name="settings_licenses_sub">View third-party open source licenses</string>
     <string name="settings_export_log">Export Logs</string>
     <string name="settings_export_log_sub">Export app runtime logs for debugging</string>
-    <string name="settings_export_log_toast">Runtime logs ready</string>
+    <string name="settings_export_log_toast">Log copied to clipboard</string>
     <string name="settings_intro_title">Introduction</string>
     <string name="settings_version_summary">v%s · MirrorChyan CDN supported</string>
     <string name="settings_auto_save">Auto-save</string>
@@ -710,6 +726,11 @@
     <string name="settings_quick_pinch_fit_desc">Pinch inward quickly to smooth center and fit screen</string>
     <string name="settings_pen_mode_single_finger_pan_title">Allow Single-Finger Pan in Stylus Mode</string>
     <string name="settings_pen_mode_single_finger_pan_desc">When enabled, drag with one finger to pan canvas in stylus mode; when disabled, single-finger touches are ignored for strict palm rejection</string>
+    <string name="settings_back_key_title">Back Key Behavior</string>
+    <string name="settings_back_key_desc">What the system back key does when no panel or dialog is open on the canvas</string>
+    <string name="settings_back_key_none">No Action</string>
+    <string name="settings_back_key_open_settings">Open Menu</string>
+    <string name="settings_back_key_exit">Back</string>
     <string name="settings_gesture_pen_hint">Note: Multi-touch gestures work regardless of stylus mode. Two-finger undo and three-finger redo remain available</string>
     <string name="settings_eyedropper_long_press_title">Long Press Eyedropper</string>
     <string name="settings_eyedropper_long_press_stylus_desc">Stylus mode active: long press canvas with stylus to pick color</string>
@@ -1298,7 +1319,9 @@
     <string name="guide_symmetry_quadrant">Quadrant</string>
     <string name="guide_symmetry_radial">Radial</string>
     <string name="guide_symmetry_center">Axis Center</string>
+    <string name="guide_symmetry_rotation">Rotation Angle</string>
     <string name="guide_symmetry_reset_center">Reset Center</string>
+    <string name="guide_perspective_ray_density">Ray Density</string>
     <string name="guide_grid_size">Grid Size</string>
     <string name="guide_line_opacity">Guide Opacity</string>
 
@@ -2082,5 +2105,27 @@
     <string name="canvas_edit_cut_done">Cut; use Undo to restore</string>
     <string name="canvas_edit_copied">Copied</string>
     <string name="canvas_edit_failed">Action failed; check the current layer and selection</string>
+    <string name="toast_project_save_failed">Save failed. Your changes are still unsaved. Please try again.</string>
+
+    <!-- Canvas View Lock & Krita Weighted Smoothing -->
+    <string name="toast_view_locked">View locked</string>
+    <string name="toast_view_unlocked">View unlocked</string>
+    <string name="canvas_view_lock">Lock View</string>
+    <string name="canvas_view_unlock">Unlock View</string>
+    <string name="settings_stroke_smoothing_advanced">Advanced</string>
+    <string name="settings_smoothing_mode">Smoothing Algorithm</string>
+    <string name="settings_smoothing_mode_off">Off</string>
+    <string name="settings_smoothing_mode_basic">Basic</string>
+    <string name="settings_smoothing_mode_weighted">Weighted (Krita)</string>
+    <string name="settings_smoothing_distance">Distance</string>
+    <string name="settings_smoothing_distance_min">Min Distance</string>
+    <string name="settings_smoothing_distance_max">Max Distance</string>
+    <string name="settings_smoothing_lock_distance">Link Min/Max Distance</string>
+    <string name="settings_smoothing_scalable">Scale with Zoom</string>
+    <string name="settings_smoothing_scalable_desc">Adjust smoothing radius with canvas zoom level</string>
+    <string name="settings_smoothing_pressure">Smooth Pressure</string>
+    <string name="settings_smoothing_pressure_desc">Apply Gaussian smoothing to stylus pressure</string>
+    <string name="settings_smoothing_tail_aggressiveness">Tail Aggressiveness</string>
+    <string name="settings_smoothing_tail_aggressiveness_desc">Reduce tail latency when lifting the stylus</string>
 </resources>
 

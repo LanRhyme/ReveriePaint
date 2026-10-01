@@ -46,7 +46,7 @@ fun MarkdownView(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         blocks.forEach { block ->
             when (block) {
@@ -90,14 +90,14 @@ private fun MarkdownHeader(block: MarkdownBlock.Header) {
                 color = colors.text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
             )
         }
         2 -> {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 2.dp),
+                    .padding(top = 10.dp, bottom = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -110,7 +110,7 @@ private fun MarkdownHeader(block: MarkdownBlock.Header) {
                         text = block.text,
                         color = Morandi.accent,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -119,7 +119,7 @@ private fun MarkdownHeader(block: MarkdownBlock.Header) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 1.dp),
+                    .padding(top = 8.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -134,7 +134,7 @@ private fun MarkdownHeader(block: MarkdownBlock.Header) {
                     text = block.text,
                     color = colors.text,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }
@@ -143,7 +143,7 @@ private fun MarkdownHeader(block: MarkdownBlock.Header) {
                 text = block.text,
                 color = colors.text.copy(alpha = 0.9f),
                 fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -155,7 +155,7 @@ private fun MarkdownListItem(block: MarkdownBlock.ListItem) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (block.indent * 12).dp),
+            .padding(start = (block.indent * 12).dp, top = 1.dp, bottom = 1.dp),
         verticalAlignment = Alignment.Top,
     ) {
         if (block.ordered) {
@@ -171,10 +171,10 @@ private fun MarkdownListItem(block: MarkdownBlock.ListItem) {
         } else {
             Box(
                 modifier = Modifier
-                    .padding(top = 7.dp, end = 8.dp)
-                    .size(4.5.dp)
+                    .padding(top = 6.5.dp, end = 8.dp)
+                    .size(5.dp)
                     .clip(CircleShape)
-                    .background(Morandi.accent.copy(alpha = 0.85f)),
+                    .background(Morandi.accent),
             )
         }
 
@@ -255,7 +255,7 @@ private fun MarkdownRichText(
             parts.forEach { part ->
                 when (part.type) {
                     InlineStyleType.BOLD -> {
-                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = colors.text)) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = colors.text)) {
                             append(part.text)
                         }
                     }
@@ -267,7 +267,7 @@ private fun MarkdownRichText(
                     InlineStyleType.BOLD_ITALIC -> {
                         withStyle(
                             SpanStyle(
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Bold,
                                 fontStyle = FontStyle.Italic,
                                 color = colors.text,
                             )
@@ -316,7 +316,7 @@ private fun MarkdownRichText(
 
     Text(
         text = annotatedString,
-        color = colors.text.copy(alpha = 0.88f),
+        color = colors.text.copy(alpha = 0.82f),
         fontSize = 12.sp,
         lineHeight = 18.sp,
         fontStyle = fontStyle,

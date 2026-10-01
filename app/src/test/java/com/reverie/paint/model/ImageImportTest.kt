@@ -93,4 +93,48 @@ class ImageImportTest {
         assertEquals(400, placement.x) // (1000 - 200) / 2
         assertEquals(100, placement.y) // (1000 - 800) / 2
     }
+    @Test
+    fun `canvas-sized images preserve pixels and align to origin`() {
+        for ((w, h) in listOf(1000 to 1000, 1920 to 1080, 1080 to 1920, 1001 to 777)) {
+            val placement = ImageImportHelper.calculateFitPlacement(w, h, w, h, 0.8f)
+            assertEquals(ImageImportHelper.FitPlacement(0, 0, w, h), placement)
+        }
+    }
+
+    @Test
+    fun `canvas-sized image bypasses default margin`() {
+        assertEquals(
+            ImageImportHelper.FitPlacement(0, 0, 2048, 1024),
+            ImageImportHelper.calculateFitPlacement(2048, 1024, 2048, 1024),
+        )
+    }
+
+    @Test
+    fun `matching only one dimension still uses existing fit rule`() {
+        assertEquals(
+            ImageImportHelper.FitPlacement(100, 300, 800, 400),
+            ImageImportHelper.calculateFitPlacement(1000, 1000, 1000, 500),
+        )
+        assertEquals(
+            ImageImportHelper.FitPlacement(300, 100, 400, 800),
+            ImageImportHelper.calculateFitPlacement(1000, 1000, 500, 1000),
+        )
+    }
+
+    @Test
+    fun `matching aspect ratio alone does not bypass scaling`() {
+        assertEquals(
+            ImageImportHelper.FitPlacement(100, 50, 800, 400),
+            ImageImportHelper.calculateFitPlacement(1000, 500, 2000, 1000),
+        )
+    }
+
+    @Test
+    fun `invalid matching dimensions do not bypass input guard`() {
+        assertEquals(
+            ImageImportHelper.FitPlacement(0, 0, 1, 1),
+            ImageImportHelper.calculateFitPlacement(0, 0, 0, 0),
+        )
+    }
+
 }

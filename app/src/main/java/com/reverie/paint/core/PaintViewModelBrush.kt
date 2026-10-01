@@ -580,7 +580,7 @@ import kotlinx.coroutines.withContext
     ) {
         val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return
         val name = preset.name
-        val isEraserPreset = preset.group == "橡皮擦" || name.startsWith("a)") || name.contains("Eraser", ignoreCase = true)
+        val isEraserPreset = preset.group == "橡皮擦" || name.startsWith("a)_Eraser", ignoreCase = true) || name.contains("Eraser", ignoreCase = true)
         val existing = brushParams[name]
         val dc = dynamicsChanged || (existing?.dynamicsCustomized == true)
         val sc = smudgeChanged || (existing?.smudgeCustomized == true)
@@ -597,7 +597,7 @@ import kotlinx.coroutines.withContext
             ratio = brushRatio,
             sharpness = brushSharpness,
             rotation = brushRotation,
-            compositeOp = brushCompositeOp,
+            compositeOp = if (isEraserPreset) "erase" else if (brushCompositeOp != "erase") brushCompositeOp else (existing?.compositeOp?.takeIf { it != "erase" } ?: "normal"),
             antiAliasing = brushAntiAliasing,
             tipShape = brushTipShape,
             randomFlipX = brushRandomFlipX,
@@ -672,6 +672,7 @@ import kotlinx.coroutines.withContext
                         if (ReverieCoreBridge.loadBrushPreset(targetIdx)) {
                             ReverieCoreBridge.setPresetIsEraser(isEraserPreset)
                             ReverieCoreBridge.setBrushColor(brushColor)
+                            ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                             ReverieCoreBridge.setBrushSize(pSnapshot.size)
                             ReverieCoreBridge.setBrushOpacity(pSnapshot.opacity)
                             ReverieCoreBridge.setBrushFlow(pSnapshot.flow)
@@ -1267,6 +1268,28 @@ import kotlinx.coroutines.withContext
         }
     }
 
+    /**
+     * Picks the brush size to show when a preset is selected.
+     *
+     * The engine can report a literal `1.0` that does **not** mean "1 pixel". Two paths produce
+     * it: `KisBrushBasedPaintOpSettings::paintOpSize()` returns
+     * `KIS_SAFE_ASSERT_RECOVER_RETURN_VALUE(this->brush(), 1.0)` when the brush failed to parse,
+     * and the `auto_brush` that `KisBrush::fromXML` falls back to has no `<MaskGenerator>`, whose
+     * diameter default happens to be `1.0` as well (`KisAutoBrushFactory` reads
+     * `attr("diameter", "1.0")`). Either way "the brush did not resolve" is reported as 1px, and
+     * because 1.0 satisfies the generic `size > 0` guard the UI happily parks at the minimum —
+     * which is exactly why every imported brush had to be re-adjusted by hand.
+     *
+     * Only when the engine value is <= 1.0 **and** we actually remember a size > 1.0 for this
+     * preset do we substitute the remembered one. A user who deliberately set 1px is not
+     * overridden, and built-in presets (no remembered entry) behave exactly as before.
+     */
+    internal fun resolvePresetSize(engineSize: Double, savedSize: Double?): Double {
+        if (engineSize.isFinite() && engineSize > 1.0) return engineSize
+        if (savedSize == null || !savedSize.isFinite() || savedSize <= 1.0) return engineSize
+        return savedSize
+    }
+
     internal fun PaintViewModel.selectBrushPreset(index: Int) {
         // brushPresetIndex and every native API are indexed by the NATIVE
         // preset table (filename-sorted). Resolve by BrushPresetInfo.index,
@@ -1277,7 +1300,7 @@ import kotlinx.coroutines.withContext
             recordRecentBrush(preset.name)
         }
         val isBuiltIn = preset?.isBuiltIn == true
-        val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)") == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
+        val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)_Eraser", ignoreCase = true) == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
 
         if (preset != null && recorder.recording) {
             // Replay resolves the preset by NAME (the native table may be
@@ -1394,7 +1417,7 @@ import kotlinx.coroutines.withContext
                 val parsed = if (kppFile?.exists() == true) KppHelper.parseKppFile(kppFile) else KppHelper.KppParsedAttributes()
 
                 if (d.size >= 8) {
-                    brushSize = d[0]
+                    brushSize = resolvePresetSize(d[0], saved?.size)
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                     val rawSp = d[3]
@@ -1405,7 +1428,7 @@ import kotlinx.coroutines.withContext
                     brushSmudgeRate = d[6]
                     brushSmudgeLength = d[7]
                 } else if (d.size >= 3) {
-                    brushSize = d[0]
+                    brushSize = resolvePresetSize(d[0], saved?.size)
                     brushOpacity = d[1].coerceIn(0.0, 1.0)
                     brushFlow = d[2].coerceIn(0.0, 1.0)
                     brushSpacing = 0.1
@@ -1485,6 +1508,7 @@ import kotlinx.coroutines.withContext
                 ReverieCoreBridge.setPresetIsEraser(currentToolId == "eraser" || isEraserPreset)
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 ReverieCoreBridge.setBrushColor(brushColor)
+                ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                 try {
                     prefs().edit().putInt("last_brush_preset_index", index).apply()
                 } catch (_: Exception) {
@@ -1660,6 +1684,7 @@ import kotlinx.coroutines.withContext
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("brushSecondaryColor", c).apply()
         }
+        runCore(render = false) { ReverieCoreBridge.setBrushSecondaryColor(c) }
     }
 
     internal fun PaintViewModel.swapColors() {
@@ -1991,27 +2016,28 @@ import kotlinx.coroutines.withContext
                 val packBaseName = filename.substringBeforeLast(".").trim().ifBlank { "ABR" }
                 val targetGroupName = chosenGroup ?: packBaseName
 
+                val safeGroupPrefix = packBaseName.replace(Regex("""[^\w\u4e00-\u9fa5]"""), "_")
+                val tipFileNameMap = mutableMapOf<Int, String>()
+                val tipUuidToFileName = mutableMapOf<String, String>()
+
                 val parseResult = resolver.openInputStream(uri)?.use { inStream ->
-                    AbrParser.parse(inStream, basePackName = targetGroupName)
+                    AbrParser.parse(inStream, basePackName = targetGroupName) { decodedTip ->
+                        // Stream decoded tip PNG directly to disk, freeing the raw full-res byte array immediately
+                        val tipFileName = "${safeGroupPrefix}_tip_${decodedTip.index}.png"
+                        val tipFile = File(brushDir, tipFileName)
+                        val tipBytes = AbrParser.encodeTipPng(decodedTip)
+                        tipFile.writeBytes(tipBytes)
+                        tipFileNameMap[decodedTip.index] = tipFileName
+                        tipUuidToFileName[decodedTip.uuid] = tipFileName
+                    }
                 }
 
                 if (parseResult == null || (parseResult.tips.isEmpty() && parseResult.presets.isEmpty())) {
                     return BrushImportResult(success = false)
                 }
 
-                val safeGroupPrefix = packBaseName.replace(Regex("""[^\w\u4e00-\u9fa5]"""), "_")
                 val tipsByUuid = parseResult.tips.associateBy { it.uuid }
                 val tipsByIndex = parseResult.tips.associateBy { it.index }
-
-                // 1. Export decoded tip PNG files to filesDir/brushes/
-                val tipFileNameMap = mutableMapOf<Int, String>()
-                for (tip in parseResult.tips) {
-                    val tipFileName = "${safeGroupPrefix}_tip_${tip.index}.png"
-                    val tipFile = File(brushDir, tipFileName)
-                    val tipBytes = AbrParser.encodeTipPng(tip)
-                    tipFile.writeBytes(tipBytes)
-                    tipFileNameMap[tip.index] = tipFileName
-                }
 
                 // 2. Export preset .kpp files to filesDir/paintoppresets/
                 val totalPresets = parseResult.presets.size
@@ -2023,10 +2049,13 @@ import kotlinx.coroutines.withContext
                 val existingKppNames = (presetDir.list() ?: emptyArray()).map { it.removeSuffix(".kpp") }.toMutableSet()
 
                 for ((idx, preset) in parseResult.presets.withIndex()) {
-                    val matchedTip = (preset.tipUuid?.let { tipsByUuid[it] })
-                        ?: tipsByIndex[preset.tipIndex]
-                        ?: parseResult.tips.firstOrNull()
-                    val matchedTipFileName = matchedTip?.let { tipFileNameMap[it.index] } ?: ""
+                    // Computed presets must NOT bind a sampled tip; see AbrParser.matchTipForPreset.
+                    val matchedTip = AbrParser.matchTipForPreset(
+                        preset, tipsByUuid, tipsByIndex, parseResult.tips,
+                    )
+                    val matchedTipFileName = (preset.tipUuid?.let { tipUuidToFileName[it] })
+                        ?: (matchedTip?.let { tipFileNameMap[it.index] })
+                        ?: ""
 
                     val rawName = preset.name.trim().ifBlank { "$targetGroupName ${idx + 1}" }
                     var candidateName = rawName.replace(Regex("""[\\/:*?"<>|]"""), "_")
@@ -2062,6 +2091,7 @@ import kotlinx.coroutines.withContext
                         pressureFlow = if (preset.pressureFlow) 1.0 else 0.0,
                         tipAsset = matchedTipFileName,
                         paintOpId = "paintbrush",
+                        compositeOp = "normal",
                         author = "外部创作者 (ABR)",
                         isAuthorLocked = true,
                         description = "导入自 Photoshop ABR 笔刷包: $packBaseName",
@@ -2071,7 +2101,20 @@ import kotlinx.coroutines.withContext
                     )
 
                     val kppFile = File(presetDir, "$candidateName.kpp")
-                    val kppBytes = KppHelper.updateKppBytes(previewBytes, candidateName, bp)
+                    // File-backed tips report `max(tipW, tipH) * scale` as the brush size
+                    // (KisScalingSizeBrush::userEffectiveSize), so `scale` is the only way to
+                    // make that number match the diameter the ABR declares. Without this the
+                    // size silently becomes the raw tip pixel size, and a preset declaring
+                    // diameter=80 shows up as 282 for a 282x282 tip.
+                    val tipScale = if (matchedTip != null && preset.diameter > 0.0 &&
+                        matchedTip.width > 0 && matchedTip.height > 0
+                    ) {
+                        (preset.diameter / maxOf(matchedTip.width, matchedTip.height))
+                            .coerceIn(0.01, 8.0)
+                    } else {
+                        null
+                    }
+                    val kppBytes = KppHelper.updateKppBytes(previewBytes, candidateName, bp, tipScale)
                     kppFile.writeBytes(kppBytes)
 
                     brushParams[candidateName] = bp

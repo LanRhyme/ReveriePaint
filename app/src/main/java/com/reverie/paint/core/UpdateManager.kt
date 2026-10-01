@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.DownloadStatus
+import com.reverie.paint.model.MarkdownParser
 import com.reverie.paint.model.ReleaseAsset
 import com.reverie.paint.model.ReleaseInfo
 import com.reverie.paint.model.UpdateCheckResult
@@ -287,14 +288,19 @@ object UpdateManager {
 
             if (title.isBlank()) return null
             val tagName = title.trim()
-            val plainBody = HtmlCompat.fromHtml(contentHtml, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+            val convertedBody = MarkdownParser.htmlToMarkdown(contentHtml)
+            val finalBody = if (convertedBody.isNotBlank()) {
+                convertedBody
+            } else {
+                HtmlCompat.fromHtml(contentHtml, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+            }
             val apkName = "ReveriePaint-$tagName.apk"
             val downloadUrl = "https://github.com/LanRhyme/ReveriePaint/releases/download/$tagName/$apkName"
 
             return ReleaseInfo(
                 tagName = tagName,
                 name = tagName,
-                body = plainBody,
+                body = finalBody,
                 htmlUrl = htmlUrl.ifBlank { "https://github.com/LanRhyme/ReveriePaint/releases/tag/$tagName" },
                 publishedAt = updated,
                 apkAsset = ReleaseAsset(

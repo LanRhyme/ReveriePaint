@@ -241,6 +241,14 @@ fun DrawingGuidePanel(
                             )
                         }
                     }
+
+                    ToolFloatSlider(
+                        label = androidx.compose.ui.res.stringResource(R.string.guide_perspective_ray_density),
+                        valueText = "${guide.perspectiveRayCount}",
+                        range = 6f..24f,
+                        value = guide.perspectiveRayCount.toFloat(),
+                        onValue = { vm.drawingGuide = guide.copy(perspectiveRayCount = it.roundToInt()) },
+                    )
                 }
 
                 // Symmetry Type Selector
@@ -259,7 +267,7 @@ fun DrawingGuidePanel(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable {
-                                    vm.drawingGuide = guide.copy(symmetryCenterX = 0.5f, symmetryCenterY = 0.5f)
+                                    vm.drawingGuide = guide.copy(symmetryCenterX = 0.5f, symmetryCenterY = 0.5f, symmetryRotationDeg = 0f)
                                 }
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         )
@@ -279,6 +287,30 @@ fun DrawingGuidePanel(
                         }
                         SymmetryChip(androidx.compose.ui.res.stringResource(R.string.guide_symmetry_radial), selected = guide.symmetryType == SymmetryType.RADIAL, Modifier.weight(1f)) {
                             vm.drawingGuide = guide.copy(symmetryType = SymmetryType.RADIAL)
+                        }
+                    }
+
+                    ToolFloatSlider(
+                        label = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rotation),
+                        valueText = "${((guide.symmetryRotationDeg % 180f + 180f) % 180f).roundToInt()}°",
+                        range = 0f..180f,
+                        value = (guide.symmetryRotationDeg % 180f + 180f) % 180f,
+                        onValue = { vm.drawingGuide = guide.copy(symmetryRotationDeg = it) },
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(0f, 45f, 90f, 135f).forEach { deg ->
+                            val isSelected = ((guide.symmetryRotationDeg % 180f + 180f) % 180f).roundToInt() == deg.roundToInt()
+                            SymmetryChip(
+                                label = "${deg.roundToInt()}°",
+                                selected = isSelected,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                vm.drawingGuide = guide.copy(symmetryRotationDeg = deg)
+                            }
                         }
                     }
 

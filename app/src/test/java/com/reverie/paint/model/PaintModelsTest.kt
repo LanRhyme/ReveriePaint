@@ -124,5 +124,21 @@ class PaintModelsTest {
         val customProj = Project(name = "多图层工程", layerCount = 5, selectedLayerIndex = 3)
         assertEquals(3, customProj.selectedLayerIndex)
     }
+
+    @Test
+    fun `back key action ids are unique`() {
+        val ids = BackKeyAction.entries.map { it.id }
+        assertEquals("BackKeyAction id 重复: ${ids.groupBy { it }.filterValues { it.size > 1 }.keys}", ids.size, ids.toSet().size)
+    }
+
+    @Test
+    fun `back key action fromId resolves every id and falls back to NONE`() {
+        BackKeyAction.entries.forEach { action ->
+            assertEquals(action, BackKeyAction.fromId(action.id))
+        }
+        assertEquals(BackKeyAction.NONE, BackKeyAction.fromId("nonexistent"))
+        assertEquals(BackKeyAction.NONE, BackKeyAction.fromId(null))
+        assertEquals(BackKeyAction.NONE, BackKeyAction.fromId(""))
+    }
 }
 

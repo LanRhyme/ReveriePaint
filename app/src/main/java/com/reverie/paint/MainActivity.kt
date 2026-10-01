@@ -434,23 +434,27 @@ class MainActivity : ComponentActivity() {
         }
 
         val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (touchView != null) {
-            val action = ev.actionMasked
-            if (action == android.view.MotionEvent.ACTION_HOVER_MOVE ||
-                action == android.view.MotionEvent.ACTION_HOVER_ENTER ||
-                action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
+        if (touchView != null && touchView.isAttachedToWindow) {
+            try {
+                val action = ev.actionMasked
+                if (action == android.view.MotionEvent.ACTION_HOVER_MOVE ||
+                    action == android.view.MotionEvent.ACTION_HOVER_ENTER ||
+                    action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
 
-                val loc = IntArray(2)
-                touchView.getLocationOnScreen(loc)
-                val localX = ev.rawX - loc[0]
-                val localY = ev.rawY - loc[1]
-                touchView.onDirectHover(localX, localY, action)
+                    val loc = IntArray(2)
+                    touchView.getLocationOnScreen(loc)
+                    val localX = ev.rawX - loc[0]
+                    val localY = ev.rawY - loc[1]
+                    touchView.onDirectHover(localX, localY, action)
 
-                // 核心防护：当手指正在双指缩放/旋转或触控作画时，在 Activity 顶层直接消费掉悬停事件，
-                // 阻止 ViewGroup 默认下发 ACTION_CANCEL 杀掉多指触控手势流！
-                if (touchView.isInteracting || touchView.isTransformActive) {
-                    return true
+                    // 核心防护：当手指正在双指缩放/旋转或触控作画时，在 Activity 顶层直接消费掉悬停事件，
+                    // 阻止 ViewGroup 默认下发 ACTION_CANCEL 杀掉多指触控手势流！
+                    if (touchView.isInteracting || touchView.isTransformActive) {
+                        return true
+                    }
                 }
+            } catch (t: Throwable) {
+                android.util.Log.e("MainActivity", "Error handling hover event", t)
             }
         }
         return super.dispatchGenericMotionEvent(ev)

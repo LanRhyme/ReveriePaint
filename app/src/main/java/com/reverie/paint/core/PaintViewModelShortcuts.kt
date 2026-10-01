@@ -131,6 +131,59 @@ internal fun PaintViewModel.updateBrushSizeScalesWithCanvas(enabled: Boolean) {
     checkBrushSizeLimit()
 }
 
+internal fun PaintViewModel.toggleViewTransformLocked() {
+    isViewTransformLocked = !isViewTransformLocked
+    saveViewSettings()
+    showActionToast(
+        if (isViewTransformLocked) R.string.toast_view_locked else R.string.toast_view_unlocked,
+        if (isViewTransformLocked) R.drawable.ic_lock else R.drawable.ic_lock_open,
+    )
+}
+
+internal fun PaintViewModel.updateStrokeSmoothingType(type: Int) {
+    strokeSmoothingType = type.coerceIn(0, 2)
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeSmoothnessDistanceMin(value: Double) {
+    strokeSmoothnessDistanceMin = value.coerceIn(PaintViewModel.SMOOTHING_DISTANCE_MIN, PaintViewModel.SMOOTHING_DISTANCE_MAX)
+    if (strokeSmoothDistanceLocked) {
+        strokeSmoothnessDistanceMax = strokeSmoothnessDistanceMin
+    }
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeSmoothnessDistanceMax(value: Double) {
+    strokeSmoothnessDistanceMax = value.coerceIn(PaintViewModel.SMOOTHING_DISTANCE_MIN, PaintViewModel.SMOOTHING_DISTANCE_MAX)
+    if (strokeSmoothDistanceLocked) {
+        strokeSmoothnessDistanceMin = strokeSmoothnessDistanceMax
+    }
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeSmoothDistanceLocked(locked: Boolean) {
+    strokeSmoothDistanceLocked = locked
+    if (locked) {
+        strokeSmoothnessDistanceMax = strokeSmoothnessDistanceMin
+    }
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeSmoothPressure(enabled: Boolean) {
+    strokeSmoothPressure = enabled
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeScalableDistance(enabled: Boolean) {
+    strokeScalableDistance = enabled
+    saveViewSettings()
+}
+
+internal fun PaintViewModel.updateStrokeTailAggressiveness(value: Double) {
+    strokeTailAggressiveness = value.coerceIn(0.0, 1.0)
+    saveViewSettings()
+}
+
 internal fun PaintViewModel.saveViewSettings() {
     try {
         val o = JSONObject()
@@ -142,6 +195,14 @@ internal fun PaintViewModel.saveViewSettings() {
         o.put("undo_toast", undoToastEnabled)
         o.put("stroke_stabilizer", strokeStabilizer.toDouble())
         o.put("brush_size_scales_with_canvas", brushSizeScalesWithCanvas)
+        o.put("is_view_transform_locked", isViewTransformLocked)
+        o.put("stroke_smoothing_type", strokeSmoothingType)
+        o.put("stroke_smoothness_dist_min", strokeSmoothnessDistanceMin)
+        o.put("stroke_smoothness_dist_max", strokeSmoothnessDistanceMax)
+        o.put("stroke_smooth_distance_locked", strokeSmoothDistanceLocked)
+        o.put("stroke_smooth_pressure", strokeSmoothPressure)
+        o.put("stroke_scalable_distance", strokeScalableDistance)
+        o.put("stroke_tail_aggressiveness", strokeTailAggressiveness)
         prefs().edit().putString("view_settings", o.toString()).apply()
     } catch (_: Exception) {
     }
@@ -166,6 +227,14 @@ internal fun PaintViewModel.loadViewSettings() {
         undoToastEnabled = o.optBoolean("undo_toast", true)
         strokeStabilizer = o.optDouble("stroke_stabilizer", 0.0).toFloat().coerceIn(0f, 1f)
         brushSizeScalesWithCanvas = o.optBoolean("brush_size_scales_with_canvas", true)
+        isViewTransformLocked = o.optBoolean("is_view_transform_locked", false)
+        strokeSmoothingType = o.optInt("stroke_smoothing_type", PaintViewModel.SMOOTHING_BASIC).coerceIn(0, 2)
+        strokeSmoothnessDistanceMin = o.optDouble("stroke_smoothness_dist_min", 30.0).coerceIn(PaintViewModel.SMOOTHING_DISTANCE_MIN, PaintViewModel.SMOOTHING_DISTANCE_MAX)
+        strokeSmoothnessDistanceMax = o.optDouble("stroke_smoothness_dist_max", 30.0).coerceIn(PaintViewModel.SMOOTHING_DISTANCE_MIN, PaintViewModel.SMOOTHING_DISTANCE_MAX)
+        strokeSmoothDistanceLocked = o.optBoolean("stroke_smooth_distance_locked", true)
+        strokeSmoothPressure = o.optBoolean("stroke_smooth_pressure", true)
+        strokeScalableDistance = o.optBoolean("stroke_scalable_distance", true)
+        strokeTailAggressiveness = o.optDouble("stroke_tail_aggressiveness", 0.5).coerceIn(0.0, 1.0)
         checkBrushSizeLimit()
     } catch (_: Exception) {
     }

@@ -119,6 +119,7 @@ import com.reverie.paint.ui.painting.layers.FilterSessionController
 import com.reverie.paint.ui.painting.layers.FilterTopPillHUD
 import com.reverie.paint.ui.painting.layers.FilterBottomDock
 import com.reverie.paint.model.CanvasAdjustMode
+import com.reverie.paint.model.BackKeyAction
 import com.reverie.paint.model.RotationSnap
 import com.reverie.paint.ui.painting.canvas.CanvasAdjustOverlay
 import com.reverie.paint.ui.painting.panels.CanvasAdjustPanel
@@ -859,8 +860,12 @@ fun PaintingPage(
                 selectionPropsOpen -> selectionPropsOpen = false
                 tfState.active -> cancelTransform()
                 vm.currentToolId != "brush" -> vm.applyTool("brush")
+                // 画布已处于干净状态: 由"返回键行为"设置决定兜底动作
+                // (历史行为为忽略返回, 防误触退出画布)
+                vm.backKeyAction == BackKeyAction.OPEN_SETTINGS -> settingsPanelOpen = true
+                vm.backKeyAction == BackKeyAction.EXIT -> requestExit()
                 else -> {
-                    // 全局禁用返回退出: 在绘画主界面下，忽略系统返回手势/返回键，防止误触退出画布；
+                    // 无行为: 忽略系统返回手势/返回键，防止误触退出画布；
                     // 用户必须点击顶栏的关闭 (X) 按钮退出
                 }
             }
@@ -1039,6 +1044,7 @@ fun PaintingPage(
                         moreToolsOpen = !moreToolsOpen
                     },
                     brushSize = vm.brushSize,
+                    canvasScale = (zoom * fitScale).coerceAtLeast(0.001f),
                     onBrushSize = { size, commit -> vm.updateBrushSize(size, commit) },
                     popupOpacity = vm.popupPanelOpacity,
                     brushOpacity = vm.brushOpacity,
@@ -1521,15 +1527,15 @@ fun PaintingPage(
             Box(
                 modifier =
                     Modifier
-                        .shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                        .clip(RoundedCornerShape(12.dp))
+                        .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.3f))
+                        .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
-                        .glassBorder(RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .glassBorder(RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (iconRes != null) {
@@ -1537,13 +1543,13 @@ fun PaintingPage(
                             painter = painterResource(iconRes),
                             contentDescription = msg,
                             tint = Morandi.text,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(15.dp),
                         )
                     }
                     Text(
                         msg,
                         color = Morandi.text,
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     )
                 }
@@ -1576,7 +1582,7 @@ fun PaintingPage(
             modifier =
                 Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 56.dp)
+                    .padding(top = 48.dp)
                     .zIndex(20f),
         ) {
             val zoomPct = (zoom * fitScale * 100).toInt()
@@ -1587,34 +1593,61 @@ fun PaintingPage(
             Box(
                 modifier =
                     Modifier
-                        .shadow(12.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.35f))
-                        .clip(RoundedCornerShape(12.dp))
+                        .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.3f))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
-                        .glassBorder(RoundedCornerShape(12.dp))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .glassBorder(RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.5.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         stringResource(R.string.canvas_zoom_format, zoomPct),
                         color = Morandi.text,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     )
                     Box(
                         Modifier
-                            .size(3.dp)
+                            .size(2.5.dp)
                             .background(Morandi.border, CircleShape),
                     )
                     Text(
                         stringResource(R.string.canvas_rotation_format, rotDeg),
                         color = if (rotSnapped) Morandi.accent else Morandi.text,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     )
+                    Box(
+                        Modifier
+                            .size(2.5.dp)
+                            .background(Morandi.border, CircleShape),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (vm.isViewTransformLocked) Morandi.accent.copy(alpha = 0.2f) else Color.Transparent)
+                            .clickable {
+                                vm.toggleViewTransformLocked()
+                                flashIndicator()
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                if (vm.isViewTransformLocked) R.drawable.ic_lock else R.drawable.ic_lock_open
+                            ),
+                            contentDescription = stringResource(
+                                if (vm.isViewTransformLocked) R.string.canvas_view_unlock else R.string.canvas_view_lock
+                            ),
+                            tint = if (vm.isViewTransformLocked) Morandi.accent else Morandi.subText,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
                 }
             }
         }

@@ -194,30 +194,39 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
      * Dispatch point for both dynamic and manifest-declared static receivers.
      */
     fun onBroadcastReceived(action: String, intent: Intent?) {
-        val vm = currentVm ?: return
-        val fm = currentFeedbackManager
+        try {
+            val vm = currentVm ?: return
+            val fm = currentFeedbackManager
 
-        @Suppress("DEPRECATION")
-        val extrasInfo = intent?.extras?.let { bundle ->
-            bundle.keySet().joinToString { key -> "$key=${bundle.get(key)}" }
-        } ?: "none"
-        Log.i(TAG, "onBroadcastReceived: action=$action, extras=[$extrasInfo]")
+            Log.i(TAG, "onBroadcastReceived: action=$action")
 
-        val count = intent?.getIntExtra("count", intent.getIntExtra("click_count", intent.getIntExtra("clickCount", -1))) ?: -1
-        val clickType = intent?.getIntExtra("click_type", intent.getIntExtra("clickType", intent.getIntExtra("type", -1))) ?: -1
+            val count = safeGetIntExtra(intent, "count", safeGetIntExtra(intent, "click_count", safeGetIntExtra(intent, "clickCount", -1)))
+            val clickType = safeGetIntExtra(intent, "click_type", safeGetIntExtra(intent, "clickType", safeGetIntExtra(intent, "type", -1)))
 
-        val isDoubleTapAction = when (action) {
-            ACTION_HUAWEI_BUTTON_DOUBLE_PRESSED,
-            ACTION_HUAWEI_DOUBLE_CLICK,
-            ACTION_HUAWEI_LEGACY_DOUBLE_PRESSED,
-            ACTION_HUAWEI_DOUBLE_TAP -> true
-            else -> (count >= 2) || (clickType == 2)
+            val isDoubleTapAction = when (action) {
+                ACTION_HUAWEI_BUTTON_DOUBLE_PRESSED,
+                ACTION_HUAWEI_DOUBLE_CLICK,
+                ACTION_HUAWEI_LEGACY_DOUBLE_PRESSED,
+                ACTION_HUAWEI_DOUBLE_TAP -> true
+                else -> (count >= 2) || (clickType == 2)
+            }
+
+            if (isDoubleTapAction) {
+                handleDoubleTap(vm, fm)
+            } else {
+                handleSingleClick(vm, fm)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error handling broadcast: ${t.message}")
         }
+    }
 
-        if (isDoubleTapAction) {
-            handleDoubleTap(vm, fm)
-        } else {
-            handleSingleClick(vm, fm)
+    private fun safeGetIntExtra(intent: Intent?, key: String, default: Int): Int {
+        if (intent == null) return default
+        return try {
+            intent.getIntExtra(key, default)
+        } catch (_: Throwable) {
+            default
         }
     }
 

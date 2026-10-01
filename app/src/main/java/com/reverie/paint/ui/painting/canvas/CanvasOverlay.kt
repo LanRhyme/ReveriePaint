@@ -1382,7 +1382,7 @@ internal fun CanvasOverlay(
                                 val vpx = vp.x * scX - halfW
                                 val vpy = vp.y * scY - halfH
                                 val vpOffset = Offset(vpx, vpy)
-                                val rayCount = 18
+                                val rayCount = guide.perspectiveRayCount.coerceIn(6, 24)
                                 for (ri in 0 until rayCount) {
                                     val angle = (ri.toFloat() / rayCount) * 2f * PI.toFloat()
                                     val rayLen = maxOf(docW, docH) * 2.5f
@@ -1402,35 +1402,67 @@ internal fun CanvasOverlay(
                                 val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
                                 val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
                                 val symCol = Morandi.accent.copy(alpha = 0.85f)
+                                val currentScale = zoom.value * fitScale
                                 val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                                    width = 1.5.dp.toPx() / (zoom.value * fitScale),
+                                    width = 1.5.dp.toPx() / currentScale,
                                     pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
                                 )
+
+                                val rotRad = (guide.symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
+                                val cosR = cos(rotRad)
+                                val sinR = sin(rotRad)
+                                val dMax = maxOf(docW, docH) * 2.5f
+
+                                fun drawRotatedLine(dirX: Float, dirY: Float) {
+                                    val rx = dirX * cosR - dirY * sinR
+                                    val ry = dirX * sinR + dirY * cosR
+                                    drawLine(
+                                        symCol,
+                                        Offset(cx - rx * dMax, cy - ry * dMax),
+                                        Offset(cx + rx * dMax, cy + ry * dMax),
+                                        strokeWidth = symStroke.width,
+                                        pathEffect = symStroke.pathEffect,
+                                    )
+                                }
+
                                 when (guide.symmetryType) {
                                     SymmetryType.VERTICAL -> {
-                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawRotatedLine(0f, 1f)
                                     }
                                     SymmetryType.HORIZONTAL -> {
-                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawRotatedLine(1f, 0f)
                                     }
                                     SymmetryType.QUADRANT -> {
-                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawRotatedLine(0f, 1f)
+                                        drawRotatedLine(1f, 0f)
                                     }
                                     SymmetryType.RADIAL -> {
-                                        drawLine(symCol, Offset(cx, -halfH), Offset(cx, halfH), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                        drawLine(symCol, Offset(-halfW, cy), Offset(halfW, cy), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                        val dMax = maxOf(docW, docH)
-                                        drawLine(symCol, Offset(cx - dMax, cy - dMax), Offset(cx + dMax, cy + dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
-                                        drawLine(symCol, Offset(cx - dMax, cy + dMax), Offset(cx + dMax, cy - dMax), strokeWidth = symStroke.width, pathEffect = symStroke.pathEffect)
+                                        drawRotatedLine(0f, 1f)
+                                        drawRotatedLine(1f, 0f)
+                                        val diag = 0.70710678f
+                                        drawRotatedLine(diag, diag)
+                                        drawRotatedLine(-diag, diag)
                                     }
                                 }
+
                                 if (vm.drawingGuidePanelOpen) {
-                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
-                                    drawCircle(Morandi.accent, radius = 6.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
-                                    drawCircle(Color.White, radius = 2.5.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                    // 1. 中心平移控制柄
+                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / currentScale, center = Offset(cx, cy))
+                                    drawCircle(Morandi.accent, radius = 6.dp.toPx() / currentScale, center = Offset(cx, cy))
+                                    drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = Offset(cx, cy))
+
+                                    // 2. 轴向旋转控制柄 (沿对称主轴分布)
+                                    val rotHandleDist = minOf(docW, docH) * 0.35f * scX
+                                    val rotHandleX = cx - sinR * rotHandleDist
+                                    val rotHandleY = cy + cosR * rotHandleDist
+                                    val rotCenter = Offset(rotHandleX, rotHandleY)
+
+                                    drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
+                                    drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)
+                                    drawCircle(Color.White, radius = 3.5.dp.toPx() / currentScale, center = rotCenter)
+                                    drawCircle(Morandi.accent, radius = 1.5.dp.toPx() / currentScale, center = rotCenter)
                                 } else {
-                                    drawCircle(Morandi.accent, radius = 4.dp.toPx() / (zoom.value * fitScale), center = Offset(cx, cy))
+                                    drawCircle(Morandi.accent, radius = 4.dp.toPx() / currentScale, center = Offset(cx, cy))
                                 }
                             }
                         }
