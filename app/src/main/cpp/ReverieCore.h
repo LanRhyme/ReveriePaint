@@ -725,7 +725,7 @@ private:
     /** 把基座矩形的新增部分合成为"不含目标图层"的像素(内部会标脏, 让渲染重读)。 */
     void ensureLiquifyPreviewBase();
     /** 用基座像素改写显示缓冲里属于基座的那部分(1:1 路径; 缩放路径维持原行为)。 */
-    void applyLiquifyPreviewBase(quint8 *buffer, int w, int h, const QRect &written);
+    void readLiquifyDisplayRegion(KisPaintDeviceSP projection, quint8 *buffer, const QRect &region);
     /** 摘掉基座: 目标图层立刻回到画布合成, 并让旧矩形按真实文档重读一次。 */
     void invalidateLiquifyPreviewBase();
 

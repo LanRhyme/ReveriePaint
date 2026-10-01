@@ -6,6 +6,7 @@ package com.reverie.paint.ui.painting.canvas
 
 import android.content.Context
 import android.graphics.SurfaceTexture
+import android.opengl.EGLExt
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
@@ -159,7 +160,9 @@ internal class LiquifyGlesOverlay(context: Context) :
         return true
     }
 
-    override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
+    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {
+        targetTouchView?.onLiquifyFramePresented(st.timestamp)
+    }
 
     override fun onDetachedFromWindow() {
         stopRendering()
@@ -261,19 +264,13 @@ internal class LiquifyGlesOverlay(context: Context) :
                     bailOut("渲染帧异常: ${t.javaClass.simpleName}")
                     break
                 }
-                if (!egl.swapBuffers()) {
+                val timestamp = System.nanoTime()
+                LiquifyGlesPreview.stageDrawRect(frame, timestamp)
+                if (!egl.swapBuffers(timestamp)) {
                     bailOut("swapBuffers 失败")
                     break
                 }
                 frames++
-                // 相位 8(背景色线框闪烁修复): 本帧**已经上屏**, 现在才允许引擎把这块挖成
-                // "不含目标图层"。顺序一旦反过来(先挖后画), 那圈就是露出的画布背景。
-                if (frame.valid && frame.fieldArmed && frame.drawW > 0f && frame.drawH > 0f) {
-                    LiquifyGlesPreview.noteDrawRectCommitted(
-                        Math.round(frame.drawX), Math.round(frame.drawY),
-                        Math.round(frame.drawW), Math.round(frame.drawH),
-                    )
-                }
                 LiquifyGlesPreview.noteFrameRendered()
             }
         } catch (t: Throwable) {
@@ -296,6 +293,7 @@ internal class LiquifyGlesOverlay(context: Context) :
 
         private var program = 0
         private var aPos = -1
+        private var uSceneSize = -1
         private var uRect = -1
         private var uSrc = -1
         private var uGrid = -1
@@ -419,6 +417,7 @@ internal class LiquifyGlesOverlay(context: Context) :
             }
             program = p
             aPos = GLES20.glGetAttribLocation(p, "aPos")
+            uSceneSize = GLES20.glGetUniformLocation(p, "uSceneSize")
             uRect = GLES20.glGetUniformLocation(p, "uRect")
             uSrc = GLES20.glGetUniformLocation(p, "uSrc")
             uGrid = GLES20.glGetUniformLocation(p, "uGrid")
@@ -583,6 +582,7 @@ internal class LiquifyGlesOverlay(context: Context) :
             // 场的文档尺寸 = 场纹素 × 降采样比(场与裁剪逐像素对齐, 所以原点就是裁剪原点)
             val res = fieldRes.toFloat()
             GLES20.glUniform2f(uFieldSize, (fieldW * res).coerceAtLeast(1f), (fieldH * res).coerceAtLeast(1f))
+            GLES20.glUniform2f(uSceneSize, f.sceneWidth, f.sceneHeight)
             GLES20.glUniform4f(uRect, rect[0], rect[1], rect[2], rect[3])
 
             val q = quad ?: return
@@ -642,6 +642,8 @@ internal class LiquifyGlesOverlay(context: Context) :
             // 提交**不做**"绘制矩形"裁剪: 那只用于显示分流(整篇文档的裁剪会让覆盖层盖住整屏)
             GLES20.glUniform2f(uDrawOrigin, 0f, 0f)
             GLES20.glUniform2f(uDrawSize, 0f, 0f)
+            // Commit contains layer pixels only; never bake the display checkerboard.
+            GLES20.glUniform2f(uSceneSize, 0f, 0f)
             GLES20.glUniform4f(uRect, -1f, -1f, 1f, 1f)
 
             var out: ByteArray? = null
@@ -1172,7 +1174,8 @@ internal class LiquifyGlesOverlay(context: Context) :
             display != EGL14.EGL_NO_DISPLAY &&
                 EGL14.eglMakeCurrent(display, surface, surface, context)
 
-        fun swapBuffers(): Boolean =
+        fun swapBuffers(timestamp: Long): Boolean =
+            EGLExt.eglPresentationTimeANDROID(display, surface, timestamp) &&
             display != EGL14.EGL_NO_DISPLAY && EGL14.eglSwapBuffers(display, surface)
 
         fun release() {
@@ -1227,6 +1230,7 @@ internal class LiquifyGlesOverlay(context: Context) :
             uniform vec2 uGridSize;
             uniform vec2 uFieldOrigin;
             uniform vec2 uFieldSize;
+            uniform vec2 uSceneSize;
             uniform vec2 uDrawOrigin;
             uniform vec2 uDrawSize;
 
@@ -1279,7 +1283,15 @@ internal class LiquifyGlesOverlay(context: Context) :
                     }
                     off = texture2D(uGrid, (g + 0.5) / uGridSize).rg;
                 }
-                gl_FragColor = sourceAt(doc - uCropOrigin - off);
+                vec4 color = sourceAt(doc - uCropOrigin - off);
+                if (uSceneSize.x > 0.0 && uSceneSize.y > 0.0) {
+                    // Match CanvasTouchView's centered BitmapShader coordinates.
+                    vec2 cell = floor(((doc - uCropOrigin) / uCropSize - 0.5) * uSceneSize / 24.0);
+                    float parity = mod(cell.x + cell.y, 2.0);
+                    vec3 checker = mix(vec3(1.0), vec3(228.0,230.0,235.0)/255.0, parity);
+                    color = vec4(color.rgb + checker * (1.0 - color.a), 1.0);
+                }
+                gl_FragColor = color;
             }
         """.trimIndent()
 

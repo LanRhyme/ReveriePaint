@@ -168,7 +168,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // only refresh part of the raw-mode switch and leave the rest stale
         if (m_soloedNode || !m_bitmapInited || m_dirtyRect == QRect(0, 0, iw, ih)) {
             // Full frame update: direct in-place read and SIMD conversion
-            proj->readBytes(buffer, 0, 0, iw, ih);
+            readLiquifyDisplayRegion(proj, buffer, QRect(0, 0, iw, ih));
             PixelAlpha::toDisplayRows(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
             m_lastWrittenRect = QRect(0, 0, w, h);
@@ -188,7 +188,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 if (size_t(m_subRegionBuffer.size()) < req) {
                     m_subRegionBuffer.resize(req);
                 }
-                proj->readBytes(reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r.x(), r.y(), r.width(), r.height());
+                readLiquifyDisplayRegion(proj, reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r);
                 quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
                 PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
                                    dst, w * 4, r.width(), r.height());
@@ -200,7 +200,6 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // 预览基座(残影修复): 液化预览期间目标图层的像素由预览自己提供, 所以这里必须先把
         // "不含目标图层"的底图写回这块区域 —— 顺序在 blendLiquifyPreview / 覆盖层之前。
         // 少了这一步, 被形变搬走的原始像素会留在原地透出来(透明画布上就是残影)。
-        applyLiquifyPreviewBase(buffer, w, h, m_lastWrittenRect);
         // Phase 2A-2: 预览叠加 (只有在 debug 开关打开且预览有内容时才非空) —— 把低分辨率形变
         // 预览混进刚写好的缓冲区域, 于是旋转/缩放/平移都沿用画布自身的变换。
         // Phase 2B: 主机侧(AGSL)绘制时引擎不叠加, 否则会和 GPU 覆盖层叠两次。
@@ -242,7 +241,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // (1:1 路径一直是这么做的, in-place 安全)。旧实现每帧多一次 rs 大小的
         // QImage 分配 + 整块 bits() 拷贝, 缩放视图下这是每帧一次的堆分配。
         quint8 *scratch = reinterpret_cast<quint8 *>(m_subRegionBuffer.data());
-        proj->readBytes(scratch, rs.x(), rs.y(), rs.width(), rs.height());
+        readLiquifyDisplayRegion(proj, scratch, rs);
         QImage subBgra(scratch, rs.width(), rs.height(), rs.width() * 4, QImage::Format_RGBA8888_Premultiplied);
         PixelAlpha::toDisplayRows(scratch, rs.width() * 4, scratch, rs.width() * 4, rs.width(), rs.height());
 

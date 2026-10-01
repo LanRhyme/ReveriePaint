@@ -89,11 +89,11 @@ class LiquifyInteractionSessionTest {
         assertTrue("还没追上最新位置", s.hasPending)
         assertTrue("仍有未提交补点", s.backlogDabs > 0)
         assertTrue("已推进了一段但未到终点", s.renderedX > 0f && s.renderedX < 300f)
-        assertEquals("推进后 lag 归零", 0L, s.lag)
+        assertEquals("未完成输入仍计入 lag", 1L, s.lag)
         assertEquals(2L, s.dabCount)
         assertEquals(1L, s.flushCount)
         assertEquals(1L, s.operationCount)
-        assertEquals("本帧合并了 1 个输入", 1, s.lastFlushInputs)
+        assertEquals("部分推进尚未完成输入", 0, s.lastFlushInputs)
     }
 
     @Test
@@ -168,7 +168,7 @@ class LiquifyInteractionSessionTest {
 
         assertEquals(3L, s.inputCount)
         assertEquals(2L, s.flushCount)
-        assertEquals("最后一批合并了 2 个输入", 2, s.lastFlushInputs)
+        assertEquals("后续输入仍在排队", 0, s.lastFlushInputs)
         assertTrue(s.operationCount >= 2L)
     }
 

@@ -9,6 +9,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "PixelAlpha.h"
+#include "PixelRegion.h"
 #include "LiquifyMaterializeBatch.h"
 #include "kis_liquify_transform_worker.h"
 #include <QtConcurrent/QtConcurrentMap>
@@ -1384,20 +1385,28 @@ void ReverieCore::ensureLiquifyPreviewBase()
     m_liquifyPreviewBaseBuilt = fresh;
 }
 
-void ReverieCore::applyLiquifyPreviewBase(quint8 *buffer, int w, int h, const QRect &written)
+void ReverieCore::readLiquifyDisplayRegion(KisPaintDeviceSP projection, quint8 *buffer, const QRect &region)
 {
-    if (!buffer || m_liquifyPreviewBaseLayer < 0) return;
-    if (!m_liquifyPreviewBaseDev || m_liquifyPreviewBaseBuilt.isEmpty() || written.isEmpty()) return;
-    // 只服务 1:1 路径(显示缓冲 = 文档尺寸)。缩放路径本来就不走预览叠加语义, 保持一致。
-    if (w != m_document->width() || h != m_document->height()) return;
-    const QRect r = written.intersected(m_liquifyPreviewBaseBuilt).intersected(QRect(0, 0, w, h));
+    if (!projection || !buffer || region.isEmpty()) return;
+    if (m_liquifyPreviewBaseLayer >= 0 && m_liquifyPreviewBaseDev &&
+        m_liquifyPreviewBaseBuilt.contains(region)) {
+        // Avoid reading the projection only to overwrite every pixel with the base.
+        m_liquifyPreviewBaseDev->readBytes(buffer, region.x(), region.y(), region.width(), region.height());
+        return;
+    }
+    projection->readBytes(buffer, region.x(), region.y(), region.width(), region.height());
+    // Replace straight device pixels BEFORE alpha conversion and viewport filtering.
+    // The same document-space operation serves full, dirty and scaled renders.
+    if (!buffer || region.isEmpty() || m_liquifyPreviewBaseLayer < 0 ||
+        !m_liquifyPreviewBaseDev || m_liquifyPreviewBaseBuilt.isEmpty()) return;
+    const QRect r = region.intersected(m_liquifyPreviewBaseBuilt);
     if (r.isEmpty()) return;
     thread_local QVector<quint8> baseBand;
-    const qint64 bytes = qint64(r.width()) * qint64(r.height()) * 4;
-    if (qint64(baseBand.size()) < bytes) baseBand.resize(int(bytes));
+    const int bytes = r.width() * r.height() * 4;
+    if (baseBand.size() < bytes) baseBand.resize(bytes);
     m_liquifyPreviewBaseDev->readBytes(baseBand.data(), r.x(), r.y(), r.width(), r.height());
-    quint8 *dst = buffer + size_t(r.y()) * size_t(w) * 4 + size_t(r.x()) * 4;
-    PixelAlpha::toDisplayRows(baseBand.constData(), r.width() * 4, dst, w * 4, r.width(), r.height());
+    PixelRegion::replace(buffer, region.width(), region.height(), r.x() - region.x(), r.y() - region.y(),
+                         baseBand.constData(), r.width(), r.height());
 }
 
 void ReverieCore::invalidateLiquifyPreviewBase()

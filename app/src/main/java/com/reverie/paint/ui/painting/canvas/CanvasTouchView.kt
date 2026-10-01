@@ -325,6 +325,7 @@ class CanvasTouchView(context: Context) : View(context) {
      * 一致才不会有"被挖掉却没人补"(露背景线框)或"没被挖却在叠加"(深色描边)的差值环。
      */
     private var liquifyDrawRect: IntArray? = null
+    private var liquifyWholeLayerRect: IntArray? = null
 
     /** 基座推进策略: 只跟到覆盖层"已上屏"的那一帧, 永远不领先(见 [LiquifyPreviewBasePolicy])。 */
     private val liquifyBasePolicy = LiquifyPreviewBasePolicy()
@@ -3664,6 +3665,17 @@ class CanvasTouchView(context: Context) : View(context) {
      *
      * @param forceFull true = 抬笔补齐 / 关闭合并的逐点路径(不受每帧补点上限约束)
      */
+    /** Runs when HWUI consumes a preview buffer, even while the pen is stationary. */
+    fun onLiquifyFramePresented(timestamp: Long) {
+        if (!liquifyFieldGesture || liquifyWholeLayerRect != null) return
+        val v = vm ?: return
+        if (LiquifyGlesPreview.copyPresentedDrawRect(timestamp, liquifyCommittedScratch) &&
+            liquifyBasePolicy.shouldAdvance(liquifyCommittedScratch, 1)) {
+            v.liquifyPreviewBase(liquifyCommittedScratch[0], liquifyCommittedScratch[1],
+                liquifyCommittedScratch[2], liquifyCommittedScratch[3])
+        }
+    }
+
     private fun liquifyFlushNow(v: PaintViewModel, forceFull: Boolean) {
         var batchCount = 0
         var totalSteps = 0
@@ -3720,28 +3732,18 @@ class CanvasTouchView(context: Context) : View(context) {
         //     叠加(半透明内容叠两次 = 深色描边);
         //   · 基座领先 ⇒ 挖掉的那圈在覆盖层画上去之前就是背景 ⇒ 拖拽时每帧闪一次线框。
         if (liquifyFieldGesture) {
-            val rect = LiquifyPath.previewRect(
+            val rect = liquifyWholeLayerRect ?: LiquifyPath.previewRect(
                 lqAffectedL, lqAffectedT, lqAffectedR, lqAffectedB, v.docWidth, v.docHeight,
             )
             if (rect != null && (liquifyDrawRect == null || !liquifyDrawRect.contentEquals(rect))) {
                 liquifyDrawRect = rect
-                // 覆盖层**先**画这块(它自己 swapBuffers 后才会上报, 见 noteDrawRectCommitted)
+                // 普通单层由同一 GPU 帧完整替换；复杂场景在 HWUI 消费对应帧后推进底图。
                 LiquifyGlesPreview.pushDrawRect(
                     rect[0].toFloat(), rect[1].toFloat(), rect[2].toFloat(), rect[3].toFloat(),
                 )
             }
-            // 引擎**后**把这块挖成"不含目标图层" —— 顺序反过来就是露背景的线框。
-            // 门槛取影响半径的 1/8(4~64px): 滞后那圈落在位移已衰减到 0 的外沿, 且把
-            // "每次推进都要合成+渲染一圈边带"的频率压到与笔刷尺度同阶。
-            if (LiquifyGlesPreview.copyCommittedDrawRect(liquifyCommittedScratch) &&
-                liquifyBasePolicy.shouldAdvance(liquifyCommittedScratch, liquifyBaseAdvanceStepPx())
-            ) {
-                v.liquifyPreviewBase(
-                    liquifyCommittedScratch[0], liquifyCommittedScratch[1],
-                    liquifyCommittedScratch[2], liquifyCommittedScratch[3],
-                )
-            }
         }
+
         if (dirtyL.isFinite()) invalidateLiquifyFieldDab(
             (dirtyL + dirtyR) * 0.5f, (dirtyT + dirtyB) * 0.5f,
             maxOf(dirtyR - dirtyL, dirtyB - dirtyT) * 0.5f,
@@ -3796,6 +3798,19 @@ class CanvasTouchView(context: Context) : View(context) {
         val budget = fieldPathBudgetPx()
         if (budget <= 0L || dw.toLong() * dh.toLong() > budget) return false
         if (!v.liquifyFieldSource(0, 0, dw, dh)) return false
+        // A single ordinary layer can be presented entirely by GLES. Its underlay
+        // is drawn in the same GPU buffer, so transparent holes cannot reveal old paint.
+        val only = v.layers.singleOrNull()
+        liquifyWholeLayerRect = if (only != null && only.index == v.currentLayerIndex &&
+            only.visible && only.nodeType == 0 && !only.isGroup && !only.isStrokeLayer &&
+            !only.clipped && !only.alphaLocked && only.opacity == 1.0 &&
+            only.blendMode == "normal" && !v.hasSelection && !v.anim.enabled && !v.pixelGridEnabled)
+            intArrayOf(0, 0, dw, dh) else null
+        val sceneBitmap = v.displayBitmap ?: docBitmap
+        if (sceneBitmap == null) liquifyWholeLayerRect = null
+        LiquifyGlesPreview.configureOpaqueScene(
+            if (liquifyWholeLayerRect != null) sceneBitmap?.width ?: 0 else 0,
+            if (liquifyWholeLayerRect != null) sceneBitmap?.height ?: 0 else 0)
         liquifyDabCount = 0
         liquifyBasePolicy.reset()
         liquifyDrawRect = null

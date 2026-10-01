@@ -1291,7 +1291,10 @@ internal fun PaintViewModel.liquifyEnd() {
  */
 internal fun PaintViewModel.liquifyPreviewBase(x: Int, y: Int, w: Int, h: Int) {
     if (renderHandler == null) return
-    runCore { ReverieCoreBridge.setLiquifyPreviewBaseRect(x, y, w, h) }
+    val gesture = LiquifyGlesPreview.gestureId
+    runCore {
+        if (gesture == LiquifyGlesPreview.gestureId) ReverieCoreBridge.setLiquifyPreviewBaseRect(x, y, w, h)
+    }
 }
 
 internal fun PaintViewModel.liquifyFieldSource(x: Int, y: Int, w: Int, h: Int): Boolean {

@@ -254,11 +254,6 @@ internal object LiquifyGlesPreview {
     // 画布与覆盖层是两条独立呈现路径, 不可能原子更新。引擎把这块挖成"不含目标图层"**绝不能
     // 领先**于覆盖层把它画上去, 否则那圈就是露出的画布背景(真机上就是拖拽时闪烁的背景色线框)。
     // 所以只有本组值(已 swapBuffers)才允许作为基座推给引擎。
-    @Volatile private var committedDrawX = 0
-    @Volatile private var committedDrawY = 0
-    @Volatile private var committedDrawW = 0
-    @Volatile private var committedDrawH = 0
-    @Volatile private var committedDrawGesture = -1L
 
     // C3-2: 抬笔回读的 rendezvous(UI 线程请求 → 渲染线程离屏渲染 + glReadPixels → 唤醒 UI)。
     private var commitSerial = 0
@@ -337,6 +332,8 @@ internal object LiquifyGlesPreview {
         var eyY = 0f
 
         /** C3: 本帧是否走常驻场([fieldArmed] 的快照)。 */
+        var sceneWidth = 0f
+        var sceneHeight = 0f
         var fieldArmed = false
 
         /** C3-2: 本帧要绘制的文档矩形([pushDrawRect]; 0 宽高 = 退回用整块裁剪)。 */
@@ -380,6 +377,17 @@ internal object LiquifyGlesPreview {
         }
     }
 
+    private var sceneWidth = 0f
+    private var sceneHeight = 0f
+
+    fun configureOpaqueScene(width: Int, height: Int) = synchronized(lock) {
+        if (sceneWidth != width.toFloat() || sceneHeight != height.toFloat()) {
+            sceneWidth = width.toFloat()
+            sceneHeight = height.toFloat()
+            bumpLocked()
+        }
+    }
+
     fun beginGesture() {
         previewUpdates = 0L
         gridUploads = 0L
@@ -393,6 +401,8 @@ internal object LiquifyGlesPreview {
         // C3: 场判定与"预览由谁画"同口径 —— 手势开始时冻结, 之后改开关只影响下一段手势
         fieldArmed = fieldEnabled
         synchronized(lock) {
+            sceneWidth = 0f
+            sceneHeight = 0f
             gestureId++
             cropW = 0
             cropH = 0
@@ -400,8 +410,6 @@ internal object LiquifyGlesPreview {
             gridRows = 0
             drawW = 0f
             drawH = 0f
-            committedDrawW = 0
-            committedDrawH = 0
             pendingSrc = null
             pendingGrid = null
             pendingDabCount = 0
@@ -430,8 +438,6 @@ internal object LiquifyGlesPreview {
             drawW = 0f
             drawH = 0f
             // 手势结束: 已上屏矩形作废, 下一段手势必须重新经过"先画后挖"的顺序。
-            committedDrawW = 0
-            committedDrawH = 0
             pendingSrc = null
             pendingGrid = null
             pendingDabCount = 0
@@ -751,6 +757,8 @@ internal object LiquifyGlesPreview {
                 pendingGrid = null
             }
             // C3: 补点**不在这里取** —— 渲染线程真正要累加时再调 [takeDabs](无效帧不会吞掉它们)
+            out.sceneWidth = sceneWidth
+            out.sceneHeight = sceneHeight
             out.fieldArmed = fieldArmed
             out.gestureId = gestureId
             out.srcGen = srcGen
@@ -792,36 +800,19 @@ internal object LiquifyGlesPreview {
         renderedFrames++
     }
 
-    /**
-     * 渲染线程: 本帧已经 swapBuffers(真正上屏), 记录它绘制的文档矩形。
-     *
-     * 这是"预览基座"唯一合法的推进依据(见 [copyCommittedDrawRect] 与 `LiquifyPreviewBasePolicy`)。
-     */
-    fun noteDrawRectCommitted(x: Int, y: Int, w: Int, h: Int) {
-        if (w <= 0 || h <= 0) return
-        committedDrawX = x
-        committedDrawY = y
-        committedDrawW = w
-        committedDrawH = h
-        committedDrawGesture = gestureId
+    /** Geometry is staged by the renderer and matched to the HWUI-consumed timestamp. */
+    private val frameRects = com.reverie.paint.model.LiquifyFrameRects()
+
+    fun stageDrawRect(frame: Frame, timestamp: Long) {
+        synchronized(lock) {
+            if (frame.gestureId != gestureId || !frame.valid || !frame.fieldArmed) return
+            frameRects.stage(timestamp, frame.gestureId, Math.round(frame.drawX), Math.round(frame.drawY),
+                Math.round(frame.drawW), Math.round(frame.drawH))
+        }
     }
 
-    /**
-     * UI 线程: 取"已经上屏"的绘制矩形(仅本段手势有效)。
-     *
-     * @return false = 本段手势还没有任何一帧上屏(此时绝不能推进基座)
-     */
-    fun copyCommittedDrawRect(out: IntArray): Boolean {
-        if (out.size < 4) return false
-        if (committedDrawGesture != gestureId) return false
-        val w = committedDrawW
-        val h = committedDrawH
-        if (w <= 0 || h <= 0) return false
-        out[0] = committedDrawX
-        out[1] = committedDrawY
-        out[2] = w
-        out[3] = h
-        return true
+    fun copyPresentedDrawRect(timestamp: Long, out: IntArray): Boolean = synchronized(lock) {
+        frameRects.copyPresented(timestamp, gestureId, out)
     }
 
     private fun bumpLocked() {
