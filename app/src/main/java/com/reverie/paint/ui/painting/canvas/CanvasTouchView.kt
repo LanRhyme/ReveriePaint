@@ -136,6 +136,9 @@ class CanvasTouchView(context: Context) : View(context) {
     var onRotationSnap: ((rotation: Float) -> Unit)? = null
     var onTextRequested: ((x: Float, y: Float) -> Unit)? = null
     var onPolyPoint: ((Offset) -> Unit)? = null
+    var onPolyPopPoint: (() -> Unit)? = null
+    private var isPolyPointPendingOnTouch = false
+    private var shapeCreatedOnCurrentTouch = false
     var onCropRect: ((Rect?) -> Unit)? = null
 
     var liveShapeStart: MutableState<Offset?>? = null
@@ -592,12 +595,15 @@ class CanvasTouchView(context: Context) : View(context) {
         return transformWriterGuard.invalidateAll()
     }
 
-    private fun animateFitCanvas() {
+    internal fun animateFitCanvas() {
         val writerToken = cancelCanvasTransformAnimators()
+        isInteracting = false
+        isTransformActive = false
         val startZoom = canvasZoom
         val startRot = canvasRotation
         val startPanX = canvasPanX
         val startPanY = canvasPanY
+        val dRot = RotationSnap.shortestDelta(startRot, 0f)
 
         val animator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 240L
@@ -607,12 +613,24 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (!transformWriterGuard.isActive(writerToken)) return@addUpdateListener
                 val f = anim.animatedFraction
                 canvasZoom = startZoom + (1f - startZoom) * f
-                canvasRotation = startRot + (0f - startRot) * f
+                canvasRotation = startRot + dRot * f
                 canvasPanX = startPanX + (0f - startPanX) * f
                 canvasPanY = startPanY + (0f - startPanY) * f
                 onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                 invalidate()
             }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (transformWriterGuard.isActive(writerToken)) {
+                        canvasZoom = 1f
+                        canvasRotation = 0f
+                        canvasPanX = 0f
+                        canvasPanY = 0f
+                        onTransform?.invoke(1f, 0f, 0f, 0f)
+                        invalidate()
+                    }
+                }
+            })
         }
         fitAnimator = animator
         animator.start()
@@ -703,9 +721,49 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // 边缘侧滑返回手势与起笔防误画缓冲 (仅针对手指触控，压感笔完全不受影响)
+    private var isPendingEdgeFinger = false
+    private var pendingEdgeScreenPos = Offset.Zero
+    private var pendingEdgeDocPos = Offset.Zero
+
+    private val flushEdgeFingerRunnable = Runnable {
+        flushPendingEdgeFinger()
+    }
+
+    private fun flushPendingEdgeFinger() {
+        if (!isPendingEdgeFinger) return
+        isPendingEdgeFinger = false
+        val v = vm ?: return
+        val canEyedrop = v.longPressEyedropperEnabled &&
+            (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY)
+        if (canEyedrop) {
+            isPendingLongPress = true
+            activeLongPressToken = longPressToken
+            pendingDownDocPos = pendingEdgeDocPos
+            pendingDownScreenPos = pendingEdgeScreenPos
+            pendingDownPressure = 1f
+            val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
+            postDelayed(longPressRunnable, delayMs)
+            if (!v.penOnlyMode) {
+                localCursorPos = pendingEdgeScreenPos
+                localIsTouching = true
+                localIsHovering = false
+                localPressure = 1f
+                invalidate()
+            }
+        } else if (!v.penOnlyMode) {
+            isPendingLongPress = false
+            localCursorPos = pendingEdgeScreenPos
+            localIsTouching = true
+            localIsHovering = false
+            localPressure = 1f
+            invalidate()
+            handleToolDown(pendingEdgeScreenPos, pendingEdgeDocPos, 1f, isStylus = false)
+        }
+    }
+
     // ---- 硬件笔尖前向超前预测 (OEM Hardware Motion Prediction) ----
     private var oplusPredictor: OplusMotionPredictor? = null
-    private var androidMotionPredictor: Any? = null
     private var predictedScreenPoint: Offset? = null
     private var predictedPressure: Float = 1f
     private val cachedTouchPointInfo = OplusTouchPointInfo()
@@ -1075,6 +1133,40 @@ class CanvasTouchView(context: Context) : View(context) {
             }
         }
 
+        // 快捷操作浮窗区域 (若打开)
+        if (v.quickActionWindowOpen) {
+            val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
+            val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
+            val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((width - qw) / 2f).coerceAtLeast(0f)
+            val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((height - qh) / 2f).coerceAtLeast(0f)
+            if (x >= qx && x <= qx + qw && y >= qy && y <= qy + qh) {
+                return true
+            }
+        }
+
+        // 快捷笔刷浮窗区域 (若打开)
+        if (v.quickBrushWindowOpen) {
+            val isVert = v.quickBrushOrientation == "vertical"
+            val favCount = v.favoriteBrushNames.size
+            val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+            val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
+            val bw = when {
+                v.quickBrushCollapsed -> 90f * d
+                isVert -> 56f * d
+                else -> (70f + listDim + 36f) * d
+            }
+            val bh = when {
+                v.quickBrushCollapsed -> 50f * d
+                isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
+                else -> 56f * d
+            }
+            val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((width - bw) / 2f).coerceAtLeast(0f)
+            val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((height - bh) / 2f).coerceAtLeast(0f)
+            if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
+                return true
+            }
+        }
+
         return false
     }
 
@@ -1089,16 +1181,27 @@ class CanvasTouchView(context: Context) : View(context) {
         val h = height
         if (w <= 0 || h <= 0) return
 
-        val edgeWidth = (48 * density).toInt() // 覆盖系统边缘手势感应区 (约 48dp)
+        val v = vm
+        val allowEdgeBack = v?.allowEdgeBackGesture ?: true
+        val backKeyAction = v?.backKeyAction ?: BackKeyAction.OPEN_SETTINGS
 
-        // 沉浸绘画模式下全高度排除左右边缘返回手势
-        leftExclusionRect.set(0, 0, edgeWidth, h)
-        rightExclusionRect.set((w - edgeWidth).coerceAtLeast(0), 0, w, h)
+        // 仅在用户关闭边缘侧滑返回、或返回键行为设为无行为且无浮层打开时，
+        // 全高度排除左右边缘返回手势以防误触；反之释放排除区，让系统原生侧滑正常响应
+        val shouldExclude = (!allowEdgeBack || backKeyAction == BackKeyAction.NONE) && !overlayPanelsOpen
 
-        gestureExclusionRects.clear()
-        gestureExclusionRects.add(leftExclusionRect)
-        gestureExclusionRects.add(rightExclusionRect)
-        systemGestureExclusionRects = gestureExclusionRects
+        if (shouldExclude) {
+            val edgeWidth = (48 * density).toInt() // 覆盖系统边缘手势感应区 (约 48dp)
+            leftExclusionRect.set(0, 0, edgeWidth, h)
+            rightExclusionRect.set((w - edgeWidth).coerceAtLeast(0), 0, w, h)
+
+            gestureExclusionRects.clear()
+            gestureExclusionRects.add(leftExclusionRect)
+            gestureExclusionRects.add(rightExclusionRect)
+            systemGestureExclusionRects = gestureExclusionRects
+        } else {
+            gestureExclusionRects.clear()
+            systemGestureExclusionRects = emptyList()
+        }
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -1131,11 +1234,6 @@ class CanvasTouchView(context: Context) : View(context) {
             } catch (t: Throwable) {
                 android.util.Log.e("ReveriePerf", "Failed to init OplusMotionPredictor", t)
             }
-        }
-        if (oplusPredictor == null && Build.VERSION.SDK_INT >= 34 && androidMotionPredictor == null) {
-            try {
-                androidMotionPredictor = android.view.MotionPredictor(context)
-            } catch (_: Throwable) {}
         }
         post { updateSystemGestureExclusion() }
     }
@@ -1249,6 +1347,8 @@ class CanvasTouchView(context: Context) : View(context) {
         isContinuousUndoing = false
         removeCallbacks(longPressRunnable)
         isPendingLongPress = false
+        removeCallbacks(flushEdgeFingerRunnable)
+        isPendingEdgeFinger = false
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
@@ -1267,7 +1367,6 @@ class CanvasTouchView(context: Context) : View(context) {
         cancelCanvasTransformAnimators()
         oplusPredictor?.destroy()
         oplusPredictor = null
-        androidMotionPredictor = null
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
         currentStrokeDocPos = Offset.Zero
@@ -2566,6 +2665,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 safeEndSymmetryUndoMacro()
                 resetMirrorBranches()
             }
+            cancelPendingShapeGesture()
             if (v.gestureThreeFingerRedo) postDelayed(continuousRedoRunnable, 420L)
         }
         if (editMenuGestureActive) {
@@ -2612,6 +2712,10 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(longPressRunnable)
             longPressToken++
             isPendingLongPress = false
+            if (isPendingEdgeFinger) {
+                removeCallbacks(flushEdgeFingerRunnable)
+                isPendingEdgeFinger = false
+            }
 
             if (strokeStarted) {
                 cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
@@ -2621,6 +2725,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 safeEndSymmetryUndoMacro()
                 resetMirrorBranches()
             }
+            cancelPendingShapeGesture()
 
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
 
@@ -2950,6 +3055,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         safeEndSymmetryUndoMacro()
                         resetMirrorBranches()
                     }
+                    cancelPendingShapeGesture()
                     postDelayed(resetTransformRunnable, 150)
                     invalidate()
                 }
@@ -2962,7 +3068,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val screenPos = Offset(event.getX(singleFingerIdx), event.getY(singleFingerIdx))
         val docPos = screenToDoc(screenPos)
         val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
-        val canEyedrop = v.longPressEyedropperEnabled && !v.penOnlyMode && isDrawingTool
+        val canEyedrop = v.longPressEyedropperEnabled && isDrawingTool
         val isPenOnlyPan = v.penOnlyMode && v.penModeSingleFingerPanEnabled && (
             tool.group == ToolGroup.BRUSH ||
             tool.group == ToolGroup.SELECTION ||
@@ -2985,8 +3091,25 @@ class CanvasTouchView(context: Context) : View(context) {
                 isLongPressPickerActive = false
                 removeCallbacks(longPressRunnable)
                 longPressToken++
+                if (isPendingEdgeFinger) {
+                    removeCallbacks(flushEdgeFingerRunnable)
+                    isPendingEdgeFinger = false
+                }
 
                 if (checkHitGuideHandle(screenPos)) {
+                    return true
+                }
+
+                val curW = if (width > 0) width else viewW
+                val edgeThreshold = (32 * density)
+                val isEdgeTouch = screenPos.x <= edgeThreshold || (curW > 0 && screenPos.x >= curW - edgeThreshold)
+                val isEdgeBackAllowed = (v.allowEdgeBackGesture && v.backKeyAction != BackKeyAction.NONE) || overlayPanelsOpen
+
+                if (isEdgeTouch && isEdgeBackAllowed && !isPenOnlyPan && !v.penOnlyMode) {
+                    isPendingEdgeFinger = true
+                    pendingEdgeScreenPos = screenPos
+                    pendingEdgeDocPos = docPos
+                    postDelayed(flushEdgeFingerRunnable, 180L)
                     return true
                 }
 
@@ -2998,11 +3121,13 @@ class CanvasTouchView(context: Context) : View(context) {
                     pendingDownPressure = 1f
                     val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
                     postDelayed(longPressRunnable, delayMs)
-                    localCursorPos = screenPos
-                    localIsTouching = true
-                    localIsHovering = false
-                    localPressure = 1f
-                    invalidate()
+                    if (!v.penOnlyMode) {
+                        localCursorPos = screenPos
+                        localIsTouching = true
+                        localIsHovering = false
+                        localPressure = 1f
+                        invalidate()
+                    }
                 } else if (!isPenOnlyPan) {
                     if (v.penOnlyMode) {
                         // 笔模式下且未开启单指平移：忽略单指触控输入，防止手掌误触作画
@@ -3031,6 +3156,54 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (isLongPressPickerActive) {
                     sampleColorAtScreenPos(screenPos)
                     return true
+                }
+
+                if (isPendingEdgeFinger) {
+                    val dx = screenPos.x - pendingEdgeScreenPos.x
+                    val dy = screenPos.y - pendingEdgeScreenPos.y
+                    val dist = hypot(dx, dy)
+                    val isVerticalMove = abs(dy) > abs(dx) * 1.2f && dist > (8 * density)
+                    val isDeepMove = dist > (36 * density)
+                    if (isVerticalMove || isDeepMove) {
+                        removeCallbacks(flushEdgeFingerRunnable)
+                        val downScreen = pendingEdgeScreenPos
+                        val downDoc = pendingEdgeDocPos
+                        isPendingEdgeFinger = false
+                        if (!v.penOnlyMode) {
+                            localCursorPos = screenPos
+                            localIsTouching = true
+                            localIsHovering = false
+                            localPressure = 1f
+                            handleToolDown(downScreen, downDoc, 1f, isStylus = false)
+                            handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                            invalidate()
+                            return true
+                        }
+                    } else {
+                        // 仍在边缘侧滑判定区中，暂缓落笔，避免抢占系统侧滑或在边缘误画
+                        return true
+                    }
+                }
+
+                if (isPendingLongPress) {
+                    val moveSlopPx = (1.5f + (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
+                    val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
+                    if (moveDist > moveSlopPx) {
+                        removeCallbacks(longPressRunnable)
+                        longPressToken++
+                        isPendingLongPress = false
+                        if (!v.penOnlyMode) {
+                            localCursorPos = screenPos
+                            localIsTouching = true
+                            handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
+                            handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                            invalidate()
+                            return true
+                        }
+                    } else {
+                        // 处于长按吸色等待期，位移未超容差，防止手指微动误触发平移或画线
+                        return true
+                    }
                 }
 
                 val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
@@ -3070,25 +3243,10 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 笔模式下且未开启单指平移：忽略单指移动
                         return true
                     }
-                    if (isPendingLongPress) {
-                        val moveSlopPx = (1.5f + (v.eyedropperSensitivity.coerceIn(1, 5) - 3) * 0.3f).coerceIn(0.6f, 2.5f) * density
-                        val moveDist = hypot(screenPos.x - pendingDownScreenPos.x, screenPos.y - pendingDownScreenPos.y)
-                        if (moveDist > moveSlopPx) {
-                            removeCallbacks(longPressRunnable)
-                            longPressToken++
-                            isPendingLongPress = false
-                            localCursorPos = screenPos
-                            localIsTouching = true
-                            handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
-                            handleToolMove(event, 0, docPos, 1f, isStylus = false)
-                            invalidate()
-                        }
-                    } else {
-                        localCursorPos = screenPos
-                        localIsTouching = true
-                        handleToolMove(event, 0, docPos, 1f, isStylus = false)
-                        invalidate()
-                    }
+                    localCursorPos = screenPos
+                    localIsTouching = true
+                    handleToolMove(event, 0, docPos, 1f, isStylus = false)
+                    invalidate()
                     return true
                 }
             }
@@ -3096,6 +3254,7 @@ class CanvasTouchView(context: Context) : View(context) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 removeCallbacks(longPressRunnable)
                 longPressToken++
+                removeCallbacks(flushEdgeFingerRunnable)
                 isInteracting = false
 
                 if (draggingGuideHandleIndex != -1) {
@@ -3121,6 +3280,32 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
+                if (isPendingEdgeFinger) {
+                    val downScreen = pendingEdgeScreenPos
+                    val downDoc = pendingEdgeDocPos
+                    isPendingEdgeFinger = false
+                    if (event.actionMasked != MotionEvent.ACTION_CANCEL && !v.penOnlyMode) {
+                        handleToolDown(downScreen, downDoc, 1f, isStylus = false)
+                        handleToolUp(event, downDoc, isCancel = false)
+                    }
+                    localIsTouching = false
+                    localCursorPos = null
+                    invalidate()
+                    return true
+                }
+
+                if (isPendingLongPress) {
+                    isPendingLongPress = false
+                    if (!v.penOnlyMode && event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                        handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
+                        handleToolUp(event, pendingDownDocPos, isCancel = false)
+                    }
+                    localIsTouching = false
+                    localCursorPos = null
+                    invalidate()
+                    return true
+                }
+
                 if (!isPenOnlyPan) {
                     if (v.penOnlyMode) {
                         localIsTouching = false
@@ -3128,13 +3313,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         invalidate()
                         return true
                     }
-                    if (isPendingLongPress) {
-                        isPendingLongPress = false
-                        handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
-                        handleToolUp(event, pendingDownDocPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    } else {
-                        handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    }
+                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     localIsTouching = false
                     localCursorPos = null
                     invalidate()
@@ -3170,6 +3349,10 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         if (activeLayer?.locked == true && (isDrawingTool || tool == Tool.LIQUIFY)) {
             v.showActionToast(context.getString(R.string.canvas_toast_layer_locked), R.drawable.ic_lock)
+            return
+        }
+        if (v.isLayerEffectivelyHidden(v.currentLayerIndex) && (isDrawingTool || tool == Tool.LIQUIFY)) {
+            v.showActionToast(context.getString(R.string.canvas_toast_layer_hidden), R.drawable.ic_eye_off)
             return
         }
 
@@ -3260,6 +3443,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.SELECT_POLYGON -> {
                 onPolyPoint?.invoke(docPos)
+                isPolyPointPendingOnTouch = true
             }
             Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
                 handleShapeDown(docPos)
@@ -3546,23 +3730,6 @@ class CanvasTouchView(context: Context) : View(context) {
                             }
                         } catch (_: Throwable) {
                             predictedScreenPoint = null
-                        }
-                    } else if (Build.VERSION.SDK_INT >= 34 && androidMotionPredictor != null) {
-                        val amp = androidMotionPredictor as? android.view.MotionPredictor
-                        if (amp != null) {
-                            try {
-                                amp.record(event)
-                                val predEvent = amp.predict(15_000_000L)
-                                if (predEvent != null) {
-                                    predictedScreenPoint = Offset(predEvent.x, predEvent.y)
-                                    predictedPressure = predEvent.pressure.coerceIn(0.01f, 1f)
-                                    predEvent.recycle()
-                                } else {
-                                    predictedScreenPoint = null
-                                }
-                            } catch (_: Throwable) {
-                                predictedScreenPoint = null
-                            }
                         }
                     } else {
                         predictedScreenPoint = null
@@ -4285,6 +4452,9 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH -> {
                 handleShapeUp(docPos)
             }
+            Tool.SELECT_POLYGON -> {
+                isPolyPointPendingOnTouch = false
+            }
             Tool.TEXT -> {
                 handleTextUp(docPos)
             }
@@ -4547,6 +4717,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 state.dragCornerRadius = state.cornerRadius
                 state.dragStarInnerRatio = state.starInnerRatio
                 state.isCreatingNewNode = false
+                shapeCreatedOnCurrentTouch = false
             } else {
                 if (state.type == ShapeType.POLYLINE || state.type == ShapeType.POLYGON || state.type == ShapeType.BEZIER) {
                     if (state.nodes.size >= 3) {
@@ -4570,6 +4741,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + newIdx
                     state.dragStartDocPos = docPos
                     state.isCreatingNewNode = true
+                    shapeCreatedOnCurrentTouch = false
                 } else {
                     // 连续绘制保障：若当前有尺寸有效的前序形状，自动提交上屏
                     val shapeDist = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y)
@@ -4587,6 +4759,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     state.dragP1 = docPos
                     state.dragP2 = docPos
                     state.isCreatingNewNode = false
+                    shapeCreatedOnCurrentTouch = true
                 }
             }
         } else {
@@ -4600,6 +4773,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 state.selectedNodeIndex = 0
                 state.dragStartDocPos = docPos
                 state.isCreatingNewNode = true
+                shapeCreatedOnCurrentTouch = false
                 lastShapeTapTimeMs = now
                 lastShapeTapDocPos = docPos
             } else {
@@ -4608,6 +4782,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 state.dragP1 = docPos
                 state.dragP2 = docPos
                 state.isCreatingNewNode = false
+                shapeCreatedOnCurrentTouch = true
             }
         }
     }
@@ -4725,6 +4900,53 @@ class CanvasTouchView(context: Context) : View(context) {
         v.shapeState.activeHandle = ShapeHandleId.NONE
         v.shapeState.dragStartDocPos = Offset.Zero
         v.shapeState.isCreatingNewNode = false
+        shapeCreatedOnCurrentTouch = false
+    }
+
+    private fun cancelPendingShapeGesture() {
+        val v = vm ?: return
+        val state = v.shapeState
+        lastShapeTapTimeMs = 0L
+
+        if (state.active) {
+            if (state.isCreatingNewNode) {
+                if (state.nodes.size <= 1) {
+                    state.clear()
+                } else {
+                    state.nodes.removeAt(state.nodes.size - 1)
+                    state.selectedNodeIndex = state.nodes.size - 1
+                    state.activeHandle = ShapeHandleId.NONE
+                    state.dragStartDocPos = Offset.Zero
+                    state.isCreatingNewNode = false
+                }
+            } else if (shapeCreatedOnCurrentTouch) {
+                state.clear()
+            } else if (state.activeHandle != ShapeHandleId.NONE) {
+                state.p1 = state.dragP1
+                state.p2 = state.dragP2
+                state.rotationDegrees = state.dragRotation
+                state.cornerRadius = state.dragCornerRadius
+                state.starInnerRatio = state.dragStarInnerRatio
+                state.activeHandle = ShapeHandleId.NONE
+                state.dragStartDocPos = Offset.Zero
+            }
+        }
+
+        shapeCreatedOnCurrentTouch = false
+
+        if (isPolyPointPendingOnTouch) {
+            onPolyPopPoint?.invoke()
+            isPolyPointPendingOnTouch = false
+        }
+
+        liveShapeStart?.value = null
+        liveShapeEnd?.value = null
+        if (lassoPoints.isNotEmpty()) {
+            lassoPoints.clear()
+            liveSelectionPath?.value = null
+        }
+
+        invalidate()
     }
 
     private fun hitTestTextHandle(

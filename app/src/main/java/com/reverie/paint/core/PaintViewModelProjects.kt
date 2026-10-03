@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
+import com.reverie.paint.model.AutoSaveSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -106,7 +107,8 @@ internal fun PaintViewModel.saveProject(
                 "layerCount": ${layers.size},
                 "dpi": $docDpi,
                 "selectedLayerIndex": $currentLayerIndex,
-                "activeLayerIndex": $currentLayerIndex
+                "activeLayerIndex": $currentLayerIndex,
+                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}]
             }
             """.trimIndent()
         // Recording blob goes straight into the .revp via the C++ store
@@ -125,24 +127,35 @@ internal fun PaintViewModel.saveProject(
     }
 }
 
-internal fun PaintViewModel.autoSaveProject() {
+internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     if (isAutoSaving || isBlockingLoading) return
+    val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+    if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
+
     isAutoSaving = true
     tickPaintingTimer()
     val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val strokeCount = totalStrokes
+    val layerCount = layers.size
+    val currentMasterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
+    val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
 
     runCore(
         render = false,
         after = {
             lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
+            strokesSinceLastAutoSave = 0
+            hasPendingMajorOp = false
             isAutoSaving = false
-            if (autoSaveToastEnabled) {
+            if (isPeriodic && autoSaveToastEnabled) {
                 showActionToast(R.string.toast_project_autosaved, R.drawable.ic_save)
             }
         },
     ) {
-        val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
-        val masterPath = currentProjectFile?.takeIf { !it.contains(".autosave") } ?: ""
+        val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (tv?.isInteracting == true || tv?.isTransformActive == true) {
+            return@runCore
+        }
 
         val extraJson =
             """
@@ -153,6 +166,66 @@ internal fun PaintViewModel.autoSaveProject() {
                 "colorMode": "$colorMode",
                 "layerCount": ${layers.size},
                 "isAutoSave": true,
+                "masterFilePath": "$currentMasterPath",
+                "docName": "$name",
+                "dpi": $docDpi,
+                "selectedLayerIndex": $currentLayerIndex,
+                "activeLayerIndex": $currentLayerIndex,
+                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}]
+            }
+            """.trimIndent()
+        val recBlob = recorder.serialize()
+        android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
+        val saveStartTime = System.currentTimeMillis()
+        val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
+        android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
+
+        if (saved) {
+            viewModelScope.launch(Dispatchers.IO) {
+                var waitMs = 0
+                while (waitMs < 10_000) {
+                    delay(300)
+                    waitMs += 300
+                    if (autoSaveFile.exists() && autoSaveFile.lastModified() >= saveStartTime) {
+                        val isValid = try {
+                            ZipFile(autoSaveFile).use { it.getEntry("meta.json") != null }
+                        } catch (_: Throwable) {
+                            false
+                        }
+                        if (isValid) {
+                            AutoSaveHistoryManager.recordSnapshot(
+                                context = appContext,
+                                sourceRevpFile = autoSaveFile,
+                                displayName = name,
+                                masterPath = currentMasterPath,
+                                strokeCount = strokeCount,
+                                layerCount = layerCount,
+                            )
+                            break
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal fun PaintViewModel.emergencySaveOnCrash() {
+    if (currentPage != Page.PAINTING) return
+    try {
+        val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+        val emergencyFile = File(autoSaveDir(), "$name.emergency.revp")
+        val masterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
+        val extraJson =
+            """
+            {
+                "strokeCount": $totalStrokes,
+                "elapsedSeconds": $elapsedSeconds,
+                "createdTime": $canvasCreatedTime,
+                "colorMode": "$colorMode",
+                "layerCount": ${layers.size},
+                "isEmergencySave": true,
+                "isAutoSave": true,
                 "masterFilePath": "$masterPath",
                 "docName": "$name",
                 "dpi": $docDpi,
@@ -160,16 +233,55 @@ internal fun PaintViewModel.autoSaveProject() {
                 "activeLayerIndex": $currentLayerIndex
             }
             """.trimIndent()
-        val recBlob = recorder.serialize()
-        android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
-        val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
-        android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
+        val recBlob = try { recorder.serialize() } catch (_: Throwable) { null }
+        val saved = ReverieCoreBridge.saveRevp(emergencyFile.absolutePath, extraJson, recBlob)
+        if (saved && emergencyFile.exists() && emergencyFile.length() > 0) {
+            AutoSaveHistoryManager.recordSnapshot(
+                context = appContext,
+                sourceRevpFile = emergencyFile,
+                displayName = "$name (崩溃抢救)",
+                masterPath = masterPath,
+                strokeCount = totalStrokes,
+                layerCount = layers.size,
+            )
+        }
+    } catch (t: Throwable) {
+        android.util.Log.e("RP_IO", "emergencySaveOnCrash failed", t)
     }
+}
+
+internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, asCopy: Boolean = false) {
+    val dir = AutoSaveHistoryManager.getHistoryDir(appContext)
+    val snapFile = File(dir, snapshot.fileName)
+    if (!snapFile.exists()) return
+
+    val targetFile: File
+    val projectName: String
+    if (asCopy) {
+        projectName = "${snapshot.displayName} (副本)"
+        targetFile = File(projectDir(), "$projectName.revp")
+        snapFile.copyTo(targetFile, overwrite = true)
+    } else {
+        projectName = snapshot.displayName
+        targetFile = if (snapshot.masterPath.isNotBlank() && File(snapshot.masterPath).parentFile?.exists() == true) {
+            File(snapshot.masterPath)
+        } else {
+            File(projectDir(), "$projectName.revp")
+        }
+        snapFile.copyTo(targetFile, overwrite = true)
+    }
+
+    val project = parseProjectFromFile(targetFile).copy(
+        name = projectName,
+        filePath = targetFile.absolutePath,
+        isAutoSaved = false,
+    )
+    loadProject(project)
 }
 
 internal fun PaintViewModel.discardAndExit() {
     val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
-    // 1. 删除本次会话产生的所有自动保存临时草稿
+    // 1. 删除本次会话产生的所有自动保存临时草稿与抢救文件
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     if (autoSaveFile.exists()) {
         autoSaveFile.delete()
@@ -178,7 +290,11 @@ internal fun PaintViewModel.discardAndExit() {
     if (autoSaveTmp.exists()) {
         autoSaveTmp.delete()
     }
-    if (currentProjectFile != null && currentProjectFile!!.contains(".autosave")) {
+    val emergencyFile = File(autoSaveDir(), "$name.emergency.revp")
+    if (emergencyFile.exists()) {
+        emergencyFile.delete()
+    }
+    if (currentProjectFile != null && (currentProjectFile!!.contains(".autosave") || currentProjectFile!!.contains(".emergency"))) {
         val f = File(currentProjectFile!!)
         if (f.exists()) f.delete()
     }
@@ -214,8 +330,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
         null
     }
 
+    var loadedCollapsedGroups: Set<String> = emptySet()
     runCore(
         after = {
+            collapsedGroupNames = loadedCollapsedGroups
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
             isModified = isRecovered // 异常恢复的工程标记为未保存
@@ -255,6 +373,27 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
         if (file.exists()) {
             val ok =
                 if (file.extension.equals("revp", ignoreCase = true) || file.extension.equals("kra", ignoreCase = true)) {
+                    if (file.extension.equals("revp", ignoreCase = true)) {
+                        try {
+                            java.util.zip.ZipFile(file).use { zip ->
+                                val metaEntry = zip.getEntry("meta.json")
+                                if (metaEntry != null) {
+                                    val text = zip.getInputStream(metaEntry).bufferedReader().use { it.readText() }
+                                    val json = org.json.JSONObject(text)
+                                    val arr = json.optJSONArray("collapsedGroups")
+                                    if (arr != null) {
+                                        val set = mutableSetOf<String>()
+                                        for (i in 0 until arr.length()) {
+                                            set.add(arr.getString(i))
+                                        }
+                                        loadedCollapsedGroups = set
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("RP_IO", "Failed to parse collapsedGroups", e)
+                        }
+                    }
                     val res = ReverieCoreBridge.loadRevp(file.absolutePath)
                     android.util.Log.d("RP_IO", "loadRevp returned $res, nativeDocW=${ReverieCoreBridge.docWidth()}, nativeDocH=${ReverieCoreBridge.docHeight()}, nativeLayers=${ReverieCoreBridge.layerCount()}")
                     res
@@ -1076,6 +1215,7 @@ internal fun PaintViewModel.startPainting(
             } else {
                 resetAnimationState()
             }
+            collapsedGroupNames = emptySet()
         },
     ) {
         try {
@@ -1167,10 +1307,25 @@ internal fun PaintViewModel.refreshDisplay() {
 }
 
 private var brushPresetsLoaded = false
+private var cachedBuiltInNames: Set<String>? = null
+
+internal fun PaintViewModel.getBuiltInBrushNames(): Set<String> {
+    cachedBuiltInNames?.let { return it }
+    val names = try {
+        appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()
+    } catch (_: Throwable) {
+        emptySet()
+    }
+    if (names.isNotEmpty()) {
+        cachedBuiltInNames = names
+    }
+    return names
+}
 
 internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
     if (brushPresetsLoaded && !force) return
     brushPresetsLoaded = true
+    isBrushPresetsLoading = true
     loadToolOptions()
     loadViewSettings()
     loadShortcuts()
@@ -1197,9 +1352,22 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
  */
 private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     val dir = java.io.File(appContext.filesDir, "paintoppresets")
-    val assets = appContext.assets
+    val brushDir = java.io.File(appContext.filesDir, "brushes")
     val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
     val needsFactoryRestore = !prefs.getBoolean("brush_kpp_factory_restored_v5", false)
+    val lastInstalledVersion = prefs.getInt("brush_assets_installed_version", -1)
+    val isVersionMatched = lastInstalledVersion == com.reverie.paint.BuildConfig.VERSION_CODE
+
+    // 若当前版本已拷贝过资源且目标目录健全，直接秒级快速返回，免去对 500+ 个 assets 文件的解压与遍历检查
+    if (!needsFactoryRestore && isVersionMatched && dir.exists() && brushDir.exists()) {
+        val presetCount = dir.list()?.size ?: 0
+        val brushCount = brushDir.list()?.size ?: 0
+        if (presetCount >= 100 && brushCount >= 100) {
+            return dir to brushDir
+        }
+    }
+
+    val assets = appContext.assets
     try {
         if (!dir.exists()) dir.mkdirs()
         for (name in assets.list("paintoppresets") ?: emptyArray()) {
@@ -1220,7 +1388,6 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     // Copy the bundled brush resource files (.gbr/.gih/.png/.svg) from
     // assets to filesDir once, so presets can resolve their
     // brush_definition files via the shared KisLocalStrokeResources.
-    val brushDir = java.io.File(appContext.filesDir, "brushes")
     try {
         if (!brushDir.exists()) brushDir.mkdirs()
         for (name in assets.list("brushes") ?: emptyArray()) {
@@ -1233,6 +1400,11 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
         }
     } catch (e: Exception) {
         android.util.Log.e("ReveriePaint", "brush copy failed", e)
+    }
+
+    try {
+        prefs.edit().putInt("brush_assets_installed_version", com.reverie.paint.BuildConfig.VERSION_CODE).apply()
+    } catch (_: Exception) {
     }
     return dir to brushDir
 }
@@ -1322,6 +1494,7 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             applyTool(savedToolId)
             selectBrushPreset(targetIndex)
         }
+        isBrushPresetsLoading = false
     }) {
         android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
         val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
@@ -1335,7 +1508,7 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
         }
         val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
         android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
-        val builtInNames = appContext.assets.list("paintoppresets")?.map { it.removeSuffix(".kpp") }?.toSet() ?: emptySet()
+        val builtInNames = getBuiltInBrushNames()
         list.clear()
         for (i in 0 until n) {
             val nm = ReverieCoreBridge.brushPresetName(i)

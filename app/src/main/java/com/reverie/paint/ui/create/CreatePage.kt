@@ -1100,72 +1100,61 @@ private fun PaperCanvasPreview(
 
             val animW by animateDpAsState(
                 targetValue = targetW,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = tween(durationMillis = 280, easing = LinearOutSlowInEasing),
                 label = "previewAnimW"
             )
             val animH by animateDpAsState(
                 targetValue = targetH,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = tween(durationMillis = 280, easing = LinearOutSlowInEasing),
                 label = "previewAnimH"
             )
 
-            val fitsInside = targetW >= 96.dp && targetH >= 34.dp
-            val isNarrowTall = targetW < 96.dp && targetH >= 34.dp
+            val fitsInside = animW >= 96.dp && animH >= 34.dp
+            val isNarrowTall = animW < 96.dp && animH >= 34.dp
 
-            if (fitsInside) {
-                // Regular proportion: thin-bordered frame with centered resolution text
-                Box(
-                    modifier = Modifier
-                        .size(animW, animH)
-                        .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
-                        .background(colors.accent.copy(alpha = 0.06f)),
-                    contentAlignment = Alignment.Center
-                ) {
+            // 恒定居中画布预览框：中心点固定在容器中央，绝不使用外层 Row/Column 破坏其绝对居中位置
+            Box(
+                modifier = Modifier
+                    .size(animW, animH)
+                    .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
+                    .background(colors.accent.copy(alpha = 0.06f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (fitsInside) {
                     Text(
                         text = "${widthVal} × ${heightVal}",
                         color = colors.text,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
                     )
                 }
-            } else if (isNarrowTall) {
-                // Narrow tall proportion (e.g. strip comic): resolution text beside the frame
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(animW, animH)
-                            .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
-                            .background(colors.accent.copy(alpha = 0.06f))
-                    )
-                    Text(
-                        text = "${widthVal} × ${heightVal}",
-                        color = colors.text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            } else {
-                // Flat wide proportion: resolution text below the frame
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(animW, animH)
-                            .border(1.5.dp, colors.accent, RoundedCornerShape(4.dp))
-                            .background(colors.accent.copy(alpha = 0.06f))
-                    )
-                    Text(
-                        text = "${widthVal} × ${heightVal}",
-                        color = colors.text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+            }
+
+            // 当画布框过窄无法在框内完整展示文字时，将分辨率尺寸标注依附在框体右侧；框体自身始终保持绝对居中
+            if (isNarrowTall) {
+                Text(
+                    text = "${widthVal} × ${heightVal}",
+                    color = colors.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(x = (animW / 2) + 44.dp)
+                )
+            } else if (!fitsInside) {
+                // 当画布框过扁时，将分辨率尺寸标注居中对齐在框体下方
+                Text(
+                    text = "${widthVal} × ${heightVal}",
+                    color = colors.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = (animH / 2) + 16.dp)
+                )
             }
         }
     }

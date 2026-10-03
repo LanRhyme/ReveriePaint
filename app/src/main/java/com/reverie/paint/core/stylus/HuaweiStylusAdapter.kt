@@ -403,14 +403,21 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
         val keyCode = event.keyCode
+        val dev = event.device
+        val isStylusDev = (event.source and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
+                (dev != null && (dev.sources and android.view.InputDevice.SOURCE_STYLUS) != 0) ||
+                (dev != null && (dev.name.contains("pencil", ignoreCase = true) || dev.name.contains("stylus", ignoreCase = true) || dev.name.contains("pen", ignoreCase = true)))
+
         val isTargetKey = keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY ||
                 keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
-                keyCode == KeyEvent.KEYCODE_BUTTON_1 ||
-                keyCode == KeyEvent.KEYCODE_BUTTON_2 ||
-                keyCode == KeyEvent.KEYCODE_PAGE_UP ||
-                keyCode == KeyEvent.KEYCODE_PAGE_DOWN ||
-                keyCode == KeyEvent.KEYCODE_F19 ||
-                keyCode == KeyEvent.KEYCODE_F20
+                (isStylusDev && (
+                    keyCode == KeyEvent.KEYCODE_BUTTON_1 ||
+                    keyCode == KeyEvent.KEYCODE_BUTTON_2 ||
+                    keyCode == KeyEvent.KEYCODE_PAGE_UP ||
+                    keyCode == KeyEvent.KEYCODE_PAGE_DOWN ||
+                    keyCode == KeyEvent.KEYCODE_F19 ||
+                    keyCode == KeyEvent.KEYCODE_F20
+                ))
 
         if (!isTargetKey) return false
 

@@ -449,4 +449,78 @@ class KppHelperTest {
         assertTrue(updatedXml!!.contains("""name="UpdatedPreset""""))
         assertTrue(updatedXml.contains("""35.0"""))
     }
+
+    @Test
+    fun `updateKppBytes on bare preview PNG generates full dynamics XML for imported presets`() {
+        val barePng = createMinimalPng()
+        val bp = BrushParams(
+            size = 50.0,
+            opacity = 0.85,
+            flow = 0.75,
+            pressureEnabled = true,
+            pressureSize = 1.0,
+            pressureOpacity = 1.0,
+            pressureFlow = 0.0,
+            followDirection = true,
+            randomFlipX = true,
+            randomFlipY = false,
+            dynamicsCustomized = true,
+        )
+        val resultBytes = KppHelper.updateKppBytes(barePng, "ImportedAbrBrush", bp)
+        val xml = KppHelper.readPresetXml(resultBytes)
+        assertNotNull(xml)
+        assertTrue(xml!!.contains("""name="OpacityValue"><![CDATA[0.85]]></param>"""))
+        assertTrue(xml.contains("""name="FlowValue"><![CDATA[0.75]]></param>"""))
+        assertTrue(xml.contains("""name="PressureSize"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="SizeUseCurve"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="PressureOpacity"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="OpacityUseCurve"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="PressureRotation"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="HorizontalMirrorEnabled"><![CDATA[true]]></param>"""))
+    }
+
+    @Test
+    fun `injectParamsIntoXml preserves base OpacityValue and FlowValue when dynamics customized`() {
+        val originalXml = """<Preset name="Test" paintopid="paintbrush"></Preset>"""
+        val bp = BrushParams(
+            opacity = 0.6,
+            flow = 0.4,
+            pressureEnabled = true,
+            pressureOpacity = 1.0,
+            pressureFlow = 1.0,
+            dynamicsCustomized = true,
+        )
+        val xml = KppHelper.injectParamsIntoXml(originalXml, "Test", bp)
+        // OpacityValue and FlowValue should be the base values 0.6 and 0.4, NOT 1.0
+        assertTrue(xml.contains("""name="OpacityValue"><![CDATA[0.6]]></param>"""))
+        assertTrue(xml.contains("""name="FlowValue"><![CDATA[0.4]]></param>"""))
+        assertTrue(xml.contains("""name="PressureOpacity"><![CDATA[true]]></param>"""))
+        assertTrue(xml.contains("""name="PressureFlow"><![CDATA[true]]></param>"""))
+    }
+
+    @Test
+    fun `parseKppAttributes parses pressure dynamics from modern and legacy presets`() {
+        // Modern Krita preset without PressureOpacity but with OpacityUseCurve=true
+        val modernXml = """<Preset name="Modern" paintopid="paintbrush">
+            <param name="OpacitySensor" type="string"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+            <param name="OpacityUseCurve" type="string"><![CDATA[true]]></param>
+            <param name="FlowUseCurve" type="string"><![CDATA[false]]></param>
+            <param name="PressureSize" type="string"><![CDATA[true]]></param>
+        </Preset>"""
+        val modernParsed = KppHelper.parseKppAttributes(modernXml)
+        assertEquals(1.0, modernParsed.pressureOpacity)
+        assertEquals(0.0, modernParsed.pressureFlow)
+        assertEquals(1.0, modernParsed.pressureSize)
+
+        // Legacy preset with explicit PressureOpacity=false
+        val legacyXml = """<Preset name="Legacy" paintopid="paintbrush">
+            <param name="PressureOpacity" type="string"><![CDATA[false]]></param>
+            <param name="PressureFlow" type="string"><![CDATA[true]]></param>
+            <param name="PressureSize" type="string"><![CDATA[false]]></param>
+        </Preset>"""
+        val legacyParsed = KppHelper.parseKppAttributes(legacyXml)
+        assertEquals(0.0, legacyParsed.pressureOpacity)
+        assertEquals(1.0, legacyParsed.pressureFlow)
+        assertEquals(0.0, legacyParsed.pressureSize)
+    }
 }

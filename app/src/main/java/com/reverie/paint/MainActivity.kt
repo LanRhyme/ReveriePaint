@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider
@@ -172,6 +174,8 @@ class MainActivity : ComponentActivity() {
         currentViewModel = vm
         vm.appContext = applicationContext
         vm.syncSettingsFromPrefs()
+        // 提前在 onCreate 启动笔刷加载，与 Compose UI 挂载和首帧渲染并发执行，彻底消除冷启动进入画布时笔刷面板的延迟与白屏
+        vm.loadBrushPresets()
         applyImmersive(vm.immersiveMode, vm.extendToCutout)
         val initialIsDark = vm.isCurrentlyDark()
         val initialColors = if (initialIsDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
@@ -211,6 +215,7 @@ class MainActivity : ComponentActivity() {
             // 预热, 其余页面挂起, 避免常驻静音输出被系统判为"播放媒体"而耗电
             val appPage = vm.currentPage
             androidx.compose.runtime.LaunchedEffect(appPage) {
+                com.reverie.paint.core.Breadcrumbs.record("Navigation", "Current page: $appPage")
                 vm.refreshStylusAudioGate()
             }
             ReverieApp(vm)
@@ -468,8 +473,8 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             if (vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
-                // 处于文本编辑/重命名对话框时跳过快捷键拦截，确保软硬件键盘正常打字
-                if (!vm.isTextInputActive && vm.handleNativeKeyEvent(event)) {
+                // 处于文本编辑/重命名对话框或快捷键录制状态时跳过全局快捷键拦截，确保输入与录制正常工作
+                if (!vm.isTextInputActive && !vm.isShortcutRecordingActive && vm.handleNativeKeyEvent(event)) {
                     return true
                 }
             }
@@ -644,6 +649,61 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
             uris = brushImportUris,
             vm = vm,
             onDismiss = { vm.pendingExternalBrushUris = null },
+        )
+    }
+
+    // 崩溃诊断弹窗：检测上次未提示的崩溃日志
+    var pendingCrashLog by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<com.reverie.paint.core.CrashHandler.CrashLogInfo?>(null)
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val unseen = com.reverie.paint.core.CrashHandler.getUnseenCrashLog(context)
+            if (unseen != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    pendingCrashLog = unseen
+                }
+            }
+        }
+    }
+    pendingCrashLog?.let { logInfo ->
+        com.reverie.paint.ui.dialog.CrashReportDialog(
+            logInfo = logInfo,
+            onDismiss = { pendingCrashLog = null },
+        )
+    }
+
+    // 异常退出恢复弹窗：检测是否存在崩溃标记与可恢复工程
+    var pendingRecoveryFile by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf<java.io.File?>(null)
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val recoveryFile = com.reverie.paint.core.CrashHandler.checkCrashRecovery(context)
+            if (recoveryFile != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    pendingRecoveryFile = recoveryFile
+                }
+            } else {
+                com.reverie.paint.core.CrashHandler.clearCrashMarker(context)
+            }
+        }
+    }
+    pendingRecoveryFile?.let { file ->
+        com.reverie.paint.ui.dialog.CrashRecoveryDialog(
+            recoveryFile = file,
+            onRestore = {
+                val proj = vm.parseProjectFromFile(file).copy(
+                    isAutoSaved = true,
+                )
+                vm.loadProject(proj)
+                com.reverie.paint.core.CrashHandler.clearCrashMarker(context)
+                pendingRecoveryFile = null
+            },
+            onDismiss = {
+                com.reverie.paint.core.CrashHandler.clearCrashMarker(context)
+                pendingRecoveryFile = null
+            },
         )
     }
 }

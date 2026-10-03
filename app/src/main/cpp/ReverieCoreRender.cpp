@@ -127,33 +127,38 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     // modified, so closing solo restores the document exactly and solo can
     // never corrupt the canvas render or the undo stack.
     KisPaintDeviceSP proj;
+    const bool wasAsyncBusy = !image->isIdle();
+    if (wasAsyncBusy) {
+        // If Krita's background async scheduler is actively updating projection (e.g. undo/redo,
+        // committed layer opacity/blend/visibility), wait for it to settle first so projection tiles
+        // are not concurrently written to by multiple threads (prevents KisTiledExtentManager SIGABRT).
+        image->waitForDone();
+    }
+
     if (m_soloedNode) {
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
-        // 注: 液化事务的投影同步合成已挪到 liquifyApplyLocked (按 20~64ms 节流) ——
-        // 放在渲染路径上会让"每个输入事件一次的渲染"都承担一次大区域合成, 大笔刷下
-        // 直接吃满渲染线程 (真机表现为严重卡顿)。渲染路径因此只保留笔画这一支。
-        // 上游 1.3.3: 有可见描边图层时同样必须走同步合成, 否则笔迹与描边不同步。
-        bool hasVisibleStrokeLayer = false;
-        for (const LayerEntry &le : m_layers) {
-            if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
-                hasVisibleStrokeLayer = true;
-                break;
+        // If Krita's async merger just ran to completion (wasAsyncBusy), the projection device is already
+        // fully composited by Krita's native merger and clean. We do NOT need to re-clear and re-composite.
+        // Fast synchronous compositeLayersRange is used when the background scheduler is idle:
+        // 1) Active in-stroke drawing (m_drawing)
+        // 2) Visible stroke layers requiring real-time stroke synchronization
+        // 3) Pen-up final stroke completion or direct slider drag previews (!m_dirtyRect.isEmpty())
+        if (!wasAsyncBusy) {
+            bool hasVisibleStrokeLayer = false;
+            for (const LayerEntry &le : m_layers) {
+                if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
+                    hasVisibleStrokeLayer = true;
+                    break;
+                }
             }
-        }
-        if (m_drawing || hasVisibleStrokeLayer) {
-            // Non-blocking in-stroke rendering: bypass Krita background scheduler completely.
-            // Synchronously composite the exact dirty sub-region across visible layers in <0.05ms.
-            const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
-            if (!r.isEmpty()) {
-                proj->clear(r);
-                compositeLayersRange(proj, 0, m_layers.size(), r);
-            }
-        } else {
-            // When not actively drawing a stroke (undo, layer toggle, filters), ensure projection is settled
-            if (!image->isIdle()) {
-                image->waitForDone();
+            if (m_drawing || hasVisibleStrokeLayer || !m_dirtyRect.isEmpty()) {
+                const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
+                if (!r.isEmpty()) {
+                    proj->clear(r);
+                    compositeLayersRange(proj, 0, m_layers.size(), r);
+                }
             }
         }
     }

@@ -23,6 +23,10 @@ import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -33,6 +37,7 @@ import com.reverie.paint.core.AppLanguage
 import com.reverie.paint.core.LanguageManager
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.perf.PerfHud
+import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
 import com.reverie.paint.ui.theme.Theme
 
 @Composable
@@ -45,6 +50,7 @@ internal fun GeneralSettingsSubPage(
     val colors = Theme.current
     val context = LocalContext.current
     val activity = context as? Activity
+    var showAutoSaveHistoryDialog by remember { mutableStateOf(false) }
 
     val intervalOptions = listOf(
         1 to stringResource(R.string.settings_minute_unit, 1),
@@ -116,7 +122,7 @@ internal fun GeneralSettingsSubPage(
             // Section 1: 自动保存
             SettingCategoryTitle(stringResource(R.string.settings_auto_save))
             SettingGroup {
-                val autoSaveTotal = if (vm.autoSaveEnabled) 3 else 1
+                val autoSaveTotal = if (vm.autoSaveEnabled) 4 else 1
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Save,
                     title = stringResource(R.string.settings_auto_save_enable),
@@ -144,6 +150,14 @@ internal fun GeneralSettingsSubPage(
                         checked = vm.autoSaveToastEnabled,
                         shape = settingGroupShape(2, autoSaveTotal),
                         onCheckedChange = { vm.updateAutoSaveToastEnabled(it) },
+                    )
+
+                    SettingNavGroupItem(
+                        icon = Icons.Rounded.History,
+                        title = stringResource(R.string.settings_auto_save_history),
+                        summary = stringResource(R.string.settings_auto_save_history_sub),
+                        shape = settingGroupShape(3, autoSaveTotal),
+                        onClick = { showAutoSaveHistoryDialog = true },
                     )
                 }
             }
@@ -192,5 +206,12 @@ internal fun GeneralSettingsSubPage(
 
             Spacer(Modifier.height(80.dp))
         }
+    }
+
+    if (showAutoSaveHistoryDialog) {
+        RecentAutoSavesDialog(
+            vm = vm,
+            onDismiss = { showAutoSaveHistoryDialog = false },
+        )
     }
 }

@@ -68,6 +68,7 @@ fun CanvasView(
     tfState: TransformState,
     polyPoints: List<Offset> = emptyList(),
     onPolyPoint: (Offset) -> Unit = {},
+    onPolyPopPoint: () -> Unit = {},
     cropRect: androidx.compose.ui.geometry.Rect? = null,
     onCropRect: (androidx.compose.ui.geometry.Rect?) -> Unit = {},
     fillTolerance: Int = 24,
@@ -291,6 +292,7 @@ fun CanvasView(
                 touchView.onTransform = onTransform
                 touchView.onTextRequested = onTextRequested
                 touchView.onPolyPoint = onPolyPoint
+                touchView.onPolyPopPoint = onPolyPopPoint
                 touchView.onCropRect = onCropRect
                 touchView.liveShapeStart = liveShapeStart
                 touchView.liveShapeEnd = liveShapeEnd
@@ -315,14 +317,18 @@ fun CanvasView(
                 touchView.onFilterSlideDelta = onFilterSlideDelta
                 touchView.onFilterHoldingCompare = onFilterHoldingCompare
                 touchView.onRotationSnap = onRotationSnap
+                val _allowEdgeBack = vm.allowEdgeBackGesture
+                val _backKeyAction = vm.backKeyAction
                 if (touchView.overlayPanelsOpen != overlayPanelsOpen) {
                     touchView.overlayPanelsOpen = overlayPanelsOpen
+                    touchView.updateSystemGestureExclusion()
                     touchView.invalidate()
                 }
                 if (touchView.drawingGuidePanelOpen != drawingGuidePanelOpen) {
                     touchView.drawingGuidePanelOpen = drawingGuidePanelOpen
                     touchView.invalidate()
                 }
+                touchView.updateSystemGestureExclusion()
                 touchView.liquifyMode = liquifyMode
             },
         )

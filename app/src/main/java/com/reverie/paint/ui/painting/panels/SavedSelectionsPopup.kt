@@ -59,6 +59,7 @@ import com.reverie.paint.core.renameStoredSelectionAction
 import com.reverie.paint.core.saveCurrentSelectionAction
 import com.reverie.paint.core.updateStoredSelectionAction
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 
@@ -321,6 +322,7 @@ internal fun SavedSelectionsPopup(
 
     // Rename Dialog
     if (renameIndex != null) {
+        TextInputGuard(vm)
         val targetIdx = renameIndex!!
         var text by remember { mutableStateOf(renameInitialName) }
         Dialog(onDismissRequest = { renameIndex = null }) {

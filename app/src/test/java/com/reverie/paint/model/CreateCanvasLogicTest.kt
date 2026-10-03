@@ -87,4 +87,38 @@ class CreateCanvasLogicTest {
         assertEquals(2400, unitToPx(8.0, CanvasUnit.INCH, 300))
         assertEquals(6000, unitToPx(10.0, CanvasUnit.INCH, 600))
     }
+
+    @Test
+    fun `canvas ratio preview sizing respects constraints without teleporting center`() {
+        fun computePreviewTarget(availW: Float, availH: Float, widthVal: Int, heightVal: Int): Pair<Float, Float> {
+            val aspect = (widthVal.toFloat() / heightVal.coerceAtLeast(1).toFloat()).coerceIn(0.15f, 6.0f)
+            return if (aspect >= (availW / availH)) {
+                val w = availW
+                val h = (w / aspect).coerceAtMost(availH)
+                Pair(w, h)
+            } else {
+                val h = availH
+                val w = (h * aspect).coerceAtMost(availW)
+                Pair(w, h)
+            }
+        }
+
+        val availW = 300f
+        val availH = 106f
+
+        // 1:1 Square
+        val (sqW, sqH) = computePreviewTarget(availW, availH, 2048, 2048)
+        assertEquals(106f, sqW, 0.01f)
+        assertEquals(106f, sqH, 0.01f)
+
+        // 16:9 Landscape
+        val (landW, landH) = computePreviewTarget(availW, availH, 1920, 1080)
+        assertEquals(188.44f, landW, 0.1f)
+        assertEquals(106f, landH, 0.01f)
+
+        // 9:16 Portrait
+        val (portW, portH) = computePreviewTarget(availW, availH, 1080, 1920)
+        assertEquals(59.62f, portW, 0.1f)
+        assertEquals(106f, portH, 0.01f)
+    }
 }

@@ -185,13 +185,52 @@ class StylusDriver(
 
     /**
      * Handle physical/bluetooth stylus key events.
+     * Prevents normal hardware keyboards from being intercepted and swallowed by stylus adapters.
      */
     fun onStylusKeyEvent(event: KeyEvent): Boolean {
+        if (!isStylusKeyEvent(event)) {
+            return false
+        }
         for (adapter in adapters) {
             if (adapter.onStylusKeyEvent(event, vm, feedbackManager)) {
                 return true
             }
         }
+        return false
+    }
+
+    private fun isStylusKeyEvent(event: KeyEvent): Boolean {
+        val keyCode = event.keyCode
+        if (keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY ||
+            keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
+            keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TERTIARY ||
+            keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TAIL ||
+            keyCode == 304 || keyCode == 305
+        ) {
+            return true
+        }
+
+        val src = event.source
+        if ((src and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
+            (src and android.view.InputDevice.SOURCE_BLUETOOTH_STYLUS) != 0
+        ) {
+            return true
+        }
+
+        val dev = event.device
+        if (dev != null) {
+            val devSources = dev.sources
+            if ((devSources and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
+                (devSources and android.view.InputDevice.SOURCE_BLUETOOTH_STYLUS) != 0
+            ) {
+                return true
+            }
+            val name = dev.name.lowercase()
+            if (name.contains("stylus") || name.contains("pen") || name.contains("pencil")) {
+                return true
+            }
+        }
+
         return false
     }
 

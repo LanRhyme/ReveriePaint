@@ -148,6 +148,7 @@ internal fun LayerRow(
     onClick: () -> Unit,
     onSelect: () -> Unit = {},
     multiSelected: Boolean = false,
+    onRename: ((Int, String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
@@ -402,6 +403,8 @@ internal fun LayerRow(
                 collapsed = collapsed,
                 index = index,
                 onToggleCollapse = onToggleCollapse,
+                onClick = onClick,
+                onRename = onRename,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
@@ -445,6 +448,8 @@ internal fun LayerRowContent(
     collapsed: Boolean,
     index: Int,
     onToggleCollapse: () -> Unit,
+    onClick: () -> Unit = {},
+    onRename: ((Int, String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isBg = layer.isBackground
@@ -557,6 +562,20 @@ internal fun LayerRowContent(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = if (onRename != null) {
+                    Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .pointerInput(layer.index, layer.name) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    onRename(layer.index, layer.name)
+                                },
+                                onTap = {
+                                    onClick()
+                                }
+                            )
+                        }
+                } else Modifier,
             ) {
                 if (layer.nodeType == 2 || layer.name.contains("填充")) {
                     Icon(

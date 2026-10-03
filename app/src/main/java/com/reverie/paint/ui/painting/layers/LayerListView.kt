@@ -136,6 +136,7 @@ internal fun LayerListView(
     onOpenDetail: (Int) -> Unit,
     onOpenFilters: (Int) -> Unit,
     onOpenCreateFilter: () -> Unit = {},
+    onRenameLayer: ((Int, String) -> Unit)? = null,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     // Local selection (synchronous, not the async JNI currentLayerIndex):
@@ -149,7 +150,7 @@ internal fun LayerListView(
     // Only one row may have its swipe drawer open; swiping another row
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
-    var collapsedGroupNames by remember { mutableStateOf(setOf<String>()) }
+    val collapsedGroupNames = vm.collapsedGroupNames
     val listState = rememberLazyListState()
     var draggingFrom by remember { mutableIntStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
@@ -198,6 +199,44 @@ internal fun LayerListView(
             val res = buildList { collectBlock(0, n, -1, this) }
             if (res.isEmpty() && n > 0) vm.layers.reversed() else res
         }
+
+    // Auto-scroll to newly added layer ONLY when it is outside the visible viewport
+    var prevLayerCount by remember { mutableIntStateOf(vm.layers.size) }
+    LaunchedEffect(vm.layers.size) {
+        if (vm.layers.size > prevLayerCount) {
+            val newLayer = vm.layers.getOrNull(vm.currentLayerIndex)
+            if (newLayer != null && newLayer.depth > 0) {
+                var currentDepth = newLayer.depth
+                var idx = vm.currentLayerIndex - 1
+                val toExpand = mutableSetOf<String>()
+                while (idx >= 0 && currentDepth > 0) {
+                    val candidate = vm.layers.getOrNull(idx) ?: break
+                    if (candidate.depth == currentDepth - 1 && candidate.isGroup) {
+                        if (candidate.name in vm.collapsedGroupNames) {
+                            toExpand.add(candidate.name)
+                        }
+                        currentDepth = candidate.depth
+                    }
+                    idx--
+                }
+                if (toExpand.isNotEmpty()) {
+                    vm.collapsedGroupNames = vm.collapsedGroupNames - toExpand
+                }
+            }
+            val visualIdx = displayRows.indexOfFirst { it.index == vm.currentLayerIndex }
+            if (visualIdx >= 0) {
+                val layout = listState.layoutInfo
+                val item = layout.visibleItemsInfo.firstOrNull { it.index == visualIdx }
+                val isFullyVisible = item != null &&
+                    item.offset >= layout.viewportStartOffset &&
+                    (item.offset + item.size) <= layout.viewportEndOffset
+                if (!isFullyVisible) {
+                    listState.animateScrollToItem(visualIdx)
+                }
+            }
+        }
+        prevLayerCount = vm.layers.size
+    }
 
     val activeDrag = vm.activeLayerDrag
     val isDraggingActive = draggingFrom >= 0 || activeDrag != null
@@ -339,8 +378,8 @@ internal fun LayerListView(
                     vm.moveLayerToGroup(from, groupIdx)
                 }
                 val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
-                if (groupLayer != null && groupLayer.name in collapsedGroupNames) {
-                    collapsedGroupNames = collapsedGroupNames - groupLayer.name
+                if (groupLayer != null && groupLayer.name in vm.collapsedGroupNames) {
+                    vm.collapsedGroupNames = vm.collapsedGroupNames - groupLayer.name
                 }
             } else if (insert >= 0) {
                 val nonDraggedPrev = remaining.take(insert).lastOrNull()
@@ -777,12 +816,7 @@ internal fun LayerListView(
                             collapsed = layer.name in collapsedGroupNames,
                             onToggleCollapse = {
                                 revealedIndex = null
-                                collapsedGroupNames =
-                                    if (layer.name in collapsedGroupNames) {
-                                        collapsedGroupNames - layer.name
-                                    } else {
-                                        collapsedGroupNames + layer.name
-                                    }
+                                vm.toggleGroupCollapsed(layer.name)
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },
@@ -836,6 +870,7 @@ internal fun LayerListView(
                                 draggingFrom == layer.index ||
                                 (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
                             multiSelected = layer.index in vm.selectedLayerIndices,
+                            onRename = onRenameLayer,
                             onSelect = {
                                 revealedIndex = null
                                 vm.toggleLayerSelection(layer.index)

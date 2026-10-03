@@ -177,6 +177,21 @@ Java_com_reverie_paint_core_ReverieCoreBridge_selectionOverlayScaled(JNIEnv *env
     return arr;
 }
 
+JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_selectionOutline(JNIEnv *env, jobject)
+{
+    const QVector<qint32> pts = core()->selectionOutline();
+    if (pts.isEmpty()) {
+        return nullptr;
+    }
+    jintArray arr = env->NewIntArray(pts.size());
+    if (!arr) {
+        return nullptr;
+    }
+    env->SetIntArrayRegion(arr, 0, pts.size(), reinterpret_cast<const jint *>(pts.constData()));
+    return arr;
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_selectAll(JNIEnv *, jobject)
 {

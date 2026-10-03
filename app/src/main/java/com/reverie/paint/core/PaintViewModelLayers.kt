@@ -166,6 +166,7 @@ internal fun PaintViewModel.notifyLayerChanged(
     pixelChanged: Boolean = false,
 ) {
     isModified = true
+    hasPendingMajorOp = true
     onPaintingActivity()
     syncLayersFromNative()
     // Mirror the C++ solo raw-mode flag into Compose state so the solo
@@ -307,6 +308,7 @@ internal fun PaintViewModel.addLayer() {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ADD)
     }
     val defaultName = generateDefaultLayerName()
+    Breadcrumbs.record("Layer", "Add layer: $defaultName")
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -370,6 +372,7 @@ internal fun PaintViewModel.removeLayer() {
 
 internal fun PaintViewModel.removeLayer(index: Int) {
     clearLayerSelection()
+    Breadcrumbs.record("Layer", "Remove layer: $index")
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_REMOVE, index)
     }
@@ -382,6 +385,7 @@ internal fun PaintViewModel.removeLayer(index: Int) {
 }
 
 internal fun PaintViewModel.setCurrentLayer(i: Int) {
+    Breadcrumbs.record("Layer", "Set current layer: $i")
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_SET_CURRENT, i)
     }
@@ -826,6 +830,10 @@ internal fun PaintViewModel.rasterizeLayer(i: Int) {
 }
 
 internal fun PaintViewModel.flattenGroup(i: Int) {
+    val groupLayer = layers.getOrNull(i)
+    if (groupLayer != null && groupLayer.isGroup) {
+        collapsedGroupNames = collapsedGroupNames - groupLayer.name
+    }
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLATTEN_GROUP, i)
     }
@@ -914,6 +922,7 @@ internal fun PaintViewModel.selectionFromLayer(i: Int, mode: Int = 0) {
     var has = false
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
+        selectionOutlinePath = pendingSelectionOutlinePath
         hasSelection = has && ov != null
         notifyLayerChanged()
         if (hasSelection) {
@@ -939,6 +948,7 @@ internal fun PaintViewModel.selectionFromLayer(i: Int, mode: Int = 0) {
 internal fun PaintViewModel.clearSelection() {
     hasSelection = false
     selectionOverlayBitmap = null
+    selectionOutlinePath = null
     runCore(render = false, after = ::notifyLayerChanged) {
         ReverieCoreBridge.clearSelection()
     }

@@ -39,10 +39,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import kotlinx.coroutines.delay
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
+import kotlinx.coroutines.delay
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.ui.theme.glassBorder
@@ -147,7 +158,53 @@ fun ToolRail(
             verticalArrangement = Arrangement.Bottom
         ) {
             // Upper panel
-            Column(
+            val upperScrollState = rememberScrollState()
+            val canScrollUp = upperScrollState.canScrollBackward
+            val canScrollDown = upperScrollState.canScrollForward
+
+            var showArrows by remember { mutableStateOf(false) }
+            LaunchedEffect(upperScrollState.value, upperScrollState.maxValue, mainTools.size) {
+                if (upperScrollState.maxValue > 0) {
+                    showArrows = true
+                    delay(2500)
+                    showArrows = false
+                } else {
+                    showArrows = false
+                }
+            }
+
+            val infiniteTransition = rememberInfiniteTransition(label = "toolRailScrollHint")
+            val bounceOffset by infiniteTransition.animateFloat(
+                initialValue = -1.8f,
+                targetValue = 1.8f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(800, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "bounceOffset",
+            )
+            val arrowAlphaAnim by animateFloatAsState(
+                targetValue = if (showArrows) 0.95f else 0f,
+                animationSpec = tween(350),
+                label = "arrowAlpha",
+            )
+            val dotAlphaAnim by animateFloatAsState(
+                targetValue = if (!showArrows) 0.75f else 0f,
+                animationSpec = tween(350),
+                label = "dotAlpha",
+            )
+            val topAlpha by animateFloatAsState(
+                targetValue = if (canScrollUp) 1f else 0f,
+                animationSpec = tween(200),
+                label = "topAlpha",
+            )
+            val bottomAlpha by animateFloatAsState(
+                targetValue = if (canScrollDown) 1f else 0f,
+                animationSpec = tween(200),
+                label = "bottomAlpha",
+            )
+
+            Box(
                 modifier = Modifier
                     .width(36.dp)
                     .weight(1f, fill = false)
@@ -162,100 +219,195 @@ fun ToolRail(
                         } else {
                             Modifier.background(Morandi.panel.copy(alpha = opacity.toFloat()))
                         }
-                    )
-                    .padding(vertical = 4.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    ),
             ) {
-                mainTools.forEach { t ->
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
-                        ReIconButton(
-                            toolIcon(t),
-                            t.displayName,
-                            modifier = Modifier.fillMaxWidth().height(32.dp),
-                            onTap = {
-                                if (t == Tool.REFERENCE || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
-                                    tooltipTool = null
-                                    onTool(t)
-                                } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
-                                    tooltipTool = null
-                                    onOpenBrush()
-                                } else if (tool == t) {
-                                    tooltipTool = null
-                                } else {
-                                    tooltipTool = t
-                                    onTool(t)
-                                }
-                            },
-                            selected = when (t) {
-                                Tool.REFERENCE -> vm.referenceWindowOpen
-                                Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
-                                Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
-                                else -> tool == t
-                            },
-                        )
-                        if (tooltipTool == t) {
-                            val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
-                            val popupAlpha = vm.popupPanelOpacity
-                            val isLeftHand = vm.leftHandMode
-                            Popup(
-                                alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
-                                offset = IntOffset(if (isLeftHand) -tooltipOffsetPx else tooltipOffsetPx, 0),
-                                properties = androidx.compose.ui.window.PopupProperties(
-                                    focusable = false,
-                                    dismissOnBackPress = false,
-                                    dismissOnClickOutside = false,
-                                ),
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .noRippleClickable {
-                                            tooltipTool = null
-                                            if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
-                                                onOpenBrush()
-                                            } else {
-                                                onTool(t)
-                                            }
-                                        }
-                                        .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Morandi.panel.copy(alpha = popupAlpha))
-                                        .glassBorder(RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .verticalScroll(upperScrollState),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    mainTools.forEach { t ->
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                            ReIconButton(
+                                toolIcon(t),
+                                t.displayName,
+                                modifier = Modifier.fillMaxWidth().height(32.dp),
+                                onTap = {
+                                    if (t == Tool.REFERENCE || t == Tool.SHORTCUT || t == Tool.QUICK_BRUSH || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
+                                        tooltipTool = null
+                                        onTool(t)
+                                    } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                        tooltipTool = null
+                                        onOpenBrush()
+                                    } else if (tool == t) {
+                                        tooltipTool = null
+                                    } else {
+                                        tooltipTool = t
+                                        onTool(t)
+                                    }
+                                },
+                                selected = when (t) {
+                                    Tool.REFERENCE -> vm.referenceWindowOpen
+                                    Tool.SHORTCUT -> vm.quickActionWindowOpen
+                                    Tool.QUICK_BRUSH -> vm.quickBrushWindowOpen
+                                    Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
+                                    Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
+                                    else -> tool == t
+                                },
+                            )
+                            if (tooltipTool == t) {
+                                val tooltipOffsetPx = with(LocalDensity.current) { 48.dp.roundToPx() }
+                                val popupAlpha = vm.popupPanelOpacity
+                                val isLeftHand = vm.leftHandMode
+                                Popup(
+                                    alignment = if (isLeftHand) Alignment.CenterEnd else Alignment.CenterStart,
+                                    offset = IntOffset(if (isLeftHand) -tooltipOffsetPx else tooltipOffsetPx, 0),
+                                    properties = androidx.compose.ui.window.PopupProperties(
+                                        focusable = false,
+                                        dismissOnBackPress = false,
+                                        dismissOnClickOutside = false,
+                                    ),
                                 ) {
-                                    Text(
-                                        t.displayName,
-                                        color = Morandi.text,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .noRippleClickable {
+                                                tooltipTool = null
+                                                if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                                    onOpenBrush()
+                                                } else {
+                                                    onTool(t)
+                                                }
+                                            }
+                                            .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Morandi.panel.copy(alpha = popupAlpha))
+                                            .glassBorder(RoundedCornerShape(8.dp))
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            t.displayName,
+                                            color = Morandi.text,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
+                    
+                    // More tools button
+                    val isMoreToolsActive = moreToolsOpen || tool in moreTools
+                    val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.accent else Morandi.icon, androidx.compose.animation.core.tween(200))
+                    val moreSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(32.dp)
+                            .pressScale(moreSource, pressedScale = 0.92f)
+                            .liquidLean(moreSource, maxOffset = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .liquidHighlight(moreSource, Color.White, radius = 22.dp)
+                            .clickable(interactionSource = moreSource, indication = null) { onToggleMoreTools() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_menu), // More tools icon
+                            contentDescription = stringResource(R.string.tool_rail_more_tools),
+                            tint = moreToolsTint,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
-                
-                // More tools button
-                val isMoreToolsActive = moreToolsOpen || tool in moreTools
-                val moreToolsTint by androidx.compose.animation.animateColorAsState(if (isMoreToolsActive) Morandi.accent else Morandi.icon, androidx.compose.animation.core.tween(200))
-                val moreSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(32.dp)
-                        .pressScale(moreSource, pressedScale = 0.92f)
-                        .liquidLean(moreSource, maxOffset = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .liquidHighlight(moreSource, Color.White, radius = 22.dp)
-                        .clickable(interactionSource = moreSource, indication = null) { onToggleMoreTools() },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_menu), // More tools icon
-                        contentDescription = stringResource(R.string.tool_rail_more_tools),
-                        tint = moreToolsTint,
-                        modifier = Modifier.size(20.dp),
-                    )
+
+                // Top scroll hint (gradient + breathing arrow / dot)
+                if (topAlpha > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(20.dp)
+                            .align(Alignment.TopCenter)
+                            .alpha(topAlpha)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Morandi.panel.copy(alpha = (opacity * 0.95).toFloat()),
+                                        Color.Transparent,
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        if (arrowAlphaAnim > 0f) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.accent,
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .size(11.dp)
+                                    .offset(y = (-bounceOffset).dp)
+                                    .rotate(-90f)
+                                    .alpha(arrowAlphaAnim),
+                            )
+                        }
+                        if (dotAlphaAnim > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(Morandi.accent)
+                                    .alpha(dotAlphaAnim),
+                            )
+                        }
+                    }
+                }
+
+                // Bottom scroll hint (gradient + breathing arrow / dot)
+                if (bottomAlpha > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(20.dp)
+                            .align(Alignment.BottomCenter)
+                            .alpha(bottomAlpha)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Transparent,
+                                        Morandi.panel.copy(alpha = (opacity * 0.95).toFloat()),
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        if (arrowAlphaAnim > 0f) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.accent,
+                                modifier = Modifier
+                                    .padding(bottom = 2.dp)
+                                    .size(11.dp)
+                                    .offset(y = bounceOffset.dp)
+                                    .rotate(90f)
+                                    .alpha(arrowAlphaAnim),
+                            )
+                        }
+                        if (dotAlphaAnim > 0f) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(bottom = 4.dp)
+                                    .size(4.dp)
+                                    .clip(CircleShape)
+                                    .background(Morandi.accent)
+                                    .alpha(dotAlphaAnim),
+                            )
+                        }
+                    }
                 }
             }
             
@@ -361,6 +513,8 @@ fun toolIcon(tool: Tool): Int =
         Tool.SELECT_SIMILAR -> R.drawable.ic_eye
         Tool.PATH -> R.drawable.ic_copy
         Tool.REFERENCE -> R.drawable.ic_reference
+        Tool.SHORTCUT -> R.drawable.ic_shortcut
+        Tool.QUICK_BRUSH -> R.drawable.ic_brush_quick
         Tool.SYMMETRY -> R.drawable.ic_flip_horizontal
         Tool.PERSPECTIVE -> R.drawable.ic_grid
     }

@@ -1000,6 +1000,71 @@ static inline void blitBgraToRgbaFast(const quint8 *src, int srcStride, quint8 *
     }
 #endif
 }
+
+static inline void blitBgraToRgbaPremultipliedFast(const quint8 *src, int srcStride, quint8 *dst, int dstStride, int width, int height)
+{
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+    const uint16x8_t v128 = vdupq_n_u16(128);
+    for (int y = 0; y < height; ++y) {
+        const uint8_t *s = src + y * srcStride;
+        uint8_t *d = dst + y * dstStride;
+        int x = 0;
+        // 8 pixels (32 bytes) per iteration
+        for (; x <= width - 8; x += 8) {
+            uint8x8x4_t bgra = vld4_u8(s + x * 4);
+            uint8x8_t b = bgra.val[0];
+            uint8x8_t g = bgra.val[1];
+            uint8x8_t r = bgra.val[2];
+            uint8x8_t a = bgra.val[3];
+
+            uint16x8_t r16 = vmull_u8(r, a);
+            uint16x8_t g16 = vmull_u8(g, a);
+            uint16x8_t b16 = vmull_u8(b, a);
+
+            r16 = vaddq_u16(r16, v128);
+            g16 = vaddq_u16(g16, v128);
+            b16 = vaddq_u16(b16, v128);
+
+            r16 = vaddq_u16(r16, vshrq_n_u16(r16, 8));
+            g16 = vaddq_u16(g16, vshrq_n_u16(g16, 8));
+            b16 = vaddq_u16(b16, vshrq_n_u16(b16, 8));
+
+            uint8x8x4_t rgba;
+            rgba.val[0] = vshrn_n_u16(r16, 8);
+            rgba.val[1] = vshrn_n_u16(g16, 8);
+            rgba.val[2] = vshrn_n_u16(b16, 8);
+            rgba.val[3] = a;
+
+            vst4_u8(d + x * 4, rgba);
+        }
+        for (; x < width; ++x) {
+            uint8_t b = s[x * 4 + 0];
+            uint8_t g = s[x * 4 + 1];
+            uint8_t r = s[x * 4 + 2];
+            uint8_t a = s[x * 4 + 3];
+            d[x * 4 + 0] = (uint8_t)((uint16_t(r) * a + 127) / 255);
+            d[x * 4 + 1] = (uint8_t)((uint16_t(g) * a + 127) / 255);
+            d[x * 4 + 2] = (uint8_t)((uint16_t(b) * a + 127) / 255);
+            d[x * 4 + 3] = a;
+        }
+    }
+#else
+    for (int y = 0; y < height; ++y) {
+        const quint8 *s = src + y * srcStride;
+        quint8 *d = dst + y * dstStride;
+        for (int x = 0; x < width; ++x) {
+            uint8_t b = s[x * 4 + 0];
+            uint8_t g = s[x * 4 + 1];
+            uint8_t r = s[x * 4 + 2];
+            uint8_t a = s[x * 4 + 3];
+            d[x * 4 + 0] = (uint8_t)((uint16_t(r) * a + 127) / 255);
+            d[x * 4 + 1] = (uint8_t)((uint16_t(g) * a + 127) / 255);
+            d[x * 4 + 2] = (uint8_t)((uint16_t(b) * a + 127) / 255);
+            d[x * 4 + 3] = a;
+        }
+    }
+#endif
+}
 static inline void clipEditToSelection(QImage &edited, const QImage &original,
                                 const QByteArray &selMask,
                                 int offsetX, int offsetY)
@@ -1036,15 +1101,24 @@ static inline void setSelectionFromMask(ReverieCore *core, const KisImageSP &ima
 {
     RPC_LOG("RPC setSelectionFromMask mode=%d maskPixels=%d", selMode, (int)mask.size());
     QVector<quint8> finalMask = mask;
-    if (selMode != ReverieCore::SelReplace && core->hasSelection()) {
-        QVector<quint8> existing(size_t(image->width()) * image->height(), 0);
+    QVector<quint8> existing(size_t(image->width()) * image->height(), 0);
+    bool hasOld = false;
+    if (core && core->hasSelection()) {
         KisPixelSelectionSP ps = core->currentSelectionPixelSelection();
         if (ps) {
             ps->readBytes(existing.data(), 0, 0, image->width(), image->height());
+            for (quint8 b : existing) {
+                if (b > 0) {
+                    hasOld = true;
+                    break;
+                }
+            }
         }
+    }
+    if (selMode != ReverieCore::SelReplace && hasOld) {
         finalMask = combineSelectionMasks(existing, mask, selMode);
     } else if (selMode == ReverieCore::SelSubtract || selMode == ReverieCore::SelIntersect) {
-        if (!core->hasSelection()) {
+        if (!hasOld) {
             finalMask = QVector<quint8>(mask.size(), 0);
         }
     }

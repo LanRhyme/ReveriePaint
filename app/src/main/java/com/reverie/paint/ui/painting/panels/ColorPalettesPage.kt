@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import com.reverie.paint.ui.painting.TextInputGuard
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -469,6 +470,7 @@ fun PalettesPage(
 
     // Dialog: Create New Palette
     if (showCreatePaletteDialog) {
+        TextInputGuard(vm)
         AlertDialog(
             onDismissRequest = { showCreatePaletteDialog = false },
             containerColor = Morandi.panel,
@@ -511,6 +513,7 @@ fun PalettesPage(
 
     // Dialog: Rename Palette
     if (showRenameDialog != null) {
+        TextInputGuard(vm)
         val palToRename = showRenameDialog!!
         AlertDialog(
             onDismissRequest = { showRenameDialog = null },

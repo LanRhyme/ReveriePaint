@@ -527,7 +527,7 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     if (outImage) {
         const int iw = image->width();
         const int ih = image->height();
-        QImage qimg(iw, ih, QImage::Format_RGBA8888);
+        QImage qimg(iw, ih, QImage::Format_RGBA8888_Premultiplied);
         qimg.fill(0);
         
         QRect ext = m_previewTempDevice->exactBounds().intersected(QRect(0, 0, iw, ih));
@@ -536,8 +536,8 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
             raw.resize(size_t(ext.width()) * ext.height() * 4);
             m_previewTempDevice->readBytes(reinterpret_cast<quint8 *>(raw.data()), ext.x(), ext.y(), ext.width(), ext.height());
             quint8 *dst = qimg.bits() + size_t(ext.y()) * (iw * 4) + size_t(ext.x()) * 4;
-            blitBgraToRgbaFast(reinterpret_cast<const quint8 *>(raw.constData()), ext.width() * 4,
-                               dst, iw * 4, ext.width(), ext.height());
+            blitBgraToRgbaPremultipliedFast(reinterpret_cast<const quint8 *>(raw.constData()), ext.width() * 4,
+                                           dst, iw * 4, ext.width(), ext.height());
         }
         *outImage = qimg;
     }

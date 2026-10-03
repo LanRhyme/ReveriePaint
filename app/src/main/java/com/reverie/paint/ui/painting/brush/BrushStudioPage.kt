@@ -19,8 +19,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import com.reverie.paint.ui.painting.TextInputGuard
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -469,7 +472,7 @@ fun BrushStudioPage(
                             strokes = scratchStrokes,
                             currentStroke = currentScratchStroke,
                             onStrokeStart = { p -> currentScratchStroke = listOf(p) },
-                            onStrokeMove = { p -> currentScratchStroke = currentScratchStroke + p },
+                            onStrokeAddPoints = { pts -> currentScratchStroke = currentScratchStroke + pts },
                             onStrokeEnd = {
                                 if (currentScratchStroke.isNotEmpty()) {
                                     scratchStrokes.add(currentScratchStroke)
@@ -721,6 +724,7 @@ fun BrushStudioPage(
         }
 
         if (showRenameDialog && preset != null) {
+            TextInputGuard(vm)
             StudioRenameDialog(
                 initialName = preset.name,
                 onDismiss = { showRenameDialog = false },
@@ -2064,7 +2068,7 @@ private fun ScratchpadCanvas(
     strokes: List<List<ScratchPoint>>,
     currentStroke: List<ScratchPoint>,
     onStrokeStart: (ScratchPoint) -> Unit,
-    onStrokeMove: (ScratchPoint) -> Unit,
+    onStrokeAddPoints: (List<ScratchPoint>) -> Unit,
     onStrokeEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2082,7 +2086,7 @@ private fun ScratchpadCanvas(
     val softness = (vm.brushFade.toFloat().coerceIn(0f, 1f) * vm.brushSoftness.toFloat().coerceIn(0f, 1f))
         .coerceIn(0f, 1f)
     val ratio = vm.brushRatio.toFloat().coerceIn(0.05f, 1f)
-    val baseRadius = (vm.brushSize.toFloat().coerceIn(8f, 56f) / 2f)
+    val baseRadius = (vm.brushSize.toFloat().coerceIn(2f, 80f) / 2f)
     val isSquare = vm.brushTipShape == 1
     val angle = (vm.brushAngle + vm.brushRotation).toFloat()
     val tipBitmap = remember(context, vm.brushTipAsset) {
@@ -2094,144 +2098,189 @@ private fun ScratchpadCanvas(
 
     Canvas(
         modifier = modifier.pointerInput(Unit) {
-            detectDragGestures(
-                onDragStart = { offset -> onStrokeStart(ScratchPoint(offset.x, offset.y, 1.0f)) },
-                onDrag = { change, _ ->
-                    change.consume()
-                    val p = change.pressure.coerceIn(0.1f, 1.0f)
-                    onStrokeMove(ScratchPoint(change.position.x, change.position.y, p))
-                },
-                onDragEnd = { onStrokeEnd() },
-                onDragCancel = { onStrokeEnd() },
-            )
-        },
-    ) {
-        fun drawScratch(pts: List<ScratchPoint>) {
-            if (pts.isEmpty()) return
-            var lastDab = Offset(-999f, -999f)
-            val spacing = (vm.brushSpacing.toFloat().coerceIn(0.03f, 1.5f) * baseRadius).coerceAtLeast(1.5f)
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                val initP = if (down.pressure > 0f) down.pressure.coerceIn(0.1f, 1.0f) else 1.0f
+                onStrokeStart(ScratchPoint(down.position.x, down.position.y, initP))
 
-            pts.forEach { pt ->
-                val curPos = Offset(pt.x, pt.y)
-                val dist = (curPos - lastDab).getDistance()
-                if (dist >= spacing || lastDab.x < 0) {
-                    lastDab = curPos
-                    val rad = baseRadius * (if (vm.brushPressureEnabled) (0.2f + 0.8f * pt.pressure * vm.brushPressureSize.toFloat()) else 1f)
-                    val baseAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pt.pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
-                    val texMod = if (vm.brushTextureEnabled) {
-                        0.8f + 0.4f * (((curPos.x.toInt() * 73 + curPos.y.toInt() * 37) and 0xFF) / 255f) * vm.brushTextureStrength.toFloat()
-                    } else 1f
-                    val dabAlpha = (baseAlpha * texMod).coerceIn(0.01f, 1f)
-
-                    // Secondary color mix preview
-                    val effectiveColor = if (vm.brushSecondaryMix > 0.001) {
-                        val mixFactor = vm.brushSecondaryMix.toFloat().coerceIn(0f, 1f)
-                        Color(
-                            red = brushColor.red * (1f - mixFactor) + secColor.red * mixFactor,
-                            green = brushColor.green * (1f - mixFactor) + secColor.green * mixFactor,
-                            blue = brushColor.blue * (1f - mixFactor) + secColor.blue * mixFactor,
-                            alpha = brushColor.alpha,
-                        )
-                    } else brushColor
-
-                    if (tipImageBitmap != null) {
-                        val dabW = (rad * 2f).coerceAtLeast(2f)
-                        val dabH = (rad * 2f * ratio).coerceAtLeast(2f)
-                        if (angle != 0f) {
-                            withTransform({
-                                rotate(angle, curPos)
-                            }) {
-                                drawImage(
-                                    image = tipImageBitmap,
-                                    dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
-                                    dstSize = IntSize(dabW.toInt(), dabH.toInt()),
-                                    alpha = dabAlpha,
-                                    colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
-                                )
+                val pointerId = down.id
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == pointerId }
+                    if (change == null || !change.pressed) {
+                        change?.consume()
+                        onStrokeEnd()
+                        break
+                    }
+                    if (change.position != change.previousPosition) {
+                        change.consume()
+                        val p = if (change.pressure > 0f) change.pressure.coerceIn(0.1f, 1.0f) else initP
+                        val historical = change.historical
+                        if (historical.isNotEmpty()) {
+                            val batch = ArrayList<ScratchPoint>(historical.size + 1)
+                            for (h in historical) {
+                                batch.add(ScratchPoint(h.position.x, h.position.y, p))
                             }
+                            batch.add(ScratchPoint(change.position.x, change.position.y, p))
+                            onStrokeAddPoints(batch)
                         } else {
-                            drawImage(
-                                image = tipImageBitmap,
-                                dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
-                                dstSize = IntSize(dabW.toInt(), dabH.toInt()),
-                                alpha = dabAlpha,
-                                colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
-                            )
-                        }
-                    } else if (isSquare) {
-                        if (angle != 0f) {
-                            withTransform({
-                                rotate(angle, curPos)
-                            }) {
-                                drawRect(
-                                    color = effectiveColor.copy(alpha = dabAlpha),
-                                    topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
-                                    size = Size(rad * 2f, rad * 2f * ratio),
-                                )
-                            }
-                        } else {
-                            drawRect(
-                                color = effectiveColor.copy(alpha = dabAlpha),
-                                topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
-                                size = Size(rad * 2f, rad * 2f * ratio),
-                            )
-                        }
-                    } else {
-                        // Circle tip: when softness is close to 0, render razor sharp solid disc (no feathering)
-                        if (ratio < 0.99f || angle != 0f) {
-                            withTransform({
-                                if (angle != 0f) rotate(angle, curPos)
-                                scale(scaleX = 1f, scaleY = ratio, pivot = curPos)
-                            }) {
-                                if (softness <= 0.02f) {
-                                    drawCircle(
-                                        color = effectiveColor.copy(alpha = dabAlpha),
-                                        radius = rad.coerceAtLeast(1.5f),
-                                        center = curPos,
-                                    )
-                                } else {
-                                    val solidStop = (1f - softness).coerceIn(0f, 0.98f)
-                                    drawCircle(
-                                        brush = Brush.radialGradient(
-                                            colorStops = arrayOf(
-                                                0f to effectiveColor.copy(alpha = dabAlpha),
-                                                solidStop to effectiveColor.copy(alpha = dabAlpha),
-                                                1f to effectiveColor.copy(alpha = 0f),
-                                            ),
-                                            center = curPos,
-                                            radius = rad.coerceAtLeast(1.5f),
-                                        ),
-                                        radius = rad.coerceAtLeast(1.5f),
-                                        center = curPos,
-                                    )
-                                }
-                            }
-                        } else {
-                            if (softness <= 0.02f) {
-                                drawCircle(
-                                    color = effectiveColor.copy(alpha = dabAlpha),
-                                    radius = rad.coerceAtLeast(1.5f),
-                                    center = curPos,
-                                )
-                            } else {
-                                val solidStop = (1f - softness).coerceIn(0f, 0.98f)
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        colorStops = arrayOf(
-                                            0f to effectiveColor.copy(alpha = dabAlpha),
-                                            solidStop to effectiveColor.copy(alpha = dabAlpha),
-                                            1f to effectiveColor.copy(alpha = 0f),
-                                        ),
-                                        center = curPos,
-                                        radius = rad.coerceAtLeast(1.5f),
-                                    ),
-                                    radius = rad.coerceAtLeast(1.5f),
-                                    center = curPos,
-                                )
-                            }
+                            onStrokeAddPoints(listOf(ScratchPoint(change.position.x, change.position.y, p)))
                         }
                     }
                 }
+            }
+        },
+    ) {
+        fun DrawScope.drawDab(curPos: Offset, pressure: Float) {
+            val rad = baseRadius * (if (vm.brushPressureEnabled) (0.2f + 0.8f * pressure * vm.brushPressureSize.toFloat()) else 1f)
+            val baseAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
+            val texMod = if (vm.brushTextureEnabled) {
+                0.8f + 0.4f * (((curPos.x.toInt() * 73 + curPos.y.toInt() * 37) and 0xFF) / 255f) * vm.brushTextureStrength.toFloat()
+            } else 1f
+            val dabAlpha = (baseAlpha * texMod).coerceIn(0.01f, 1f)
+
+            // Secondary color mix preview
+            val effectiveColor = if (vm.brushSecondaryMix > 0.001) {
+                val mixFactor = vm.brushSecondaryMix.toFloat().coerceIn(0f, 1f)
+                Color(
+                    red = brushColor.red * (1f - mixFactor) + secColor.red * mixFactor,
+                    green = brushColor.green * (1f - mixFactor) + secColor.green * mixFactor,
+                    blue = brushColor.blue * (1f - mixFactor) + secColor.blue * mixFactor,
+                    alpha = brushColor.alpha,
+                )
+            } else brushColor
+
+            if (tipImageBitmap != null) {
+                val dabW = (rad * 2f).coerceAtLeast(2f)
+                val dabH = (rad * 2f * ratio).coerceAtLeast(2f)
+                if (angle != 0f) {
+                    withTransform({
+                        rotate(angle, curPos)
+                    }) {
+                        drawImage(
+                            image = tipImageBitmap,
+                            dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
+                            dstSize = IntSize(dabW.toInt(), dabH.toInt()),
+                            alpha = dabAlpha,
+                            colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
+                        )
+                    }
+                } else {
+                    drawImage(
+                        image = tipImageBitmap,
+                        dstOffset = IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
+                        dstSize = IntSize(dabW.toInt(), dabH.toInt()),
+                        alpha = dabAlpha,
+                        colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
+                    )
+                }
+            } else if (isSquare) {
+                if (angle != 0f) {
+                    withTransform({
+                        rotate(angle, curPos)
+                    }) {
+                        drawRect(
+                            color = effectiveColor.copy(alpha = dabAlpha),
+                            topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
+                            size = Size(rad * 2f, rad * 2f * ratio),
+                        )
+                    }
+                } else {
+                    drawRect(
+                        color = effectiveColor.copy(alpha = dabAlpha),
+                        topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
+                        size = Size(rad * 2f, rad * 2f * ratio),
+                    )
+                }
+            } else {
+                // Circle tip: when softness is close to 0, render razor sharp solid disc (no feathering)
+                if (ratio < 0.99f || angle != 0f) {
+                    withTransform({
+                        if (angle != 0f) rotate(angle, curPos)
+                        scale(scaleX = 1f, scaleY = ratio, pivot = curPos)
+                    }) {
+                        if (softness <= 0.02f) {
+                            drawCircle(
+                                color = effectiveColor.copy(alpha = dabAlpha),
+                                radius = rad.coerceAtLeast(1.5f),
+                                center = curPos,
+                            )
+                        } else {
+                            val solidStop = (1f - softness).coerceIn(0f, 0.98f)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colorStops = arrayOf(
+                                        0f to effectiveColor.copy(alpha = dabAlpha),
+                                        solidStop to effectiveColor.copy(alpha = dabAlpha),
+                                        1f to effectiveColor.copy(alpha = 0f),
+                                    ),
+                                    center = curPos,
+                                    radius = rad.coerceAtLeast(1.5f),
+                                ),
+                                radius = rad.coerceAtLeast(1.5f),
+                                center = curPos,
+                            )
+                        }
+                    }
+                } else {
+                    if (softness <= 0.02f) {
+                        drawCircle(
+                            color = effectiveColor.copy(alpha = dabAlpha),
+                            radius = rad.coerceAtLeast(1.5f),
+                            center = curPos,
+                        )
+                    } else {
+                        val solidStop = (1f - softness).coerceIn(0f, 0.98f)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colorStops = arrayOf(
+                                    0f to effectiveColor.copy(alpha = dabAlpha),
+                                    solidStop to effectiveColor.copy(alpha = dabAlpha),
+                                    1f to effectiveColor.copy(alpha = 0f),
+                                ),
+                                center = curPos,
+                                radius = rad.coerceAtLeast(1.5f),
+                            ),
+                            radius = rad.coerceAtLeast(1.5f),
+                            center = curPos,
+                        )
+                    }
+                }
+            }
+        }
+
+        fun DrawScope.drawScratch(pts: List<ScratchPoint>) {
+            if (pts.isEmpty()) return
+            val spacing = (vm.brushSpacing.toFloat().coerceIn(0.01f, 2.5f) * (baseRadius * 2f)).coerceAtLeast(1.0f)
+
+            if (pts.size == 1) {
+                drawDab(Offset(pts[0].x, pts[0].y), pts[0].pressure)
+                return
+            }
+
+            drawDab(Offset(pts[0].x, pts[0].y), pts[0].pressure)
+            var distToNextDab = spacing
+
+            for (i in 1 until pts.size) {
+                val p0 = pts[i - 1]
+                val p1 = pts[i]
+                val dx = p1.x - p0.x
+                val dy = p1.y - p0.y
+                val segDist = kotlin.math.hypot(dx, dy)
+                if (segDist <= 0.0001f) continue
+
+                var traveled = 0f
+                while (traveled + distToNextDab <= segDist) {
+                    traveled += distToNextDab
+                    val t = traveled / segDist
+                    val cx = p0.x + dx * t
+                    val cy = p0.y + dy * t
+                    val cp = p0.pressure + (p1.pressure - p0.pressure) * t
+                    drawDab(Offset(cx, cy), cp)
+                    distToNextDab = spacing
+                }
+                distToNextDab -= (segDist - traveled)
             }
         }
 

@@ -82,6 +82,11 @@ object ReverieCoreBridge {
         nativeLoaded = true
         initQtAndroid()
         System.loadLibrary("reverie_jni")
+        mainActivity?.let { act ->
+            CrashHandler.init(act)
+            val swapDir = java.io.File(act.cacheDir, "swap").apply { mkdirs() }
+            configureTileEngine(swapDir.absolutePath)
+        }
     }
 
     external fun newDocument(
@@ -1235,6 +1240,8 @@ object ReverieCoreBridge {
         vh: Int,
     ): IntArray?
 
+    external fun selectionOutline(): IntArray?
+
     external fun selectAll()
 
     external fun invertSelection()
@@ -1264,5 +1271,13 @@ object ReverieCoreBridge {
     external fun storedSelectionId(index: Int): String
     external fun storedSelectionThumbnail(index: Int, w: Int, h: Int): IntArray?
     external fun clearStoredSelections()
+
+    // Native Crash Handler & Breadcrumbs
+    external fun initNativeCrashHandler(logDir: String, appVersion: String)
+    external fun addNativeBreadcrumb(tag: String, msg: String)
+    external fun updateNativeCrashState(stateJson: String)
+
+    // Krita Tile Engine Memory & Swap Configuration
+    external fun configureTileEngine(swapDir: String)
 }
 

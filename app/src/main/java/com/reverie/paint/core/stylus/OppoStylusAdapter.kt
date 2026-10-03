@@ -217,8 +217,13 @@ class OppoStylusAdapter : StylusBrandAdapter {
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
         val keyCode = event.keyCode
-        // Barrel slide key codes emitted by stylus hardware
-        if (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+        val dev = event.device
+        val isStylusDev = (event.source and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
+                (dev != null && (dev.sources and android.view.InputDevice.SOURCE_STYLUS) != 0) ||
+                (dev != null && (dev.name.contains("pencil", ignoreCase = true) || dev.name.contains("stylus", ignoreCase = true) || dev.name.contains("stylo", ignoreCase = true)))
+
+        // Barrel slide key codes emitted by stylus hardware (ignore if from a normal keyboard)
+        if (isStylusDev && (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_DPAD_UP)) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 if (vm.oppoSlideAction != "none") {
                     val now = SystemClock.uptimeMillis()
@@ -237,7 +242,7 @@ class OppoStylusAdapter : StylusBrandAdapter {
             }
             return true
         }
-        if (keyCode == KeyEvent.KEYCODE_PAGE_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+        if (isStylusDev && (keyCode == KeyEvent.KEYCODE_PAGE_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_DOWN)) {
             if (event.action == KeyEvent.ACTION_DOWN) {
                 if (vm.oppoSlideAction != "none") {
                     val now = SystemClock.uptimeMillis()

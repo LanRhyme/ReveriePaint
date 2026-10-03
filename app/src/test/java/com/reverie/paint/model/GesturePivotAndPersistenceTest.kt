@@ -131,4 +131,60 @@ class GesturePivotAndPersistenceTest {
         assertEquals(700f, clampHeight(900f), 0.01f)
         assertEquals(400f, clampHeight(400f), 0.01f)
     }
+
+    @Test
+    fun `edge back gesture exclusion policy correctly toggles`() {
+        fun shouldExcludeGesture(
+            allowEdgeBack: Boolean,
+            backKeyAction: BackKeyAction,
+            overlayPanelsOpen: Boolean,
+        ): Boolean {
+            return (!allowEdgeBack || backKeyAction == BackKeyAction.NONE) && !overlayPanelsOpen
+        }
+
+        // Default: allowEdgeBack = true, backKeyAction = OPEN_SETTINGS -> edge back allowed (no exclusion)
+        org.junit.Assert.assertFalse(shouldExcludeGesture(true, BackKeyAction.OPEN_SETTINGS, false))
+        org.junit.Assert.assertFalse(shouldExcludeGesture(true, BackKeyAction.EXIT, false))
+
+        // When back key action is NONE -> exclude edge back to prevent accidental back gesture
+        assertTrue(shouldExcludeGesture(true, BackKeyAction.NONE, false))
+
+        // When user explicitly turns off edge back -> exclude
+        assertTrue(shouldExcludeGesture(false, BackKeyAction.OPEN_SETTINGS, false))
+
+        // When panels are open -> never exclude, always allow edge swipe to close panels
+        org.junit.Assert.assertFalse(shouldExcludeGesture(false, BackKeyAction.NONE, true))
+        org.junit.Assert.assertFalse(shouldExcludeGesture(true, BackKeyAction.NONE, true))
+    }
+
+    @Test
+    fun `edge touch detection and directional gesture classification`() {
+        val density = 3.0f
+        val edgeThreshold = 32f * density // 96px
+        val viewW = 1080f
+
+        fun isEdgeTouch(x: Float): Boolean {
+            return x <= edgeThreshold || x >= viewW - edgeThreshold
+        }
+
+        assertTrue(isEdgeTouch(10f))
+        assertTrue(isEdgeTouch(95f))
+        org.junit.Assert.assertFalse(isEdgeTouch(100f))
+        org.junit.Assert.assertFalse(isEdgeTouch(540f))
+        org.junit.Assert.assertFalse(isEdgeTouch(980f))
+        assertTrue(isEdgeTouch(990f))
+        assertTrue(isEdgeTouch(1075f))
+
+        // Direction classification: vertical movement along edge vs horizontal swipe back
+        fun isVerticalMove(dx: Float, dy: Float): Boolean {
+            val dist = kotlin.math.hypot(dx, dy)
+            return abs(dy) > abs(dx) * 1.2f && dist > (8f * density)
+        }
+
+        // Horizontal swipe inward (e.g. from x=5 to x=35, dy=2)
+        org.junit.Assert.assertFalse(isVerticalMove(30f, 2f))
+
+        // Vertical drag along edge (e.g. dy=40, dx=5)
+        assertTrue(isVerticalMove(5f, 40f))
+    }
 }

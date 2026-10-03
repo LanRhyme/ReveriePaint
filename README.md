@@ -4,7 +4,11 @@
 
 # ReveriePaint
 
+[简体中文](README.md) | [English](README_EN.md)
+
 <p>
+  <a href="https://reveriepaint.lanrhyme.top"><img src="https://img.shields.io/badge/官网-reveriepaint.lanrhyme.top-5A6E8A?style=flat-square" alt="Website"></a>
+  <a href="https://reveriepaint.lanrhyme.top/docs/"><img src="https://img.shields.io/badge/文档-使用指南-7C8F9E?style=flat-square" alt="Docs"></a>
   <a href="https://github.com/LanRhyme/ReveriePaint/releases"><img src="https://img.shields.io/github/v/release/LanRhyme/ReveriePaint?color=5A6E8A&style=flat-square" alt="Release"></a>
   <a href="https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android"><img src="https://img.shields.io/badge/Mirror%E9%85%B1-%E9%AB%98%E9%80%9F%E4%B8%8B%E8%BD%BD-5A6E8A?style=flat-square" alt="MirrorChyan"></a>
   <img src="https://img.shields.io/badge/Android-7.0%2B%20(API%2023%2B)-5A6E8A?style=flat-square" alt="Android Version">
@@ -14,80 +18,91 @@
   <img src="https://img.shields.io/badge/QQ%E7%BE%A4-729283213-12B7F5?style=flat-square" alt="QQ Group">
 </p>
 
-基于 Krita 核心引擎打造的 Android 原生现代数字绘画应用
-
-融合 Jetpack Compose 现代化界面与 Krita C++ 原生图像处理内核, 专为平板与触控设备优化的专业绘画创作软件
+基于 Krita 图像内核与 Jetpack Compose 构建的 Android 原生绘画应用
 
 </div>
 
 ---
 
-## 核心特性
+## 官方导航
 
-### 绘画引擎与笔刷系统
-- **Krita 官方内核集成**: 直接复用 Krita 核心笔刷引擎, 真实物理笔触与颜料混合模拟
-- **内置丰富笔刷库**: 内置 240+ 官方笔刷预设, 涵盖铅笔、钢笔、墨水、水彩、油画、喷枪、纹理与马克笔
-- **笔刷工坊**: 支持实时调整尺寸、不透明度、流量、间距、软硬度、混色比与压感动态曲线
-- **硬件压感适配**: 深度适配 Android 压感手写笔, 具备抖动修正、子帧平滑插值与悬浮光标预览
-
-### 专业图层与合成管理
-- **多图层类型**:  支持滤镜图层、描边图层等高级图层样式还有图层组嵌套与层级折叠
-- **丰富混合模式**: 支持正常、正片叠底、滤色、叠加、柔光、强光、颜色减淡等 25 种混合模式
-- **图层操作全功能**: 剪贴蒙版、Alpha 锁定、图层锁定、独立隐藏/显示、快速合并、向下合并与色彩标签
-- **直观交互**: 图层面板支持长按拖拽排序、向左滑动快捷呼出操作菜单与批量图层管理
-
-### 创作工具箱
-- **多样化绘制工具**: 包含画笔、橡皮擦、涂抹、模糊、液化变形、渐变填充与文字排版工具
-- **矢量几何辅助**: 直线、矩形、椭圆与多边形工具, 支持快速吸附与辅助对齐
-- **智能选区体系**: 套索选区、矩形选区、椭圆选区、魔棒快速取选与颜色选区, 支持加选、减选、反选与羽化
-- **图形变换**: 支持自由变换、等比缩放、旋转、透视扭曲与画布裁剪
-
-### 录制与延时回放
-- **全流程事件流录制**: 零性能开销记录笔迹、笔刷参数、图层变动、滤镜与色彩变迁全过程
-- **独立工程归档**: 录制数据随 `.revp` 工程文件自动存储压缩, 方便跨设备共享
-- **多功能回放器**: 支持随时在画廊中唤起过程回放, 具备播放、暂停、进度条无缝拖动与 0.5x - 4x 倍速调节
-
-### 自动保存与工程安全
-- **后台保活自动存储**: 支持 1/3/5/10/15/30 分钟多档静默自动保存
-- **状态恢复机制**: 应用切至后台或意外中断时自动保留最后创作状态, 画廊自动标记未保存草稿并支持快速恢复
-
-### 现代触控与个性化主题
-- **多点手势交互**: 双指捏合自由缩放、旋转、平移画布, 120 FPS 视口变换
-- **快捷手势操作**: 双指点击撤销、三指点击重做、长按快速吸色
-- **莫兰迪全局主题**: 优雅柔和的低饱和度配色体系, 完美支持 Material You 动态莫奈取色
-- **工作区底色自由定制**: 支持随主题自适应、经典深灰、暗夜纯黑、明亮纯白及任意自定义 Hex 底色
+- **项目官网**: [reveriepaint.lanrhyme.top](https://reveriepaint.lanrhyme.top)
+- **使用文档**: [reveriepaint.lanrhyme.top/docs/](https://reveriepaint.lanrhyme.top/docs/)
 
 ---
 
-## 快速上手
+## 项目架构
 
-### 系统要求
-- **操作系统**: Android 7.0 及以上 (API Level 23+)
-- **芯片架构**: 仅支持 64 位 ARM 处理器 (`arm64-v8a`)
-- **推荐设备**: 支持主动式压感手写笔的 Android 平板或大屏移动设备
+ReveriePaint 采用混合架构设计:
 
-### 安装说明
-1. 前往 [Mirror酱](https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android) (第三方付费高速下载源) 或 [GitHub Releases 发布页面](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新版本的 APK 安装包
-2. 在设备上点击 APK 文件并允许安装来自此来源的应用
-3. 授予存储与手写笔相关权限后即可开启创作
+```
+Kotlin / Jetpack Compose UI (现代化触控交互与界面)
+       │ JNI
+C++ ReverieCore (文档状态与渲染管线)
+       │ C++
+Krita Core Engine (KisImage / KisPainter / KisPaintOp)
+```
 
----
-
-## 开发者与源码构建
-
-有关项目技术架构、本地开发环境配置、编译构建步骤与代码规范, 请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 以及开发指引文档 [AGENTS.md](AGENTS.md)
+- **界面层**: Jetpack Compose 构建, 针对平板触控与手势深度定制, 支持 Material You 动态色彩与自定义主题
+- **核心层**: C++ 原生引擎, 封装 Krita 笔刷与图像合成流水线, 文档操作与投影合成均在渲染后台异步执行
 
 ---
 
-## 开源协议与鸣谢
+## 核心能力
 
-- **应用本体**: 基于 [GPL-3.0 License](LICENSE) 开源
-- **图像引擎**: 绘画与图像处理内核复用 [Krita](https://invent.kde.org/graphics/krita) (GPL-3.0)
-- **图标素材**: UI 图标采用 [Tabler Icons](https://tabler.io/icons) (MIT)
+- **Krita 原生笔刷系统**: 复用 Krita 核心画笔管线, 内置 240+ 预设, 支持笔刷工坊实时微调动态与压感响应曲线
+- **图层与混合体系**: 支持图层组嵌套、滤镜图层、剪贴蒙版、Alpha 锁定与 25 种图层混合模式
+- **手写笔与手势交互**: 低延迟压感适配、悬浮光标预览、双指捏合缩放旋转及双指点击撤销手势
+- **事件流回放与安全保存**: 二进制轻量笔迹录制, 支持倍速延时回放与后台定时自动保存机制
+
+更多功能细节与开发文档可参阅 [官方使用指南](https://reveriepaint.lanrhyme.top/docs/)、[AGENTS.md](AGENTS.md) 与 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
-## 社区与交流
+## 下载与使用
 
+### 运行环境
+- 操作系统: Android 7.0 及以上 (API 23+)
+- 架构支持: 仅支持 64 位 ARM (`arm64-v8a`)
+- 推荐配置: 支持主动式压感手写笔的 Android 平板设备
+
+### 安装渠道
+- **官方 Release**: 前往 [GitHub Releases](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新 APK 安装包
+- **国内镜像**: 通过 [Mirror酱](https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android) 获取高速下载
+
+---
+
+## 贡献者
+
+感谢所有为 ReveriePaint 提交代码、修复问题与改进设计的贡献者:
+
+<a href="https://github.com/LanRhyme/ReveriePaint/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=LanRhyme/ReveriePaint" alt="Contributors" />
+</a>
+
+欢迎查阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何参与项目开发与代码规范
+
+---
+
+## 赞助与支持
+
+本项目由独立开发者与社区爱好者维护, 如果 ReveriePaint 对你的创作有所帮助, 欢迎通过爱发电支持我们持续迭代:
+
+- **爱发电**: [afdian.com/a/LanRhyme](https://afdian.com/a/LanRhyme)
+
+---
+
+## 开源许可与致谢
+
+- **应用源码**: [GPL-3.0 License](LICENSE)
+- **图像内核**: [Krita](https://invent.kde.org/graphics/krita) (GPL-3.0)
+- **图标资源**: [Tabler Icons](https://tabler.io/icons) (MIT)
+
+---
+
+## 交流与反馈
+
+- **官方网站**: [reveriepaint.lanrhyme.top](https://reveriepaint.lanrhyme.top)
+- **使用文档**: [reveriepaint.lanrhyme.top/docs/](https://reveriepaint.lanrhyme.top/docs/)
 - **QQ 交流群**: 729283213
-- **问题反馈**: 欢迎通过 [GitHub Issues](https://github.com/LanRhyme/ReveriePaint/issues) 提交反馈与功能建议
+- **问题反馈与建议**: 提交至 [GitHub Issues](https://github.com/LanRhyme/ReveriePaint/issues)

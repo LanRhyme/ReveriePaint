@@ -19,6 +19,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -109,9 +110,14 @@ fun BrushPanel(
 ) {
     val context = LocalContext.current
     val rawCategories = remember(vm.brushPresets, vm.customBrushGroups) {
-        listOf("全部", "常用", "最近") +
-            vm.brushPresets.map { it.group }.filter { it.isNotBlank() && it !in listOf("全部", "常用", "最近") }.distinct() +
-            vm.customBrushGroups.filter { g -> g !in listOf("全部", "常用", "最近") && vm.brushPresets.none { it.group == g } }
+        val groupsFromPresets = vm.brushPresets.map { it.group }.filter { it.isNotBlank() && it !in listOf("全部", "常用", "最近") }.distinct()
+        val baseGroups = if (groupsFromPresets.isEmpty()) {
+            com.reverie.paint.core.BUILT_IN_BRUSH_GROUPS.filter { it !in listOf("全部", "常用", "最近") }
+        } else {
+            groupsFromPresets
+        }
+        listOf("全部", "常用", "最近") + baseGroups +
+            vm.customBrushGroups.filter { g -> g !in listOf("全部", "常用", "最近") && g !in baseGroups }
     }
     val categories = remember(rawCategories, vm.categoryOrder) {
         val pinned = listOf("全部", "常用", "最近")
@@ -517,42 +523,61 @@ fun BrushPanel(
                                                 .padding(16.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.Center
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(
+                                            if (vm.isBrushPresetsLoading || vm.brushPresets.isEmpty()) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    androidx.compose.material3.CircularProgressIndicator(
+                                                        modifier = Modifier.size(28.dp),
+                                                        color = Morandi.accent,
+                                                        strokeWidth = 2.5.dp,
+                                                    )
+                                                    Spacer(Modifier.height(10.dp))
+                                                    Text(
+                                                        stringResource(R.string.brush_presets_loading),
+                                                        color = Morandi.subText,
+                                                        fontSize = 12.sp,
+                                                    )
+                                                }
+                                            } else {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(
+                                                            when (selectedCategory) {
+                                                                "常用" -> R.drawable.ic_star
+                                                                "最近" -> R.drawable.ic_clock
+                                                                else -> R.drawable.ic_brush
+                                                            }
+                                                        ),
+                                                        contentDescription = null,
+                                                        tint = Morandi.subText.copy(alpha = 0.35f),
+                                                        modifier = Modifier.size(36.dp)
+                                                    )
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text(
                                                         when (selectedCategory) {
-                                                            "常用" -> R.drawable.ic_star
-                                                            "最近" -> R.drawable.ic_clock
-                                                            else -> R.drawable.ic_brush
-                                                        }
-                                                    ),
-                                                    contentDescription = null,
-                                                    tint = Morandi.subText.copy(alpha = 0.35f),
-                                                    modifier = Modifier.size(36.dp)
-                                                )
-                                                Spacer(Modifier.height(8.dp))
-                                                Text(
-                                                    when (selectedCategory) {
-                                                        "常用" -> stringResource(R.string.brush_empty_fav_title)
-                                                        "最近" -> stringResource(R.string.brush_empty_recent_title)
-                                                        else -> stringResource(R.string.brush_empty_category_title)
-                                                    },
-                                                    color = Morandi.subText,
-                                                    fontSize = 13.sp,
-                                                )
-                                                Spacer(Modifier.height(2.dp))
-                                                Text(
-                                                    when (selectedCategory) {
-                                                        "常用" -> stringResource(R.string.brush_empty_fav_desc)
-                                                        "最近" -> stringResource(R.string.brush_empty_recent_desc)
-                                                        else -> stringResource(R.string.brush_empty_category_desc)
-                                                    },
-                                                    color = Morandi.subText.copy(alpha = 0.6f),
-                                                    fontSize = 11.sp,
-                                                )
+                                                            "常用" -> stringResource(R.string.brush_empty_fav_title)
+                                                            "最近" -> stringResource(R.string.brush_empty_recent_title)
+                                                            else -> stringResource(R.string.brush_empty_category_title)
+                                                        },
+                                                        color = Morandi.subText,
+                                                        fontSize = 13.sp,
+                                                    )
+                                                    Spacer(Modifier.height(2.dp))
+                                                    Text(
+                                                        when (selectedCategory) {
+                                                            "常用" -> stringResource(R.string.brush_empty_fav_desc)
+                                                            "最近" -> stringResource(R.string.brush_empty_recent_desc)
+                                                            else -> stringResource(R.string.brush_empty_category_desc)
+                                                        },
+                                                        color = Morandi.subText.copy(alpha = 0.6f),
+                                                        fontSize = 11.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     } else {
@@ -805,6 +830,7 @@ fun BrushPanel(
 
     // ---- dialogs -----------------------------------------------------
     if (showNewBrushDialog) {
+        TextInputGuard(vm)
         NewBrushPresetDialog(
             groups = categories.filter { it !in listOf("全部", "常用", "最近") },
             onDismiss = { showNewBrushDialog = false },
@@ -815,6 +841,7 @@ fun BrushPanel(
         )
     }
     if (renamePresetName != null) {
+        TextInputGuard(vm)
         val rn = renamePresetName!!
         val pIdx = vm.brushPresets.firstOrNull { it.name == rn }?.index ?: -1
         RenameBrushPresetDialog(
@@ -829,6 +856,7 @@ fun BrushPanel(
         )
     }
     if (showNewGroupDialog) {
+        TextInputGuard(vm)
         NewBrushGroupDialog(
             existing = categories.filter { it !in listOf("全部", "常用", "最近") },
             onDismiss = { showNewGroupDialog = false },
@@ -869,6 +897,7 @@ fun BrushPanel(
         )
     }
     if (renameCategoryTarget != null) {
+        TextInputGuard(vm)
         val cat = renameCategoryTarget!!
         RenameBrushGroupDialog(
             initialName = cat,

@@ -718,6 +718,9 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
         recompositeProjection();
     } else {
         m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+        if (m_document) {
+            m_document->waitForDone();
+        }
     }
     markDirty();
 }
@@ -725,7 +728,10 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
 // Opacity change WITHOUT pushing an undo command - used while the user is
 // dragging the opacity slider (many values per second). The slider commit on
 // release goes through setLayerOpacity() above, so the whole drag collapses
-// into a single undo step
+// into a single undo step.
+// Do NOT call node->setDirty here: dragging the slider is high-frequency (60+ fps)
+// and synchronous compositeLayersRange will composite the preview in <0.5ms without
+// flooding Krita's async scheduler.
 void ReverieCore::setLayerOpacityDirect(int index, qreal opacity)
 {
     if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) {
@@ -736,8 +742,6 @@ void ReverieCore::setLayerOpacityDirect(int index, qreal opacity)
         m_layers[index].node->setOpacity(o);
         if (m_layers[index].nodeType == NodeTypeAdjustment) {
             recompositeProjection();
-        } else {
-            m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
         }
         markDirty();
     }
@@ -756,6 +760,9 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         } else {
             m_layers[index].node->setDirty(
                 QRect(0, 0, m_document->width(), m_document->height()));
+            if (m_document) {
+                m_document->waitForDone();
+            }
         }
         markBlendChanged(index);
     }

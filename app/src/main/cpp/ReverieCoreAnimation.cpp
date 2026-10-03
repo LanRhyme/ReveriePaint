@@ -877,7 +877,7 @@ bool ReverieCore::renderKeyframeThumb(
         return true;
     }
 
-    QImage out(w, h, QImage::Format_RGBA8888);
+    QImage out(w, h, QImage::Format_RGBA8888_Premultiplied);
     out.fill(Qt::transparent);
 
     // 取该图层指定时刻的关键帧内容。writeToDevice 会把目标关键帧拷进
@@ -947,9 +947,9 @@ bool ReverieCore::renderKeyframeFull(
     if (img.isNull()) return false;
 
     QImage scaled = (img.width() == dstW && img.height() == dstH)
-        ? img.convertToFormat(QImage::Format_RGBA8888)
+        ? img.convertToFormat(QImage::Format_RGBA8888_Premultiplied)
         : img.scaled(dstW, dstH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-              .convertToFormat(QImage::Format_RGBA8888);
+              .convertToFormat(QImage::Format_RGBA8888_Premultiplied);
 
     const int copyH = qMin(dstH, scaled.height());
     const int copyW = qMin(dstW, scaled.width());

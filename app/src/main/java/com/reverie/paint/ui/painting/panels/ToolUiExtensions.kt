@@ -51,6 +51,8 @@ fun Tool.labelRes(): Int = when (this) {
     Tool.MEASURE -> R.string.tool_measure
     Tool.PATH -> R.string.tool_path
     Tool.REFERENCE -> R.string.tool_reference
+    Tool.SHORTCUT -> R.string.tool_quick_action
+    Tool.QUICK_BRUSH -> R.string.tool_quick_brush
     Tool.SYMMETRY -> R.string.tool_symmetry
     Tool.PERSPECTIVE -> R.string.tool_perspective
 }
@@ -60,6 +62,13 @@ fun BackKeyAction.labelRes(): Int = when (this) {
     BackKeyAction.NONE -> R.string.settings_back_key_none
     BackKeyAction.OPEN_SETTINGS -> R.string.settings_back_key_open_settings
     BackKeyAction.EXIT -> R.string.settings_back_key_exit
+}
+
+@StringRes
+fun com.reverie.paint.model.UiAnimationSpeed.labelRes(): Int = when (this) {
+    com.reverie.paint.model.UiAnimationSpeed.NORMAL -> R.string.settings_anim_speed_normal
+    com.reverie.paint.model.UiAnimationSpeed.FAST -> R.string.settings_anim_speed_fast
+    com.reverie.paint.model.UiAnimationSpeed.OFF -> R.string.settings_anim_speed_off
 }
 
 val ToolGroup.displayName: String

@@ -43,7 +43,18 @@ void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
 
     QVector<quint8> finalMask;
     const int selMode = qBound(0, (int)m_selectionMode, 3);
-    if (selMode == 0 || !hasSelection() || oldMask.isEmpty()) {
+    bool hasOld = hasSelection() && !oldMask.isEmpty();
+    if (hasOld) {
+        bool anyNonZero = false;
+        for (quint8 b : oldMask) {
+            if (b > 0) {
+                anyNonZero = true;
+                break;
+            }
+        }
+        hasOld = anyNonZero;
+    }
+    if (selMode == ReverieCore::SelReplace || !hasOld) {
         if (selMode == ReverieCore::SelSubtract || selMode == ReverieCore::SelIntersect) {
             finalMask = QVector<quint8>(mask.size(), 0);
         } else {
@@ -87,7 +98,18 @@ void ReverieCore::selectPolygon(const QVector<QPoint> &points)
 
     QVector<quint8> finalMask;
     const int selMode = qBound(0, (int)m_selectionMode, 3);
-    if (selMode == 0 || !hasSelection() || oldMask.isEmpty()) {
+    bool hasOld = hasSelection() && !oldMask.isEmpty();
+    if (hasOld) {
+        bool anyNonZero = false;
+        for (quint8 b : oldMask) {
+            if (b > 0) {
+                anyNonZero = true;
+                break;
+            }
+        }
+        hasOld = anyNonZero;
+    }
+    if (selMode == ReverieCore::SelReplace || !hasOld) {
         if (selMode == ReverieCore::SelSubtract || selMode == ReverieCore::SelIntersect) {
             finalMask = QVector<quint8>(mask.size(), 0);
         } else {

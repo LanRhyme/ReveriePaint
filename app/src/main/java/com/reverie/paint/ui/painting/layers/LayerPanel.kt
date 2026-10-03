@@ -37,8 +37,21 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.Surface
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.input.key.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import com.reverie.paint.ui.painting.TextInputGuard
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -200,7 +213,7 @@ fun LayerPanel(
             }
         )
     }
-    var renameRequest by remember { mutableStateOf<String?>(null) }
+    var renameTarget by remember { mutableStateOf<LayerRenameTarget?>(null) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
@@ -295,6 +308,7 @@ fun LayerPanel(
                             onOpenDetail = { view = LayerView.Detail(it) },
                             onOpenFilters = { view = LayerView.Filters(it) },
                             onOpenCreateFilter = { view = LayerView.FiltersCreate },
+                            onRenameLayer = { idx, name -> renameTarget = LayerRenameTarget(idx, name) },
                         )
                     }
 
@@ -313,7 +327,7 @@ fun LayerPanel(
                                     view = LayerView.FilterAdjust(listOf(v.index), filterId, filterName)
                                 }
                             },
-                            onRename = { renameRequest = it },
+                            onRename = { renameTarget = LayerRenameTarget(v.index, it) },
                         )
                     }
 
@@ -443,15 +457,15 @@ fun LayerPanel(
         }
     }
 
-    renameRequest?.let { name ->
-        val target = (view as? LayerView.Detail)?.index ?: -1
+    renameTarget?.let { target ->
         RenameDialog(
-            initial = name,
+            vm = vm,
+            initial = target.name,
             onConfirm = { newName ->
-                if (target >= 0) vm.renameLayer(target, newName)
-                renameRequest = null
+                if (target.index >= 0) vm.renameLayer(target.index, newName)
+                renameTarget = null
             },
-            onDismiss = { renameRequest = null },
+            onDismiss = { renameTarget = null },
         )
     }
 }
@@ -525,64 +539,201 @@ internal fun layerLabelColor(label: Int): Color =
 // ---------------------------------------------------------------------------
 
 
+private data class LayerRenameTarget(val index: Int, val name: String)
+
 @Composable
 private fun RenameDialog(
+    vm: PaintViewModel,
     initial: String,
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var text by remember { mutableStateOf(initial) }
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(Morandi.scrim)
-                .noRippleClickable(onDismiss),
-        contentAlignment = Alignment.Center,
+    TextInputGuard(vm)
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    var textFieldValue by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = initial,
+                selection = TextRange(0, initial.length)
+            )
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(50)
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    val trimmed = textFieldValue.text.trim()
+    val isValid = trimmed.isNotBlank()
+    val submit = {
+        if (isValid) {
+            onConfirm(trimmed)
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Column(
+        Box(
             modifier =
                 Modifier
-                    .width(280.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panel)
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .fillMaxSize()
+                    .background(Morandi.scrim)
+                    .noRippleClickable(onDismiss),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(stringResource(R.string.layer_rename_dialog_title), color = Morandi.text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            androidx.compose.material3.OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                singleLine = true,
-                textStyle =
-                    androidx.compose.ui.text
-                        .TextStyle(fontSize = 14.sp, color = Morandi.text),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    modifier =
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panelHi)
-                            .noRippleClickable(onDismiss)
-                            .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
+            Column(
+                modifier =
+                    Modifier
+                        .width(320.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Morandi.panel)
+                        .border(1.dp, Morandi.border, RoundedCornerShape(16.dp))
+                        .noRippleClickable { /* block click pass-through */ }
+                        .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(stringResource(R.string.common_cancel), color = Morandi.subText, fontSize = 13.sp)
+                    Text(
+                        stringResource(R.string.layer_rename_dialog_title),
+                        color = Morandi.text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "${textFieldValue.text.length}/40",
+                        color = if (textFieldValue.text.length >= 40) Morandi.accent else Morandi.subText,
+                        fontSize = 12.sp,
+                    )
                 }
-                Box(
+
+                OutlinedTextField(
+                    value = textFieldValue,
+                    onValueChange = { newValue ->
+                        if (newValue.text.length <= 40) {
+                            textFieldValue = newValue
+                        }
+                    },
+                    singleLine = true,
+                    placeholder = {
+                        Text(
+                            stringResource(R.string.layer_rename_dialog_hint),
+                            color = Morandi.subText,
+                            fontSize = 14.sp,
+                        )
+                    },
+                    textStyle = TextStyle(fontSize = 14.sp, color = Morandi.text),
+                    colors =
+                        OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Morandi.text,
+                            unfocusedTextColor = Morandi.text,
+                            focusedBorderColor = Morandi.accent,
+                            unfocusedBorderColor = Morandi.border,
+                            focusedContainerColor = Morandi.panelHi,
+                            unfocusedContainerColor = Morandi.panelHi,
+                            cursorColor = Morandi.accent,
+                        ),
+                    trailingIcon = {
+                        if (textFieldValue.text.isNotEmpty()) {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Morandi.subText.copy(alpha = 0.15f))
+                                        .clickable {
+                                            textFieldValue = TextFieldValue("", TextRange.Zero)
+                                        },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_x),
+                                    contentDescription = stringResource(R.string.common_cancel),
+                                    tint = Morandi.text,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                            }
+                        }
+                    },
+                    keyboardOptions =
+                        KeyboardOptions(
+                            imeAction = ImeAction.Done,
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
+                        ),
+                    keyboardActions = KeyboardActions(onDone = { submit() }),
                     modifier =
                         Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.accent)
-                            .noRippleClickable { onConfirm(text) }
-                            .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown) {
+                                    when (event.key) {
+                                        Key.Enter, Key.NumPadEnter -> {
+                                            if (isValid) {
+                                                submit()
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                        Key.Escape -> {
+                                            onDismiss()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                } else {
+                                    false
+                                }
+                            },
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Text(stringResource(R.string.common_confirm), color = Morandi.onAccent, fontSize = 13.sp)
+                    Box(
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Morandi.panelHi)
+                                .noRippleClickable(onDismiss)
+                                .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(R.string.common_cancel),
+                            color = Morandi.subText,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    Box(
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isValid) Morandi.accent else Morandi.accent.copy(alpha = 0.35f))
+                                .then(if (isValid) Modifier.noRippleClickable(submit) else Modifier)
+                                .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            stringResource(R.string.common_confirm),
+                            color = if (isValid) Morandi.onAccent else Morandi.onAccent.copy(alpha = 0.5f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         }

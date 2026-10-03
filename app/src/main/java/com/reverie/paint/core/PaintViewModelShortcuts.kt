@@ -306,10 +306,13 @@ internal fun PaintViewModel.loadShortcuts() {
     }
 }
 
+private var lastRepeatActionTime = 0L
+
 /** Convert a Compose KeyEvent to a canonical key combination string like "LeftCtrl + S" */
 fun keyEventToString(event: KeyEvent): String {
     val parts = mutableListOf<String>()
-    if (event.isCtrlPressed) parts.add("LeftCtrl")
+    // 兼容外接蓝牙键盘的 Command / Win (Meta) 键，与 Ctrl 统一为主要修饰键
+    if (event.isCtrlPressed || event.nativeKeyEvent.isMetaPressed) parts.add("LeftCtrl")
     if (event.isAltPressed) parts.add("LeftAlt")
     if (event.isShiftPressed) parts.add("LeftShift")
 
@@ -325,7 +328,22 @@ fun keyEventToString(event: KeyEvent): String {
         Key.Delete -> "Delete"
         Key.Escape -> "Escape"
         Key.Tab -> "Tab"
-        Key.Enter -> "Enter"
+        Key.Enter, Key.NumPadEnter -> "Enter"
+        Key.Backspace -> "Backspace"
+        Key.Grave -> "`"
+        Key.Backslash -> "\\"
+        Key.Slash -> "/"
+        Key.Semicolon -> ";"
+        Key.Apostrophe -> "'"
+        Key.Comma -> ","
+        Key.Period -> "."
+        Key.DirectionUp -> "Up"
+        Key.DirectionDown -> "Down"
+        Key.DirectionLeft -> "Left"
+        Key.DirectionRight -> "Right"
+        Key.MoveHome -> "Home"
+        Key.MoveEnd -> "End"
+        Key.Insert -> "Insert"
         Key.A -> "A"
         Key.B -> "B"
         Key.C -> "C"
@@ -434,6 +452,44 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         else bound.equals(keyStr, ignoreCase = true) || (bound == "Space(长按)" && keyStr == "Space")
     }
 
+    val repeatCount = event.nativeKeyEvent.repeatCount
+    val now = android.os.SystemClock.uptimeMillis()
+
+    // 检查长按自动重复与防抖节流 (防止蓝牙键盘高频重复事件挤爆消息队列导致界面卡顿与按键滞后)
+    if (repeatCount > 0) {
+        val actionId = targetDef?.id ?: ""
+        val isContinuous = actionId in listOf(
+            "brush_size_inc", "brush_size_dec",
+            "brush_opacity_inc", "brush_opacity_dec",
+            "zoom_in", "zoom_out",
+        ) || keyStr in listOf(
+            "[", "]", "LeftCtrl + [", "LeftCtrl + ]",
+            "LeftCtrl + =", "LeftCtrl + -", "LeftCtrl + +",
+            "LeftCtrl + LeftShift + =", "LeftCtrl + LeftShift + +",
+            "LeftCtrl + NumPadSubtract",
+        )
+
+        val isUndoRedo = actionId in listOf("undo", "redo") ||
+            keyStr in listOf("LeftCtrl + Z", "LeftCtrl + LeftShift + Z", "LeftCtrl + Y")
+
+        if (isContinuous) {
+            if (now - lastRepeatActionTime < 50L) {
+                return true
+            }
+            lastRepeatActionTime = now
+        } else if (isUndoRedo) {
+            if (now - lastRepeatActionTime < 200L) {
+                return true
+            }
+            lastRepeatActionTime = now
+        } else {
+            // 工具切换、新建图层、保存等离散动作，长按只在初次按下时触发，连发直接吞掉
+            return true
+        }
+    } else {
+        lastRepeatActionTime = now
+    }
+
     if (targetDef != null) {
         executeShortcutAction(targetDef.id)
         return true
@@ -456,9 +512,9 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         "LeftCtrl + J" -> { copyLayer(currentLayerIndex); true }
         "LeftCtrl + E" -> { mergeDown(currentLayerIndex); true }
         "LeftCtrl + T" -> { applyTool("transform"); true }
-        "LeftCtrl + =", "LeftCtrl + +" -> { requestUiCommand("zoom_in"); true }
-        "LeftCtrl + -" -> { requestUiCommand("zoom_out"); true }
-        "LeftCtrl + 0" -> { requestUiCommand("reset_view"); true }
+        "LeftCtrl + =", "LeftCtrl + +", "LeftCtrl + LeftShift + =", "LeftCtrl + LeftShift + +" -> { requestUiCommand("zoom_in"); true }
+        "LeftCtrl + -", "LeftCtrl + NumPadSubtract" -> { requestUiCommand("zoom_out"); true }
+        "LeftCtrl + 0", "LeftCtrl + NumPad0" -> { requestUiCommand("reset_view"); true }
         "[" -> {
             val minL = brushMinSizeLimit.coerceAtLeast(0.5)
             updateBrushSize((brushSize / 1.25).coerceAtLeast(minL))
@@ -497,7 +553,7 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         }
         "H" -> { flipCanvasHorizontal(); true }
         "R" -> { requestUiCommand("rotate_cw"); true }
-        "Delete" -> { removeLayer(currentLayerIndex); true }
+        "Delete", "Backspace" -> { removeLayer(currentLayerIndex); true }
         "PageDown" -> {
             if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
             true

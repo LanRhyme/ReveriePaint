@@ -232,6 +232,57 @@ class ThemeSettingsTest {
         assertEquals("[", formatKey(false, false, false, "["))
         assertEquals("]", formatKey(false, false, false, "]"))
     }
+
+    @Test
+    fun `UiAnimationSpeed parsing and Motion token dynamics`() {
+        assertEquals(UiAnimationSpeed.NORMAL, UiAnimationSpeed.fromId("normal"))
+        assertEquals(UiAnimationSpeed.FAST, UiAnimationSpeed.fromId("fast"))
+        assertEquals(UiAnimationSpeed.OFF, UiAnimationSpeed.fromId("off"))
+        assertEquals(UiAnimationSpeed.NORMAL, UiAnimationSpeed.fromId("unknown"))
+
+        com.reverie.paint.ui.theme.Motion.currentSpeed = UiAnimationSpeed.NORMAL
+        val normalExit = com.reverie.paint.ui.theme.Motion.exitTween<Float>(200)
+        assertTrue("Normal exit should be tween", normalExit is androidx.compose.animation.core.TweenSpec)
+
+        com.reverie.paint.ui.theme.Motion.currentSpeed = UiAnimationSpeed.FAST
+        val fastExit = com.reverie.paint.ui.theme.Motion.exitTween<Float>(200)
+        assertTrue("Fast exit should be tween", fastExit is androidx.compose.animation.core.TweenSpec)
+        val fastTween = fastExit as androidx.compose.animation.core.TweenSpec
+        assertTrue("Fast animation duration must be <= 100ms", fastTween.durationMillis <= 100)
+
+        com.reverie.paint.ui.theme.Motion.currentSpeed = UiAnimationSpeed.OFF
+        val offExit = com.reverie.paint.ui.theme.Motion.exitTween<Float>(200)
+        assertTrue("Off exit should be snap", offExit is androidx.compose.animation.core.SnapSpec)
+
+        val offEnter = com.reverie.paint.ui.theme.Motion.enterSpring<Float>()
+        assertTrue("Off enter should be snap", offEnter is androidx.compose.animation.core.SnapSpec)
+
+        // Reset to normal
+        com.reverie.paint.ui.theme.Motion.currentSpeed = UiAnimationSpeed.NORMAL
+    }
+
+    @Test
+    fun `QuickAction enum and layout parsing logic`() {
+        assertEquals(QuickAction.LOCK_VIEW, QuickAction.fromId("lock_view"))
+        assertEquals(QuickAction.FLIP_H, QuickAction.fromId("flip_h"))
+        assertEquals(QuickAction.UNDO, QuickAction.fromId("undo"))
+        assertEquals(QuickAction.NEW_LAYER, QuickAction.fromId("new_layer"))
+        assertEquals(null, QuickAction.fromId("non_existent"))
+
+        assertEquals(QuickActionLayoutMode.ROW, QuickActionLayoutMode.fromId("row"))
+        assertEquals(QuickActionLayoutMode.COLUMN, QuickActionLayoutMode.fromId("column"))
+        assertEquals(QuickActionLayoutMode.GRID_2, QuickActionLayoutMode.fromId("grid_2"))
+        assertEquals(QuickActionLayoutMode.GRID_3, QuickActionLayoutMode.fromId("grid_3"))
+        assertEquals(QuickActionLayoutMode.COLUMN, QuickActionLayoutMode.fromId("invalid"))
+
+        val config = QuickActionsConfig()
+        assertTrue("Default actions must contain UNDO", config.actions.contains(QuickAction.UNDO))
+        assertTrue("Default actions must contain REDO", config.actions.contains(QuickAction.REDO))
+        assertEquals(QuickActionLayoutMode.COLUMN, config.layoutMode)
+        assertFalse(config.showLabels)
+    }
 }
+
+
 
 

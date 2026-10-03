@@ -214,23 +214,24 @@ bool ReverieCore::mergeDown(int index)
     }
     // Krita-native undo: the pixel merge is one transaction, the layer
     // removal is a remove command. Commit order matters: txn first, remove
-    // second, so undo re-inserts the layer first, then restores dst pixels.
     KisTransaction txn(kundo2_i18n("Merge Down"), dst);
     const QRect ext = src->exactBounds();
     if (!ext.isEmpty()) {
         KisPainter painter(dst);
         painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
         painter.setCompositeOpId(e.node->compositeOpId());
-        KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
-        if (layer && !layer->channelFlags().isEmpty()) {
-            painter.setChannelFlags(layer->channelFlags());
+        KisPaintLayer *dstPl = dynamic_cast<KisPaintLayer *>(m_layers[ti].node);
+        if (dstPl && dstPl->alphaLocked()) {
+            painter.setChannelFlags(dstPl->channelLockFlags());
         }
         painter.bitBlt(ext.x(), ext.y(), src, ext.x(), ext.y(), ext.width(), ext.height());
         dst->setDirty(ext);
     }
     KisNode *targetNode = m_layers[ti].node;
-    txn.commit(image->undoAdapter());
+    beginUndoMacro(QStringLiteral("向下合并"));
+    pushUndoCommand(txn.endAndTake());
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(e.node)));
+    endUndoMacro();
     recompositeProjection();
     syncLayersFromImage();
     m_currentLayer = indexOfNode(targetNode);
@@ -690,18 +691,26 @@ bool ReverieCore::rasterizeLayer(int index)
         return true;
     }
 
-    KisPaintLayerSP paintLayer = new KisPaintLayer(image, m_layers[index].name + QStringLiteral(" (栅格化)"), m_layers[index].node->opacity(), image->colorSpace());
+    const QString newName = m_layers[index].isGroup
+        ? m_layers[index].name
+        : (m_layers[index].name + QStringLiteral(" (栅格化)"));
+    KisPaintLayerSP paintLayer = new KisPaintLayer(image, newName, m_layers[index].node->opacity(), image->colorSpace());
     if (KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index])) {
-        KisPainter::copyAreaOptimized(QPoint(0, 0), dev, paintLayer->paintDevice(), dev->exactBounds());
-        paintLayer->paintDevice()->setDirty();
+        const QRect ext = dev->exactBounds();
+        if (!ext.isEmpty()) {
+            KisPainter::copyAreaOptimized(ext.topLeft(), dev, paintLayer->paintDevice(), ext);
+            paintLayer->paintDevice()->setDirty(ext);
+        }
     }
     paintLayer->setCompositeOpId(m_layers[index].node->compositeOpId());
 
     KisNodeSP parent = node->parent();
     KisNodeSP above = node->prevSibling();
 
+    beginUndoMacro(m_layers[index].isGroup ? QStringLiteral("合并图层组") : QStringLiteral("栅格化图层"));
     pushUndoCommand(new KisImageLayerRemoveCommand(image, node));
     pushUndoCommand(new KisImageLayerAddCommand(image, paintLayer, parent, above));
+    endUndoMacro();
     recompositeProjection();
     syncLayersFromImage();
     const int idx = indexOfNode(paintLayer.data());

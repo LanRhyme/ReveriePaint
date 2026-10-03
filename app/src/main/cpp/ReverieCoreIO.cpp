@@ -2258,7 +2258,7 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
         return true;
     }
 
-    QImage out(w, h, QImage::Format_RGBA8888);
+    QImage out(w, h, QImage::Format_RGBA8888_Premultiplied);
     out.fill(Qt::transparent);
 
     if (!ext.isEmpty()) {

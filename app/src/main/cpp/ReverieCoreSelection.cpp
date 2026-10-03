@@ -70,7 +70,7 @@ bool ReverieCore::selectionFromLayer(int index, int mode)
 
 bool ReverieCore::hasSelection() const
 {
-    return m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty() && !m_selection->selectedExactRect().isEmpty();
+    return m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty();
 }
 
 void ReverieCore::clearSelection()
@@ -314,6 +314,36 @@ QVector<quint32> ReverieCore::selectionOverlayScaled(int vw, int vh) const
     }
     if (!any) {
         return {};
+    }
+    return out;
+}
+
+QVector<qint32> ReverieCore::selectionOutline() const
+{
+    if (!m_selection) {
+        return {};
+    }
+    KisPixelSelectionSP ps = m_selection->pixelSelection();
+    if (!ps || ps->isEmpty()) {
+        return {};
+    }
+    const QVector<QPolygon> polys = ps->outline();
+    if (polys.isEmpty()) {
+        return {};
+    }
+    int totalPts = 0;
+    for (const QPolygon &p : polys) {
+        totalPts += p.size();
+    }
+    QVector<qint32> out;
+    out.reserve(1 + polys.size() + totalPts * 2);
+    out.append(polys.size());
+    for (const QPolygon &poly : polys) {
+        out.append(poly.size());
+        for (const QPoint &pt : poly) {
+            out.append(pt.x());
+            out.append(pt.y());
+        }
     }
     return out;
 }

@@ -222,9 +222,6 @@ fun PaintingPage(
     }
 
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
-    LaunchedEffect(textDialogPos) {
-        vm.isTextInputActive = textDialogPos != null
-    }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var targetFilterLayers by remember { mutableStateOf<List<Int>?>(null) }
@@ -272,10 +269,12 @@ fun PaintingPage(
                 flashIndicator()
             }
             "reset_view" -> {
-                zoom = 1f
-                rotation = 0f
-                panX = 0f
-                panY = 0f
+                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.animateFitCanvas() ?: run {
+                    zoom = 1f
+                    rotation = 0f
+                    panX = 0f
+                    panY = 0f
+                }
                 flashIndicator()
             }
             "open_edit_menu" -> {
@@ -461,6 +460,9 @@ fun PaintingPage(
             activeLayer?.locked == true ->
                 vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), R.drawable.ic_lock)
 
+            vm.isLayerEffectivelyHidden(vm.currentLayerIndex) ->
+                vm.showActionToast(context.getString(R.string.canvas_toast_layer_hidden), R.drawable.ic_eye_off)
+
             else -> {
                 val bmpW = vm.displayBitmap?.width ?: vm.docWidth
                 val bmpH = vm.displayBitmap?.height ?: vm.docHeight
@@ -491,6 +493,12 @@ fun PaintingPage(
     // Clear transient tool state when switching tools, and activate tool states
     androidx.compose.runtime.LaunchedEffect(tool) {
         if (tool == Tool.TRANSFORM || tool == Tool.MOVE) {
+            val targets = vm.editTargetLayers()
+            val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
+            if (activeLayer?.isGroup == true && targets.isEmpty()) {
+                vm.showActionToast(context.getString(R.string.canvas_toast_group_empty), R.drawable.ic_folder)
+                return@LaunchedEffect
+            }
             val b = vm.contentBounds()
             if (b != null && b[2] > 0 && b[3] > 0) {
                 tfState.reset(
@@ -608,7 +616,13 @@ fun PaintingPage(
             .background(Morandi.canvasBg)
             .focusRequester(focusRequester)
             .focusable()
-            .onKeyEvent { vm.handleKeyEvent(it) }
+            .onKeyEvent {
+                if (vm.isTextInputActive || vm.isShortcutRecordingActive) {
+                    false
+                } else {
+                    vm.handleKeyEvent(it)
+                }
+            }
     ) {
         // ---- Canvas workspace
         Box(
@@ -660,6 +674,11 @@ fun PaintingPage(
                 tfState = tfState,
                 polyPoints = polyPoints,
                 onPolyPoint = { polyPoints = polyPoints + it },
+                onPolyPopPoint = {
+                    if (polyPoints.isNotEmpty()) {
+                        polyPoints = polyPoints.dropLast(1)
+                    }
+                },
                 fillTolerance = vm.fillTolerance,
                 gradientType = gradientType,
                 liquifyStrength = liquifyStrength,
@@ -991,6 +1010,16 @@ fun PaintingPage(
                         when (it) {
                             Tool.REFERENCE -> {
                                 vm.referenceWindowOpen = !vm.referenceWindowOpen
+                                moreToolsOpen = false
+                            }
+                            Tool.SHORTCUT -> {
+                                vm.quickActionWindowOpen = !vm.quickActionWindowOpen
+                                vm.persistQuickActionsState()
+                                moreToolsOpen = false
+                            }
+                            Tool.QUICK_BRUSH -> {
+                                vm.quickBrushWindowOpen = !vm.quickBrushWindowOpen
+                                vm.persistQuickBrushState()
                                 moreToolsOpen = false
                             }
                             Tool.SYMMETRY -> {
@@ -1487,7 +1516,7 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = vm.anim.enabled && vm.anim.panelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it },
+            exit = fadeOut(Motion.exitTween(200)) + slideOutVertically(Motion.exitTween(200)) { it },
             modifier =
                 Modifier
                     .align(Alignment.BottomStart)
@@ -1673,7 +1702,7 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = brushPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
-            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(Motion.exitTween(200)) + slideOutHorizontally(Motion.exitTween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
                 Modifier
                     .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
@@ -1707,7 +1736,7 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = layerPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
-            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(Motion.exitTween(200)) + slideOutHorizontally(Motion.exitTween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
                 Modifier
                     .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
@@ -1746,7 +1775,7 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = settingsPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) -40 else 40 },
-            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) -40 else 40 },
+            exit = fadeOut(Motion.exitTween(200)) + slideOutHorizontally(Motion.exitTween(200)) { if (vm.leftHandMode) -40 else 40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             SettingsPanel(
@@ -1771,7 +1800,7 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = colorPanelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
-            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(Motion.exitTween(200)) + slideOutHorizontally(Motion.exitTween(200)) { if (vm.leftHandMode) 40 else -40 },
             modifier = if (vm.isColorPanelPinned) {
                 Modifier
                     .align(if (vm.leftHandMode) Alignment.BottomEnd else Alignment.BottomStart)
@@ -1812,7 +1841,7 @@ fun PaintingPage(
             enter =
                 fadeIn(Motion.enterSpring()) +
                     slideInHorizontally(Motion.enterSpring()) { if (vm.leftHandMode) 40 else -40 },
-            exit = fadeOut(tween(180)) + slideOutHorizontally(tween(180)) { if (vm.leftHandMode) 40 else -40 },
+            exit = fadeOut(Motion.exitTween(180)) + slideOutHorizontally(Motion.exitTween(180)) { if (vm.leftHandMode) 40 else -40 },
             modifier = Modifier.fillMaxSize().zIndex(100f),
         ) {
             AllToolsPanel(
@@ -1822,6 +1851,16 @@ fun PaintingPage(
                     when (it) {
                         Tool.REFERENCE -> {
                             vm.referenceWindowOpen = !vm.referenceWindowOpen
+                            moreToolsOpen = false
+                        }
+                        Tool.SHORTCUT -> {
+                            vm.quickActionWindowOpen = !vm.quickActionWindowOpen
+                            vm.persistQuickActionsState()
+                            moreToolsOpen = false
+                        }
+                        Tool.QUICK_BRUSH -> {
+                            vm.quickBrushWindowOpen = !vm.quickBrushWindowOpen
+                            vm.persistQuickBrushState()
                             moreToolsOpen = false
                         }
                         Tool.SYMMETRY -> {
@@ -1879,12 +1918,48 @@ fun PaintingPage(
         AnimatedVisibility(
             visible = vm.referenceWindowOpen,
             enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(tween(150)) + androidx.compose.animation.scaleOut(tween(150), targetScale = 0.92f),
+            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
             modifier = Modifier.zIndex(8f),
         ) {
             ReferenceWindow(
                 vm = vm,
                 onClose = { vm.referenceWindowOpen = false },
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+        }
+
+        // ---- Persistent Floating Quick Action Window (常驻悬浮快捷操作小窗) ----
+        AnimatedVisibility(
+            visible = vm.quickActionWindowOpen,
+            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+            modifier = Modifier.zIndex(9f),
+        ) {
+            com.reverie.paint.ui.painting.quickaction.QuickActionWindow(
+                vm = vm,
+                onClose = {
+                    vm.quickActionWindowOpen = false
+                    vm.persistQuickActionsState()
+                },
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+        }
+
+        // ---- Persistent Floating Quick Brush Window (常驻悬浮快捷笔刷小窗) ----
+        AnimatedVisibility(
+            visible = vm.quickBrushWindowOpen,
+            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+            modifier = Modifier.zIndex(9.1f),
+        ) {
+            com.reverie.paint.ui.painting.quickbrush.QuickBrushWindow(
+                vm = vm,
+                onClose = {
+                    vm.quickBrushWindowOpen = false
+                    vm.persistQuickBrushState()
+                },
                 hazeState = hazeState,
                 opacity = vm.popupPanelOpacity,
             )
@@ -1974,6 +2049,7 @@ fun PaintingPage(
 
         // Text tool editing dialog
         textDialogPos?.let {
+            TextInputGuard(vm)
             com.reverie.paint.ui.painting.panels.TypographyTextDialog(
                 initialText = vm.typographyConfig.text,
                 onConfirm = { newText ->

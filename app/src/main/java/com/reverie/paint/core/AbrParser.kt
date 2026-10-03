@@ -841,15 +841,19 @@ object AbrParser {
             }
 
             // Transfer / Paint Dynamics
-            val usePaintDynamics = extractBool(items["usePaintDynamics"])
+            val usePaintDynamics = extractBool(items["usePaintDynamics"]) ||
+                extractBool(items["useTransfer"]) ||
+                extractBool(items["useOtherDynamics"])
             var pressureOpacity = false
             var pressureFlow = false
             if (usePaintDynamics) {
-                val opVr = extractItems(items["opVr"])
+                val opVr = extractItems(items["opVr"]).ifEmpty { extractItems(items["opacityDynamics"]) }
                 if ((extractDouble(opVr["bVTy"])?.toInt() ?: 0) == 2) {
                     pressureOpacity = true
                 }
                 val prVr = extractItems(items["prVr"])
+                    .ifEmpty { extractItems(items["flVr"]) }
+                    .ifEmpty { extractItems(items["flowDynamics"]) }
                 if ((extractDouble(prVr["bVTy"])?.toInt() ?: 0) == 2) {
                     pressureFlow = true
                 }

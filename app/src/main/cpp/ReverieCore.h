@@ -432,6 +432,9 @@ public:
      *  per pixel), built on the render thread for the overlay. */
     QVector<quint32> selectionOverlayScaled(int vw, int vh) const;
 
+    /** Vector outline polygons of the current selection for marching ants rendering. */
+    QVector<qint32> selectionOutline() const;
+
     /** Live lasso preview: scanline-fill the polygon into a mask and
      *  downsample it to the viewport without touching the committed
      *  selection (Krita's selection tools preview the growing selection

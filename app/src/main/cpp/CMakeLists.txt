@@ -232,6 +232,7 @@ add_library(reverie_jni SHARED
     ReverieCoreInbetween.cpp
     ReverieCoreIO.cpp
     ReverieCoreColorSpaceHook.cpp
+    ReverieCrashHandler.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_image_data.cpp
     # Android 定制版: 掩膜设备色彩空间带 GrayA→alpha8 空指针兜底

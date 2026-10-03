@@ -163,7 +163,6 @@ void ReverieCore::touchStrokeEnd()
             gc.setChannelFlags(pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());
             gc.bitBlt(ext.topLeft(), tempTarget, ext);
             gc.end();
-            pl->paintDevice()->setDirty(ext);
             markRegionDirty(ext);
             bumpLayerThumbGen(pl);
         }
@@ -200,7 +199,10 @@ void ReverieCore::touchStrokeEnd()
         m_redoCount = 0;
     }
 
-    // Propagate final dirty region to the layer device once upon stroke completion
+    // Propagate final dirty region for fast synchronous compositing.
+    // Do NOT trigger Krita's background async scheduler (endDev->setDirty) which
+    // clears projection tiles asynchronously and races with rendering, creating
+    // dirty block artifacts and visual flickering during continuous painting.
     KisPaintDeviceSP endDev = pl ? pl->paintDevice() : currentPaintDevice();
     if (endDev && m_document) {
         int strokeMargin = 0;
@@ -212,7 +214,6 @@ void ReverieCore::touchStrokeEnd()
             -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
         if (!totalDirty.isEmpty()) {
-            endDev->setDirty(totalDirty);
             markRegionDirty(totalDirty);
         }
     }
@@ -1243,7 +1244,6 @@ bool ReverieCore::strokeAirbrushTick()
             tickDirty = tickDirty.adjusted(-extra, -extra, extra, extra).intersected(
                 QRect(0, 0, m_docWidth, m_docHeight));
         }
-        target->setDirty(tickDirty);
         markRegionDirty(tickDirty);
     }
     return true;

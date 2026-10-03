@@ -151,11 +151,13 @@ object KppHelper {
         }
 
         val originalXml = readPresetXml(kppBytes)
-        val newXml = if (originalXml != null) {
-            injectParamsIntoXml(originalXml, presetName, params, tipScale)
+        val baseXml = originalXml ?: buildMinimalPresetXml(presetName, params, tipScale)
+        val effectiveParams = if (originalXml == null) {
+            params.copy(dynamicsCustomized = true)
         } else {
-            buildMinimalPresetXml(presetName, params, tipScale)
+            params
         }
+        val newXml = injectParamsIntoXml(baseXml, presetName, effectiveParams, tipScale)
 
         return replacePresetXml(kppBytes, newXml)
     }
@@ -445,6 +447,9 @@ object KppHelper {
         val sizeSensor: String? = null,
         val opacitySensor: String? = null,
         val flowSensor: String? = null,
+        val pressureSize: Double? = null,
+        val pressureOpacity: Double? = null,
+        val pressureFlow: Double? = null,
     )
 
     /**
@@ -525,6 +530,33 @@ object KppHelper {
         val opacitySensor = Regex("""<param[^>]*name="OpacitySensor"[^>]*>.*?<params\b[^>]*\bid="([^"]+)"""", RegexOption.DOT_MATCHES_ALL).find(xml)?.groupValues?.getOrNull(1)
         val flowSensor = Regex("""<param[^>]*name="FlowSensor"[^>]*>.*?<params\b[^>]*\bid="([^"]+)"""", RegexOption.DOT_MATCHES_ALL).find(xml)?.groupValues?.getOrNull(1)
 
+        val poMatch = Regex("""<param[^>]*name="PressureOpacity"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val oucMatch = Regex("""<param[^>]*name="OpacityUseCurve"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val hasPressureOpacity = when {
+            poMatch != null -> poMatch == "true" && oucMatch != "false"
+            oucMatch != null -> oucMatch == "true" && (opacitySensor == null || opacitySensor == "pressure")
+            else -> false
+        }
+        val pressureOpacity = if (hasPressureOpacity) 1.0 else 0.0
+
+        val pfMatch = Regex("""<param[^>]*name="PressureFlow"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val fucMatch = Regex("""<param[^>]*name="FlowUseCurve"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val hasPressureFlow = when {
+            pfMatch != null -> pfMatch == "true" && fucMatch != "false"
+            fucMatch != null -> fucMatch == "true" && (flowSensor == null || flowSensor == "pressure")
+            else -> false
+        }
+        val pressureFlow = if (hasPressureFlow) 1.0 else 0.0
+
+        val psMatch = Regex("""<param[^>]*name="PressureSize"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val sucMatch = Regex("""<param[^>]*name="SizeUseCurve"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)
+        val hasPressureSize = when {
+            psMatch != null -> psMatch == "true"
+            sucMatch != null -> sucMatch == "true" && (sizeSensor == null || sizeSensor == "pressure")
+            else -> true
+        }
+        val pressureSize = if (hasPressureSize) 1.0 else 0.0
+
         return KppParsedAttributes(
             fade = fade,
             softness = softness,
@@ -550,6 +582,9 @@ object KppHelper {
             sizeSensor = sizeSensor,
             opacitySensor = opacitySensor,
             flowSensor = flowSensor,
+            pressureSize = pressureSize,
+            pressureOpacity = pressureOpacity,
+            pressureFlow = pressureFlow,
         )
     }
 
@@ -659,7 +694,6 @@ object KppHelper {
             val useOpacity = params.pressureEnabled && (params.pressureOpacity > 0.001)
             xml = updateParam(xml, "PressureOpacity", useOpacity.toString())
             xml = updateParam(xml, "OpacityUseCurve", useOpacity.toString())
-            xml = updateParam(xml, "OpacityValue", params.pressureOpacity.toString())
             if (useOpacity) {
                 val opacitySensorXml = """<!DOCTYPE params><params id="$opacitySensorId"><curve>$curveStr</curve></params>"""
                 xml = updateParam(xml, "OpacitySensor", opacitySensorXml)
@@ -668,7 +702,6 @@ object KppHelper {
             val useFlow = params.pressureEnabled && (params.pressureFlow > 0.001)
             xml = updateParam(xml, "PressureFlow", useFlow.toString())
             xml = updateParam(xml, "FlowUseCurve", useFlow.toString())
-            xml = updateParam(xml, "FlowValue", params.pressureFlow.toString())
             if (useFlow) {
                 val flowSensorXml = """<!DOCTYPE params><params id="$flowSensorId"><curve>$curveStr</curve></params>"""
                 xml = updateParam(xml, "FlowSensor", flowSensorXml)
@@ -934,6 +967,12 @@ object KppHelper {
             """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="${params.angle}"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipShapeType" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
         }
 
+        val useSize = params.pressureEnabled && (params.pressureSize > 0.001)
+        val useOpacity = params.pressureEnabled && (params.pressureOpacity > 0.001)
+        val useFlow = params.pressureEnabled && (params.pressureFlow > 0.001)
+        val hasScatter = params.scatter > 0.001
+        val useRotation = params.followDirection || params.rotationSensor.isNotBlank()
+
         return """<?xml version="1.0" encoding="UTF-8"?>
 <Preset name="$presetName" paintopid="$resolvedOpId">
   <param type="string" name="paintopSize"><![CDATA[${params.size}]]></param>
@@ -953,6 +992,21 @@ object KppHelper {
   <param type="string" name="AirbrushOption/rate"><![CDATA[${params.airbrushRate}]]></param>
   <param type="string" name="ColorRateValue"><![CDATA[${params.smudgeRate}]]></param>
   <param type="string" name="SmudgeRateValue"><![CDATA[${params.smudgeLength}]]></param>
+  <param type="string" name="PressureSize"><![CDATA[$useSize]]></param>
+  <param type="string" name="SizeUseCurve"><![CDATA[$useSize]]></param>
+  <param type="string" name="SizeValue"><![CDATA[${params.pressureSize}]]></param>
+  <param type="string" name="PressureOpacity"><![CDATA[$useOpacity]]></param>
+  <param type="string" name="OpacityUseCurve"><![CDATA[$useOpacity]]></param>
+  <param type="string" name="PressureFlow"><![CDATA[$useFlow]]></param>
+  <param type="string" name="FlowUseCurve"><![CDATA[$useFlow]]></param>
+  <param type="string" name="PressureScatter"><![CDATA[$hasScatter]]></param>
+  <param type="string" name="Scatter/isChecked"><![CDATA[$hasScatter]]></param>
+  <param type="string" name="PressureRotation"><![CDATA[$useRotation]]></param>
+  <param type="string" name="HorizontalMirrorEnabled"><![CDATA[${params.randomFlipX}]]></param>
+  <param type="string" name="VerticalMirrorEnabled"><![CDATA[${params.randomFlipY}]]></param>
+  <param type="string" name="PressureMirror"><![CDATA[${params.randomFlipX || params.randomFlipY}]]></param>
+  <param type="string" name="Antialiasing"><![CDATA[${params.antiAliasing > 0}]]></param>
+  <param type="string" name="antialiasEdges"><![CDATA[${params.antiAliasing > 0}]]></param>
   $tipDef
 </Preset>"""
     }
