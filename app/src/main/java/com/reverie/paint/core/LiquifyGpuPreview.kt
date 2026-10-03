@@ -11,7 +11,7 @@ import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
-import android.util.Half
+import com.reverie.paint.model.LiquifyHalfFloat
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.model.LiquifyDirtyRegion
@@ -244,9 +244,16 @@ internal object LiquifyGpuPreview {
      * 只是最终出图的是 GLES 渲染线程(见 `LiquifyGlesPreview`)。两者同时打开时 GLES 优先
      * (绘制分流在 `CanvasTouchView.drawCanvas`)。
      *
-     * @return -1 = 跟随 property(GPU 可用且开关打开); 0 = 强制引擎侧 CPU 叠加
+     * @return -1 = property; 0 = CPU overlay; 1 = host draw; 2 = document projection
      */
-    fun decideForGesture(): Int {
+    fun decideForGesture(allowHostDraw: Boolean = true): Int {
+        // Independent surfaces cannot replace transparent layer pixels atomically.
+        // Complex layer stacks must use the engine's single composed display buffer.
+        if (!allowHostDraw) {
+            requested = false
+            clear()
+            return 2
+        }
         // 是否启用 GLES(property/构建档位, **或**设置页强制) + 覆盖层必须真的活着 ——
         // 否则"由它画"会变成没人画(见 LiquifyGlesPreview.setAlive / isOn)
         val glesReady =
@@ -563,8 +570,8 @@ internal object LiquifyGpuPreview {
         }
         for (i in 0 until count) {
             val base = LiquifyGridMeta.HEADER + i * LiquifyGridMeta.STRIDE
-            shorts[i * 4] = Half.toHalf(grid[base + 2])     // dx
-            shorts[i * 4 + 1] = Half.toHalf(grid[base + 3]) // dy
+            shorts[i * 4] = LiquifyHalfFloat.encode(grid[base + 2])     // dx
+            shorts[i * 4 + 1] = LiquifyHalfFloat.encode(grid[base + 3]) // dy
         }
         val bmp = Bitmap.createBitmap(cols, rows, Bitmap.Config.RGBA_F16)
         // wrap(shorts, 0, need): 复用缓冲可能比本帧需要的大, 必须限定长度, 否则多读的尾数据

@@ -403,6 +403,8 @@ internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
         ok = ReverieCoreBridge.newDocument(s.docW, s.docH)
     }
     if (ok) {
+        ReverieCoreBridge.setLiquifyProfile(false, .5)
+        ReverieCoreBridge.setLiquifyPreviewHostDrawMode(2)
         coreW = ReverieCoreBridge.docWidth()
         coreH = ReverieCoreBridge.docHeight()
         // setRenderViewport applies the same 4096 GPU-texture clamp the live
@@ -1084,6 +1086,11 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_LIQUIFY_SIZE -> {
             ReverieCoreBridge.setLiquifyBrushSize(r.f32().toDouble())
+        }
+
+        com.reverie.paint.model.RecordingEvents.T_LIQUIFY_PROFILE -> {
+            val professional = r.u8() != 0
+            ReverieCoreBridge.setLiquifyProfile(professional, r.f32().toDouble())
         }
 
         T_LIQUIFY_BEGIN -> {

@@ -274,6 +274,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyBegin(JNIEnv *env, jobject,
     if (layers != nullptr) {
         const jsize n = env->GetArrayLength(layers);
         jint *elems = env->GetIntArrayElements(layers, nullptr);
+        if (!elems) return; // JNI allocation failure must not dereference a null array.
         for (int i = 0; i < n; ++i) {
             list.append(int(elems[i]));
         }
@@ -463,6 +464,29 @@ Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewSourcePixelsInto(JNI
     core()->liquifyPreviewSourcePixels(reinterpret_cast<quint8 *>(dst));
     // 0 = 回写并释放
     env->ReleaseByteArrayElements(out, dst, 0);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_liquifyPreviewUnderlayPixelsInto(
+    JNIEnv *env, jobject, jbyteArray out)
+{
+    if (!out) return JNI_FALSE;
+    int meta[7] = {};
+    core()->liquifyPreviewSourceMeta(meta);
+    const qint64 bytes = qint64(meta[0]) * meta[1] * 4;
+    if (bytes <= 0 || env->GetArrayLength(out) < bytes) return JNI_FALSE;
+    jbyte *dst = env->GetByteArrayElements(out, nullptr);
+    if (!dst) return JNI_FALSE;
+    const bool ok = core()->liquifyPreviewUnderlayPixels(reinterpret_cast<quint8 *>(dst));
+    env->ReleaseByteArrayElements(out, dst, ok ? 0 : JNI_ABORT);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLiquifyProfile(JNIEnv *, jobject, jboolean professional,
+                                                            jdouble hardness)
+{
+    core()->setLiquifyProfile(professional == JNI_TRUE, hardness);
 }
 
 JNIEXPORT jbyteArray JNICALL

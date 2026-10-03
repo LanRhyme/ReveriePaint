@@ -178,7 +178,8 @@ class LiquifyInteractionSession {
      * @param forceFull    true = 不受每帧上限约束(抬笔补齐 / 关闭合并时的逐点路径)
      * @return false 表示无需推进(没有待推进目标 / 位移归零)
      */
-    fun prepareFlush(brushSize: Float, mode: Int, forceFull: Boolean, budget: Int = Int.MAX_VALUE): Boolean {
+    fun prepareFlush(brushSize: Float, mode: Int, forceFull: Boolean, budget: Int = Int.MAX_VALUE,
+                     professional: Boolean = false): Boolean {
         planSteps = 0
         if (!brushSize.isFinite() || budget <= 0) return false
         while (count > 0 && remainingSteps == 0) {
@@ -186,11 +187,13 @@ class LiquifyInteractionSession {
             val dy = points[head*3+1] - renderedY
             val dist = hypot(dx,dy)
             if (!dist.isFinite() || dist <= 0f) { consumePoint(); continue }
-            segmentTotalSteps = LiquifyPath.substepCount(dist,brushSize)
+            segmentTotalSteps = if (professional) LiquifyProfessional.substeps(dist, brushSize)
+                else LiquifyPath.substepCount(dist,brushSize)
             remainingSteps = segmentTotalSteps
             segmentStepX = dx / segmentTotalSteps
             segmentStepY = dy / segmentTotalSteps
-            segmentScale = LiquifyPath.substepStrengthScale(dist,brushSize,segmentTotalSteps,mode)
+            segmentScale = if (professional) 1f else
+                LiquifyPath.substepStrengthScale(dist,brushSize,segmentTotalSteps,mode)
         }
         hasPending = count > 0
         if (!hasPending) { backlogDabs = 0; return false }

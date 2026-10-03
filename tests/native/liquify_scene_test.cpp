@@ -18,12 +18,18 @@ int main(){
  glUniform1i(glGetUniformLocation(p,"uSrc"),0);glUniform1i(glGetUniformLocation(p,"uGrid"),1);glUniform1i(glGetUniformLocation(p,"uField"),1);
  float quad[]={-1,-1,1,-1,-1,1,1,1};GLuint vbo;glGenBuffers(1,&vbo);glBindBuffer(GL_ARRAY_BUFFER,vbo);glBufferData(GL_ARRAY_BUFFER,sizeof(quad),quad,GL_STATIC_DRAW);glVertexAttribPointer(0,2,GL_FLOAT,GL_FALSE,0,nullptr);glEnableVertexAttribArray(0);glViewport(0,0,8,8);
  glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_ALPHA);std::vector<unsigned char> out(256);
- for(int pass=0;pass<2;pass++){
+ GLuint base;glGenTextures(1,&base);glActiveTexture(GL_TEXTURE2);glBindTexture(GL_TEXTURE_2D,base);
+ glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+ std::vector<unsigned char> underlay(256);for(int i=0;i<64;i++){underlay[i*4+1]=255;underlay[i*4+3]=255;}
+ glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA,8,8,0,GL_RGBA,GL_UNSIGNED_BYTE,underlay.data());
+ glUniform1i(glGetUniformLocation(p,"uUnderlay"),2);
+ for(int pass=0;pass<3;pass++){
    // A conspicuous old green canvas must not contribute any pixel to the scene.
-   glClearColor(0,1,0,1);glClear(GL_COLOR_BUFFER_BIT);two("uSceneSize",pass?0:8,pass?0:8);if(pass){glDisable(GL_BLEND);}
+   glClearColor(0,1,0,1);glClear(GL_COLOR_BUFFER_BIT);two("uSceneSize",pass==1?0:8,pass==1?0:8);if(pass){glDisable(GL_BLEND);}
+   glUniform1f(glGetUniformLocation(p,"uUseUnderlay"),pass==2?1.f:0.f);
    glDrawArrays(GL_TRIANGLE_STRIP,0,4);glReadPixels(0,0,8,8,GL_RGBA,GL_UNSIGNED_BYTE,out.data());assert(glGetError()==GL_NO_ERROR);
-   for(int y=0;y<8;y++)for(int x=0;x<8;x++){int i=(y*8+x)*4;if(pass){assert(out[i+3]==(x<4?0:128));assert(out[i]==(x<4?0:100));}else{assert(out[i+3]==255);if(x<4){assert(out[i]>=228);assert(out[i+1]>=230);}else{assert(out[i]>=213);assert(out[i+1]<=128);}}}
+   for(int y=0;y<8;y++)for(int x=0;x<8;x++){int i=(y*8+x)*4;if(pass==2){assert(out[i+3]==255);assert(out[i]==(x<4?0:100));assert(out[i+1]==(x<4?255:127));}else if(pass==1){assert(out[i+3]==(x<4?0:128));assert(out[i]==(x<4?0:100));}else{assert(out[i+3]==255);if(x<4){assert(out[i]>=228);assert(out[i+1]>=230);}else{assert(out[i]>=213);assert(out[i+1]<=128);}}}
  }
- puts("PASS production GLSL: opaque scene replaces old paint; commit preserves zero/half alpha");
+ puts("PASS production GLSL: old paint replaced; static underlay composes below warped layer; commit preserves zero/half alpha");
  eglMakeCurrent(d,EGL_NO_SURFACE,EGL_NO_SURFACE,EGL_NO_CONTEXT);eglDestroyContext(d,ctx);eglDestroySurface(d,surf);eglTerminate(d);
 }

@@ -678,6 +678,7 @@ public:
     void liquifyPreviewSourceMeta(int *out);
     /** 源裁剪像素 (RGBA8888, `cropW * cropH * 4` 字节, 自上而下)。 */
     void liquifyPreviewSourcePixels(quint8 *out);
+    bool liquifyPreviewUnderlayPixels(quint8 *out);
     /** 覆盖"主机侧绘制"判定: -1 跟随 system property(默认); 0 强制引擎侧叠加(AGSL 初始化失败时的
      *  回退入口); 1 强制主机侧绘制。 */
     void setLiquifyPreviewHostDrawMode(int mode);
@@ -698,6 +699,11 @@ public:
 
     void setLiquifyBrushSize(qreal size) { m_liquifyBrushSize = size; }
     qreal liquifyBrushSize() const { return m_liquifyBrushSize; }
+    void setLiquifyProfile(bool professional, qreal hardness) {
+        if (m_liquifyTxnActive) return;
+        m_liquifyProfessional = professional;
+        m_liquifyHardness = qBound<qreal>(0.0, hardness, 1.0);
+    }
 
     // Move the content of several layers at once (one undo step). An empty
     // list moves the current layer only.
@@ -705,7 +711,8 @@ public:
 
 private:
     void resetLiquifyWorker();
-    void liquifyApplyLocked(const QRect &deltaRect);
+    void liquifyApplyLocked(const QRect &deltaRect, bool compositeProjection = true);
+    void liquifyRecomposeProjection(const QRect &area);
 
     // ---- Phase 6: 物化节流(见 liquifyMaterializeTick 的说明) ----
     /** 把一块待落盘区域按 64 行拆成行带追加进队列(超上限时先整体清空, 防积压失控)。 */
@@ -999,9 +1006,11 @@ private:
     // every worker: they are content-independent); all targets flush as one
     // throttled writeback and one composite undo command.
     struct LiquifyTarget {
+        bool written = false; // Empty input must preserve the redo stack.
         KisPaintDeviceSP device;
         KisPaintDeviceSP src;
         KisPaintDeviceSP dst;
+        KisPaintDeviceSP maskedDst;
         class KisLiquifyTransformWorker *worker = nullptr;
         KisTransaction *txn = nullptr;
         QRect bounds;
@@ -1016,6 +1025,9 @@ private:
     };
     QVector<LiquifyTarget> m_liquifyTargets;
     bool m_liquifyTxnActive = false;   // a bracketed drag session is open
+    bool m_liquifyProfessional = false; // Legacy recordings retain their original geometry.
+    qreal m_liquifyHardness = .5;
+    bool m_liquifyGraphProjection = false; // Masks/clipping need the Krita node graph.
     // 本次手势的预览源目标(m_liquifyTargets 下标): 第一个**可见**的目标图层;
     // -1 = 全部目标都不可见 ⇒ 不生成任何预览(源裁剪元信息上报 0, 覆盖层据此清空)。
     // 只在 liquifyBegin 里算一次: 手势期间可见性不会变(层面板在手势中不可用)。
@@ -1035,7 +1047,8 @@ private:
     QVector<quint8> m_liquifyPreviewOut; // 预览像素(RGBA8888)
     // Phase 2B 主机侧绘制: 同一份 bounds 裁剪的 RGBA 副本(交给 GPU 当源纹理), 只在 rebase 时重建
     QVector<quint8> m_liquifyPreviewSrcRgba;
-    int m_liquifyPreviewHostDrawMode = -1; // -1 跟随 property / 0 强制引擎叠加 / 1 强制主机绘制
+    QVector<quint8> m_liquifyPreviewUnderlay;
+    int m_liquifyPreviewHostDrawMode = -1; // -1 property / 0 CPU overlay / 1 host / 2 document projection
     // 预览基座(见 setLiquifyPreviewBaseRect): 这块区域里画布不合成目标图层, 由预览提供它。
     // 空 = 不做排除(手势结束 / 取消 / 无可见预览目标时)。
     QRect m_liquifyPreviewBaseRect;

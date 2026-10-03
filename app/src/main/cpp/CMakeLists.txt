@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.22)
 project(ReveriePaintNative)
 
+# Direct WSL/NDK builds need the same optimized engine as Gradle's native mode.
+# An unspecified configuration otherwise silently compiles the pixel loops at O0.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Native engine build configuration" FORCE)
+endif()
+add_compile_options($<$<CONFIG:Release>:-O2>)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

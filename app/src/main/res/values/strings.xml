@@ -2127,5 +2127,8 @@
     <string name="settings_smoothing_pressure_desc">对落笔压感进行高斯平滑滤波</string>
     <string name="settings_smoothing_tail_aggressiveness">笔尾敏锐度</string>
     <string name="settings_smoothing_tail_aggressiveness_desc">笔尖离屏时加速收束，消除拖尾迟滞</string>
+    <string name="liquify_push_left">向左推移</string>
+    <string name="liquify_push_right">向右推移</string>
+    <string name="liquify_hardness">硬度</string>
 </resources>
 

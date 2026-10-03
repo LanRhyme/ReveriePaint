@@ -400,17 +400,16 @@ class PaintViewModel : ViewModel() {
      */
     internal fun pollLiquifyGpuPreview() {
         if (liquifyPresentation.isPending(liquifyPresentationGesture)) return
-        // Phase 5 · C2: GLES 侧自己躲掉了(EGL/着色器/交换失败) ⇒ **当帧**把引擎切回 CPU 预览。
+        // GLES failure: retire the independent preview and restore document projection.
         // "要么 GPU 画, 要么引擎画"是这条线不可破的底线; 恢复动作必须在引擎线程做(JNI 时序由
         // ViewModel 保证), 只做一次 —— 失败后 LiquifyGlesPreview.failed 会挡掉后续手势的重试。
         if (LiquifyGlesPreview.failed && !lqGlesRecovered) {
             lqGlesRecovered = true
             LiquifyGlesPreview.clear()
-            // 场通路回退到引擎 CPU 预览时, 之前按"受影响矩形"推下去的预览基座不再成立:
-            // 必须当场清掉, 否则那块画布会一直"少一层"(CPU 预览只覆盖 worker bounds)。
+            // The old preview base must be retired together with the failed surface.
             // 这里已经在引擎线程上, 可直接调 JNI。
             ReverieCoreBridge.setLiquifyPreviewBaseRect(0, 0, 0, 0)
-            ReverieCoreBridge.setLiquifyPreviewHostDrawMode(0)
+            ReverieCoreBridge.setLiquifyPreviewHostDrawMode(2)
             return
         }
         if (!LiquifyGpuPreview.requested) {
@@ -456,7 +455,15 @@ class PaintViewModel : ViewModel() {
         // 脏区基线两条路都要: GLES 接管时 AGSL 侧不会被 draw(不会建纹理), 只贡献脏区计算
         LiquifyGpuPreview.update(crop, src, grid)
         if (useGles) {
-            LiquifyGlesPreview.update(crop, src, grid)
+            val underlay = if (src != null && LiquifyGlesPreview.fieldArmed) {
+                ByteArray(src.size).also {
+                    if (!ReverieCoreBridge.liquifyPreviewUnderlayPixelsInto(it)) {
+                        LiquifyGlesPreview.markFailed()
+                    }
+                }
+            } else null
+            if (LiquifyGlesPreview.failed) return
+            LiquifyGlesPreview.update(crop, src, grid, underlay)
             // 上报实际在画的那条路的读数(语义与 AGSL 侧同名字段一致)
             // Phase 3B: 源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
             PerfTrace.liquifyUpload(LiquifyGlesPreview.sourceUploadCount)

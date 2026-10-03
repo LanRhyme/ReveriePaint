@@ -629,6 +629,7 @@ object ReverieCoreBridge {
 
     /** Commit the liquify drag transaction. */
     external fun liquifyEnd()
+    external fun setLiquifyProfile(professional: Boolean, hardness: Double)
 
     /** Revert the whole liquify drag. */
     external fun liquifyCancel()
@@ -869,10 +870,12 @@ object ReverieCoreBridge {
 
     /** 未形变的 bounds 裁剪(RGBA8888, 1 像素 = 1 文档像素)。只在 rebase 后取一次。 */
     external fun liquifyPreviewSourcePixels(): ByteArray?
+    external fun liquifyPreviewUnderlayPixelsInto(out: ByteArray): Boolean
 
     /**
      * 覆盖引擎的"主机侧绘制"判定: -1 跟随 system property(默认), 0 强制引擎侧 CPU 叠加,
-     * 1 强制主机侧绘制。AGSL 不可用/初始化失败时用 0 回退, 保证"要么 GPU 画, 要么引擎画"。
+     * 1 强制主机侧绘制, 2 禁用单图层预览并正常物化/合成文档
+     * AGSL 不可用/初始化失败时用 0 回退
      */
     external fun setLiquifyPreviewHostDrawMode(mode: Int)
 

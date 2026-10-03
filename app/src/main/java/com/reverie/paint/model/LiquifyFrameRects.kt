@@ -7,6 +7,11 @@ class LiquifyFrameRects {
     private val gestures = LongArray(8)
     private val rectangles = IntArray(32)
     private var next = 0
+    fun clear() {
+        times.fill(0L)
+        gestures.fill(0L)
+        next = 0
+    }
     fun stage(time: Long, gesture: Long, x: Int, y: Int, w: Int, h: Int) {
         val slot = next
         next = (next + 1) % times.size

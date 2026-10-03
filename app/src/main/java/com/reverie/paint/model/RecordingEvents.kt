@@ -142,6 +142,7 @@ object RecordingEvents {
     const val T_CANVAS_COPY = 43 // - (no payload, safe to skip in older tool dispatchers)
     const val T_CANVAS_CUT = 44 // -
     const val T_CANVAS_PASTE = 45 // -
+    const val T_LIQUIFY_PROFILE = 46 // professional u8, hardness f32
     const val T_PRESET_SELECT = 42 // native idx u16 (0xFFFF sentinel if <0), preset name str
     const val T_SELECT_ALL_CANVAS = 38 // - 全选整个画布 (T_SELECT_ALL 实为按图层 alpha 选区)
     // V2/V3 变体: 不改既有 payload 布局 (旧录制回放兼容), 追加字段随新码携带

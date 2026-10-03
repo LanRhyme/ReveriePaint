@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LiquifyFrameRectsTest {
+    @Test fun `cleared surface rejects a previously consumed frame`() {
+        val frames = LiquifyFrameRects()
+        frames.stage(100, 7, 4, 6, 20, 30)
+        frames.clear()
+        assertFalse(frames.copyPresented(100, 7, IntArray(4)))
+        frames.stage(200, 8, 0, 0, 40, 40)
+        assertTrue(frames.copyPresented(200, 8, IntArray(4)))
+    }
     @Test fun `presented frame never borrows a newer submitted rectangle`() {
         val frames = LiquifyFrameRects()
         val out = IntArray(4)

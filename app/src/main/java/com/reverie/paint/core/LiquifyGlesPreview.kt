@@ -5,6 +5,7 @@
 package com.reverie.paint.core
 
 import com.reverie.paint.model.LiquifyCommitFence
+import com.reverie.paint.model.LiquifyFieldResolution
 
 import android.os.Build
 import com.reverie.paint.BuildConfig
@@ -55,7 +56,7 @@ internal object LiquifyGlesPreview {
     private const val PROP_FIELD_RES = "debug.reverie.lqfieldRes"
 
     /** C3: 场纹理的像素预算 —— 2M px × 8B = 16MB。超预算先提高降采样比, 再超则回退网格。 */
-    const val FIELD_MAX_PX = 2_000_000
+    const val FIELD_MAX_PX = LiquifyFieldResolution.MAX_PIXELS
 
     /** C3: 补点参数缓冲的步长与容量(每补点 7 个 float, 见 [Frame.dabs])。 */
     const val DAB_STRIDE = 7
@@ -277,6 +278,7 @@ internal object LiquifyGlesPreview {
     private var cropOriginX = 0f
     private var cropOriginY = 0f
     private var pendingSrc: ByteArray? = null
+    private var pendingUnderlay: ByteArray? = null
     private var pendingGrid: FloatArray? = null
     private var gridCols = 0
     private var gridRows = 0
@@ -314,6 +316,7 @@ internal object LiquifyGlesPreview {
 
         /** 非空 = 本帧需要重传源纹理 (rebase 后只出现一次)。 */
         var src: ByteArray? = null
+        var underlay: ByteArray? = null
 
         /** 非空 = 本帧需要重传位移网格 (每个 dab 都会出现)。 */
         var grid: FloatArray? = null
@@ -335,6 +338,9 @@ internal object LiquifyGlesPreview {
         var sceneWidth = 0f
         var sceneHeight = 0f
         var fieldArmed = false
+        var fieldStep = 1
+        var professional = false
+        var hardness = .5f
 
         /** C3-2: 本帧要绘制的文档矩形([pushDrawRect]; 0 宽高 = 退回用整块裁剪)。 */
         var drawX = 0f
@@ -378,6 +384,22 @@ internal object LiquifyGlesPreview {
     }
 
     private var sceneWidth = 0f
+    private var gestureFieldStep = 1
+    private var professional = false
+    private var hardness = .5f
+
+    fun configureProfile(brushHardness: Float) = synchronized(lock) {
+        professional = true
+        hardness = brushHardness.coerceIn(0f, 1f)
+        bumpLocked()
+    }
+
+    fun configureFieldResolution(width: Int, height: Int, brushSize: Float) {
+        synchronized(lock) {
+            gestureFieldStep = LiquifyFieldResolution.step(width, height, brushSize / if (professional) 4f else 1f)
+            bumpLocked()
+        }
+    }
     private var sceneHeight = 0f
 
     fun configureOpaqueScene(width: Int, height: Int) = synchronized(lock) {
@@ -403,7 +425,11 @@ internal object LiquifyGlesPreview {
         synchronized(lock) {
             sceneWidth = 0f
             sceneHeight = 0f
+            gestureFieldStep = 1
+            professional = false
+            hardness = .5f
             gestureId++
+            frameRects.clear()
             cropW = 0
             cropH = 0
             gridCols = 0
@@ -411,6 +437,7 @@ internal object LiquifyGlesPreview {
             drawW = 0f
             drawH = 0f
             pendingSrc = null
+            pendingUnderlay = null
             pendingGrid = null
             pendingDabCount = 0
             pendingDabHead = 0
@@ -438,7 +465,9 @@ internal object LiquifyGlesPreview {
             drawW = 0f
             drawH = 0f
             // 手势结束: 已上屏矩形作废, 下一段手势必须重新经过"先画后挖"的顺序。
+            frameRects.clear()
             pendingSrc = null
+            pendingUnderlay = null
             pendingGrid = null
             pendingDabCount = 0
             pendingDabHead = 0
@@ -467,7 +496,7 @@ internal object LiquifyGlesPreview {
      * @param src  仅当裁剪指纹变化时非空 (RGBA8888, 整段手势只上传一次纹理)
      * @param grid `liquifyGrid()` 的原始数组 (每个 dab 都变; JNI 每次返回新数组, 直接持有即可)
      */
-    fun update(crop: IntArray, src: ByteArray?, grid: FloatArray?) {
+    fun update(crop: IntArray, src: ByteArray?, grid: FloatArray?, underlay: ByteArray? = null) {
         if (crop.size < 7 || crop[0] <= 0 || crop[1] <= 0) return
         val need = crop[0] * crop[1] * 4
         synchronized(lock) {
@@ -478,6 +507,7 @@ internal object LiquifyGlesPreview {
             // 长度不符的源像素一律丢弃: 宁可这一帧不画, 也不能把错的长度当纹理传上去
             if (src != null && src.size >= need) {
                 pendingSrc = src
+                pendingUnderlay = underlay
                 // C3: 源像素一变 ⇒ rebase 已经把这些补点的形变物化进像素, 引擎网格也重置了。
                 // 场必须同期归零并从新世代重新累加(渲染线程据 srcGen 丢弃跨世代的补点)。
                 srcGen++
@@ -526,23 +556,32 @@ internal object LiquifyGlesPreview {
         if (!px.isFinite() || !py.isFinite() || !nx.isFinite() || !ny.isFinite()) return
         if (!strength.isFinite() || !brushSize.isFinite() || strength <= 0f) return
         val distance = hypot(nx - px, ny - py)
-        val gain = LiquifyPath.fieldStrength(mode, strength) * LiquifyPath.fieldDabGain(mode, distance, brushSize)
-        val radius = LiquifyPath.fieldDabRadius(brushSize)
+        if (!distance.isFinite()) return
         synchronized(lock) {
-            if (pendingDabCount >= DAB_CAPACITY) {
+            val steps = if (professional) com.reverie.paint.model.LiquifyProfessional.substeps(distance, brushSize) else 1
+            if (steps > DAB_CAPACITY - pendingDabCount) {
                 dabsDropped++
                 return
             }
-            val base = ((pendingDabHead + pendingDabCount) % DAB_CAPACITY) * DAB_STRIDE
-            pendingDabs[base] = px
-            pendingDabs[base + 1] = py
-            pendingDabs[base + 2] = nx
-            pendingDabs[base + 3] = ny
-            pendingDabs[base + 4] = mode.toFloat()
-            pendingDabs[base + 5] = gain
-            pendingDabs[base + 6] = radius
-            pendingDabCount++
-            commitFence.enqueue()
+            val gain = if (professional) {
+                com.reverie.paint.model.LiquifyProfessional.gain(mode, distance, brushSize, strength) /
+                    (if (mode in 1..4) steps else 1)
+            } else LiquifyPath.fieldStrength(mode, strength) * LiquifyPath.fieldDabGain(mode, distance, brushSize)
+            val radius = if (professional) brushSize.coerceAtLeast(8f) * .5f else LiquifyPath.fieldDabRadius(brushSize)
+            val dx = (nx - px) / steps
+            val dy = (ny - py) / steps
+            for (i in 0 until steps) {
+                val base = ((pendingDabHead + pendingDabCount) % DAB_CAPACITY) * DAB_STRIDE
+                pendingDabs[base] = px + dx * i
+                pendingDabs[base + 1] = py + dy * i
+                pendingDabs[base + 2] = px + dx * (i + 1)
+                pendingDabs[base + 3] = py + dy * (i + 1)
+                pendingDabs[base + 4] = mode.toFloat()
+                pendingDabs[base + 5] = gain
+                pendingDabs[base + 6] = radius
+                pendingDabCount++
+                commitFence.enqueue()
+            }
         }
     }
 
@@ -751,13 +790,18 @@ internal object LiquifyGlesPreview {
             out.cropOriginY = cropOriginY
             // 增量语义: 取走即清, 下一次只有真的变了才会再带数据
             out.src = if (out.valid) pendingSrc else null
+            out.underlay = if (out.valid) pendingUnderlay else null
             out.grid = if (out.valid) pendingGrid else null
             if (out.valid) {
                 pendingSrc = null
+                pendingUnderlay = null
                 pendingGrid = null
             }
             // C3: 补点**不在这里取** —— 渲染线程真正要累加时再调 [takeDabs](无效帧不会吞掉它们)
             out.sceneWidth = sceneWidth
+            out.fieldStep = gestureFieldStep
+            out.professional = professional
+            out.hardness = hardness
             out.sceneHeight = sceneHeight
             out.fieldArmed = fieldArmed
             out.gestureId = gestureId
