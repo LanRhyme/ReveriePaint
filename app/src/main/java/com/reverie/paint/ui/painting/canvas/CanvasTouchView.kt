@@ -645,7 +645,7 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     private fun settleRotationToSnap(pivotX: Float, pivotY: Float) {
         val v = vm ?: return
-        if (!rotationSnapGesture.isActive) return
+        if (!rotationSnapGesture.isSnapped) return
         val threshold = v.canvasRotationSnapDegrees
         if (!v.canvasRotationEnabled || threshold <= 0f) return
         // 仅在吸附区内才收敛 (isWithinThreshold 已折叠角差, 天然处理 360°/0° 等价)
@@ -2770,8 +2770,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 新一段画布手势开始: 终止吸附收敛与满屏复位动画并失效其待执行帧, 同时把
                     // 当前生效角交给吸附状态机作为本段手势起点, 避免残留动画与新手势互相拉扯
                     cancelCanvasTransformAnimators()
-                    rotationSnapGesture.begin(canvasRotation)
-                    rotationSnapEngaged = false
+                    if (isNewGesture) {
+                        rotationSnapGesture.begin(canvasRotation)
+                        rotationSnapEngaged = false
+                    }
 
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
@@ -2833,18 +2835,17 @@ class CanvasTouchView(context: Context) : View(context) {
                         val k = (distance / prevDistance).coerceIn(0.7f, 1.4f)
                         val isLocked = v.isViewTransformLocked
                         val snapThreshold = if (v.canvasRotationEnabled && !isLocked) v.canvasRotationSnapDegrees else 0f
-                        // 用实际生效角增量补偿平移；净转角判定和激活连续性由模型管理。
+                        // 用实际生效角增量补偿平移，吸附时仍以双指中心为旋转中心。
                         val dRot: Float
                         if (v.canvasRotationEnabled && !isLocked) {
                             val rawDelta = normalizeAngle(angle - prevAngle).coerceIn(-15f, 15f)
                             // 退化输入防御: 非有限增量按 0 处理, 不得把 NaN 累积进吸附状态与画布角度
                             val safeDelta = if (rawDelta.isFinite()) rawDelta else 0f
-                            // 净转角判定旋转意图 + 激活时逆映射保持曲线连续, 由 RotationSnapGesture 管理
+                            // 模型负责旋转意图、精确锁定和脱离吸附时的连续衔接。
                             val snapped = rotationSnapGesture.update(safeDelta, snapThreshold)
                             dRot = snapped - canvasRotation
                             canvasRotation = snapped
-                            val engaged = rotationSnapGesture.isActive &&
-                                RotationSnap.isSnapEngaged(rotationSnapGesture.rawDegrees, snapThreshold, rotationSnapEngaged)
+                            val engaged = rotationSnapGesture.isSnapped
                             if (engaged && !rotationSnapEngaged) {
                                 // 进入吸附区沿: 轻微触觉反馈 + 上层高亮角度 HUD (视觉反馈)
                                 performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)

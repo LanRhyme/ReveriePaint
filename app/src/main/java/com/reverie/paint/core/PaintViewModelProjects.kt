@@ -522,32 +522,7 @@ internal fun PaintViewModel.renameProject(
 }
 
 internal fun PaintViewModel.duplicateProject(p: com.reverie.paint.model.Project) {
-    if (p.isFolder) return
-    val srcFile = File(p.filePath)
-    if (!srcFile.exists() || srcFile.length() == 0L) return
-
-    val parentDir = srcFile.parentFile ?: projectDir()
-    val baseName = p.name
-    val ext = srcFile.extension
-
-    val isZh = LanguageManager.isChinese()
-    val copySuffix = if (isZh) "副本" else "Copy"
-    var candidateName = "$baseName $copySuffix"
-    var targetFile = File(parentDir, "$candidateName.$ext")
-    var counter = 2
-    while (targetFile.exists()) {
-        candidateName = "$baseName $copySuffix $counter"
-        targetFile = File(parentDir, "$candidateName.$ext")
-        counter++
-    }
-
-    try {
-        srcFile.copyTo(targetFile, overwrite = false)
-        refreshProjects()
-        showActionToast(R.string.toast_project_duplicate_created, R.drawable.ic_copy, candidateName)
-    } catch (e: Exception) {
-        android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
-    }
+    duplicateProjectFiles(listOf(p), single = true)
 }
 
 internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.model.Project>) {
@@ -566,38 +541,71 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
 }
 
 internal fun PaintViewModel.duplicateProjects(projects: List<com.reverie.paint.model.Project>) {
-    var count = 0
-    val parentDir = projectDir()
-    val isZh = LanguageManager.isChinese()
-    val copySuffix = if (isZh) "副本" else "Copy"
+    duplicateProjectFiles(projects, single = false)
+}
 
-    projects.forEach { p ->
-        if (!p.isFolder) {
-            val srcFile = File(p.filePath)
-            if (srcFile.exists() && srcFile.length() > 0L) {
-                val dir = srcFile.parentFile ?: parentDir
-                val baseName = p.name
-                val ext = srcFile.extension
-                var candidateName = "$baseName $copySuffix"
-                var targetFile = File(dir, "$candidateName.$ext")
-                var counter = 2
-                while (targetFile.exists()) {
-                    candidateName = "$baseName $copySuffix $counter"
-                    targetFile = File(dir, "$candidateName.$ext")
-                    counter++
+private fun PaintViewModel.duplicateProjectFiles(
+    projects: List<com.reverie.paint.model.Project>,
+    single: Boolean,
+) {
+    if (isBlockingLoading) return
+    val sources = projects.filter { !it.isFolder }
+    if (sources.isEmpty()) return
+    val copySuffix = if (LanguageManager.isChinese()) "副本" else "Copy"
+    isBlockingLoading = true
+    blockingLoadingMessage = getString(R.string.project_copying_progress, 1, sources.size)
+    viewModelScope.launch {
+        var count = 0
+        var lastName = ""
+        try {
+            for ((index, project) in sources.withIndex()) {
+                blockingLoadingMessage = getString(R.string.project_copying_progress, index + 1, sources.size)
+                val copiedName = withContext(Dispatchers.IO) {
+                    val source = File(project.filePath)
+                    var target: File? = null
+                    var ownsTarget = false
+                    try {
+                        check(source.isFile && source.length() > 0L) { "Source is missing or empty" }
+                        val directory = source.parentFile ?: error("Source has no parent directory")
+                        var name = "${project.name} $copySuffix"
+                        var counter = 2
+                        // Reserve the destination without replacing an existing artwork.
+                        while (true) {
+                            val candidate = File(directory, "$name.${source.extension}")
+                            if (candidate.createNewFile()) {
+                                target = candidate
+                                ownsTarget = true
+                                break
+                            }
+                            name = "${project.name} $copySuffix ${counter++}"
+                        }
+                        source.inputStream().use { input ->
+                            requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
+                        }
+                        name
+                    } catch (e: Exception) {
+                        if (ownsTarget) target?.delete()
+                        android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
+                        null
+                    }
                 }
-                try {
-                    srcFile.copyTo(targetFile, overwrite = false)
+                if (copiedName != null) {
                     count++
-                } catch (e: Exception) {
-                    android.util.Log.e("RP_PROJECT", "duplicateProject failed", e)
+                    lastName = copiedName
                 }
             }
+            if (count < sources.size) {
+                showActionToast(R.string.project_copy_result, R.drawable.ic_copy, count, sources.size - count)
+            } else if (single) {
+                showActionToast(R.string.toast_project_duplicate_created, R.drawable.ic_copy, lastName)
+            } else {
+                showActionToast(R.string.gallery_toast_batch_duplicated, R.drawable.ic_copy, count)
+            }
+        } finally {
+            isBlockingLoading = false
+            blockingLoadingMessage = ""
+            refreshProjects()
         }
-    }
-    if (count > 0) {
-        refreshProjects()
-        showActionToast(R.string.gallery_toast_batch_duplicated, R.drawable.ic_copy, count)
     }
 }
 

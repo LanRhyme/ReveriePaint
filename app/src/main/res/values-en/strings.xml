@@ -2214,5 +2214,7 @@
     <string name="liquify_push_left">Push left</string>
     <string name="liquify_push_right">Push right</string>
     <string name="liquify_hardness">Hardness</string>
+    <string name="project_copying_progress">Copying artworks (%1$d/%2$d)</string>
+    <string name="project_copy_result">Copied %1$d artworks, %2$d failed</string>
 </resources>
 

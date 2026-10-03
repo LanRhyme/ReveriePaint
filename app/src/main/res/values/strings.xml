@@ -2214,5 +2214,7 @@
     <string name="liquify_push_left">向左推移</string>
     <string name="liquify_push_right">向右推移</string>
     <string name="liquify_hardness">硬度</string>
+    <string name="project_copying_progress">正在复制作品（%1$d/%2$d）</string>
+    <string name="project_copy_result">已复制 %1$d 项，失败 %2$d 项</string>
 </resources>
 
