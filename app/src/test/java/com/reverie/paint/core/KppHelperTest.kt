@@ -286,7 +286,10 @@ class KppHelperTest {
 
         assertEquals(1, Regex("""name="SoftnessValue"""").findAll(updatedXml).count())
         assertEquals(1, Regex("""name="SpacingValue"""").findAll(updatedXml).count())
-        assertTrue(updatedXml.contains("""name="SpacingValue"><![CDATA[0.25]]></param>"""))
+        // SpacingValue 是 KisSpacingOption 的 extraScale 乘数, 不是笔刷间距:
+        // 写回时必须原样保留, 绝不能被替换成 params.spacing (那会让有效间距再乘一次自身)
+        val spacingValue = Regex("""name="SpacingValue"[^>]*>(?:<!\[CDATA\[)?([^<\]]*)""").find(updatedXml)
+        assertEquals("0.1", spacingValue!!.groupValues[1])
         // 原生 name 在前的写法被就地收敛, 不留旧值
         assertFalse(updatedXml.contains("""name="SoftnessValue" type="string""""))
     }

@@ -1185,4 +1185,15 @@ void registerReverieGenerators();
 void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current,
                            KisNodeSP &above, KisNodeSP &parent, KisImageSP image);
 
+/** 导出 .kra 时逐层内嵌的 sRGB ICC 档案（定义于 ReverieCoreIccData.cpp）。
+ *  Android 侧色彩空间是 KoSimpleColorSpace，profile()->rawData() 恒为空，
+ *  拿不到可写的 ICC，只能用这份内置数据。 */
+const unsigned char *reverieDefaultSrgbIccData();
+int reverieDefaultSrgbIccSize();
+
+/** 上面那份 ICC 的 profile 名（ICP desc = "sRGB built-in"）。
+ *  maindoc.xml 的 IMAGE profile 属性必须写同名值，桌面 Krita 才会让图像与
+ *  图层落在同一个色彩空间上（桌面启动时注册了同名 lcms 内置 sRGB）。 */
+const char *reverieDefaultSrgbIccName();
+
 #endif // REVERIECORE_INTERNAL_H

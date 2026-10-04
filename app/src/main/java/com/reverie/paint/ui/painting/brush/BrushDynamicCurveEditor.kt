@@ -288,44 +288,67 @@ fun BrushDynamicCurveEditor(
                         }
                     }
                     .pointerInput(config.points, selectedPointIndex) {
+                        // 拖动期间以"按下时的点"为基准做绝对换算, 而不是逐帧累加 dragAmount:
+                        // 累加依赖父级回传的 config.points, 而 onConfigChange 要绕一圈
+                        // runCore 才回来, 状态滞后会让拖动丢增量/抖动。
+                        var grabbedIdx = -1
+                        var startNormX = 0f
+                        var startNormY = 0f
                         detectDragGestures(
                             onDragStart = { startOffset ->
                                 val pad = 16f
                                 val w = size.width - pad * 2
                                 val h = size.height - pad * 2
                                 val hitRadiusPx = 32f
+                                grabbedIdx = -1
                                 config.points.forEachIndexed { idx, pt ->
                                     val ptPxX = pad + pt.x * w
                                     val ptPxY = pad + (1f - pt.y) * h
                                     val dist = kotlin.math.hypot(startOffset.x - ptPxX, startOffset.y - ptPxY)
+                                    // 取最近的命中点, 而不是最后命中的那个
                                     if (dist <= hitRadiusPx) {
-                                        selectedPointIndex = idx
+                                        val cur = if (grabbedIdx < 0) Float.MAX_VALUE
+                                        else kotlin.math.hypot(
+                                            startOffset.x - (pad + config.points[grabbedIdx].x * w),
+                                            startOffset.y - (pad + (1f - config.points[grabbedIdx].y) * h),
+                                        )
+                                        if (dist < cur) {
+                                            grabbedIdx = idx
+                                            startNormX = pt.x
+                                            startNormY = pt.y
+                                        }
                                     }
                                 }
+                                // 命中空白处就放弃本次拖动: 否则会顺移上一次选中的点
+                                if (grabbedIdx >= 0) selectedPointIndex = grabbedIdx
                             },
-                        ) { change, dragAmount ->
-                            val idx = selectedPointIndex
+                        ) { change, _ ->
+                            val idx = grabbedIdx
                             if (idx in config.points.indices) {
                                 change.consume()
                                 val pad = 16f
                                 val w = size.width - pad * 2
                                 val h = size.height - pad * 2
                                 if (w > 0 && h > 0) {
-                                    val currentPt = config.points[idx]
-                                    val newNormY = (currentPt.y - dragAmount.y / h).coerceIn(0f, 1f)
-
+                                    val curPos = change.position
+                                    val newNormY = (1f - (curPos.y - pad) / h).coerceIn(0f, 1f)
                                     // 首尾端点的 X 严格锁定在 0 与 1
                                     val newNormX = when (idx) {
                                         0 -> 0f
                                         config.points.lastIndex -> 1f
-                                        else -> (currentPt.x + dragAmount.x / w).coerceIn(0.01f, 0.99f)
+                                        else -> ((curPos.x - pad) / w).coerceIn(0.01f, 0.99f)
                                     }
 
                                     val mutable = config.points.toMutableList()
                                     mutable[idx] = CurvePoint.of(newNormX, newNormY)
                                     // 仅对中间点重新保持有序
                                     val sorted = mutable.sortedBy { it.x }
-                                    selectedPointIndex = sorted.indexOf(mutable[idx])
+                                    // 用"被移动的点在排序后的下标"回填, 不用 indexOf(值):
+                                    // 拖到与邻点数值重合时 indexOf 会返回邻点的下标, 之后
+                                    // 手柄会突然跳到另一个点上。sortedBy 是稳定排序, 因此
+                                    // 被移动点若与邻点 x 相同, 保持相对次序即为它自身。
+                                    selectedPointIndex = sorted.indexOfFirst { it === mutable[idx] }
+                                        .takeIf { it >= 0 } ?: sorted.indexOf(mutable[idx])
                                     onConfigChange(config.copy(points = sorted))
                                 }
                             }

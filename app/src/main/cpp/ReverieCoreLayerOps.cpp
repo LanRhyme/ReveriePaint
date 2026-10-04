@@ -134,10 +134,9 @@ void ReverieCore::flipCanvasVertical()
     flipCanvasCommon(false);
 }
 
-// Fill an entire layer with the current foreground colour (honours the active
-// selection, like every other fill path). Corner flood-fill from (1,1) only
-// covers the region connected to the top-left pixel, which is NOT the
-// "fill this layer" semantic the layer-detail panel promises.
+// Legacy L_FILL_LAYER recordings (empty argument) use the recorded foreground
+// colour, opacity and selection. New explicit-colour events and the layer-detail
+// panel use setFillLayerColor instead; keep these two semantics separate.
 void ReverieCore::fillLayer(int index)
 {
     if (!isLayerEditable(index)) {
@@ -154,12 +153,11 @@ void ReverieCore::fillLayer(int index)
     KisTransaction txn(kundo2_i18n("Fill Layer"), dev);
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) qColor = Qt::black;
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    KoColor koColor(qColor, image->colorSpace());
+    KoColor koColor(qColor, dev->colorSpace());
     const QRect docRect(0, 0, int(image->width()), int(image->height()));
     KisFillPainter painter(dev);
-    painter.setPaintColor(koColor);
-    painter.setOpacityF(m_brushOpacity);
+    // Opacity belongs to the painter; applying it to the color as well squares it.
+    painter.setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
     painter.setCompositeOpId(COMPOSITE_OVER);
     if (m_selection) {
         painter.setSelection(m_selection);
@@ -168,7 +166,9 @@ void ReverieCore::fillLayer(int index)
     if (pl && pl->alphaLocked()) {
         painter.setChannelFlags(pl->channelLockFlags());
     }
-    painter.paintRect(docRect);
+    // paintRect() needs a fill style or a brush preset and otherwise paints nothing.
+    // fillSelection() uses bitBlt, preserving selection, channel locks and compositing.
+    painter.fillSelection(docRect, koColor);
     dev->setDirty(docRect);
     markDirty();
     txn.commit(image->undoAdapter());

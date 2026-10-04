@@ -756,6 +756,13 @@ public:
 
     void recompositeProjection();
 
+    /**
+     * 释放/替换 KisImage 之前排空文档调度器 (含 KisAsyncMerger 合并任务)。
+     * 漏掉它会让后台合并线程与文档析构竞态, 触发
+     * kis_tile_data_store.cc 的 Q_ASSERT(td->m_store == this) → SIGABRT。
+     */
+    void waitForDocumentTasks();
+
     // Strokes (touch input; coordinates in document space)
     void touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
 

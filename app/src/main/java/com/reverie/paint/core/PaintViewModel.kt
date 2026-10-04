@@ -4301,6 +4301,11 @@ fun inferBrushGroup(name: String): String =
 
 /** Per-preset independent brush parameters. */
 data class BrushParams(
+    /**
+     * 动力学曲线 (optionKey -> Krita sensor param 全文)。
+     * 曲线必须随预设落盘, 否则切换笔刷/重启后只剩引擎里的即时值, 曲线编辑等于白做。
+     */
+    val dynamicOptions: Map<String, String> = emptyMap(),
     val size: Double = 20.0,
     val opacity: Double = 1.0,
     val flow: Double = 1.0,
