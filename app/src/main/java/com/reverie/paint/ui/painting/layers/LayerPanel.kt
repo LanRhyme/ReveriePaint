@@ -383,24 +383,8 @@ fun LayerPanel(
                                 val st = FilterAdjustState()
                                 val ap = adjustParamsOf(st, filterId)
                                 val lut: ByteArray? = when (filterId) {
-                                    13 -> {
-                                        val out = ByteArray(768)
-                                        for (i in 0..255) {
-                                            out[i] = i.toByte()
-                                            out[256 + i] = i.toByte()
-                                            out[512 + i] = i.toByte()
-                                        }
-                                        out
-                                    }
-                                    30 -> {
-                                        val defaultStops = listOf(
-                                            CustomGradStop(1L, 0.0f, Color(0xFF2C0B38)),
-                                            CustomGradStop(2L, 0.35f, Color(0xFFB82E55)),
-                                            CustomGradStop(3L, 0.7f, Color(0xFFE88A35)),
-                                            CustomGradStop(4L, 1.0f, Color(0xFFFFF6A5)),
-                                        )
-                                        packIntsLE1024(generateGradientLUTFromStops(defaultStops, false))
-                                    }
+                                    13 -> st.buildAdjustmentCurvesLut()
+                                    30 -> st.buildAdjustmentGradientLut()
                                     else -> null
                                 }
                                 vm.addAdjustmentLayer(

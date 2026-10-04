@@ -149,13 +149,16 @@ bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
     }
     KisFilterConfigurationSP oldCfg = layer->filter();
 
-    // 与旧配置完全一致则跳过 (避免空撤销条目)
-    if (oldCfg && oldCfg->getProperty("reverieType").toInt() == filterType
-        && qFuzzyCompare(oldCfg->getProperty("p1").toDouble(), p1)
-        && qFuzzyCompare(oldCfg->getProperty("p2").toDouble(), p2)
-        && qFuzzyCompare(oldCfg->getProperty("p3").toDouble(), p3)
-        && qFuzzyCompare(oldCfg->getProperty("p4").toDouble(), p4)
-        && oldCfg->getProperty("lut").toByteArray() == lut) {
+    const auto matchesNewConfig = [&](const KisFilterConfigurationSP &cfg) {
+        return cfg && cfg->getProperty("reverieType").toInt() == filterType
+            && qFuzzyCompare(cfg->getProperty("p1").toDouble(), p1)
+            && qFuzzyCompare(cfg->getProperty("p2").toDouble(), p2)
+            && qFuzzyCompare(cfg->getProperty("p3").toDouble(), p3)
+            && qFuzzyCompare(cfg->getProperty("p4").toDouble(), p4)
+            && cfg->getProperty("lut").toByteArray() == lut;
+    };
+    const bool previewMatches = matchesNewConfig(oldCfg);
+    if (!recordUndo && previewMatches) {
         return true;
     }
 
@@ -192,7 +195,12 @@ bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
     }
 
     layer->setFilter(newCfg);
-    pushUndoCommand(new ReverieAdjustmentConfigCommand(m_document, layer, oldCfg, newCfg));
+    // 预览已写入最终值时仍需记录撤销；返回原值时只恢复画面，不增加空撤销。
+    if (!matchesNewConfig(oldCfg)) {
+        pushUndoCommand(new ReverieAdjustmentConfigCommand(m_document, layer, oldCfg, newCfg));
+    } else if (previewMatches) {
+        return true;
+    }
     if (m_document) {
         m_document->refreshGraphAsync();
         m_document->waitForDone();

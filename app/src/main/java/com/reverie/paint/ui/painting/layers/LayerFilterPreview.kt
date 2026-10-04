@@ -134,6 +134,8 @@ import kotlin.math.roundToInt
  * `remember { FilterAdjustState() }` 单次创建,语义与原先完全一致
  */
 internal class FilterAdjustState {
+    var adjustmentLutSnapshot: AdjustmentLutSnapshot? = null
+
     var isPreview by mutableStateOf(true)
 
     // Curves state: channel -> list of control points
@@ -229,6 +231,7 @@ internal class FilterAdjustState {
     var desaturateAmt by mutableFloatStateOf(100f)
 
     fun reset() {
+        adjustmentLutSnapshot = null
         curveChannels.forEach { (_, list) ->
             list.clear()
             list.addAll(listOf(Offset(0f, 0f), Offset(255f, 255f)))
@@ -415,6 +418,7 @@ internal fun applyConfigToState(cfg: AdjustmentConfigCodec.Config, st: FilterAdj
         10 -> { st.noiseAmt = p1 }
         11 -> { st.glitchOffset = p1 }
         12 -> { st.desaturateAmt = p1 }
+        13, 30 -> st.restoreAdjustmentLut(cfg.type, cfg.lut)
         14 -> { st.levelBlack = p1; st.levelWhite = p2; st.levelGamma = p3 }
         15 -> { st.tempVal = p1; st.tintVal = p2 }
         16 -> { st.thresholdVal = p1 }

@@ -642,21 +642,6 @@ internal class FilterSessionController(
         }
     }
 
-    fun buildCurvesLut768(): ByteArray {
-        val lutMaster = calculateMonotoneCubicSplineLUT(state.curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
-        val lutR = calculateMonotoneCubicSplineLUT(state.curveChannels[1] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
-        val lutG = calculateMonotoneCubicSplineLUT(state.curveChannels[2] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
-        val lutB = calculateMonotoneCubicSplineLUT(state.curveChannels[3] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
-        val out = ByteArray(768)
-        for (i in 0..255) {
-            val mVal = lutMaster[i].toInt() and 0xFF
-            out[i] = lutR[mVal]
-            out[256 + i] = lutG[mVal]
-            out[512 + i] = lutB[mVal]
-        }
-        return out
-    }
-
     fun sendCurvesPreview() {
         if (!state.isPreview) return
         if (isHoldingCompare) {
@@ -664,7 +649,7 @@ internal class FilterSessionController(
             return
         }
         if (isAdj) {
-            vm.previewAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768())
+            vm.previewAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = state.buildAdjustmentCurvesLut())
             return
         }
         val lutMaster = calculateMonotoneCubicSplineLUT(state.curveChannels[0] ?: listOf(Offset(0f, 0f), Offset(255f, 255f)))
@@ -690,11 +675,11 @@ internal class FilterSessionController(
             applyComparePreview()
             return
         }
-        val lut = generateGradientLUTFromStops(state.customGradStops, state.reverseGradient)
         if (isAdj) {
-            vm.previewAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut))
+            vm.previewAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = state.buildAdjustmentGradientLut())
             return
         }
+        val lut = generateGradientLUTFromStops(state.customGradStops, state.reverseGradient)
         vm.applyGradientMapPreview(session.indices, lut)
     }
 
@@ -782,10 +767,9 @@ internal class FilterSessionController(
         val isAdjNow = isAdj && index >= 0 && index in vm.layers.indices && vm.layers[index].nodeType == 3
         if (isAdjNow) {
             when (session.filterId) {
-                13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = buildCurvesLut768(), origConfigJson = savedJson)
+                13 -> vm.commitAdjustmentConfig(index, 13, 0.0, 0.0, 0.0, 0.0, lut = state.buildAdjustmentCurvesLut(), origConfigJson = savedJson)
                 30 -> {
-                    val lut = generateGradientLUTFromStops(state.customGradStops, state.reverseGradient)
-                    vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = packIntsLE1024(lut), origConfigJson = savedJson)
+                    vm.commitAdjustmentConfig(index, 30, 0.0, 0.0, 0.0, 0.0, lut = state.buildAdjustmentGradientLut(), origConfigJson = savedJson)
                 }
                 else -> {
                     val ap = adjustParamsOf(state, session.filterId)

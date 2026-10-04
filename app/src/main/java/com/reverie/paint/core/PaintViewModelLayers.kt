@@ -987,18 +987,17 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
         recorder.layerOp(
             com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE,
             0,
-            "$fillLayerName|0|$colorInt",
+            "$fillLayerName|2|$colorInt",
         )
     }
-    // 回滚至稳定行为: type=0 预填色颜料层 + floodFill 补刀 (generator 填充层暂缓)
+    // type=2 仍创建预填色颜料层，由引擎保存显式类型标记
     runCore(
         after = {
             clearLayerSelection()
             notifyLayerChanged()
-            floodFill(1f, 1f, tolerance = 100, sampleMerged = false)
         },
     ) {
-        ReverieCoreBridge.addLayerWithType(fillLayerName, 0, colorInt)
+        ReverieCoreBridge.addLayerWithType(fillLayerName, 2, colorInt)
     }
 }
 

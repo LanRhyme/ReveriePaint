@@ -137,7 +137,7 @@ internal fun PaintViewModel.touchStart(
         showActionToast(R.string.canvas_toast_layer_hidden, com.reverie.paint.R.drawable.ic_eye_off)
         return false
     }
-    if (curLayer?.nodeType == 3 || curLayer?.name?.contains("滤镜") == true || curLayer?.name?.contains("Filter", ignoreCase = true) == true) {
+    if (curLayer?.nodeType == 3) {
         showActionToast(R.string.canvas_toast_filter_not_drawable, com.reverie.paint.R.drawable.ic_image_adjust)
         return false
     }

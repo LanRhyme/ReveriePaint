@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include <functional>
 #include <QSet>
 
 int ReverieCore::indexOfNode(KisNode *node) const
@@ -257,7 +258,8 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         const KoColorSpace *cs = image->colorSpace();
         KisPaintLayerSP paintLayer = new KisPaintLayer(image, finalName, 255, cs);
         if (type == LayerTypeFill) {
-            // 回滚至稳定行为: 预填色颜料层 (generator 填充层待真机问题解决后再启用)
+            // 保留预填色颜料层实现，用显式标记区分类型，不能依赖可编辑名称
+            paintLayer->setProperty("reverie_is_fill", true);
             QColor qc = QColor::fromRgba(fillColor);
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
             paintLayer->original()->setDirty();
@@ -318,6 +320,23 @@ int ReverieCore::copyLayer(int index)
     KisNodeSP cloned = src.node->clone();
     if (!cloned) return -1;
     cloned->setImage(image);
+    // QObject 动态属性不保证随 clone 复制。组内子层也按节点对应传递，不能按名称找旧状态。
+    const std::function<void(KisNodeSP, KisNodeSP)> copyTypeProperties =
+        [&](KisNodeSP source, KisNodeSP target) {
+            for (const char *key : {"reverie_is_fill", "reverie_is_stroke", "reverie_stroke_size",
+                                    "reverie_stroke_color", "reverie_stroke_pos", "reverie_stroke_opacity"}) {
+                const QVariant value = source->property(key);
+                if (value.isValid()) target->setProperty(key, value);
+            }
+            KisNodeSP sourceChild = source->firstChild();
+            KisNodeSP targetChild = target->firstChild();
+            while (sourceChild && targetChild) {
+                copyTypeProperties(sourceChild, targetChild);
+                sourceChild = sourceChild->nextSibling();
+                targetChild = targetChild->nextSibling();
+            }
+        };
+    copyTypeProperties(KisNodeSP(src.node), cloned);
 
     // 关键2: 计算全局唯一的副本名称, 避免连续复制时重名造成索引错乱
     QSet<QString> existingNames;
@@ -1010,5 +1029,3 @@ bool ReverieCore::rasterizeLayerStroke(int index)
     markDirty();
     return true;
 }
-
-

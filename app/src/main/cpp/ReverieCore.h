@@ -183,7 +183,7 @@ public:
     enum {
         NodeTypePaint = 0,
         NodeTypeGroup = 1,
-        NodeTypeFill = 2,       // KisGeneratorLayer
+        NodeTypeFill = 2,       // KisGeneratorLayer 或带显式填充标记的颜料层
         NodeTypeAdjustment = 3, // KisAdjustmentLayer
         NodeTypeVector = 4,
         NodeTypeClone = 5,

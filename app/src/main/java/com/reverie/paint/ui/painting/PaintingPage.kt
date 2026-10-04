@@ -454,7 +454,7 @@ fun PaintingPage(
             activeLayer?.isGroup == true ->
                 vm.showActionToast(context.getString(R.string.canvas_toast_group_not_drawable), R.drawable.ic_folder)
 
-            activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true || activeLayer?.name?.contains("Filter", ignoreCase = true) == true ->
+            activeLayer?.nodeType == 3 ->
                 vm.showActionToast(context.getString(R.string.canvas_toast_filter_not_drawable), R.drawable.ic_image_adjust)
 
             activeLayer?.locked == true ->

@@ -531,7 +531,7 @@ internal fun LayerRowContent(
                 ),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())
-            val isFilter = layer.nodeType == 3 || layer.name.contains("滤镜")
+            val isFilter = layer.nodeType == 3
             if (isFilter) {
                 Box(
                     modifier = Modifier
@@ -577,21 +577,21 @@ internal fun LayerRowContent(
                         }
                 } else Modifier,
             ) {
-                if (layer.nodeType == 2 || layer.name.contains("填充")) {
+                if (layer.nodeType == 2) {
                     Icon(
                         painterResource(R.drawable.ic_fill),
                         contentDescription = stringResource(R.string.layer_fill_layer),
                         tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
-                } else if (layer.nodeType == 3 || layer.name.contains("滤镜") || layer.name.contains("Filter", ignoreCase = true)) {
+                } else if (layer.nodeType == 3) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
                         contentDescription = stringResource(R.string.layer_filter_layer),
                         tint = if (selected) Morandi.onAccent else Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
-                } else if (layer.isStrokeLayer || layer.nodeType == 6 || layer.name.contains("描边") || layer.name.contains("Stroke", ignoreCase = true)) {
+                } else if (layer.isStrokeLayer || layer.nodeType == 6) {
                     Icon(
                         painterResource(R.drawable.ic_shape_stroke),
                         contentDescription = stringResource(R.string.layer_stroke_layer),
@@ -609,13 +609,13 @@ internal fun LayerRowContent(
                 )
             }
             val blendName = stringResource(blendModeResId(layer.blendMode))
-            val isStroke = layer.isStrokeLayer || layer.nodeType == 6 || layer.name.contains("描边") || layer.name.contains("Stroke", ignoreCase = true)
-            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || isStroke || layer.name.contains("填充") || layer.name.contains("Fill", ignoreCase = true) || layer.name.contains("滤镜") || layer.name.contains("Filter", ignoreCase = true)
+            val isStroke = layer.isStrokeLayer || layer.nodeType == 6
+            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || isStroke
             val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
             if (modified) {
                 val tag = when {
-                    layer.nodeType == 2 || layer.name.contains("填充") -> stringResource(R.string.layer_tag_fill_prefix)
-                    layer.nodeType == 3 || layer.name.contains("滤镜") -> stringResource(R.string.layer_tag_filter_prefix)
+                    layer.nodeType == 2 -> stringResource(R.string.layer_tag_fill_prefix)
+                    layer.nodeType == 3 -> stringResource(R.string.layer_tag_filter_prefix)
                     isStroke -> stringResource(R.string.layer_tag_stroke_prefix)
                     else -> ""
                 }

@@ -1543,9 +1543,7 @@ bool ReverieCore::loadRevp(const QString &path)
             QJsonObject layerObj = layersMeta[i].toObject();
             const bool isStrokeMeta = layerObj["isStrokeLayer"].toBool(false);
             const QString layerName = layerObj["name"].toString();
-            const bool isStrokeName = layerName.contains(QStringLiteral("描边")) ||
-                                      layerName.contains(QLatin1String("Stroke"), Qt::CaseInsensitive);
-            if (isStrokeMeta || isStrokeName) {
+            if (isStrokeMeta) {
                 int targetIdx = -1;
                 if (i < m_layers.size() && m_layers[i].name == layerName) {
                     targetIdx = i;

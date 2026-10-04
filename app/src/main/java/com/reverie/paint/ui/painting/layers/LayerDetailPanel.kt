@@ -307,9 +307,9 @@ internal fun LayerDetailPage(
 
         Box(Modifier.fillMaxWidth().height(1.dp).background(Morandi.border))
 
-        val isFillLayer = (layer?.nodeType == 2) || name.contains("填充") || name.contains("Fill", ignoreCase = true)
-        val isFilterLayer = (layer?.nodeType == 3) || name.contains("滤镜") || name.contains("Filter", ignoreCase = true)
-        val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6) || name.contains("描边") || name.contains("Stroke", ignoreCase = true)
+        val isFillLayer = (layer?.nodeType == 2)
+        val isFilterLayer = (layer?.nodeType == 3)
+        val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6)
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }

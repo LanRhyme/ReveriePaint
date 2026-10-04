@@ -52,6 +52,9 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
     w.writeAttribute("x", QString::number(node ? int(node->x()) : 0));
     w.writeAttribute("y", QString::number(node ? int(node->y()) : 0));
     w.writeAttribute("background", e.background ? "1" : "0");
+    if (node && node->property("reverie_is_fill").toBool()) {
+        w.writeAttribute("is_fill", "1");
+    }
     if (e.isStrokeLayer || e.nodeType == ReverieCore::NodeTypeStroke) {
         w.writeAttribute("is_stroke", "1");
         w.writeAttribute("stroke_size", QString::number(e.strokeSize));
@@ -100,7 +103,9 @@ void ReverieCore::writeLayersXml(QString *out)
             w.writeEndElement();
             --openDepth;
         }
-        w.writeStartElement(nodeElementName(e.nodeType));
+        // 预填色颜料层仍保存像素，不能按 generator 重建而丢失后续笔画
+        const bool paintFill = e.node && e.node->property("reverie_is_fill").toBool();
+        w.writeStartElement(paintFill ? "paintlayer" : nodeElementName(e.nodeType));
         writeCommonAttrs(w, e);
         if (!e.isGroup && e.nodeType != NodeTypeAdjustment) {
             // 数据文件名与 saveRevp/saveKra 的逐层 PNG 循环一致(含跳组空洞)
@@ -206,6 +211,9 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         }
         if (a.value("background") == QLatin1String("1")) {
             bg = visible;
+        }
+        if (dynamic_cast<KisPaintLayer *>(node.data()) && a.value("is_fill") == QLatin1String("1")) {
+            node->setProperty("reverie_is_fill", true);
         }
         if (a.value("is_stroke") == QLatin1String("1")) {
             node->setProperty("reverie_is_stroke", true);

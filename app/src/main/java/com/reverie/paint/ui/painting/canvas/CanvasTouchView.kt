@@ -3365,7 +3365,7 @@ class CanvasTouchView(context: Context) : View(context) {
             v.showActionToast(context.getString(R.string.canvas_toast_group_not_drawable), R.drawable.ic_folder)
             return
         }
-        if ((activeLayer?.nodeType == 3 || activeLayer?.name?.contains("滤镜") == true) && isDrawingTool) {
+        if ((activeLayer?.nodeType == 3) && isDrawingTool) {
             v.showActionToast(context.getString(R.string.canvas_toast_filter_not_drawable), R.drawable.ic_image_adjust)
             return
         }
