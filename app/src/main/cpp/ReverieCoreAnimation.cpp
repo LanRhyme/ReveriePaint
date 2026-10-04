@@ -189,7 +189,15 @@ void ReverieCore::setAnimationCurrentTime(int time, bool recordUndo)
     KisImageAnimationInterface *anim = image->animationInterface();
     if (!anim || anim->currentTime() == time) return;
 
-    anim->requestTimeSwitchNonGUI(time, recordUndo);
+    // KisImage moves itself (and its animation interface) to qApp's thread.
+    // requestTimeSwitchNonGUI only emits a signal: from reverie-render it is
+    // queued to that thread, which has no Qt event loop in this Android host.
+    // No image job is submitted, so waitForDone cannot deliver the request.
+    // All document operations are serialized on reverie-render: submit the
+    // switch directly, preserving Krita's scheduler and optional undo command.
+    anim->switchCurrentTimeAsync(time, recordUndo
+        ? KisImageAnimationInterface::STAO_USE_UNDO
+        : KisImageAnimationInterface::STAO_NONE);
 
     // 时间切换经 image 调度器异步生效, 必须在返回前收敛: 否则紧随其后的
     // renderToBuffer 会读到上一帧的投影 (按播放键会出现画面滞后一帧)
