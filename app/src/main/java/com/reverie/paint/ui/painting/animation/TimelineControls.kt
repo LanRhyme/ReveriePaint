@@ -34,6 +34,8 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationAddKeyframe
 import com.reverie.paint.core.animationApplyOnionSkin
+import com.reverie.paint.core.animationSetPreviousFrameReference
+import com.reverie.paint.core.previousFrameReference
 import com.reverie.paint.core.animationEndFlipPeek
 import com.reverie.paint.core.animationEndTemporaryOnionSkin
 import com.reverie.paint.core.animationRemoveKeyframe
@@ -80,6 +82,18 @@ internal fun TimelineControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            if (vm.anim.manualKeyframes) {
+                GlyphTextButton(
+                    text = stringResource(R.string.anim_new_blank_keyframe),
+                    onClick = { vm.animationAddKeyframe(duplicate = false) },
+                ) { drawGlyphPlus() }
+                GlyphTextButton(
+                    text = stringResource(R.string.anim_previous_frame_reference),
+                    onClick = { vm.animationSetPreviousFrameReference(!vm.anim.previousFrameReference) },
+                    active = vm.anim.previousFrameReference,
+                ) { drawGlyphOnionSkin() }
+            }
+
             // 上一帧 (点击跳上一帧, 长按110ms极速进入翻帧比对)
             val flipActive = vm.anim.isFlipPeeking
             val prevBg by animateColorAsState(
@@ -188,7 +202,9 @@ internal fun TimelineControls(
                     .background(Morandi.border.copy(alpha = 0.5f)),
             )
 
-            GlyphTextButton(text = stringResource(R.string.anim_new_keyframe), onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
+            if (!vm.anim.manualKeyframes) {
+                GlyphTextButton(text = stringResource(R.string.anim_new_keyframe), onClick = { vm.animationAddKeyframe(duplicate = false) }) { drawGlyphPlus() }
+            }
             GlyphTextButton(text = stringResource(R.string.anim_duplicate_frame), onClick = { vm.animationAddKeyframe(duplicate = true) }) { drawGlyphDuplicate() }
             GlyphTextButton(text = stringResource(R.string.anim_delete_frame), onClick = { vm.animationRemoveKeyframe() }) { drawGlyphTrash() }
 

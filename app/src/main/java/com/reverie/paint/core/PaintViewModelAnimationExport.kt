@@ -117,6 +117,8 @@ internal fun PaintViewModel.exportAnimation(
         var zipEncoder: PngSequenceZipEncoder? = null
 
         try {
+            // 参考画面只用于作画，所有动画格式都输出实际帧内容。
+            ReverieCoreBridge.setOnionSkinSuppressed(true)
             when (fmt) {
                 "gif" -> {
                     val encoder = AnimatedGifEncoder()
@@ -239,6 +241,7 @@ internal fun PaintViewModel.exportAnimation(
             }
             // 恢复原始帧号
             ReverieCoreBridge.setAnimationCurrentTime(originalTime, false)
+            ReverieCoreBridge.setOnionSkinSuppressed(anim.isPlaying || anim.shiftTraceActive)
             displayBufferInvalid = true
 
             mainHandler.post {

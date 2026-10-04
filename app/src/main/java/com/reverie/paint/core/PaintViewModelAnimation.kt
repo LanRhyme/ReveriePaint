@@ -176,6 +176,9 @@ internal class AnimationState {
     /** 正在拖动中的帧块 (图层索引, 起始帧号), 用于绘制拖拽高亮 */
     var draggingKeyframe by mutableStateOf<Pair<Int, Int>?>(null)
 
+    /** 用户作画偏好，默认沿用落笔自动建帧；切换文档时不重置。 */
+    var manualKeyframes by mutableStateOf(false)
+
     /** 洋葱皮开关与前后帧数 */
     var onionSkin by mutableStateOf(false)
 
@@ -979,12 +982,13 @@ internal fun PaintViewModel.animationAddKeyframe(
 }
 
 /**
- * 落笔前保证当前轨道在**当前帧**上有关键帧, 没有就地补一个空白帧。
+ * 自动模式下，落笔前保证当前轨道在当前帧有关键帧，没有就补一个空白帧。
  *
  * 这是"在空白区域作画自动建帧"的引擎侧实现: 时间轴里一格没有关键帧时,
  * 该格显示的是前一帧的 hold 画面 (Krita 的曝光语义), 用户在那格里下笔若
  * 不做处理, 墨迹会直接烙在**被 hold 的那一帧**上, 从而污染前面所有帧 ——
- * 这是逐帧动画里最难查的一类 bug。因此必须在笔尖落下前先把帧"分"出来。
+ * 自动模式必须在笔尖落下前先把帧"分"出来；手动模式由用户明确选择编辑
+ * 整段曝光，只有点击新建空白帧或复制帧时才拆分。
  *
  * **必须在 reverie-render 线程调用** (内部走 JNI 查询 + selectedTrackIndex 回退)。
  * 调用方把它内联在自己的 `runCore` 块里、排在 `touchStrokeStart` **之前** ——
@@ -996,7 +1000,7 @@ internal fun PaintViewModel.animationAddKeyframe(
  * @return true 表示本次真的新建了关键帧
  */
 internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
-    if (anim.isPlaying) return false
+    if (anim.isPlaying || anim.manualKeyframes) return false
     val layer = selectedTrackIndex()
     if (layer < 0) return false
     // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启

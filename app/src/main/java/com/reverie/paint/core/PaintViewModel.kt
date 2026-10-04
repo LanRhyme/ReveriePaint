@@ -2666,6 +2666,7 @@ class PaintViewModel : ViewModel() {
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
             // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
             // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
             perfHudEnabled = PerfHud.readPref(prefs)

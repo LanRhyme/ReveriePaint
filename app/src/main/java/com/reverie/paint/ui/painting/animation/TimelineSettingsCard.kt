@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
@@ -71,13 +72,14 @@ internal fun AnimationSettingsCard(
     vm: PaintViewModel,
     hazeState: HazeState?,
     onClose: () -> Unit,
+    maxHeight: Dp = Dp.Infinity,
 ) {
     val shape = RoundedCornerShape(18.dp)
     val alpha = vm.popupPanelOpacity
     val config = LocalConfiguration.current
     val isPortrait = config.screenWidthDp < config.screenHeightDp || config.screenWidthDp < 600
     val cardWidth = if (isPortrait) (config.screenWidthDp - 44).coerceIn(240, 320).dp else 320.dp
-    val maxCardHeight = (config.screenHeightDp - 90).coerceAtLeast(200).dp
+    val maxCardHeight = minOf((config.screenHeightDp - 90).coerceAtLeast(200).dp, maxHeight)
 
     Column(
         modifier = Modifier
@@ -133,6 +135,8 @@ internal fun TimelineSettings(
     ) {
         var showFpsInput by remember { mutableStateOf(false) }
         var pickingOnionColor by remember { mutableStateOf<OnionColorTarget?>(null) }
+
+        TimelineWorkflowSettings(vm)
 
         ReSectionTitle(text = stringResource(R.string.anim_settings_play), modifier = Modifier.padding(start = 12.dp))
 
