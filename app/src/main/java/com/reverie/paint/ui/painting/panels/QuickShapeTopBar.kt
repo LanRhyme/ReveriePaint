@@ -1,197 +1,74 @@
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 package com.reverie.paint.ui.painting.panels
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.cancelQuickShape
 import com.reverie.paint.core.commitQuickShape
-import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.QuickShapeType
+import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
-import com.reverie.paint.ui.theme.Glass
-import com.reverie.paint.ui.theme.glassBorder
 
-/**
- * Procreate-style Top Capsule for QuickShape Editing
- */
 @Composable
-fun QuickShapeTopBar(
-    vm: PaintViewModel,
-    modifier: Modifier = Modifier,
-    hazeState: HazeState? = null,
-) {
-    val shape = vm.activeQuickShape ?: return
-    val capsuleShape = RoundedCornerShape(20.dp)
-
-    AnimatedVisibility(
-        visible = vm.isQuickShapeEditing,
-        enter = fadeIn() + scaleIn(initialScale = 0.95f),
-        exit = fadeOut() + scaleOut(targetScale = 0.95f),
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier
-                .shadow(16.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.45f))
-                .clip(capsuleShape)
-                .then(
-                    if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(vm.popupPanelOpacity))
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = vm.popupPanelOpacity))
-                    }
-                )
-                .glassBorder(capsuleShape)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_line),
-                contentDescription = null,
-                tint = Morandi.accent,
-                modifier = Modifier.size(18.dp),
-            )
-
-            Text(
-                text = stringResource(R.string.quick_shape_title, shape.type.title),
-                color = Morandi.text,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-            )
-
-            Spacer(Modifier.width(4.dp))
-
-            // Type switching buttons
-            when (shape.type) {
-                QuickShapeType.CIRCLE -> {
-                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_ellipse), selected = false) {
-                        val rx = shape.radiusX
-                        val ry = rx * 0.7f
-                        vm.activeQuickShape = shape.copy(type = QuickShapeType.ELLIPSE, radiusY = ry)
-                    }
-                }
-                QuickShapeType.ELLIPSE -> {
-                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_circle), selected = false) {
-                        val avgR = (shape.radiusX + shape.radiusY) / 2f
-                        vm.activeQuickShape = shape.copy(type = QuickShapeType.CIRCLE, radiusX = avgR, radiusY = avgR)
-                    }
-                }
-                QuickShapeType.RECTANGLE -> {
-                    QuickShapePillChip(label = stringResource(R.string.quick_shape_to_square), selected = false) {
-                        val pts = shape.points
-                        if (pts.size >= 4) {
-                            val side = maxOf(pts[0].distanceTo(pts[1]), pts[1].distanceTo(pts[2]))
-                            val c = shape.center
-                            val half = side / 2f
-                            val squarePts = listOf(
-                                Point2D(c.x - half, c.y - half),
-                                Point2D(c.x + half, c.y - half),
-                                Point2D(c.x + half, c.y + half),
-                                Point2D(c.x - half, c.y + half),
-                            )
-                            vm.activeQuickShape = shape.copy(points = squarePts)
-                        }
-                    }
-                }
-                QuickShapeType.LINE -> {
-                    // Line already snapping
-                }
-                else -> Unit
-            }
-
-            Spacer(Modifier.width(6.dp))
-
-            // Commit button
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Morandi.accent)
-                    .clickable { vm.commitQuickShape() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_check),
-                        contentDescription = stringResource(R.string.common_done),
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(stringResource(R.string.common_done), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            // Cancel button
-            Box(
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Morandi.border.copy(alpha = 0.5f))
-                    .clickable { vm.cancelQuickShape() }
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(stringResource(R.string.common_cancel), color = Morandi.subText, fontSize = 12.sp)
-            }
+internal fun QuickShapeSettingRow(vm: PaintViewModel) {
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(stringResource(R.string.quick_shape_setting), color = Morandi.text, fontSize = 13.sp)
+            Text(stringResource(R.string.quick_shape_setting_hint), color = Morandi.subText, fontSize = 11.sp)
         }
+        ReSwitch(checked = vm.quickShapeEnabled, onChecked = vm::updateQuickShapeEnabled)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun QuickShapePillChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Morandi.accent.copy(alpha = 0.18f) else Morandi.border.copy(alpha = 0.35f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = if (selected) Morandi.accent else Morandi.text,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-        )
+fun QuickShapeTopBar(vm: PaintViewModel, modifier: Modifier = Modifier) {
+    val shape = vm.activeQuickShape ?: return
+    val name = when (shape.type) {
+        QuickShapeType.LINE -> R.string.quick_shape_line
+        QuickShapeType.CIRCLE -> R.string.quick_shape_circle
+        QuickShapeType.ELLIPSE -> R.string.quick_shape_ellipse
+        QuickShapeType.RECTANGLE -> R.string.quick_shape_rectangle
+        else -> R.string.quick_shape_triangle
+    }
+    Column(modifier.widthIn(max = 480.dp).background(Morandi.panel, RoundedCornerShape(16.dp)).padding(12.dp)) {
+        Text(stringResource(R.string.quick_shape_title, stringResource(name)), color = Morandi.text, fontSize = 14.sp)
+        Text(stringResource(R.string.quick_shape_edit_hint), color = Morandi.subText, fontSize = 12.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (shape.type) {
+                QuickShapeType.CIRCLE, QuickShapeType.ELLIPSE -> {
+                    val circle = shape.type == QuickShapeType.CIRCLE
+                    TextButton(enabled = !vm.quickShapeCommitting, onClick = {
+                        val radius = (shape.radiusX + shape.radiusY) / 2f
+                        vm.activeQuickShape = if (circle) shape.copy(type = QuickShapeType.ELLIPSE)
+                        else shape.copy(type = QuickShapeType.CIRCLE, radiusX = radius, radiusY = radius)
+                    }) {
+                        Text(stringResource(if (circle) R.string.quick_shape_to_ellipse else R.string.quick_shape_to_circle),
+                            color = Morandi.accent)
+                    }
+                }
+                QuickShapeType.RECTANGLE -> TextButton(enabled = !vm.quickShapeCommitting, onClick = {
+                    val half = maxOf(shape.radiusX, shape.radiusY)
+                    vm.activeQuickShape = shape.copy(radiusX = half, radiusY = half)
+                }) { Text(stringResource(R.string.quick_shape_to_square), color = Morandi.accent) }
+                else -> Unit
+            }
+            TextButton(enabled = !vm.quickShapeCommitting, onClick = vm::commitQuickShape) {
+                Text(stringResource(R.string.common_done), color = Morandi.accent)
+            }
+            TextButton(enabled = !vm.quickShapeCommitting, onClick = vm::cancelQuickShape) {
+                Text(stringResource(R.string.quick_shape_keep_freehand), color = Morandi.text)
+            }
+        }
     }
 }

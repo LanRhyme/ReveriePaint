@@ -2249,5 +2249,17 @@
     <string name="liquify_hardness">硬度</string>
     <string name="project_copying_progress">正在复制作品（%1$d/%2$d）</string>
     <string name="project_copy_result">已复制 %1$d 项，失败 %2$d 项</string>
+    <string name="quick_shape_setting">速创形状</string>
+    <string name="quick_shape_setting_hint">画笔画完停留片刻，抬笔后调整形状\n使用绘图辅助或喷枪时不触发</string>
+    <string name="quick_shape_ready">已识别形状，抬笔后调整</string>
+    <string name="quick_shape_context_changed">画布已变化，形状编辑已结束</string>
+    <string name="quick_shape_failed">形状未能写入，请重试或保留原笔画</string>
+    <string name="quick_shape_edit_hint">拖动画面移动形状，拖动控制点调整大小或旋转\n原笔画保留作参考，完成后用当前笔刷替换</string>
+    <string name="quick_shape_keep_freehand">保留原笔画</string>
+    <string name="quick_shape_line">直线</string>
+    <string name="quick_shape_circle">圆</string>
+    <string name="quick_shape_ellipse">椭圆</string>
+    <string name="quick_shape_rectangle">矩形</string>
+    <string name="quick_shape_triangle">三角形</string>
 </resources>
 

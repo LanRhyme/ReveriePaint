@@ -164,6 +164,7 @@ class PaintViewModel : ViewModel() {
     }
 
     internal fun checkAutoSave() {
+        if (isQuickShapeEditing) return
         if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
         if (currentPage != Page.PAINTING) return
         if (!hasUnsavedChanges()) return
@@ -199,6 +200,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun onAppBackgrounded() {
+        cancelQuickShape() // Restore the freehand draft before background backup is queued
         // 后台不再每秒唤醒: 计时与自动保存都只在绘画页前台有意义。
         // 必须放在下面几个早退之前 —— 否则"无未保存改动"时计时器会一直留在后台跑。
         stopPaintingTimer()
@@ -1446,7 +1448,10 @@ class PaintViewModel : ViewModel() {
     var brushCursorMode by mutableIntStateOf(3) // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
     var eraserCursorMode by mutableIntStateOf(3)
     var cursorStyleMode by mutableIntStateOf(5) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
-    var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形 (已禁用)
+    var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形，默认关闭
+    internal var quickShapeCapture: QuickShapeStrokeCapture? = null
+    internal var quickShapeDraft: QuickShapeDraft? = null
+    var quickShapeCommitting by mutableStateOf(false)
     var activeQuickShape by mutableStateOf<QuickShapeResult?>(null)
     var isQuickShapeEditing by mutableStateOf(false)
 
@@ -2016,7 +2021,12 @@ class PaintViewModel : ViewModel() {
     }
 
     fun updateQuickShapeEnabled(enable: Boolean) {
-        quickShapeEnabled = false
+        quickShapeEnabled = enable
+        if (!enable) cancelQuickShape()
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeEnabledV2", enable).apply()
+        }
     }
 
     fun updateOppoPencilModelMode(mode: String) {
@@ -2750,7 +2760,7 @@ class PaintViewModel : ViewModel() {
             brushCursorMode = prefs.getInt("brushCursorMode", 3)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 5)
-            quickShapeEnabled = false
+            quickShapeEnabled = prefs.getBoolean("quickShapeEnabledV2", false)
             try {
                 val rawView = prefs.getString("view_settings", null)
                 if (rawView != null) {

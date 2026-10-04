@@ -2249,5 +2249,17 @@
     <string name="liquify_hardness">Hardness</string>
     <string name="project_copying_progress">Copying artworks (%1$d/%2$d)</string>
     <string name="project_copy_result">Copied %1$d artworks, %2$d failed</string>
+    <string name="quick_shape_setting">QuickShape</string>
+    <string name="quick_shape_setting_hint">Draw with the brush, hold still, then lift to edit\nInactive with drawing assistance or airbrush</string>
+    <string name="quick_shape_ready">Shape recognized — lift to edit</string>
+    <string name="quick_shape_context_changed">Canvas changed; shape editing ended</string>
+    <string name="quick_shape_failed">Could not draw the shape. Retry or keep the freehand stroke</string>
+    <string name="quick_shape_edit_hint">Drag to move; drag handles to resize or rotate\nOriginal stroke stays as reference; Done replaces it with your current brush</string>
+    <string name="quick_shape_keep_freehand">Keep freehand</string>
+    <string name="quick_shape_line">Line</string>
+    <string name="quick_shape_circle">Circle</string>
+    <string name="quick_shape_ellipse">Ellipse</string>
+    <string name="quick_shape_rectangle">Rectangle</string>
+    <string name="quick_shape_triangle">Triangle</string>
 </resources>
 
